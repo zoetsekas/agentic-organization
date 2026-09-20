@@ -486,6 +486,27 @@ class RoleAssignment(BaseModel):
     def coerce(cls, value: "str | RoleAssignment") -> "RoleAssignment":
         return cls(role=value) if isinstance(value, str) else value
 
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        """Describe both accepted shapes, because both are accepted.
+
+        `roles: [analyst]` is the common form and the loader coerces it; the
+        exported schema previously described only the object form, so a
+        third-party editor would have rejected a spec this platform reads
+        happily. A schema that disagrees with the loader is worse than no
+        schema — it makes correct documents look wrong (WS-002 M5).
+        """
+        object_schema = handler(core_schema)
+        object_schema.pop("$ref", None)
+        return {
+            "anyOf": [
+                {"type": "string",
+                 "description": "a role id, equivalent to {\"role\": <id>}"},
+                object_schema,
+            ],
+            "title": cls.__name__,
+        }
+
 
 class WorkingHours(BaseModel):
     """When the humans on a channel are actually available."""

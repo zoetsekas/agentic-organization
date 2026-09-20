@@ -135,8 +135,14 @@ def test_the_fabric_namespace_has_no_write_route_outside_operations(app):
         for method in getattr(r, "methods", set())
         if method in {"POST", "PUT", "PATCH", "DELETE"}
     }
+    # Deliberately exhaustive: a write route added to this namespace without a
+    # decision shows up here as a failure. Tenant registration and lifecycle
+    # were added knowingly (roadmap 6.5) — none of these touches a spec, which
+    # is the property ADR-0051 actually protects.
     assert writes == {
         ("/api/fabric/deployments/{deployment_id}/actions/{action}", "POST"),
+        ("/api/fabric/tenants", "POST"),
+        ("/api/fabric/tenants/{tenant_id}/actions/{action}", "POST"),
         ("/api/fabric/tenants/{tenant_id}/quotas", "PUT"),
         ("/api/fabric/operators", "POST"),
         ("/api/fabric/operators/{user_id}", "DELETE"),

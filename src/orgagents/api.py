@@ -116,6 +116,21 @@ class RequotaRequest(BaseModel):
     reason: str = ""
 
 
+class TenantRegistrationRequest(BaseModel):
+    """What an operator supplies to mint a tenant.
+
+    The isolation domain is absent on purpose: it is derived from the prefix
+    by the fabric (ADR-0050), never asked for.
+    """
+
+    id: str
+    name: str = ""
+    namespace_prefix: Optional[str] = None
+    entitlements: list[str] = []
+    cloud_boundary: str = ""
+    reason: str = ""
+
+
 class OperatorGrantRequest(BaseModel):
     user_id: str
     roles: list[str] = []
@@ -691,7 +706,16 @@ def create_app(
     from .fabric.quotas import Entitlements, Quota, QuotaKind, QuotaService
     from .fabric.rbac import FabricPermissionDenied, OperatorRegistry
     from .fabric.services import ServiceRegistry
-    from .fabric.tenants import TenantRegistry
+    from .fabric.tenants import (
+        TENANT_TRANSITIONS,
+        PrefixError,
+        TenantIllegalTransition,
+        TenantRegistry,
+        TenantRetirementBlocked,
+        TenantStatus,
+        TenantTransitionDenied,
+        allowed_tenant_transitions,
+    )
 
     fabric_tenants = TenantRegistry(platform.store)
     fabric_deployments = DeploymentService(platform.store)
@@ -796,6 +820,15 @@ def create_app(
             "allowed_transitions": {
                 state.value: sorted(r.value for r in roles)
                 for state, roles in allowed_transitions(deployment.state).items()
+            },
+        }
+
+    def _tenant_view(tenant) -> dict:
+        return {
+            **tenant.model_dump(mode="json"),
+            "allowed_transitions": {
+                status.value: sorted(r.value for r in roles)
+                for status, roles in allowed_tenant_transitions(tenant.status).items()
             },
         }
 
@@ -1107,6 +1140,107 @@ def create_app(
                                "after": {k.value: q.model_dump(mode="json")
                                          for k, q in saved.quotas.items()}})
         return _quota_view(tenant_id)
+
+    #: Tenant action -> the status it asks for. As with deployments, the
+    #: transition table decides legality and who may make the move; this map
+    #: only names the door.
+    TENANT_ACTIONS: dict[str, TenantStatus] = {
+        "activate": TenantStatus.ACTIVE,
+        "suspend": TenantStatus.SUSPENDED,
+        "resume": TenantStatus.ACTIVE,
+        "retire": TenantStatus.RETIRED,
+    }
+
+    def _acting_tenant_role(roles: list[OperatorRole], source: TenantStatus,
+                            target: TenantStatus) -> OperatorRole:
+        """As `_acting_role`, over the tenant table."""
+        allowed = TENANT_TRANSITIONS.get((source, target)) or frozenset()
+        for role in reversed(fabric_rbac.ROLE_ORDER):
+            if role in roles and role in allowed:
+                return role
+        return max(roles, key=fabric_rbac.ROLE_ORDER.index)
+
+    @app.post("/api/fabric/tenants")
+    def fabric_register_tenant(req: TenantRegistrationRequest,
+                               ctx: OperatorContext = Depends(operator)) -> dict:
+        """Mint a tenant and its isolation domain (ADR-0050).
+
+        Every prefix rule lives in `fabric/tenants.py` and is called, not
+        copied: collisions, reserved names and the shape of a safe identifier
+        are decided in one place, including against retired tenants whose
+        prefixes stay spent.
+        """
+        route = "POST /api/fabric/tenants"
+        _fabric_require(ctx, fabric_rbac.TENANT_REGISTER,
+                        FabricAuditAction.TENANT_REGISTER, route,
+                        tenant_id=req.id)
+        try:
+            tenant = fabric_tenants.register(
+                id=req.id, name=req.name or req.id,
+                namespace_prefix=req.namespace_prefix,
+                entitlements=req.entitlements,
+                cloud_boundary=req.cloud_boundary,
+            )
+        except PrefixError as e:
+            _fabric_record(ctx, FabricAuditAction.TENANT_REGISTER, route=route,
+                           outcome=AuditOutcome.CONFLICT,
+                           permission=fabric_rbac.TENANT_REGISTER,
+                           tenant_id=req.id, reason=str(e))
+            raise HTTPException(409, str(e)) from e
+        _fabric_record(ctx, FabricAuditAction.TENANT_REGISTER, route=route,
+                       outcome=AuditOutcome.SUCCESS,
+                       permission=fabric_rbac.TENANT_REGISTER,
+                       tenant_id=tenant.id, reason=req.reason,
+                       detail={"namespace_prefix": tenant.namespace_prefix,
+                               "isolation_domain": tenant.isolation_domain.id,
+                               "status": tenant.status.value})
+        return _tenant_view(tenant)
+
+    @app.post("/api/fabric/tenants/{tenant_id}/actions/{action}")
+    def fabric_tenant_action(tenant_id: str, action: str,
+                             req: OperatorActionRequest,
+                             ctx: OperatorContext = Depends(operator)) -> dict:
+        if action not in TENANT_ACTIONS:
+            raise HTTPException(
+                404, f"unknown tenant action '{action}'; "
+                     f"expected one of {sorted(TENANT_ACTIONS)}"
+            )
+        target = TENANT_ACTIONS[action]
+        route = f"POST /api/fabric/tenants/{{tenant_id}}/actions/{action}"
+        _fabric_require(ctx, fabric_rbac.TENANT_LIFECYCLE,
+                        FabricAuditAction.TENANT_LIFECYCLE, route,
+                        tenant_id=tenant_id)
+        tenant = _require_tenant(tenant_id)
+        role = _acting_tenant_role(ctx.roles, tenant.status, target)
+        source = tenant.status
+        try:
+            moved = fabric_tenants.transition(
+                tenant_id, target, actor=ctx.principal.user_id, role=role,
+                reason=req.reason,
+                # The registry cannot see deployments; the command centre can,
+                # so it is the one that can honestly answer "is anything of
+                # this tenant still up?".
+                deployments=fabric_deployments.list(tenant_id),
+            )
+        except (TenantIllegalTransition, TenantRetirementBlocked) as e:
+            _fabric_record(ctx, FabricAuditAction.TENANT_LIFECYCLE, route=route,
+                           outcome=AuditOutcome.CONFLICT,
+                           permission=fabric_rbac.TENANT_LIFECYCLE,
+                           tenant_id=tenant_id, reason=str(e))
+            raise HTTPException(409, str(e)) from e
+        except TenantTransitionDenied as e:
+            _fabric_record(ctx, FabricAuditAction.TENANT_LIFECYCLE, route=route,
+                           outcome=AuditOutcome.DENIED,
+                           permission=fabric_rbac.TENANT_LIFECYCLE,
+                           tenant_id=tenant_id, reason=str(e))
+            raise HTTPException(403, str(e)) from e
+        _fabric_record(ctx, FabricAuditAction.TENANT_LIFECYCLE, route=route,
+                       outcome=AuditOutcome.SUCCESS,
+                       permission=fabric_rbac.TENANT_LIFECYCLE,
+                       tenant_id=tenant_id, reason=req.reason,
+                       detail={"from": source.value, "to": moved.status.value,
+                               "acted_as": role.value})
+        return _tenant_view(moved)
 
     @app.get("/api/fabric/operators")
     def fabric_list_operators(ctx: OperatorContext = Depends(operator)) -> list[dict]:

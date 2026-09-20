@@ -328,6 +328,109 @@ def _catalogs_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _tenants_command(args: argparse.Namespace) -> int:
+    """`tenants list|show|register|suspend|resume|retire` — the fabric plane.
+
+    The CLI is an operator at the console of its own installation, so it acts
+    as `fabric_admin`; the transition table still decides every move, and a
+    refusal here is the same refusal the API gives (WS-028 M5).
+    """
+    from .fabric.audit import FabricAuditAction, FabricAuditLog
+    from .fabric.deployments import DeploymentService, OperatorRole
+    from .fabric.tenants import (
+        PrefixError,
+        TenantIllegalTransition,
+        TenantRegistry,
+        TenantRetirementBlocked,
+        TenantStatus,
+        TenantTransitionDenied,
+    )
+    from .designer.audit import AuditOutcome
+    from .platform import Platform
+
+    platform = Platform(args.db, configure_logs=False)
+    tenants = TenantRegistry(platform.store)
+    deployments = DeploymentService(platform.store)
+    audit = FabricAuditLog(platform.store)
+    actor = args.actor
+
+    def record(action: FabricAuditAction, tenant_id: str,
+               outcome: AuditOutcome, **detail) -> None:
+        audit.record(action, actor=actor, outcome=outcome, tenant_id=tenant_id,
+                     route=f"cli tenants {args.action}", reason=args.reason,
+                     operator_roles=[OperatorRole.ADMIN.value], detail=detail)
+
+    if args.action == "list":
+        for tenant in tenants.list():
+            print(f"{tenant.id:24} {tenant.namespace_prefix:20} "
+                  f"{tenant.status.value:10} {tenant.isolation_domain.id:26} "
+                  f"{len(deployments.list(tenant.id)):>3} deployments")
+        return 0
+
+    if not args.args:
+        print(f"usage: orgagents tenants {args.action} <tenant_id>")
+        return 2
+    tenant_id = args.args[0]
+
+    if args.action == "show":
+        tenant = tenants.get(tenant_id)
+        if tenant is None:
+            print(f"error: no such tenant: {tenant_id}")
+            return 1
+        payload = tenant.model_dump(mode="json")
+        payload["deployments"] = [
+            {"id": d.id, "state": d.state.value} for d in deployments.list(tenant_id)
+        ]
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    if args.action == "register":
+        try:
+            tenant = tenants.register(
+                id=tenant_id,
+                name=args.name or " ".join(args.args[1:]) or tenant_id,
+                namespace_prefix=args.prefix,
+                entitlements=args.entitlement,
+                cloud_boundary=args.cloud_boundary,
+            )
+        except PrefixError as e:
+            # Every prefix rule — shape, reserved names, collisions, and the
+            # prefixes of retired tenants — is decided in fabric/tenants.py.
+            record(FabricAuditAction.TENANT_REGISTER, tenant_id,
+                   AuditOutcome.CONFLICT, error=str(e))
+            print(f"error: {e}")
+            return 1
+        record(FabricAuditAction.TENANT_REGISTER, tenant.id, AuditOutcome.SUCCESS,
+               namespace_prefix=tenant.namespace_prefix,
+               isolation_domain=tenant.isolation_domain.id)
+        print(f"registered {tenant.id}: prefix={tenant.namespace_prefix} "
+              f"domain={tenant.isolation_domain.id} status={tenant.status.value}")
+        return 0
+
+    target = {"suspend": TenantStatus.SUSPENDED,
+              "resume": TenantStatus.ACTIVE,
+              "retire": TenantStatus.RETIRED}[args.action]
+    try:
+        moved = tenants.transition(
+            tenant_id, target, actor=actor, role=OperatorRole.ADMIN,
+            reason=args.reason,
+            deployments=deployments.list(tenant_id),
+        )
+    except KeyError as e:
+        print(f"error: {e}")
+        return 1
+    except (TenantIllegalTransition, TenantRetirementBlocked,
+            TenantTransitionDenied) as e:
+        record(FabricAuditAction.TENANT_LIFECYCLE, tenant_id,
+               AuditOutcome.CONFLICT, error=str(e))
+        print(f"error: {e}")
+        return 1
+    record(FabricAuditAction.TENANT_LIFECYCLE, tenant_id, AuditOutcome.SUCCESS,
+           to=moved.status.value)
+    print(f"{moved.id}: {moved.status.value}")
+    return 0
+
+
 def _records_command(args: argparse.Namespace) -> int:
     from . import records
 
@@ -443,6 +546,18 @@ def main(argv: list[str] | None = None) -> int:
     p_cat2.add_argument("args", nargs="*")
     p_cat2.add_argument("--kind")
 
+    p_ten = sub.add_parser("tenants", help="fabric tenants and their lifecycle")
+    p_ten.add_argument("action", choices=["list", "show", "register", "suspend",
+                                          "resume", "retire"])
+    p_ten.add_argument("args", nargs="*", help="for everything but 'list': <tenant_id>")
+    p_ten.add_argument("--name", default="", help="human-readable tenant name")
+    p_ten.add_argument("--prefix", help="namespace prefix (default: the tenant id)")
+    p_ten.add_argument("--entitlement", action="append", default=[])
+    p_ten.add_argument("--cloud-boundary", default="",
+                       help="the project/account/subscription cloud targets deploy into")
+    p_ten.add_argument("--reason", default="", help="recorded in the operator audit log")
+    p_ten.add_argument("--actor", default="cli", help="who is acting, for the audit log")
+
     p_rec = sub.add_parser("records", help="ADR and workstream record governance")
     p_rec.add_argument("action", choices=["validate", "index", "graph", "new", "list"])
     p_rec.add_argument("args", nargs="*", help="for 'new': <adr|ws> <title>")
@@ -470,6 +585,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "catalogs":
         return _catalogs_command(args)
+
+    if args.cmd == "tenants":
+        return _tenants_command(args)
 
     if args.cmd == "records":
         return _records_command(args)

@@ -113,7 +113,7 @@ An alpha is not "more features". It is the first build where the claims are
 | B2 | One real human channel (Slack **or** Teams) | Approval routing is currently theatre without it; OpenClaw's gateway is the candidate |
 | B3 | Health/drift adapter against the Docker target | The command centre shows a stub's opinion |
 | B4 | Retention and redaction policy for the audit log | It records people indefinitely with no policy |
-| B5 | `jsonschema` as a dev dependency | So "the schema accepts the worked example" stops being a skipped test |
+| ~~B5~~ | ~~`jsonschema` as a dev dependency~~ **done** | Un-skipping it found a real bug: the exported schema rejected our own worked example. Fixed |
 | B6 | Divergence signals routed somewhere | Task divergence is computed on demand and stored nowhere |
 
 ### Explicitly **not** in alpha — say so, do not imply otherwise
