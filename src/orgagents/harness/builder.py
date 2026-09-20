@@ -1,0 +1,262 @@
+"""Assembles an agent's runnable toolset from its harness definition.
+
+The builder is the single place where a declarative `Harness` becomes
+callables: MCP tools, relational grants, data-plane access, sandbox execution,
+delegation to reports, workflow invocation and messaging. Policy checks
+(approval gates, delegation legality, SQL grants) live here, not in the model
+loop, so the same rules apply whichever runtime executes the agent.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Callable, Optional
+
+from ..data.planes import AccessDenied, DataPlanes
+from ..models import Agent, Skill, ToolBinding, Visibility
+from ..org import OrgChart
+from ..store import SKILLS, Store
+from .mcp import MCPRegistry
+from .relational import RelationalMCP
+from .sandbox import SandboxRunner
+
+
+@dataclass
+class ToolCallResult:
+    name: str
+    ok: bool
+    value: Any = None
+    error: str = ""
+    requires_approval: bool = False
+    meta: dict[str, Any] = field(default_factory=dict)
+
+
+class HarnessBuilder:
+    """Turns a `Harness` into a name -> callable map for one agent."""
+
+    def __init__(
+        self,
+        store: Store,
+        *,
+        registry: Optional[MCPRegistry] = None,
+        sandboxes: Optional[SandboxRunner] = None,
+        dsn_resolver: Optional[Callable[[str], str]] = None,
+    ) -> None:
+        self.store = store
+        self.org = OrgChart(store)
+        self.planes = DataPlanes(store)
+        self.registry = registry or MCPRegistry()
+        self.sandboxes = sandboxes or SandboxRunner(store)
+        # Maps a secret reference to an actual DSN. Defaults to env lookup.
+        self.dsn_resolver = dsn_resolver or self._default_dsn_resolver
+
+    @staticmethod
+    def _default_dsn_resolver(secret_ref: str) -> str:
+        import os
+
+        return os.environ.get(secret_ref, ":memory:")
+
+    # -- assembly ----------------------------------------------------------
+
+    def build(self, agent: Agent) -> dict[str, Callable[..., Any]]:
+        tools: dict[str, Callable[..., Any]] = {}
+        tools.update(self._mcp_tools(agent))
+        tools.update(self._relational_tools(agent))
+        tools.update(self._data_tools(agent))
+        tools.update(self._sandbox_tools(agent))
+        tools.update(self._org_tools(agent))
+        return tools
+
+    def bindings(self, agent: Agent) -> list[ToolBinding]:
+        """Describe the assembled toolset for the UI and for the model prompt."""
+        out = list(agent.harness.tools)
+        for name in self.build(agent):
+            if not any(b.name == name for b in out):
+                out.append(ToolBinding(name=name, source="builtin"))
+        return out
+
+    # -- tool families -----------------------------------------------------
+
+    def _mcp_tools(self, agent: Agent) -> dict[str, Callable[..., Any]]:
+        tools: dict[str, Callable[..., Any]] = {}
+        for ref in agent.harness.mcp_servers:
+            try:
+                for proxy in self.registry.resolve(ref):
+                    tools[proxy.qualified_name] = proxy
+            except KeyError:
+                # An unmounted server is reported, not fatal: the designer may
+                # be previewing a harness whose server is not running yet.
+                tools[f"{ref.name}__unavailable"] = (
+                    lambda _n=ref.name, **_: ToolCallResult(
+                        _n, False, error=f"MCP server '{_n}' not mounted"
+                    )
+                )
+        return tools
+
+    def _relational_tools(self, agent: Agent) -> dict[str, Callable[..., Any]]:
+        tools: dict[str, Callable[..., Any]] = {}
+        for grant in agent.harness.relational_grants:
+            dsn = self.dsn_resolver(grant.dsn_secret_ref or grant.connection_name)
+            server = RelationalMCP(grant, dsn).as_mcp_server()
+            self.registry.register(server)
+            for name, fn in server.tools.items():
+                tools[f"{server.name}__{name}"] = fn
+        return tools
+
+    def _data_tools(self, agent: Agent) -> dict[str, Callable[..., Any]]:
+        def memory_write(
+            namespace: str,
+            key: str,
+            value: Any,
+            visibility: str = "private",
+            groups: Optional[list[str]] = None,
+        ) -> dict[str, Any]:
+            """Write a record to a data plane the agent may write to."""
+            rec = self.planes.write(
+                agent,
+                namespace,
+                key,
+                value,
+                visibility=Visibility(visibility),
+                groups=groups or [],
+            )
+            return rec.model_dump()
+
+        def memory_read(namespace: str, key: str) -> Optional[dict[str, Any]]:
+            """Read one record, honoring the agent's grants."""
+            rec = self.planes.read(agent, namespace, key)
+            return rec.model_dump() if rec else None
+
+        def memory_query(namespace_glob: str = "*", tag: Optional[str] = None) -> list[dict]:
+            """List every record visible to the agent."""
+            return [r.model_dump() for r in self.planes.query(
+                agent, namespace_glob=namespace_glob, tag=tag
+            )]
+
+        return {
+            "memory_write": memory_write,
+            "memory_read": memory_read,
+            "memory_query": memory_query,
+        }
+
+    def _sandbox_tools(self, agent: Agent) -> dict[str, Callable[..., Any]]:
+        if agent.sandbox is None:
+            return {}
+
+        def sandbox_exec(command: str, files: Optional[dict[str, str]] = None) -> dict:
+            """Run a command inside the agent's sandbox template."""
+            return self.sandboxes.run(agent.sandbox, command, files=files)
+
+        def sandbox_info() -> dict:
+            """Describe the resolved sandbox environment."""
+            return self.sandboxes.resolve(agent.sandbox).model_dump()
+
+        return {"sandbox_exec": sandbox_exec, "sandbox_info": sandbox_info}
+
+    def _org_tools(self, agent: Agent) -> dict[str, Callable[..., Any]]:
+        def list_reports() -> list[dict[str, str]]:
+            """List the agents this agent may delegate to."""
+            out = [
+                {"id": r.id, "name": r.name, "title": r.title, "relation": "report"}
+                for r in self.org.reports(agent.id)
+            ]
+            for pid in agent.peer_agent_ids:
+                p = self.org.agent(pid)
+                if p:
+                    out.append(
+                        {"id": p.id, "name": p.name, "title": p.title, "relation": "peer"}
+                    )
+            return out
+
+        def whoami() -> dict[str, Any]:
+            """Describe this agent's place in the organization."""
+            chain = self.org.chain_of_command(agent.id)
+            return {
+                "id": agent.id,
+                "name": agent.name,
+                "title": agent.title,
+                "kind": agent.kind.value,
+                "human": agent.human.model_dump() if agent.human else None,
+                "groups": agent.groups,
+                "chain_of_command": [a.name for a in chain],
+                "reports": [r.name for r in self.org.reports(agent.id)],
+            }
+
+        return {"list_reports": list_reports, "whoami": whoami}
+
+    # -- skills ------------------------------------------------------------
+
+    def skills(self, agent: Agent) -> list[Skill]:
+        out = []
+        for sid in agent.skill_ids:
+            s = self.store.get(SKILLS, sid, Skill)
+            if s:
+                out.append(s)
+        return out
+
+    def system_prompt(self, agent: Agent) -> str:
+        """Compose the agent's operating instructions from org + harness + skills."""
+        chain = " -> ".join(a.name for a in reversed(self.org.chain_of_command(agent.id)))
+        reports = ", ".join(r.name for r in self.org.reports(agent.id)) or "none"
+        human = agent.human
+        parts = [
+            agent.harness.system_prompt.strip()
+            or f"You are {agent.name}, the {agent.title or agent.kind.value} agent.",
+            "",
+            "## Organizational context",
+            f"- Reporting line: {chain or agent.name}",
+            f"- Direct reports you may delegate to: {reports}",
+            f"- Groups (protected data access): {', '.join(agent.groups) or 'none'}",
+        ]
+        if human:
+            parts += [
+                f"- Human counterpart: {human.display_name} ({human.role_title or 'owner'}), "
+                f"{human.email}",
+                f"- Always request approval before: "
+                f"{', '.join(human.approval_required_for) or 'nothing'}",
+            ]
+        skills = self.skills(agent)
+        if skills:
+            parts += ["", "## Skills available"]
+            parts += [f"- {s.name}: {s.description}" for s in skills]
+        parts += [
+            "",
+            "## Operating rules",
+            "- Prefer delegating to a direct report when the task fits their remit.",
+            "- Use encoded workflows for multi-step processes that must be auditable.",
+            "- Never write to a data plane you were not granted; ask instead.",
+            f"- Escalate to {human.display_name if human else 'your manager'} after "
+            f"{agent.harness.escalate_to_human_after_failures} consecutive failures.",
+        ]
+        return "\n".join(parts)
+
+    # -- policy helpers ----------------------------------------------------
+
+    def requires_approval(self, agent: Agent, tool_name: str) -> bool:
+        if tool_name in agent.harness.interrupt_on:
+            return True
+        if agent.human and tool_name in agent.human.approval_required_for:
+            return True
+        return any(
+            b.name == tool_name and b.requires_approval for b in agent.harness.tools
+        )
+
+    def call(self, agent: Agent, tool_name: str, **kwargs: Any) -> ToolCallResult:
+        """Invoke a tool with policy enforcement and structured errors."""
+        tools = self.build(agent)
+        fn = tools.get(tool_name)
+        if fn is None:
+            return ToolCallResult(tool_name, False, error=f"no such tool '{tool_name}'")
+        if self.requires_approval(agent, tool_name):
+            return ToolCallResult(
+                tool_name,
+                False,
+                error="human approval required",
+                requires_approval=True,
+                meta={"approver": agent.human.email if agent.human else None},
+            )
+        try:
+            return ToolCallResult(tool_name, True, value=fn(**kwargs))
+        except AccessDenied as e:
+            return ToolCallResult(tool_name, False, error=f"access denied: {e}")
+        except Exception as e:  # surfaced to the trace, never swallowed
+            return ToolCallResult(tool_name, False, error=f"{type(e).__name__}: {e}")

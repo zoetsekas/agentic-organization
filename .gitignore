@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# orgagents local state
+*.db
+*.db-wal
+*.db-shm
+demo_warehouse.db

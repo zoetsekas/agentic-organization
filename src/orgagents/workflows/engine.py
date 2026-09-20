@@ -1,0 +1,201 @@
+"""Encoded agentic workflows.
+
+Workflows are declared as data (nodes + edges) so the designer UI can render
+and edit them, and so governance can diff them. At execution time the engine
+compiles the declaration onto LangGraph when it is installed; otherwise it runs
+the same semantics with a built-in interpreter, so the platform has no hard
+dependency on LangGraph for tests or local development.
+
+Node kinds
+----------
+``tool``      call a harness tool
+``agent``     delegate to another agent (a sub-agent run)
+``workflow``  invoke a nested workflow
+``human``     interrupt and wait for the human counterpart
+``branch``    evaluate a condition and pick the next node
+``transform`` apply a pure python expression to the state
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Callable, Optional
+
+from ..ids import new_id
+from ..models import WorkflowRef
+
+try:  # pragma: no cover - exercised only when LangGraph is installed
+    from langgraph.graph import END, StateGraph
+
+    HAS_LANGGRAPH = True
+except Exception:  # pragma: no cover
+    HAS_LANGGRAPH = False
+    StateGraph = None  # type: ignore
+    END = "__end__"  # type: ignore
+
+
+@dataclass
+class WorkflowResult:
+    workflow_id: str
+    run_id: str
+    state: dict[str, Any]
+    path: list[str] = field(default_factory=list)
+    interrupted_at: Optional[str] = None
+    error: Optional[str] = None
+
+    @property
+    def ok(self) -> bool:
+        return self.error is None and self.interrupted_at is None
+
+
+class WorkflowEngine:
+    """Compiles and runs declarative workflow graphs."""
+
+    def __init__(
+        self,
+        *,
+        tool_caller: Optional[Callable[[str, dict], Any]] = None,
+        agent_caller: Optional[Callable[[str, dict], Any]] = None,
+        human_caller: Optional[Callable[[str, dict], Any]] = None,
+        workflows: Optional[dict[str, WorkflowRef]] = None,
+    ) -> None:
+        self.tool_caller = tool_caller or (lambda name, args: {"tool": name, "args": args})
+        self.agent_caller = agent_caller or (lambda aid, args: {"agent": aid, "args": args})
+        self.human_caller = human_caller
+        self.workflows = workflows or {}
+
+    # -- execution ---------------------------------------------------------
+
+    def run(
+        self, ref: WorkflowRef, state: Optional[dict[str, Any]] = None, *, max_steps: int = 100
+    ) -> WorkflowResult:
+        graph = ref.graph or {}
+        nodes: dict[str, dict] = {n["id"]: n for n in graph.get("nodes", [])}
+        if not nodes:
+            return WorkflowResult(ref.id, new_id("run"), state or {}, error="empty graph")
+        edges: dict[str, str] = {e["from"]: e["to"] for e in graph.get("edges", [])}
+        current = graph.get("entry") or graph["nodes"][0]["id"]
+        result = WorkflowResult(ref.id, new_id("run"), dict(state or {}))
+
+        steps = 0
+        while current and current != "END" and steps < max_steps:
+            steps += 1
+            node = nodes.get(current)
+            if node is None:
+                result.error = f"unknown node '{current}'"
+                return result
+            result.path.append(current)
+            if node["kind"] == "human" or current in ref.interrupt_before:
+                if self.human_caller is None:
+                    result.interrupted_at = current
+                    return result
+                result.state[node.get("output", current)] = self.human_caller(
+                    current, result.state
+                )
+                current = edges.get(current, "END")
+                continue
+            try:
+                current = self._execute(node, result, edges)
+            except Exception as e:
+                result.error = f"{current}: {type(e).__name__}: {e}"
+                return result
+        if steps >= max_steps:
+            result.error = "step limit exceeded"
+        return result
+
+    def _execute(self, node: dict, result: WorkflowResult, edges: dict[str, str]) -> str:
+        kind = node["kind"]
+        nid = node["id"]
+        state = result.state
+        if kind == "tool":
+            state[node.get("output", nid)] = self.tool_caller(
+                node["tool"], _render(node.get("args", {}), state)
+            )
+        elif kind == "agent":
+            state[node.get("output", nid)] = self.agent_caller(
+                node["agent"], _render(node.get("args", {}), state)
+            )
+        elif kind == "workflow":
+            sub = self.workflows.get(node["workflow"])
+            if sub is None:
+                raise KeyError(f"nested workflow '{node['workflow']}' not registered")
+            nested = self.run(sub, _render(node.get("args", {}), state))
+            state[node.get("output", nid)] = nested.state
+            if nested.error:
+                raise RuntimeError(nested.error)
+        elif kind == "transform":
+            state[node.get("output", nid)] = _safe_eval(node["expr"], state)
+        elif kind == "branch":
+            for case in node.get("cases", []):
+                if _safe_eval(case["when"], state):
+                    return case["to"]
+            return node.get("default", edges.get(nid, "END"))
+        else:
+            raise ValueError(f"unsupported node kind '{kind}'")
+        return edges.get(nid, "END")
+
+    # -- LangGraph compilation --------------------------------------------
+
+    def compile_langgraph(self, ref: WorkflowRef) -> Any:
+        """Compile the declaration into a real LangGraph `StateGraph`.
+
+        Raises if LangGraph is not installed; `run` never requires it.
+        """
+        if not HAS_LANGGRAPH:
+            raise RuntimeError("langgraph is not installed; pip install 'orgagents[langgraph]'")
+        graph = ref.graph or {}
+        builder = StateGraph(dict)
+        nodes = {n["id"]: n for n in graph.get("nodes", [])}
+        edges = {e["from"]: e["to"] for e in graph.get("edges", [])}
+
+        def make(node: dict) -> Callable[[dict], dict]:
+            def fn(state: dict) -> dict:
+                r = WorkflowResult(ref.id, "inline", dict(state))
+                self._execute(node, r, edges)
+                return r.state
+
+            return fn
+
+        for nid, node in nodes.items():
+            builder.add_node(nid, make(node))
+        entry = graph.get("entry") or next(iter(nodes))
+        builder.set_entry_point(entry)
+        for nid in nodes:
+            target = edges.get(nid)
+            if nodes[nid]["kind"] == "branch":
+                cases = nodes[nid].get("cases", [])
+                builder.add_conditional_edges(
+                    nid,
+                    lambda s, _c=cases, _d=nodes[nid].get("default", END): next(
+                        (c["to"] for c in _c if _safe_eval(c["when"], s)), _d
+                    ),
+                )
+            else:
+                builder.add_edge(nid, target if target and target != "END" else END)
+        return builder.compile(interrupt_before=ref.interrupt_before or None)
+
+
+# --------------------------------------------------------------------------
+# Small, deliberately restricted expression support
+# --------------------------------------------------------------------------
+
+_SAFE_BUILTINS = {
+    "len": len, "sum": sum, "min": min, "max": max, "any": any, "all": all,
+    "sorted": sorted, "abs": abs, "round": round, "str": str, "int": int,
+    "float": float, "bool": bool, "list": list, "dict": dict, "set": set,
+}
+
+
+def _safe_eval(expr: str, state: dict[str, Any]) -> Any:
+    """Evaluate a workflow expression against the state, with no builtins."""
+    return eval(expr, {"__builtins__": _SAFE_BUILTINS}, dict(state))  # noqa: S307
+
+
+def _render(args: Any, state: dict[str, Any]) -> Any:
+    """Substitute ``{{ expr }}`` placeholders in node arguments from state."""
+    if isinstance(args, dict):
+        return {k: _render(v, state) for k, v in args.items()}
+    if isinstance(args, list):
+        return [_render(v, state) for v in args]
+    if isinstance(args, str) and args.startswith("{{") and args.endswith("}}"):
+        return _safe_eval(args[2:-2].strip(), state)
+    return args
