@@ -13,13 +13,17 @@ from typing import Any, Optional
 from ..ids import now_iso
 from ..store import Store
 from .models import (
+    EDITORIAL_FIELDS,
+    SUBSTANTIVE_FIELDS,
     ApprovalStatus,
     CatalogEntry,
+    CatalogEvent,
     CatalogKind,
     Entitlement,
     FigureMethod,
     FigureProvenance,
     ModelAttributes,
+    attribute_schema,
     typed_attributes,
 )
 from .sources import FigureSource
@@ -80,7 +84,14 @@ class CatalogService:
 
     # -- inventory ---------------------------------------------------------
 
-    def publish(self, entry: CatalogEntry) -> CatalogEntry:
+    def publish(self, entry: CatalogEntry, *, actor: str = "") -> CatalogEntry:
+        # A first publish is itself a mutation worth attributing; later
+        # publishes are how every other verb persists, and those record their
+        # own event before calling in here.
+        if actor and not entry.history:
+            entry.history.append(CatalogEvent(
+                action="created", actor=actor,
+                note=f"{entry.kind.value} '{entry.name}' v{entry.version}"))
         entry.updated_at = now_iso()
         self.store.put(CATALOG, entry, parent=entry.kind.value, name=entry.name)
         return entry
@@ -133,11 +144,18 @@ class CatalogService:
         entry.reviewed_by = reviewer
         entry.reviewed_at = now_iso()
         entry.review_note = note
+        entry.history.append(CatalogEvent(
+            action="reviewed", actor=reviewer, changes=["status"],
+            note=f"status -> {status.value}" + (f": {note}" if note else "")))
         return self.publish(entry)
 
-    def entitle(self, entry_id: str, entitlement: Entitlement) -> CatalogEntry:
+    def entitle(self, entry_id: str, entitlement: Entitlement, *,
+                actor: str = "") -> CatalogEntry:
         entry = self._require(entry_id)
         entry.entitlement = entitlement
+        entry.history.append(CatalogEvent(
+            action="entitled", actor=actor, changes=["entitlement"],
+            note=", ".join(entitlement.groups) or "everyone"))
         return self.publish(entry)
 
     def retire(self, entry_id: str, *, reviewer: str,
@@ -161,6 +179,112 @@ class CatalogService:
         # Set the pointer after the review, which re-reads from the store.
         entry.superseded_by = superseded_by
         return self.publish(entry)
+
+    # -- editing (ADR-0062) ------------------------------------------------
+
+    def attribute_schema(self, kind: CatalogKind) -> list[dict[str, Any]]:
+        """The declared attributes of a kind, so one form serves all twelve."""
+        return attribute_schema(kind)
+
+    def update(self, entry_id: str, changes: dict[str, Any], *,
+               actor: str = "", note: str = "") -> CatalogEntry:
+        """Edit the editorial fields, at any status (ADR-0062 rule 1).
+
+        Substantive keys are refused here rather than ignored: silently
+        dropping an attribute change would let an operator believe the catalog
+        holds something it does not.
+        """
+        entry = self._require(entry_id)
+        offered = {k: v for k, v in changes.items() if v is not None}
+        substantive = sorted(set(offered) & set(SUBSTANTIVE_FIELDS))
+        if substantive:
+            raise CatalogError(
+                f"{', '.join(substantive)} {'are' if len(substantive) > 1 else 'is'} "
+                "substantive; use amend")
+        unknown = sorted(set(offered) - set(EDITORIAL_FIELDS))
+        if unknown:
+            raise CatalogError(
+                f"not an editable field: {', '.join(unknown)}; "
+                f"editorial fields are {', '.join(EDITORIAL_FIELDS)}")
+        changed = [k for k, v in offered.items() if getattr(entry, k) != v]
+        for key, value in offered.items():
+            setattr(entry, key, value)
+        entry.history.append(CatalogEvent(
+            action="updated", actor=actor, changes=sorted(changed), note=note))
+        return self.publish(entry)
+
+    def amend(self, entry_id: str, changes: dict[str, Any], *,
+              actor: str = "", note: str = "") -> CatalogEntry:
+        """Edit the substantive fields, refused on an approved entry.
+
+        The refusal names both ways forward, because an operator stopped here
+        needs to know which one they want, not merely that they were stopped
+        (ADR-0062 rule 2).
+        """
+        entry = self._require(entry_id)
+        offered = {k: v for k, v in changes.items() if v is not None}
+        unknown = sorted(set(offered) - set(SUBSTANTIVE_FIELDS))
+        if unknown:
+            raise CatalogError(
+                f"not a substantive field: {', '.join(unknown)}; use update")
+        if entry.substantively_locked:
+            raise CatalogError(self.amend_refusal(entry))
+        changed = []
+        for key, value in offered.items():
+            if key == "kind":
+                value = CatalogKind(value)
+            if getattr(entry, key) != value:
+                changed.append(key)
+            setattr(entry, key, value)
+        entry.history.append(CatalogEvent(
+            action="amended", actor=actor, changes=sorted(changed), note=note))
+        return self.publish(entry)
+
+    def amend_refusal(self, entry: CatalogEntry) -> str:
+        """Why a substantive edit is unavailable, and the two ways forward.
+
+        Exposed so the UI can show the reason *before* a form is filled in
+        rather than after it is submitted.
+        """
+        return (
+            f"'{entry.name}' is {entry.status.value}; kind, version and "
+            "attributes decide what a design bound to it resolves to and "
+            "cannot be edited after review. Either publish the next version "
+            "as a new entry and supersede this one, or send this one back for "
+            "review.")
+
+    def send_back(self, entry_id: str, *, actor: str = "",
+                  note: str = "") -> CatalogEntry:
+        """Move an approved entry back to `proposed` (ADR-0062 rule 3).
+
+        Deliberate, and consequential: the entry stops being selectable, so
+        the systems already using it are named in the event.
+        """
+        entry = self._require(entry_id)
+        users = self.usage.systems_using(entry_id)
+        reason = note or "sent back for review"
+        if users:
+            reason += f"; unselectable for {', '.join(users)}"
+        return self.review(entry_id, ApprovalStatus.PROPOSED, reviewer=actor,
+                           note=reason)
+
+    def delete(self, entry_id: str, *, actor: str = "") -> str:
+        """Erase a draft nobody approved and nothing uses (ADR-0062 rule 6).
+
+        Anything else retires: the review history is the only record of why
+        something was allowed, and deleting it removes the answer.
+        """
+        entry = self._require(entry_id)
+        if entry.status is not ApprovalStatus.PROPOSED or entry.reviewed_at:
+            raise CatalogError(
+                f"'{entry.name}' is {entry.status.value} and has been reviewed; "
+                "retire it instead, so the decision stays readable")
+        users = self.usage.systems_using(entry_id)
+        if users:
+            raise CatalogError(
+                f"'{entry.name}' is used by {', '.join(users)}; retire it instead")
+        self.store.delete(CATALOG, entry_id)
+        return entry_id
 
     def record_install(self, entry_id: str) -> CatalogEntry:
         entry = self._require(entry_id)
