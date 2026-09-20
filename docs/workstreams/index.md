@@ -4,15 +4,15 @@
 | ID | Title | Status | Ver | Owner | Decisions | Depends on |
 |---|---|---|---|---|---|---|
 | [WS-001](WS-001-records-and-governance.md) | Records and governance — ADR/WS process and validation tooling | Complete | 1.0.0 | Platform Architecture | ADR-0001 | — |
-| [WS-002](WS-002-system-spec-language.md) | System Spec language, schema and versioning | Active | 1.0.0 | Platform Architecture | ADR-0004, ADR-0002, ADR-0017 | WS-001 |
-| [WS-003](WS-003-organization-and-roles.md) | Organization modelling — recursive teams, leaders, roles and responsibilities | Active | 1.0.0 | Platform Architecture | ADR-0006, ADR-0007 | WS-002 |
-| [WS-004](WS-004-security-model.md) | Security model — RBAC, policies, least privilege, sandboxing and identity | Active | 1.0.0 | Security Engineering | ADR-0008, ADR-0009, ADR-0010, ADR-0015, ADR-0017, ADR-0007 | WS-002, WS-003 |
-| [WS-005](WS-005-compiler-core.md) | Compiler core — IR, target plugin API and generation engine | Active | 1.0.0 | Platform Architecture | ADR-0005, ADR-0014, ADR-0004, ADR-0003 | WS-002, WS-004 |
-| [WS-006](WS-006-local-deployment-target.md) | Local deployment target — Compose stack and single-process dev loop | Active | 1.0.0 | Developer Experience | ADR-0011, ADR-0005, ADR-0009, ADR-0014 | WS-005 |
-| [WS-007](WS-007-cloud-terraform-targets.md) | Cloud deployment targets — Terraform for GCP, AWS and Azure | Proposed | 1.0.0 | Platform SRE | ADR-0012, ADR-0015, ADR-0009, ADR-0016 | WS-005, WS-004 |
-| [WS-008](WS-008-runtime-adapters-and-harness.md) | Runtime adapters and harness binding | Active | 1.0.0 | Platform Architecture | ADR-0013, ADR-0010 | WS-005 |
+| [WS-002](WS-002-system-spec-language.md) | System Spec language, schema and versioning | Active | 1.2.0 | Platform Architecture | ADR-0004, ADR-0002, ADR-0017, ADR-0042 | WS-001 |
+| [WS-003](WS-003-organization-and-roles.md) | Organization modelling — recursive teams, leaders, roles and responsibilities | Active | 1.1.0 | Platform Architecture | ADR-0006, ADR-0007 | WS-002 |
+| [WS-004](WS-004-security-model.md) | Security model — RBAC, policies, least privilege, sandboxing and identity | Active | 1.1.0 | Security Engineering | ADR-0008, ADR-0009, ADR-0010, ADR-0015, ADR-0017, ADR-0007 | WS-002, WS-003 |
+| [WS-005](WS-005-compiler-core.md) | Compiler core — IR, target plugin API and generation engine | Active | 1.1.0 | Platform Architecture | ADR-0005, ADR-0014, ADR-0004, ADR-0003 | WS-002, WS-004 |
+| [WS-006](WS-006-local-deployment-target.md) | Local deployment target — Compose stack and single-process dev loop | Active | 1.1.0 | Developer Experience | ADR-0011, ADR-0005, ADR-0009, ADR-0014 | WS-005 |
+| [WS-007](WS-007-cloud-terraform-targets.md) | Cloud deployment targets — Terraform for GCP, AWS and Azure | Proposed | 1.1.0 | Platform SRE | ADR-0012, ADR-0015, ADR-0009, ADR-0016 | WS-005, WS-004 |
+| [WS-008](WS-008-runtime-adapters-and-harness.md) | Runtime adapters and harness binding | Active | 1.1.0 | Platform Architecture | ADR-0013, ADR-0010 | WS-005 |
 | [WS-009](WS-009-designer-ui-and-sdk.md) | Designer UI and SDK as peer clients of the spec | Active | 1.0.0 | Product | ADR-0018, ADR-0003 | WS-002 |
-| [WS-010](WS-010-observability-and-operations.md) | Observability and operations across targets | Proposed | 1.0.0 | Platform SRE | ADR-0016 | WS-005, WS-006 |
+| [WS-010](WS-010-observability-and-operations.md) | Observability and operations across targets | Proposed | 1.1.0 | Platform SRE | ADR-0016 | WS-005, WS-006 |
 | [WS-011](WS-011-landscape-and-capability-roadmap.md) | Landscape research and the capability roadmap | Complete | 1.0.0 | Product | ADR-0019 | WS-001 |
 | [WS-012](WS-012-scheduling-and-triggers.md) | Scheduling, event triggers and durable unattended work | Active | 1.0.0 | Platform SRE | ADR-0020, ADR-0025 | WS-005, WS-011 |
 | [WS-013](WS-013-human-channels-and-hitl.md) | Human channels, approval routing and declared interaction flows | Active | 1.0.0 | Product | ADR-0021, ADR-0024 | WS-005, WS-011 |
@@ -28,7 +28,7 @@
 | [WS-023](WS-023-canvas-designer.md) | Drag-and-drop canvas designer | Active | 1.0.0 | Product | ADR-0034 | WS-020, WS-021, WS-022 |
 | [WS-024](WS-024-framework-parity.md) | Framework parity — guardrails, context, contracts and shared instructions | Active | 1.0.0 | Platform Architecture | ADR-0035, ADR-0036, ADR-0037, ADR-0038 | WS-011, WS-005 |
 | [WS-025](WS-025-missions.md) | Missions — short-lived teams | Active | 1.1.0 | Product | ADR-0039 | WS-003 |
-| [WS-026](WS-026-model-governance.md) | Model governance — approved models per agent | Active | 1.0.0 | Security Engineering | ADR-0040 | WS-027, WS-005 |
+| [WS-026](WS-026-model-governance.md) | Model governance — approved models per agent | Active | 1.1.0 | Security Engineering | ADR-0040 | WS-027, WS-005 |
 | [WS-027](WS-027-platform-catalog.md) | Platform catalog of building blocks | Active | 1.0.0 | Platform Architecture | ADR-0041 | WS-020 |
 
 ## By status

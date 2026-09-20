@@ -6,8 +6,18 @@ from .binding import (
     ScheduleBinding,
     TargetBinding,
 )
-from .loader import dump_spec, load_binding, load_spec, load_spec_text
+from .loader import (
+    SpecVersionError,
+    dump_spec,
+    load_binding,
+    load_spec,
+    load_spec_text,
+    load_spec_text_with_migration,
+    load_spec_with_migration,
+)
+from .migrations import CURRENT, MIGRATIONS, MigrationStep, migrate
 from .model import SystemSpec
+from .schema import system_spec_schema, system_spec_schema_json
 from .validate import Finding, validate_spec
 
 __all__ = [
@@ -20,6 +30,15 @@ __all__ = [
     "MemoryBinding",
     "load_spec",
     "load_spec_text",
+    "load_spec_with_migration",
+    "load_spec_text_with_migration",
+    "SpecVersionError",
+    "migrate",
+    "MIGRATIONS",
+    "MigrationStep",
+    "CURRENT",
+    "system_spec_schema",
+    "system_spec_schema_json",
     "load_binding",
     "dump_spec",
     "validate_spec",

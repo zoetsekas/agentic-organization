@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 from ..spec.loader import load_spec_text
 from ..spec.validate import validate_spec
+from .audit import AuditAction, AuditEvent, AuditLog, AuditOutcome
 from .locks import LockConflict, LockManager
 from .merge import apply_resolutions, merge
 from .models import (
@@ -36,11 +37,14 @@ from .rbac import (
     MANAGE_MEMBERS,
     MANAGE_SETTINGS,
     PUBLISH,
+    READ_AUDIT,
     RESTORE,
     VIEW,
+    Decision,
+    PermissionDenied,
     Principal,
+    decide,
     permissions_for,
-    require,
     role_of,
 )
 from .repository import Repository, VersionConflict
@@ -79,7 +83,73 @@ class DesignerService:
                  settings: Optional[DesignerSettings] = None) -> None:
         self.repository = repository
         self._settings = settings or repository.settings()
-        self.locks = LockManager(repository, self._settings.lock_ttl_seconds)
+        self.audit = AuditLog(repository)
+        self.locks = LockManager(repository, self._settings.lock_ttl_seconds,
+                                 on_expire=self._audit_expired_lock)
+
+    # -- audit -------------------------------------------------------------
+
+    def _audit_expired_lock(self, lock: Lock) -> None:
+        self.audit.record(
+            AuditAction.LOCK_EXPIRE, None, outcome=AuditOutcome.SUCCESS,
+            workspace_id=self._workspace_id_of(lock.system_id),
+            system_id=lock.system_id, lock_target=lock.target,
+            lock_holder=lock.holder,
+            reason=f"lock expired at {lock.expires_at}",
+        )
+
+    def _workspace_id_of(self, system_id: str) -> str:
+        record = self.repository.get_system(system_id)
+        return record.workspace_id if record else ""
+
+    def _require(self, workspace: Optional[Workspace], principal: Principal,
+                 permission: str, action: AuditAction, *,
+                 system_id: str = "", **fields: Any) -> Decision:
+        """`require`, but a refusal is written down before it is raised.
+
+        A denial leaves no other trace anywhere in the system — no revision, no
+        lock, nothing — so if it is not recorded here it is not recorded at all.
+        """
+        decision = decide(workspace, principal, permission,
+                          default_role=self._settings.default_role)
+        if not decision.allowed:
+            self.audit.record(
+                action, principal, outcome=AuditOutcome.DENIED,
+                workspace_id=workspace.id if workspace else "",
+                system_id=system_id, permission=permission,
+                reason=decision.reason, **fields,
+            )
+            raise PermissionDenied(decision.reason)
+        return decision
+
+    def audit_events(
+        self, principal: Principal, *, system_id: Optional[str] = None,
+        actor: Optional[str] = None, action: Optional[str] = None,
+        since: Optional[str] = None, until: Optional[str] = None,
+        limit: int = 200,
+    ) -> list[AuditEvent]:
+        """The log, scoped to the workspaces this principal may audit."""
+        if system_id is not None:
+            record = self._system(system_id)
+            workspace = self.repository.get_workspace(record.workspace_id)
+            self._require(workspace, principal, READ_AUDIT,
+                          AuditAction.AUDIT_READ, system_id=system_id)
+            readable = None
+        else:
+            readable = {
+                w.id for w in self.repository.list_workspaces()
+                if decide(w, principal, READ_AUDIT,
+                          default_role=self._settings.default_role).allowed
+            }
+            if not readable:
+                raise PermissionDenied(
+                    f"{principal.label} may not read the designer audit log"
+                )
+        return self.audit.query(
+            system_id=system_id, actor=actor,
+            action=AuditAction(action) if action else None,
+            workspace_ids=readable, since=since, until=until, limit=limit,
+        )
 
     # -- settings ----------------------------------------------------------
 
@@ -89,12 +159,18 @@ class DesignerService:
 
     def update_settings(self, principal: Principal,
                         changes: dict[str, Any]) -> DesignerSettings:
-        require(self._workspace_for_settings(principal), principal, MANAGE_SETTINGS,
-                default_role=self._settings.default_role)
+        workspace = self._workspace_for_settings(principal)
+        self._require(workspace, principal, MANAGE_SETTINGS,
+                      AuditAction.SETTINGS_UPDATE)
         updated = self._settings.model_copy(update=changes)
         updated.updated_by = principal.user_id
         self._settings = self.repository.save_settings(updated)
         self.locks.ttl_seconds = self._settings.lock_ttl_seconds
+        self.audit.record(
+            AuditAction.SETTINGS_UPDATE, principal,
+            workspace_id=workspace.id if workspace else "",
+            detail={"changed": sorted(changes)},
+        )
         return self._settings
 
     def _workspace_for_settings(self, principal: Principal) -> Optional[Workspace]:
@@ -116,7 +192,10 @@ class DesignerService:
                             display_name=principal.display_name,
                             email=principal.email, role=UserRole.OWNER)],
         )
-        return self.repository.save_workspace(workspace)
+        saved = self.repository.save_workspace(workspace)
+        self.audit.record(AuditAction.WORKSPACE_CREATE, principal,
+                          workspace_id=saved.id, detail={"name": saved.name})
+        return saved
 
     def workspaces(self, principal: Principal) -> list[Workspace]:
         return [
@@ -127,23 +206,32 @@ class DesignerService:
     def add_member(self, principal: Principal, workspace_id: str,
                    member: Member) -> Workspace:
         workspace = self._workspace(workspace_id)
-        require(workspace, principal, MANAGE_MEMBERS,
-                default_role=self._settings.default_role)
+        self._require(workspace, principal, MANAGE_MEMBERS,
+                      AuditAction.MEMBER_ADD)
         workspace.members = [
             m for m in workspace.members if m.user_id != member.user_id
         ] + [member]
-        return self.repository.save_workspace(workspace)
+        saved = self.repository.save_workspace(workspace)
+        self.audit.record(AuditAction.MEMBER_ADD, principal,
+                          workspace_id=workspace_id,
+                          detail={"member": member.user_id,
+                                  "role": member.role.value})
+        return saved
 
     def remove_member(self, principal: Principal, workspace_id: str,
                       user_id: str) -> Workspace:
         workspace = self._workspace(workspace_id)
-        require(workspace, principal, MANAGE_MEMBERS,
-                default_role=self._settings.default_role)
+        self._require(workspace, principal, MANAGE_MEMBERS,
+                      AuditAction.MEMBER_REMOVE)
         remaining = [m for m in workspace.members if m.user_id != user_id]
         if not any(m.role is UserRole.OWNER for m in remaining):
             raise DesignerError("a workspace must keep at least one owner")
         workspace.members = remaining
-        return self.repository.save_workspace(workspace)
+        saved = self.repository.save_workspace(workspace)
+        self.audit.record(AuditAction.MEMBER_REMOVE, principal,
+                          workspace_id=workspace_id,
+                          detail={"member": user_id})
+        return saved
 
     def _workspace(self, workspace_id: str) -> Workspace:
         workspace = self.repository.get_workspace(workspace_id)
@@ -187,20 +275,26 @@ class DesignerService:
                       description: str = "", spec: Optional[dict[str, Any]] = None,
                       layout: Optional[Layout] = None) -> SystemRecord:
         workspace = self._workspace(workspace_id)
-        require(workspace, principal, CREATE, default_role=self._settings.default_role)
+        self._require(workspace, principal, CREATE, AuditAction.SYSTEM_CREATE)
         record = SystemRecord(
             workspace_id=workspace_id, name=name, description=description,
             spec=spec or _starter_spec(name), layout=layout or Layout(),
             created_by=principal.user_id,
         )
-        return self.repository.save_system(record, expected_version=None,
-                                           author=principal.user_id,
-                                           message="created")
+        saved = self.repository.save_system(record, expected_version=None,
+                                            author=principal.user_id,
+                                            message="created")
+        self.audit.record(AuditAction.SYSTEM_CREATE, principal,
+                          workspace_id=workspace_id, system_id=saved.id,
+                          version_after=saved.version,
+                          detail={"name": saved.name})
+        return saved
 
     def open_system(self, principal: Principal, system_id: str) -> dict[str, Any]:
         record = self._system(system_id)
         workspace = self.repository.get_workspace(record.workspace_id)
-        require(workspace, principal, VIEW, default_role=self._settings.default_role)
+        self._require(workspace, principal, VIEW, AuditAction.SYSTEM_VIEW,
+                      system_id=system_id)
         role = role_of(workspace, principal, self._settings.default_role)
         return {
             "record": record.model_dump(mode="json"),
@@ -229,10 +323,17 @@ class DesignerService:
         """Write a change, honouring locks, versions and the merge policy."""
         record = self._system(system_id)
         workspace = self.repository.get_workspace(record.workspace_id)
-        require(workspace, principal, EDIT, default_role=self._settings.default_role)
+        self._require(workspace, principal, EDIT, AuditAction.SYSTEM_SAVE,
+                      system_id=system_id)
 
         blocking = self.locks.blocks(system_id, "*", principal)
         if blocking is not None and self._settings.concurrency != "optimistic":
+            self.audit.record(
+                AuditAction.SYSTEM_SAVE, principal, outcome=AuditOutcome.CONFLICT,
+                workspace_id=record.workspace_id, system_id=system_id,
+                version_before=record.version, lock_target=blocking.target,
+                lock_holder=blocking.holder, reason=str(LockConflict(blocking)),
+            )
             raise LockConflict(blocking)
 
         strategy = strategy or self._settings.default_merge_strategy
@@ -247,8 +348,8 @@ class DesignerService:
             updated.description = description
         if status is not None:
             if status is SystemStatus.PUBLISHED:
-                require(workspace, principal, PUBLISH,
-                        default_role=self._settings.default_role)
+                self._require(workspace, principal, PUBLISH,
+                              AuditAction.SYSTEM_PUBLISH, system_id=system_id)
             updated.status = status
 
         try:
@@ -256,11 +357,25 @@ class DesignerService:
                 updated, expected_version=base_version if base_version is not None
                 else record.version, author=principal.user_id, message=message,
             )
+            self.audit.record(
+                AuditAction.SYSTEM_SAVE, principal,
+                workspace_id=record.workspace_id, system_id=system_id,
+                version_before=record.version, version_after=saved.version,
+                detail={"message": message} if message else {},
+            )
             return SaveOutcome("saved", saved, base_version=base_version or 0,
                                current_version=saved.version,
                                message="saved")
         except VersionConflict as conflict:
             if strategy != "merge" or spec is None:
+                self.audit.record(
+                    AuditAction.SYSTEM_SAVE, principal,
+                    outcome=AuditOutcome.CONFLICT,
+                    workspace_id=record.workspace_id, system_id=system_id,
+                    version_before=conflict.expected,
+                    version_after=conflict.actual,
+                    reason="write was based on a version that is no longer current",
+                )
                 return SaveOutcome(
                     "stale", conflict.current, base_version=conflict.expected,
                     current_version=conflict.actual,
@@ -279,6 +394,14 @@ class DesignerService:
             merged_spec, conflicts = apply_resolutions(merged_spec, conflicts,
                                                        resolutions)
         if conflicts:
+            self.audit.record(
+                AuditAction.MERGE_CONFLICT, principal,
+                outcome=AuditOutcome.CONFLICT,
+                workspace_id=conflict.current.workspace_id, system_id=updated.id,
+                version_before=conflict.expected, version_after=conflict.actual,
+                merged=True, conflict_paths=[c.path for c in conflicts],
+                reason=f"{len(conflicts)} conflict(s) need a decision",
+            )
             return SaveOutcome(
                 "conflict", conflict.current, conflicts=conflicts,
                 merged_spec=merged_spec, base_version=conflict.expected,
@@ -298,15 +421,31 @@ class DesignerService:
             author=principal.user_id,
             message=message or f"merged with v{conflict.actual}",
         )
+        self.audit.record(
+            AuditAction.MERGE_RESOLVED if resolutions else AuditAction.MERGE_APPLIED,
+            principal, workspace_id=saved.workspace_id, system_id=saved.id,
+            version_before=conflict.expected, version_after=saved.version,
+            merged=True,
+            detail={"resolved": sorted(resolutions)} if resolutions else {},
+        )
         return SaveOutcome("merged", saved, base_version=conflict.expected,
                            current_version=saved.version,
                            message=f"merged with version {conflict.actual}")
 
     def delete_system(self, principal: Principal, system_id: str) -> bool:
         record = self._system(system_id)
-        require(self.repository.get_workspace(record.workspace_id), principal, DELETE,
-                default_role=self._settings.default_role)
-        return self.repository.delete_system(system_id)
+        self._require(self.repository.get_workspace(record.workspace_id), principal,
+                      DELETE, AuditAction.SYSTEM_DELETE, system_id=system_id)
+        deleted = self.repository.delete_system(system_id)
+        # The log outlives the design it describes: deleting a system is exactly
+        # the event somebody will come looking for afterwards.
+        self.audit.record(AuditAction.SYSTEM_DELETE, principal,
+                          workspace_id=record.workspace_id, system_id=system_id,
+                          version_before=record.version,
+                          outcome=AuditOutcome.SUCCESS if deleted
+                          else AuditOutcome.FAILED,
+                          detail={"name": record.name})
+        return deleted
 
     def _system(self, system_id: str) -> SystemRecord:
         record = self.repository.get_system(system_id)
@@ -320,14 +459,35 @@ class DesignerService:
                      target: str = "*", scope: str = "component",
                      note: str = "") -> Lock:
         record = self._system(system_id)
-        require(self.repository.get_workspace(record.workspace_id), principal, LOCK,
-                default_role=self._settings.default_role)
-        return self.locks.acquire(system_id, principal, scope=LockScope(scope),
-                                  target=target, note=note)
+        self._require(self.repository.get_workspace(record.workspace_id), principal,
+                      LOCK, AuditAction.LOCK_ACQUIRE, system_id=system_id,
+                      lock_target=target)
+        try:
+            lock = self.locks.acquire(system_id, principal, scope=LockScope(scope),
+                                      target=target, note=note)
+        except LockConflict as clash:
+            self.audit.record(
+                AuditAction.LOCK_ACQUIRE, principal, outcome=AuditOutcome.CONFLICT,
+                workspace_id=record.workspace_id, system_id=system_id,
+                lock_target=target, lock_holder=clash.lock.holder,
+                reason=str(clash),
+            )
+            raise
+        self.audit.record(AuditAction.LOCK_ACQUIRE, principal,
+                          workspace_id=record.workspace_id, system_id=system_id,
+                          lock_target=target, lock_holder=principal.user_id,
+                          detail={"scope": scope})
+        return lock
 
     def release_lock(self, principal: Principal, system_id: str,
                      target: str = "*") -> bool:
-        return self.locks.release(system_id, principal, target)
+        released = self.locks.release(system_id, principal, target)
+        if released:
+            self.audit.record(AuditAction.LOCK_RELEASE, principal,
+                              workspace_id=self._workspace_id_of(system_id),
+                              system_id=system_id, lock_target=target,
+                              lock_holder=principal.user_id)
+        return released
 
     def heartbeat(self, principal: Principal, system_id: str,
                   target: str = "*") -> Optional[Lock]:
@@ -336,34 +496,49 @@ class DesignerService:
     def break_lock(self, principal: Principal, system_id: str,
                    target: str = "*") -> bool:
         record = self._system(system_id)
-        require(self.repository.get_workspace(record.workspace_id), principal,
-                BREAK_LOCK, default_role=self._settings.default_role)
-        return self.locks.break_lock(system_id, target)
+        self._require(self.repository.get_workspace(record.workspace_id), principal,
+                      BREAK_LOCK, AuditAction.LOCK_BREAK, system_id=system_id,
+                      lock_target=target)
+        held = self.locks.holder_of(system_id, target)
+        broken = self.locks.break_lock(system_id, target)
+        if broken:
+            self.audit.record(AuditAction.LOCK_BREAK, principal,
+                              workspace_id=record.workspace_id,
+                              system_id=system_id, lock_target=target,
+                              lock_holder=held.holder if held else "",
+                              reason="lock taken from its holder")
+        return broken
 
     # -- revisions ---------------------------------------------------------
 
     def revisions(self, principal: Principal, system_id: str,
                   limit: int = 50) -> list[Revision]:
         record = self._system(system_id)
-        require(self.repository.get_workspace(record.workspace_id), principal, VIEW,
-                default_role=self._settings.default_role)
+        self._require(self.repository.get_workspace(record.workspace_id), principal,
+                      VIEW, AuditAction.SYSTEM_VIEW, system_id=system_id)
         return self.repository.revisions(system_id, limit)
 
     def restore(self, principal: Principal, system_id: str,
                 version: int) -> SystemRecord:
         record = self._system(system_id)
-        require(self.repository.get_workspace(record.workspace_id), principal, RESTORE,
-                default_role=self._settings.default_role)
+        self._require(self.repository.get_workspace(record.workspace_id), principal,
+                      RESTORE, AuditAction.SYSTEM_RESTORE, system_id=system_id)
         revision = self.repository.revision(system_id, version)
         if revision is None:
             raise DesignerError(f"no revision {version} of '{system_id}'")
         record.spec = revision.spec
         record.binding = revision.binding
         record.layout = revision.layout
-        return self.repository.save_system(
+        before = record.version
+        saved = self.repository.save_system(
             record, expected_version=record.version, author=principal.user_id,
             message=f"restored version {version}",
         )
+        self.audit.record(AuditAction.SYSTEM_RESTORE, principal,
+                          workspace_id=saved.workspace_id, system_id=system_id,
+                          version_before=before, version_after=saved.version,
+                          detail={"restored": version})
+        return saved
 
     # -- validation --------------------------------------------------------
 

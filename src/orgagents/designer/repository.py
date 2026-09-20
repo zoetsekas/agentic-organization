@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol, runtime_checkable
 
 from ..store import Store
+from .audit import AuditEvent
 from .models import (
     DesignerSettings,
     Lock,
@@ -32,6 +33,7 @@ REVISIONS = "designer_revisions"
 WORKSPACES = "designer_workspaces"
 LOCKS = "designer_locks"
 SETTINGS = "designer_settings"
+AUDIT = "designer_audit"
 
 
 class VersionConflict(RuntimeError):
@@ -66,6 +68,10 @@ class Repository(Protocol):
     def drop_lock(self, lock_id: str) -> bool: ...
     def settings(self) -> DesignerSettings: ...
     def save_settings(self, settings: DesignerSettings) -> DesignerSettings: ...
+    # Audit is append-only on purpose: no update, no delete (ADR-0043).
+    def append_audit(self, event: AuditEvent) -> AuditEvent: ...
+    def audit_events(self, system_id: Optional[str] = None,
+                     limit: int = 1000) -> list[AuditEvent]: ...
 
 
 class _Base:
@@ -109,6 +115,7 @@ class MemoryRepository(_Base):
         self._workspaces: dict[str, Workspace] = {}
         self._locks: dict[str, Lock] = {}
         self._settings = DesignerSettings(persistence="memory")
+        self._audit: list[AuditEvent] = []
         self._lock = threading.RLock()
 
     def list_systems(self, workspace_id: Optional[str] = None) -> list[SystemRecord]:
@@ -172,6 +179,19 @@ class MemoryRepository(_Base):
         self._settings = settings
         return settings
 
+    def append_audit(self, event: AuditEvent) -> AuditEvent:
+        with self._lock:
+            self._audit.append(event.model_copy(deep=True))
+        return event
+
+    def audit_events(self, system_id: Optional[str] = None,
+                     limit: int = 1000) -> list[AuditEvent]:
+        found = [
+            e.model_copy(deep=True) for e in self._audit
+            if system_id is None or e.system_id == system_id
+        ]
+        return found[-limit:]
+
 
 class FileSystemRepository(_Base):
     """JSON on disk, laid out so a team can keep the whole thing in git.
@@ -185,7 +205,7 @@ class FileSystemRepository(_Base):
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
-        for folder in ("workspaces", "systems", "locks"):
+        for folder in ("workspaces", "systems", "locks", "audit"):
             (self.root / folder).mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
 
@@ -318,6 +338,26 @@ class FileSystemRepository(_Base):
         self._write(self.root / "settings.json", settings.model_dump(mode="json"))
         return settings
 
+    def append_audit(self, event: AuditEvent) -> AuditEvent:
+        # One file per event, never reopened: concurrent writers cannot lose
+        # each other's history, and nothing here rewrites an existing file.
+        self._write(self.root / "audit" / f"{event.id}.json",
+                    event.model_dump(mode="json"))
+        return event
+
+    def audit_events(self, system_id: Optional[str] = None,
+                     limit: int = 1000) -> list[AuditEvent]:
+        found = []
+        for path in (self.root / "audit").glob("*.json"):
+            data = self._read(path)
+            if data is None:
+                continue
+            event = AuditEvent.model_validate(data)
+            if system_id is None or event.system_id == system_id:
+                found.append(event)
+        found.sort(key=lambda e: e.order_key)
+        return found[-limit:]
+
 
 class SqlRepository(_Base):
     """The shared installation's backend, over the platform's document store."""
@@ -400,6 +440,19 @@ class SqlRepository(_Base):
         wrapped = _Wrapper(**settings.model_dump())
         self.store.put(SETTINGS, wrapped, name="settings")
         return settings
+
+    def append_audit(self, event: AuditEvent) -> AuditEvent:
+        # Parent is the system so "the log for this design" is one indexed read;
+        # events with no system (settings, membership) hang off the workspace.
+        self.store.put(AUDIT, event, parent=event.system_id or event.workspace_id,
+                       name=event.action.value)
+        return event
+
+    def audit_events(self, system_id: Optional[str] = None,
+                     limit: int = 1000) -> list[AuditEvent]:
+        found = self.store.list(AUDIT, AuditEvent, parent=system_id, limit=5000)
+        found.sort(key=lambda e: e.order_key)
+        return found[-limit:]
 
 
 def build_repository(settings: DesignerSettings,

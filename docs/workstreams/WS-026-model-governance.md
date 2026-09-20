@@ -2,7 +2,7 @@
 id: WS-026
 title: Model governance — approved models per agent
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Security Engineering
@@ -42,8 +42,8 @@ stops something rather than being noted.
 | M1 Policy model and validation | Phase 4 | Done |
 | M2 Catalog resolution with reasons and alternatives | Phase 4 | Done |
 | M3 Compile-time refusal and phase gate | Phase 4 | Done |
-| M4 Sub-agent model class enforcement | Phase 4 | Not started |
-| M5 Automatic fallback to a permitted model | Phase 4 | Not started |
+| M4 Sub-agent model class enforcement | Phase 4 | Done |
+| M5 Automatic fallback to a permitted model | Phase 4 | Done |
 | M6 Catalog figures refreshed from provider data | Phase 4 | Not started |
 
 ## Dependencies
@@ -60,20 +60,30 @@ WS-027 for the catalog the policy resolves against.
   telling us, and a cost ceiling then checks a fiction (M6).
 - Class tags are editorial; two organizations will disagree about what is
   `balanced`.
-- `subagent_classes` is declared but not yet enforced (M4), so a sub-agent can
-  inherit a more expensive model than the policy intends.
-- `allow_fallback` is declared and not implemented (M5): today an unpermitted
-  binding fails the build rather than falling back.
+- **A fallback is a quiet change of model.** When `allow_fallback` is on, the
+  design compiles on a model nobody chose — usually a cheaper, weaker one —
+  and the only trace is a line in the IR and a row in the registry. Behaviour,
+  cost and evaluation results all shift without a build failing. It is off by
+  default for that reason, and turning it on trades a refusal somebody would
+  have read for a change somebody has to notice.
+- Sub-agents are governed per agent, not per sub-agent: the binding names one
+  sub-agent model, so two sub-agents of the same parent cannot be held to
+  different classes.
+- Dropping the parent's `allow` list when `subagent_classes` narrows is a
+  judgement call; an organization that names models explicitly must name the
+  sub-agent classes too or the narrowing permits nothing.
 - A strict policy against a thin catalog permits nothing, and the failure is a
   build nobody can complete until an approval happens.
 
 ## Exit criteria
-- Sub-agent models are checked against their own classes (M4).
-- A permitted fallback is chosen automatically where the policy allows (M5).
+- ~~Sub-agent models are checked against their own classes (M4).~~ Done.
+- ~~A permitted fallback is chosen automatically where the policy allows (M5).~~
+  Done, recorded on the IR and in the registry.
 - Catalog figures are refreshed from a source rather than typed (M6).
 
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | M4 and M5 done: sub-agent models checked against `subagent_classes`, opt-in fallback resolved and recorded on the IR. |
 | 1.0.0 | 2026-09-20 | Opened. Policy, resolution and compile-time refusal landed. |

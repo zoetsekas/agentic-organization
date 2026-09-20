@@ -29,6 +29,9 @@ LOCK = "lock.acquire"
 BREAK_LOCK = "lock.break"
 MANAGE_MEMBERS = "workspace.members"
 MANAGE_SETTINGS = "designer.settings"
+# Reading the audit log is an administrative act: it names people and what they
+# were refused, so it sits with membership and settings, not with VIEW.
+READ_AUDIT = "audit.read"
 DELETE_WORKSPACE = "workspace.delete"
 
 ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
@@ -37,11 +40,11 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[str]] = {
     UserRole.EDITOR: frozenset({VIEW, EDIT, CREATE, LOCK, RESTORE}),
     UserRole.ADMIN: frozenset({
         VIEW, EDIT, CREATE, DELETE, PUBLISH, REVIEW, RESTORE, LOCK, BREAK_LOCK,
-        MANAGE_MEMBERS, MANAGE_SETTINGS,
+        MANAGE_MEMBERS, MANAGE_SETTINGS, READ_AUDIT,
     }),
     UserRole.OWNER: frozenset({
         VIEW, EDIT, CREATE, DELETE, PUBLISH, REVIEW, RESTORE, LOCK, BREAK_LOCK,
-        MANAGE_MEMBERS, MANAGE_SETTINGS, DELETE_WORKSPACE,
+        MANAGE_MEMBERS, MANAGE_SETTINGS, READ_AUDIT, DELETE_WORKSPACE,
     }),
 }
 

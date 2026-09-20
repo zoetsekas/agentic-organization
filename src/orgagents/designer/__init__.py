@@ -1,3 +1,4 @@
+from .audit import AuditAction, AuditEvent, AuditLog, AuditOutcome
 from .locks import LockConflict, LockManager
 from .merge import apply_resolutions, merge, summarize
 from .models import (
@@ -30,6 +31,7 @@ __all__ = [
     "DesignerService", "DesignerError", "SaveOutcome",
     "Repository", "MemoryRepository", "FileSystemRepository", "SqlRepository",
     "build_repository", "VersionConflict",
+    "AuditLog", "AuditEvent", "AuditAction", "AuditOutcome",
     "LockManager", "LockConflict", "merge", "apply_resolutions", "summarize",
     "Principal", "PermissionDenied", "decide", "require", "permissions_for",
     "SystemRecord", "SystemStatus", "Workspace", "Member", "UserRole",

@@ -97,8 +97,19 @@ def compile_system(
             ir = apply_model_approvals(ir, catalog)
             refused = [
                 f"{a.id}: {a.model_approval.approval_reason}"
+                + (f"; try one of: {', '.join(a.model_approval.alternatives)}"
+                   if a.model_approval.alternatives else "")
                 for a in ir.agents
                 if a.model_approval and not a.model_approval.approved
+            ]
+            # A sub-agent's model is refused the same way the agent's own is.
+            refused += [
+                f"{a.id} (sub-agents): {a.model_approval.subagent_approval_reason}"
+                + (f"; try one of: "
+                   f"{', '.join(a.model_approval.subagent_alternatives)}"
+                   if a.model_approval.subagent_alternatives else "")
+                for a in ir.agents
+                if a.model_approval and not a.model_approval.subagent_approved
             ]
             if refused:
                 raise CompileError(

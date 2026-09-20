@@ -43,9 +43,13 @@ def expired(lock: Lock, now: Optional[datetime] = None) -> bool:
 class LockManager:
     """Acquire, refresh, release and break locks."""
 
-    def __init__(self, repository, ttl_seconds: int = 900) -> None:
+    def __init__(self, repository, ttl_seconds: int = 900,
+                 on_expire=None) -> None:
         self.repository = repository
         self.ttl_seconds = ttl_seconds
+        # Expiry has no request behind it, so the only way it becomes visible
+        # to an auditor is if the manager announces it as it happens.
+        self.on_expire = on_expire
 
     # -- queries -----------------------------------------------------------
 
@@ -56,6 +60,8 @@ class LockManager:
         for lock in self.repository.locks(system_id):
             if expired(lock, now):
                 self.repository.drop_lock(lock.id)
+                if self.on_expire is not None:
+                    self.on_expire(lock)
             else:
                 live.append(lock)
         return live

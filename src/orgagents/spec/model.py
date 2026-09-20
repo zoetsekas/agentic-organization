@@ -516,8 +516,10 @@ class ModelPolicy(BaseModel):
     require_regions: list[str] = Field(default_factory=list)
     # A cheaper class for sub-agent calls, when the agent has sub-agents.
     subagent_classes: list[ModelClass] = Field(default_factory=list)
-    # Fall back to a permitted cheaper model if the preferred one is unavailable.
-    allow_fallback: bool = True
+    # Fall back to a permitted model when the bound one is not allowed. Off by
+    # default: a fallback is a quiet change of model, so it is opted into
+    # rather than inherited (ADR-0040 v1.1.0).
+    allow_fallback: bool = False
 
 
 class Mission(BaseModel):

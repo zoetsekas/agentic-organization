@@ -459,23 +459,22 @@ def review_implementation(
            "set `memory` on the target binding (ADR-0028)")
 
     if catalog is not None:
-        from .compiler.ir import build_ir
+        from .compiler.ir import apply_model_approvals, build_ir
 
-        ir = build_ir(spec, target=target, binding=bound)
+        # The same resolution the compiler performs, so the gate cannot pass
+        # something the build would refuse — sub-agents included (ADR-0040).
+        ir = apply_model_approvals(
+            build_ir(spec, target=target, binding=bound), catalog)
         refused = []
         for agent in ir.agents:
-            decision = catalog.resolve_model(
-                agent.model_policy,
-                provider=agent.model.get("provider", ""),
-                model=agent.model.get("model", ""),
-            ) if False else catalog.resolve_model(
-                agent.model_policy,
-                provider=agent.model.get("provider", ""),
-                model_id=agent.model.get("model", ""),
-                groups=agent.groups, environment=spec.metadata.environment,
-            )
-            if not decision.allowed:
-                refused.append(f"{agent.id}: {decision.reason}")
+            approval = agent.model_approval
+            if approval is None:
+                continue
+            if not approval.approved:
+                refused.append(f"{agent.id}: {approval.approval_reason}")
+            if not approval.subagent_approved:
+                refused.append(
+                    f"{agent.id} (sub-agents): {approval.subagent_approval_reason}")
         _check(report, "implementation", not refused, "models_are_approved",
                "Every bound model is permitted and catalogued",
                "; ".join(refused[:3]),

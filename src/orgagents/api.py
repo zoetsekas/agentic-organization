@@ -598,6 +598,20 @@ def create_app(
         return _guard(designer.restore, user, system_id,
                       version).model_dump(mode="json")
 
+    @app.get("/api/designer/audit")
+    def designer_audit(system_id: Optional[str] = None, actor: Optional[str] = None,
+                       action: Optional[str] = None, since: Optional[str] = None,
+                       until: Optional[str] = None, limit: int = 200,
+                       user: Principal = Depends(principal)) -> list[dict]:
+        """The designer audit log (ADR-0043). Admins and owners only; there is
+        no write side, because the log is append-only."""
+        return [
+            e.model_dump(mode="json")
+            for e in _guard(designer.audit_events, user, system_id=system_id,
+                            actor=actor, action=action, since=since, until=until,
+                            limit=limit)
+        ]
+
     @app.get("/api/designer/palette")
     def designer_palette() -> dict:
         """What the canvas can place, and the fields each kind needs."""

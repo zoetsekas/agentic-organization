@@ -48,6 +48,53 @@ def _scheduler_command(args: argparse.Namespace) -> int:
         return 0
 
 
+def _spec_language_command(args: argparse.Namespace) -> int:
+    """`spec migrate` and `spec schema` — version tooling (WS-002 M4/M5)."""
+    import yaml
+
+    from .spec.loader import SpecVersionError, dump_spec, load_spec_text
+    from .spec.migrations import CURRENT, migrate
+    from .spec.schema import system_spec_schema_json
+
+    if args.action == "schema":
+        text = system_spec_schema_json()
+        if args.out:
+            Path(args.out).write_text(text)
+            print(f"wrote {args.out}")
+        else:
+            print(text, end="")
+        return 0
+
+    if not args.path:
+        print("error: spec migrate needs a path")
+        return 2
+    source = Path(args.path).read_text()
+    data = yaml.safe_load(source) or {}
+    declared = str((data.get("metadata") or {}).get("spec_version", CURRENT))
+    try:
+        upgraded, changes = migrate(data, to=CURRENT)
+    except SpecVersionError as e:
+        print(f"error: {e}")
+        return 1
+
+    if not changes:
+        print(f"{args.path} is already at spec_version {CURRENT}; nothing to do")
+        return 0
+    print(f"{args.path}: {declared} → {CURRENT}")
+    for line in changes:
+        print(f"  {line}")
+
+    # Validate before writing: a migration that produces an unloadable
+    # document should fail loudly rather than overwrite the original.
+    spec = load_spec_text(yaml.safe_dump(upgraded, sort_keys=False))
+    if args.write:
+        Path(args.path).write_text(dump_spec(spec))
+        print(f"wrote {args.path}")
+    else:
+        print("(pass --write to save)")
+    return 0
+
+
 def _compiler_command(args: argparse.Namespace) -> int:
     from .compiler import build_ir, compile_system
     from .compiler.base import register_builtin_targets
@@ -62,6 +109,15 @@ def _compiler_command(args: argparse.Namespace) -> int:
                 print(f"{'':18} ! {caveat}")
         return 0
 
+    # These two answer questions *about* the spec language, so neither can go
+    # through `load_spec` — one reads a document too old for it, the other
+    # reads no document at all.
+    if args.cmd == "spec" and args.action in ("migrate", "schema"):
+        return _spec_language_command(args)
+
+    if not getattr(args, "path", None):
+        print(f"error: {args.cmd} needs a path to a system spec")
+        return 2
     spec = load_spec(args.path)
     binding = load_binding(args.binding) if getattr(args, "binding", None) else None
 
@@ -271,10 +327,15 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("prompt")
 
     p_spec = sub.add_parser("spec", help="work with a System Spec")
-    p_spec.add_argument("action", choices=["validate", "ir", "show"])
-    p_spec.add_argument("path")
+    p_spec.add_argument("action",
+                        choices=["validate", "ir", "show", "migrate", "schema"])
+    p_spec.add_argument("path", nargs="?")
     p_spec.add_argument("--binding")
     p_spec.add_argument("--target", default="local")
+    p_spec.add_argument("--write", action="store_true",
+                        help="for 'migrate': write the upgraded spec back")
+    p_spec.add_argument("-o", "--out", dest="out",
+                        help="for 'schema': write the JSON Schema to this file")
 
     p_comp = sub.add_parser("compile", help="generate code and infrastructure")
     p_comp.add_argument("path")

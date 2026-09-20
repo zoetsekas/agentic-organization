@@ -2,13 +2,13 @@
 id: WS-002
 title: System Spec language, schema and versioning
 status: Active
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
 contributors: [Security Engineering, Developer Experience]
 scope: [spec]
-decisions: [ADR-0004, ADR-0002, ADR-0017]
+decisions: [ADR-0004, ADR-0002, ADR-0017, ADR-0042]
 depends_on: [WS-001]
 tags: [spec, foundational]
 ---
@@ -26,6 +26,8 @@ laptop or to any of three clouds.
   channels, deployment.
 - `orgagents.spec.loader` — YAML/JSON load, `spec_version` handling, defaults.
 - `orgagents.spec.validate` — structural, referential and least-privilege rules.
+- `orgagents.spec.migrations` — ordered per-version steps and `migrate()` (ADR-0042).
+- `orgagents.spec.schema` — JSON Schema export for third-party editors.
 - `examples/acme.system.yaml` — a complete worked specification.
 - A neutrality test asserting the schema names no vendor, SDK or provider.
 
@@ -46,8 +48,8 @@ write the migration path before the first breaking change, not after.
 | M1 Model and loader | Phase 1 | Done |
 | M2 Validator with least-privilege rules | Phase 1 | Done |
 | M3 Worked example specification | Phase 1 | Done |
-| M4 `spec_version` migration tooling | Phase 2 | Not started |
-| M5 JSON Schema export for third-party editors | Phase 2 | Not started |
+| M4 `spec_version` migration tooling | Phase 2 | Done |
+| M5 JSON Schema export for third-party editors | Phase 2 | Done |
 
 ## Dependencies
 WS-001 for the record process. Blocks WS-003, WS-004, WS-005 and every target.
@@ -74,5 +76,6 @@ WS-001 for the record process. Blocks WS-003, WS-004, WS-005 and every target.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-20 | M4 and M5 done: migration registry, loader wiring, JSON Schema export and CLI (ADR-0042). |
 | 1.1.0 | 2026-09-20 | Milestone statuses reconciled with what has shipped. |
 | 1.0.0 | 2026-09-20 | Opened. Model, loader, validator and worked example in progress. |

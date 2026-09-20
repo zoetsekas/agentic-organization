@@ -224,6 +224,22 @@ class ModelIR(BaseModel):
     approval_reason: str = "no catalog consulted"
     alternatives: list[str] = Field(default_factory=list)
     catalog_entry: Optional[str] = None
+    # A fallback is a quiet change of model, so it is recorded rather than
+    # applied silently: the binding asked for one thing and got another
+    # (ADR-0040 v1.1.0).
+    requested_model: str = ""
+    fallback_applied: bool = False
+    fallback_reason: str = ""
+    # The sub-agent model, governed by `subagent_classes` when the policy
+    # narrows it and by the agent's own policy otherwise (ADR-0040 M4).
+    subagent_classes: list[str] = Field(default_factory=list)
+    subagent_approved: bool = True
+    subagent_approval_reason: str = "no sub-agents"
+    subagent_alternatives: list[str] = Field(default_factory=list)
+    subagent_catalog_entry: Optional[str] = None
+    requested_subagent_model: str = ""
+    subagent_fallback_applied: bool = False
+    subagent_fallback_reason: str = ""
 
 
 class SubAgentIR(BaseModel):
@@ -1174,32 +1190,109 @@ def build_ir(
     return ir
 
 
+def _subagent_policy(policy: ModelPolicy) -> ModelPolicy:
+    """The policy a sub-agent's model is judged by.
+
+    `subagent_classes` narrows, so the explicit allow list is dropped with it —
+    otherwise naming a frontier model for the agent would carry it through to
+    every sub-agent and the narrowing would mean nothing. Deny and the cost,
+    context, region and training constraints still apply.
+    """
+    if not policy.subagent_classes:
+        return policy
+    narrowed = policy.model_copy(deep=True)
+    narrowed.classes = list(policy.subagent_classes)
+    narrowed.allow = []
+    return narrowed
+
+
+def _decide(catalog, policy: ModelPolicy, *, provider: str, model_id: str,
+            groups: list[str], environment: str):
+    """Resolve one model, falling back to a permitted one where allowed.
+
+    Returns the decision, the model actually bound, and why it changed.
+    """
+    decision = catalog.resolve_model(
+        policy, provider=provider, model_id=model_id,
+        groups=groups, environment=environment,
+    )
+    if decision.allowed or not policy.allow_fallback:
+        return decision, model_id, ""
+    permitted = catalog.permitted_models(policy, groups=groups,
+                                         environment=environment)
+    if not permitted:
+        return decision, model_id, ""
+    chosen = permitted[0]
+    attributes = chosen.attributes or {}
+    replacement = catalog.check_model(chosen, policy, groups=groups,
+                                      environment=environment)
+    replacement.alternatives = [e.name for e in permitted]
+    reason = (f"'{model_id or 'no model'}' was not permitted ({decision.reason}); "
+              f"fell back to '{chosen.name}'")
+    return replacement, attributes.get("model_id", chosen.name), reason
+
+
 def apply_model_approvals(ir: SystemIR, catalog) -> SystemIR:
-    """Check every agent's bound model against its policy and the catalog.
+    """Check each agent's model, and its sub-agents' model, against its policy.
 
     Kept separate from `build_ir` so a spec still compiles without a catalog —
     the check then simply reports that none was consulted (ADR-0040).
     """
     for agent in ir.agents:
         provider = agent.model.get("provider", "")
-        model_id = agent.model.get("model", "")
-        decision = catalog.resolve_model(
-            agent.model_policy, provider=provider, model_id=model_id,
+        requested = agent.model.get("model", "")
+        policy = agent.model_policy
+        decision, model_id, fallback_reason = _decide(
+            catalog, policy, provider=provider, model_id=requested,
             groups=agent.groups, environment=ir.environment,
         )
-        attributes = {}
-        if decision.entry is not None:
-            attributes = decision.entry.attributes or {}
+        attributes = decision.entry.attributes if decision.entry is not None else {}
+
+        # A sub-agent runs on the parent's model unless the binding names a
+        # cheaper one; either way it is governed, because an ungoverned
+        # sub-agent is the obvious way around the policy.
+        sub_policy = _subagent_policy(policy)
+        requested_sub = agent.model.get("subagent_model") or model_id
+        if agent.subagents:
+            sub_decision, sub_model, sub_fallback = _decide(
+                catalog, sub_policy, provider=provider, model_id=requested_sub,
+                groups=agent.groups, environment=ir.environment,
+            )
+        else:
+            sub_decision, sub_model, sub_fallback = None, requested_sub, ""
+
         agent.model_approval = ModelIR(
             provider=provider, model=model_id,
-            subagent_model=agent.model.get("subagent_model"),
+            subagent_model=sub_model,
             temperature=agent.model.get("temperature", 0.2),
             max_tokens=agent.model.get("max_tokens", 8192),
-            classes=list(attributes.get("classes", [])),
+            classes=list((attributes or {}).get("classes", [])),
             approved=decision.allowed, approval_reason=decision.reason,
             alternatives=decision.alternatives,
             catalog_entry=decision.entry.id if decision.entry else None,
+            requested_model=requested,
+            fallback_applied=bool(fallback_reason),
+            fallback_reason=fallback_reason,
+            subagent_classes=[c.value for c in sub_policy.classes]
+            if agent.subagents else [],
+            # `is not None`: a decision is falsy when it refuses.
+            subagent_approved=(
+                sub_decision.allowed if sub_decision is not None else True),
+            subagent_approval_reason=(
+                sub_decision.reason if sub_decision is not None else "no sub-agents"),
+            subagent_alternatives=(
+                sub_decision.alternatives if sub_decision is not None else []),
+            subagent_catalog_entry=(
+                sub_decision.entry.id
+                if sub_decision is not None and sub_decision.entry else None),
+            requested_subagent_model=requested_sub if agent.subagents else "",
+            subagent_fallback_applied=bool(sub_fallback),
+            subagent_fallback_reason=sub_fallback,
         )
+        # The runtime reads the binding, not the approval, so a fallback has to
+        # land back on the model dict or the swap would be cosmetic.
+        agent.model = {**agent.model, "model": model_id,
+                       **({"subagent_model": sub_model} if agent.subagents else {})}
     return ir
 
 

@@ -7,29 +7,50 @@ from typing import Any
 import yaml
 
 from .binding import Binding
-from .model import SPEC_VERSION, SystemSpec
+from .migrations import CURRENT, SpecVersionError, declared_version, migrate
+from .model import SystemSpec
+
+__all__ = [
+    "SpecVersionError",
+    "load_spec",
+    "load_spec_text",
+    "load_spec_with_migration",
+    "load_spec_text_with_migration",
+    "load_binding",
+    "dump_spec",
+]
 
 
-class SpecVersionError(ValueError):
-    """Raised when a document's `spec_version` is not supported."""
-
-
-def _check_version(data: dict[str, Any]) -> None:
-    declared = str((data.get("metadata") or {}).get("spec_version", SPEC_VERSION))
-    major = declared.split(".")[0]
-    if major != SPEC_VERSION.split(".")[0]:
-        raise SpecVersionError(
-            f"spec_version {declared} is not supported by this compiler "
-            f"(expects {SPEC_VERSION.split('.')[0]}.x); run `orgagents spec migrate`"
-        )
-
-
-def load_spec_text(text: str) -> SystemSpec:
+def _parse(text: str) -> dict[str, Any]:
     data = yaml.safe_load(text) or {}
     if not isinstance(data, dict):
         raise ValueError("a system spec must be a mapping")
-    _check_version(data)
-    return SystemSpec.model_validate(data)
+    return data
+
+
+def load_spec_text_with_migration(text: str) -> tuple[SystemSpec, list[str]]:
+    """Load a spec, upgrading an older document, and say what that cost.
+
+    The change list is empty when the document was already current, so callers
+    can distinguish "read as written" from "read after migration" without a
+    second version comparison of their own. A document newer than this
+    compiler raises instead: dropping the fields we do not know about would
+    quietly downgrade someone's design.
+    """
+    data = _parse(text)
+    declared = declared_version(data)
+    changes: list[str] = []
+    if declared != CURRENT:
+        data, changes = migrate(data, to=CURRENT)
+    return SystemSpec.model_validate(data), changes
+
+
+def load_spec_with_migration(path: str | Path) -> tuple[SystemSpec, list[str]]:
+    return load_spec_text_with_migration(Path(path).read_text())
+
+
+def load_spec_text(text: str) -> SystemSpec:
+    return load_spec_text_with_migration(text)[0]
 
 
 def load_spec(path: str | Path) -> SystemSpec:
@@ -44,4 +65,7 @@ def load_binding(path: str | Path) -> Binding:
 def dump_spec(spec: SystemSpec) -> str:
     """Serialize a spec back to YAML, stable enough to round-trip and diff."""
     data = spec.model_dump(mode="json", exclude_defaults=True)
+    # `spec_version` equals the default whenever a document is current, so
+    # excluding defaults would drop the one field a migration exists to set.
+    data.setdefault("metadata", {})["spec_version"] = spec.metadata.spec_version
     return yaml.safe_dump(data, sort_keys=False, width=100, allow_unicode=True)

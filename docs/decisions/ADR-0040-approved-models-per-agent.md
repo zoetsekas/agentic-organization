@@ -2,7 +2,7 @@
 id: ADR-0040
 title: Every agent is limited to an approved set of models
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 deciders: [Security Engineering, Platform Architecture]
@@ -61,7 +61,20 @@ does not choose prompts, adapters (ADR-0013) or providers' features.
 `spec.model.ModelPolicy` and `ModelClass`; per-agent policy narrowing a system
 default. `catalogs/service.py` holds `check_model`, `permitted_models` and
 `resolve_model` — deny by default, with every refusal carrying a reason.
-`compiler.ir.apply_model_approvals` attaches the verdict to each agent;
+`compiler.ir.apply_model_approvals` attaches the verdict to each agent and to
+its sub-agents' model, which is judged against `subagent_classes` when the
+policy narrows it and against the agent's own policy otherwise — the parent's
+explicit `allow` list is dropped with the narrowing, or naming a frontier model
+for the agent would carry it into every sub-agent. A refused sub-agent model
+stops the build exactly as the agent's own does.
+
+Where `allow_fallback` is set, a model the policy refuses resolves to the
+cheapest permitted model of the right class instead of failing, and the swap is
+recorded on the IR (`requested_model`, `fallback_applied`, `fallback_reason`,
+and the sub-agent equivalents), printed by `orgagents spec ir` and flagged in
+the registry. `allow_fallback` is off by default: a fallback changes which
+model runs, and that should be asked for.
+
 `compile_system(catalog=…)` raises on any refusal; the phase gate reports the
 same check; the registry has a models table naming the bound model, the
 permitted classes, the ceiling, the regions and whether it is approved.
@@ -89,6 +102,13 @@ Phase 4, with the catalog it depends on.
 - Blended cost (3:1 input to output) is a simplification that will misrank
   models with unusual pricing.
 - Policies add another thing to get right before a design compiles.
+- **Fallback is a quiet change of model.** With `allow_fallback` on, a build
+  that should have stopped instead proceeds on a model nobody picked, usually
+  cheaper and less capable; behaviour, cost and evaluation results move and the
+  only evidence is a field in the IR and a row in the registry that someone has
+  to read. Off by default, but the option exists and will be switched on.
+- One sub-agent model per agent: the binding cannot hold two sub-agents of the
+  same parent to different classes.
 
 ## Alternatives considered
 - **Name models in the spec** — simple, and makes every design a deployment
@@ -112,4 +132,5 @@ the same verdict.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Sub-agent models governed by `subagent_classes`; opt-in fallback to a permitted model, recorded on the IR and in the registry. |
 | 1.0.0 | 2026-09-20 | Accepted. Policy in the spec, models in the catalog, refusal at compile time. |
