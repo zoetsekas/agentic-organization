@@ -20,6 +20,7 @@
     <button data-view="org" class="active">Org chart</button>
     <button data-view="canvas">Canvas</button>
     <button data-view="designer">Harness</button>
+    <button data-view="platform">Catalog</button>
     <button data-view="catalog">Marketplace</button>
     <button data-view="sessions">Sessions</button>
     <button data-view="ops">Operations</button>
@@ -198,6 +199,33 @@
       <h2>Infrastructure</h2>
       <p class="hint">Platform services the designed agents run on.</p>
       <div id="infra" class="infra"></div>
+    </div>
+  </section>
+
+  <!-- PLATFORM CATALOG -->
+  <section id="view-platform" class="view">
+    <div class="panel">
+      <h2>Platform catalog</h2>
+      <p class="hint">
+        The approved building blocks a design may choose from: models, MCP
+        servers, environment templates, permission sets, plugins and guardrails.
+        Only approved entries are selectable; retired ones stop being usable.
+      </p>
+      <div class="toolbar">
+        <input id="pc-q" placeholder="Search the catalog…" />
+        <select id="pc-kind"><option value="">All kinds</option></select>
+        <select id="pc-status">
+          <option value="">Any status</option>
+          <option value="approved">Approved</option>
+          <option value="restricted">Restricted</option>
+          <option value="proposed">Proposed</option>
+          <option value="in_review">In review</option>
+          <option value="deprecated">Deprecated</option>
+          <option value="retired">Retired</option>
+        </select>
+      </div>
+      <div id="pc-stats" class="statrow"></div>
+      <div id="pc-entries" class="cards"></div>
     </div>
   </section>
 

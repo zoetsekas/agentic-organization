@@ -588,6 +588,117 @@ def validate_spec(spec: SystemSpec) -> list[Finding]:
             err("trace_leak", f"data class '{dc.id}' may not appear in traces but is not "
                 "redacted in the observability contract", dc.id)
 
+    # -- missions (ADR-0039) ----------------------------------------------
+    from datetime import date
+
+    seen_missions: set[str] = set()
+    for mission in spec.missions:
+        if mission.id in seen_missions:
+            err("duplicate_mission", f"mission '{mission.id}' is defined twice",
+                mission.id)
+        seen_missions.add(mission.id)
+
+        if not mission.leader:
+            err("mission_without_leader", f"mission '{mission.id}' has no leader; "
+                "every team has one", mission.id)
+        elif mission.leader not in mission.members:
+            err("mission_leader_not_member", f"leader '{mission.leader}' is not a "
+                f"member of mission '{mission.id}'", mission.id)
+        unknown = [m for m in mission.members if m not in agent_ids]
+        if unknown:
+            err("mission_member_not_in_org", f"mission '{mission.id}' includes "
+                f"{unknown}, who are not agents in the organization; a mission "
+                "draws from the standing organization", mission.id)
+        if len(set(mission.members)) != len(mission.members):
+            err("mission_duplicate_member", f"mission '{mission.id}' lists the same "
+                "member twice", mission.id)
+        if not mission.objective:
+            err("mission_without_objective", f"mission '{mission.id}' states no "
+                "objective; a short-lived team exists to achieve something",
+                mission.id)
+        if not mission.deliverables:
+            warn("mission_without_deliverables", f"mission '{mission.id}' names no "
+                 "deliverables, so nothing says when it is done", mission.id,
+                 strict=True)
+        if not mission.ends_on:
+            err("mission_without_end", f"mission '{mission.id}' has no end date; a "
+                "mission that never ends is a reorganization, and belongs in the "
+                "org chart", mission.id)
+        elif mission.starts_on:
+            try:
+                start = date.fromisoformat(mission.starts_on)
+                end = date.fromisoformat(mission.ends_on)
+                if end <= start:
+                    err("mission_ends_before_it_starts", f"mission '{mission.id}' "
+                        f"ends on {mission.ends_on}, on or before its start",
+                        mission.id)
+                elif (end - start).days > 180:
+                    warn("mission_too_long", f"mission '{mission.id}' runs for "
+                         f"{(end - start).days} days; past about two quarters this "
+                         "is a standing team and should be in the org chart",
+                         mission.id)
+            except ValueError:
+                err("mission_bad_dates", f"mission '{mission.id}' has unparseable "
+                    "dates; use ISO format", mission.id)
+        if mission.channel and mission.channel not in {c.id for c in spec.channels}:
+            err("unknown_mission_channel", f"mission '{mission.id}' uses unknown "
+                f"channel '{mission.channel}'", mission.id)
+        for workflow_id in mission.workflows:
+            if not any(w.id == workflow_id for w in spec.workflows):
+                err("unknown_mission_workflow", f"mission '{mission.id}' references "
+                    f"unknown workflow '{workflow_id}'", mission.id)
+
+        # A mission may narrow what members hold; it may never widen it.
+        for assignment in mission.roles:
+            role = spec.role(assignment.role)
+            if role is None:
+                err("unknown_role", f"mission '{mission.id}' references unknown role "
+                    f"'{assignment.role}'", mission.id)
+                continue
+            wanted = {p.key() for p in role.permissions}
+            for member_id in mission.members:
+                member = spec.agent(member_id)
+                if member is None:
+                    continue
+                held: set[str] = set()
+                for member_assignment in member.roles:
+                    member_role = spec.role(member_assignment.role)
+                    if member_role:
+                        held |= {p.key() for p in member_role.permissions}
+                home = spec.team_of(member_id)
+                if home:
+                    for team_assignment in home.roles:
+                        team_role = spec.role(team_assignment.role)
+                        if team_role:
+                            held |= {p.key() for p in team_role.permissions}
+                extra = wanted - held
+                if extra:
+                    warn("mission_would_widen_access", f"mission '{mission.id}' "
+                         f"assigns role '{role.id}', which asks for permissions "
+                         f"'{member_id}' does not hold ({sorted(extra)[:3]}); they "
+                         "are dropped, not granted", mission.id)
+
+    # -- model policy (ADR-0040) -------------------------------------------
+    for label, policy in [("system", spec.model_policy)] + [
+        (a.id, a.model_policy) for a in agents if a.model_policy
+    ]:
+        if not policy.classes and not policy.allow:
+            err("model_policy_empty", f"model policy for '{label}' permits nothing: "
+                "name at least one class or an allowed model", label)
+        if policy.allow and policy.classes:
+            warn("model_policy_redundant", f"model policy for '{label}' names both "
+                 "explicit models and classes; the explicit list wins", label)
+        overlap = set(policy.allow) & set(policy.deny)
+        if overlap:
+            err("model_policy_contradiction", f"model policy for '{label}' both "
+                f"allows and denies {sorted(overlap)}", label)
+        if policy.require_regions and spec.compliance.data_residency:
+            if not set(policy.require_regions) & set(spec.compliance.data_residency):
+                warn("model_regions_outside_residency", f"model policy for '{label}' "
+                     f"requires {policy.require_regions}, outside the declared "
+                     f"residency {spec.compliance.data_residency}", label,
+                     strict=True)
+
     # -- guardrails, workspaces, contracts (ADR-0035/0036/0037) -----------
     for guardrail in spec.guardrails:
         if not guardrail.checks:

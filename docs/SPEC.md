@@ -34,6 +34,8 @@ spec (what)  +  binding (how)  →  IR (resolved)  →  target plugins  →  art
 | `artifact_stores` · `context` | Workspaces, offloading and compaction (ADR-0036) |
 | `output_contracts` | Checkable shapes a result must match (ADR-0037) |
 | `operating_principles` | Instructions every agent carries (ADR-0038) |
+| `missions` | Short-lived teams drawn from the organization (ADR-0039) |
+| `model_policy` | Which models an agent may run on (ADR-0040) |
 | `budgets` | Spend ceilings with a mandatory breach action (ADR-0022) |
 | `lifecycle` | Stages, promotion gates and evaluation cases (ADR-0022) |
 | `compliance` | Residency, retention, redaction, review interval |
@@ -68,6 +70,71 @@ organization:
 Delegation follows the tree: a leader delegates to its members and to child-team
 leaders, declared `peers` are reachable laterally, `shared_service: true` agents
 are callable from anywhere, and everything else escalates.
+
+## Missions: short-lived teams
+
+The org chart changes yearly and describes accountability. A mission changes
+weekly and describes work (ADR-0039):
+
+```yaml
+missions:
+  - id: q4_forecast_rebuild
+    objective: Rebuild the Q4 forecast after the EMEA pipeline restatement.
+    deliverables:
+      - A restated Q4 forecast with the assumptions written down.
+    status: active
+    leader: cfo                       # must be one of the members
+    members: [cfo, analyst, cro]      # drawn from the standing organization
+    starts_on: "2026-09-15"
+    ends_on: "2026-10-31"             # required: a mission always ends
+    internal_delegation: true
+```
+
+Four rules are enforced: every mission has a **leader** who is a member; every
+mission has an **end date** (one that never ends is a reorganization); roles
+assigned to a mission are **intersected** with what each member already holds,
+so a mission never grants access; and lateral reach never lets a member task
+their own leader — though the mission leader may task members.
+
+## Model policy
+
+```yaml
+model_policy:                          # the system default
+  classes: [balanced]                  # frontier_reasoning | balanced | fast_cheap
+  min_context_tokens: 100000           # long_context | vision | code | on_premises
+  max_cost_per_million_tokens: 20
+  require_regions: [eu-west]
+  require_no_training_on_data: true
+  subagent_classes: [fast_cheap]
+```
+
+Narrowed per agent. The spec names no model — it asks for a class and states
+constraints. The **catalog** says which concrete models qualify, and the
+compiler **refuses the build** if the binding picks one outside the policy,
+listing what would work instead (ADR-0040):
+
+```
+$ orgagents compile … --target local
+error: the bound model is not permitted for:
+  analyst: 'claude-opus-5' costs 30.0 per million tokens, over the 20 ceiling
+```
+
+## The platform catalog
+
+Separate from the spec: the governed inventory a designer chooses from
+(ADR-0041). Models, MCP servers, plugins, tools, environment templates,
+permission sets, guardrails and knowledge sources — each with an owner, an
+approval status and entitlements.
+
+```bash
+orgagents catalogs models        # the approved model shelf, with cost and context
+orgagents catalogs list --kind mcp_server
+orgagents catalogs approve cat_model_self_hosted
+```
+
+Only `approved` and `restricted` entries are selectable; a `restricted` entry
+needs a matching group entitlement; retiring one invalidates it in every future
+design and the refusal names its replacement.
 
 ## Roles carry both sides
 

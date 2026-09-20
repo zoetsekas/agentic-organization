@@ -43,6 +43,7 @@ function showView(name) {
   location.hash = `#/${name}`;
   const loaders = {
     org: loadOrg, catalog: loadCatalog, sessions: loadSessions, ops: loadOps,
+    platform: loadPlatformCatalog,
     canvas: () => (window.initCanvas && !state.canvasReady
       ? ((state.canvasReady = true), window.initCanvas())
       : undefined),
@@ -304,6 +305,75 @@ async function rateEntry(entryId) {
 function debounce(fn, ms) {
   let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
+
+/* ------------------------------------------------- platform catalog */
+async function loadPlatformCatalog() {
+  const kinds = await api("/catalogs/kinds");
+  const select = $("#pc-kind");
+  if (select.options.length <= 1) {
+    fillSelect(select, [["", "All kinds"],
+      ...kinds.filter((k) => k.count).map((k) => [k.id, `${k.label} (${k.count})`])]);
+  }
+  const q = $("#pc-q").value;
+  const kind = select.value;
+  const status = $("#pc-status").value;
+  const [entries, stats] = await Promise.all([
+    api(`/catalogs?q=${encodeURIComponent(q)}&kind=${kind}&status=${status}`),
+    api("/catalogs/stats"),
+  ]);
+  $("#pc-stats").replaceChildren(
+    stat("Entries", stats.total),
+    ...Object.entries(stats.by_status).map(([k, v]) => stat(k, v)),
+    stat("Unreviewed", stats.unreviewed.length));
+  $("#pc-entries").replaceChildren(...entries.map(platformCard));
+}
+
+function platformCard(entry) {
+  const a = entry.attributes || {};
+  const detail = [];
+  if (entry.kind === "model") {
+    if (a.context_tokens) detail.push(`${(a.context_tokens / 1000).toFixed(0)}k context`);
+    if (a.cost_per_million_input != null)
+      detail.push(`$${a.cost_per_million_input}/$${a.cost_per_million_output} per M`);
+    if (a.regions?.length) detail.push(a.regions.join(", "));
+    if (a.trains_on_data) detail.push("trains on data");
+  } else if (entry.kind === "mcp_server") {
+    detail.push(a.transport || "");
+    if (a.tools?.length) detail.push(`${a.tools.length} tools`);
+    if (a.read_only) detail.push("read-only");
+  } else if (entry.kind === "environment_template") {
+    detail.push(a.tier || "", `network: ${a.network || "none"}`);
+  } else if (entry.kind === "permission_set") {
+    detail.push(`${(a.permissions || []).length} permissions`, `risk: ${a.risk}`);
+  }
+  const statusClass = { approved: "ok", restricted: "warn", retired: "err",
+    rejected: "err", deprecated: "warn" }[entry.status] || "";
+  return el("div", { class: "card" },
+    el("h3", {}, entry.name),
+    el("div", { class: "meta" },
+      el("span", { class: "badge" }, entry.kind),
+      el("span", { class: `badge ${statusClass}` }, entry.status),
+      el("span", { class: "badge" }, `v${entry.version}`),
+      ...(entry.entitlement?.groups || []).map((g) =>
+        el("span", { class: "badge warn" }, `group: ${g}`))),
+    el("p", {}, entry.summary || "No summary."),
+    el("p", { class: "hint" }, detail.filter(Boolean).join(" · ") || "—"),
+    el("p", { class: "hint" },
+      `${entry.owner || "unowned"}${entry.installs ? ` · ${entry.installs} uses` : ""}`),
+    el("div", { class: "actions" },
+      el("button", { onclick: () => reviewEntry(entry.id, "approved") }, "Approve"),
+      el("button", { onclick: () => reviewEntry(entry.id, "restricted") }, "Restrict"),
+      el("button", { onclick: () => reviewEntry(entry.id, "retired") }, "Retire")));
+}
+
+async function reviewEntry(entryId, status) {
+  await api(`/catalogs/${entryId}/review?status=${status}`, { method: "POST" });
+  setStatus(`marked ${status}`);
+  loadPlatformCatalog();
+}
+
+["#pc-q", "#pc-kind", "#pc-status"].forEach((sel) =>
+  $(sel).addEventListener("input", debounce(loadPlatformCatalog, 250)));
 
 /* ---------------------------------------------------------- sessions */
 async function loadSessions() {

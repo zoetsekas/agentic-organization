@@ -11,13 +11,13 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from ..spec.binding import Binding, TargetBinding, default_binding
 from ..spec.model import SystemSpec
 from ..spec.validate import Finding, validate_spec
 from .base import GeneratedFile, register_builtin_targets
-from .ir import SystemIR, build_ir
+from .ir import SystemIR, apply_model_approvals, build_ir
 
 MANIFEST = "manifest.json"
 OVERLAY_DIR = "overlays"
@@ -67,6 +67,7 @@ def compile_system(
     binding: Optional[Binding] = None,
     force: bool = False,
     write: bool = True,
+    catalog: Optional[Any] = None,
 ) -> list[CompileResult]:
     """Validate, resolve to IR, then generate artifacts for each target."""
     findings = validate_spec(spec)
@@ -90,6 +91,19 @@ def compile_system(
             binding.for_target(target_id) if binding else None
         ) or default_binding(target_id)
         ir = build_ir(spec, target=target_id, binding=bound)
+        if catalog is not None:
+            # A bound model outside the agent's policy stops the build: an
+            # unapproved model is not a warning (ADR-0040).
+            ir = apply_model_approvals(ir, catalog)
+            refused = [
+                f"{a.id}: {a.model_approval.approval_reason}"
+                for a in ir.agents
+                if a.model_approval and not a.model_approval.approved
+            ]
+            if refused:
+                raise CompileError(
+                    "the bound model is not permitted for:\n  " + "\n  ".join(refused)
+                )
         files = target.generate(ir)
         target_dir = Path(out_dir) / target_id.replace(":", "-")
         result = CompileResult(target_id, target_dir, ir, files, findings=findings)

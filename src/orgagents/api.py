@@ -357,6 +357,94 @@ def create_app(
     def healthz() -> dict:
         return {"status": "ok", "agents": platform.store.count("agents")}
 
+    # -- platform catalog (ADR-0041) --------------------------------------
+
+    from .catalogs import (
+        ApprovalStatus,
+        CatalogEntry as PlatformCatalogEntry,
+        CatalogKind,
+        CatalogService,
+        Entitlement,
+        seed_catalog,
+    )
+
+    catalog_service = CatalogService(platform.store)
+    if not catalog_service.list():
+        seed_catalog(catalog_service)
+    app.state.catalog = catalog_service
+
+    @app.get("/api/catalogs")
+    def catalogs_search(
+        q: str = "",
+        kind: Optional[str] = None,
+        status: Optional[str] = None,
+        groups: Optional[list[str]] = Query(default=None),
+        environment: str = "development",
+        selectable_only: bool = False,
+    ) -> list[dict]:
+        entries = catalog_service.search(
+            q, kind=CatalogKind(kind) if kind else None,
+            status=ApprovalStatus(status) if status else None,
+            groups=groups, environment=environment,
+            selectable_only=selectable_only,
+        )
+        return [e.model_dump(mode="json") for e in entries]
+
+    @app.get("/api/catalogs/stats")
+    def catalogs_stats() -> dict:
+        return catalog_service.stats()
+
+    @app.get("/api/catalogs/kinds")
+    def catalogs_kinds() -> list[dict]:
+        return [
+            {"id": k.value, "label": k.value.replace("_", " ").title(),
+             "count": len(catalog_service.list(k))}
+            for k in CatalogKind
+        ]
+
+    @app.get("/api/catalogs/{entry_id}")
+    def catalogs_detail(entry_id: str) -> dict:
+        try:
+            return catalog_service.describe(entry_id)
+        except Exception as e:
+            raise HTTPException(404, str(e)) from e
+
+    @app.post("/api/catalogs")
+    def catalogs_publish(entry: PlatformCatalogEntry) -> dict:
+        return catalog_service.publish(entry).model_dump(mode="json")
+
+    @app.post("/api/catalogs/{entry_id}/review")
+    def catalogs_review(entry_id: str, status: str, note: str = "",
+                        x_user: str = Header(default="anonymous")) -> dict:
+        try:
+            return catalog_service.review(
+                entry_id, ApprovalStatus(status), reviewer=x_user, note=note
+            ).model_dump(mode="json")
+        except Exception as e:
+            raise HTTPException(400, str(e)) from e
+
+    @app.post("/api/catalogs/{entry_id}/entitle")
+    def catalogs_entitle(entry_id: str, entitlement: Entitlement) -> dict:
+        try:
+            return catalog_service.entitle(entry_id,
+                                           entitlement).model_dump(mode="json")
+        except Exception as e:
+            raise HTTPException(400, str(e)) from e
+
+    @app.post("/api/catalogs/models/permitted")
+    def catalogs_permitted_models(policy: dict[str, Any],
+                                  environment: str = "development") -> list[dict]:
+        """Which catalogued models an agent's policy permits, cheapest first."""
+        from .spec.model import ModelPolicy
+
+        permitted = catalog_service.permitted_models(
+            ModelPolicy.model_validate(policy), environment=environment)
+        return [
+            {"id": e.id, "name": e.name, "summary": e.summary,
+             "attributes": e.attributes, "status": e.status.value}
+            for e in permitted
+        ]
+
     # -- designer: workspaces, systems, canvas, locks (ADR-0031/0032/0033) --
 
     from .designer import (

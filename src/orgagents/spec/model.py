@@ -27,7 +27,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-SPEC_VERSION = "1.1.0"
+SPEC_VERSION = "1.2.0"
 
 
 # --------------------------------------------------------------------------
@@ -115,6 +115,32 @@ class ChannelClass(str, Enum):
     TEAM_CHAT = "team_chat"              # human-facing chat surface
     MAIL = "mail"
     WEBHOOK = "webhook"
+
+
+class MissionStatus(str, Enum):
+    """Where a short-lived team is in its life (ADR-0039)."""
+
+    PROPOSED = "proposed"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    DISBANDED = "disbanded"
+
+
+class ModelClass(str, Enum):
+    """What an agent needs from a model, not which model it gets (ADR-0040).
+
+    The spec says `frontier_reasoning`; the catalog says which models qualify;
+    the binding picks one and the compiler checks it is permitted.
+    """
+
+    FRONTIER_REASONING = "frontier_reasoning"
+    BALANCED = "balanced"
+    FAST_CHEAP = "fast_cheap"
+    LONG_CONTEXT = "long_context"
+    VISION = "vision"
+    CODE = "code"
+    EMBEDDING = "embedding"
+    ON_PREMISES = "on_premises"
 
 
 class GuardrailKind(str, Enum):
@@ -471,6 +497,77 @@ class WorkingHours(BaseModel):
     holidays: list[str] = Field(default_factory=list)   # ISO dates
 
 
+class ModelPolicy(BaseModel):
+    """Which models an agent is permitted to run on (ADR-0040).
+
+    Stated as capability classes plus constraints, so the design stays neutral;
+    the catalog resolves classes to concrete models and the compiler refuses a
+    binding that picks one outside this policy.
+    """
+
+    classes: list[ModelClass] = Field(default_factory=lambda: [ModelClass.BALANCED])
+    # Explicit catalog entry ids, when an organization names models directly.
+    allow: list[str] = Field(default_factory=list)
+    deny: list[str] = Field(default_factory=list)
+    # Constraints every permitted model must satisfy.
+    max_cost_per_million_tokens: Optional[float] = None
+    min_context_tokens: Optional[int] = None
+    require_no_training_on_data: bool = True
+    require_regions: list[str] = Field(default_factory=list)
+    # A cheaper class for sub-agent calls, when the agent has sub-agents.
+    subagent_classes: list[ModelClass] = Field(default_factory=list)
+    # Fall back to a permitted cheaper model if the preferred one is unavailable.
+    allow_fallback: bool = True
+
+
+class Mission(BaseModel):
+    """A short-lived team drawn from the standing organization (ADR-0039).
+
+    The org chart changes slowly and describes accountability. A mission
+    changes weekly and describes *work*: a named objective, deliverables, a
+    leader, the people on it, and a date it ends. Members keep their home team
+    and their own permissions; the mission is a temporary working arrangement,
+    not a reorganization.
+    """
+
+    id: str
+    name: str = ""
+    objective: str = ""
+    deliverables: list[str] = Field(default_factory=list)
+    status: MissionStatus = MissionStatus.PROPOSED
+    # Agent ids drawn from the standing organization. The leader must be one.
+    leader: str = ""
+    members: list[str] = Field(default_factory=list)
+    # The human accountable for the mission's outcome.
+    sponsor: Optional[HumanCounterpart] = None
+    starts_on: Optional[str] = None      # ISO date
+    ends_on: Optional[str] = None        # ISO date; a mission always ends
+    # Members may delegate to each other for the mission's duration. This is
+    # the point of a task force, and it is declared rather than assumed.
+    internal_delegation: bool = True
+    # A mission-scoped channel, if the members need one.
+    channel: Optional[str] = None
+    # Roles assigned for the duration. These may only narrow what a member
+    # already holds — a mission never grants new access (ADR-0008).
+    roles: list[RoleAssignment] = Field(default_factory=list)
+    workflows: list[str] = Field(default_factory=list)
+    success_criteria: list[str] = Field(default_factory=list)
+    labels: dict[str, str] = Field(default_factory=dict)
+
+    model_config = {"validate_assignment": True}
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def _coerce_roles(cls, v: Any) -> Any:
+        if isinstance(v, list):
+            return [RoleAssignment.coerce(item) for item in v]
+        return v
+
+    @property
+    def active(self) -> bool:
+        return self.status is MissionStatus.ACTIVE
+
+
 class Guardrail(BaseModel):
     """A boundary check on what enters or leaves an agent (ADR-0035).
 
@@ -750,6 +847,8 @@ class AgentSpec(BaseModel):
     context: Optional[ContextPolicy] = None
     # What this agent must return, when it must return something checkable.
     output_contract: Optional[str] = None
+    # Which models this agent may run on (ADR-0040).
+    model_policy: Optional[ModelPolicy] = None
     workflows: list[str] = Field(default_factory=list)
     channels: list[ChannelClass] = Field(
         default_factory=lambda: [ChannelClass.DIRECT, ChannelClass.ASYNC_BUS]
@@ -761,6 +860,8 @@ class AgentSpec(BaseModel):
     runtime_requirements: list[RuntimeRequirement] = Field(default_factory=list)
     max_delegation_depth: int = 3
     labels: dict[str, str] = Field(default_factory=dict)
+
+    model_config = {"validate_assignment": True}
 
     @field_validator("roles", mode="before")
     @classmethod
@@ -800,6 +901,8 @@ class AgentSpec(BaseModel):
 
 class Team(BaseModel):
     """A team with exactly one leader, members, and nested child teams (ADR-0006)."""
+
+    model_config = {"validate_assignment": True}
 
     id: str
     name: str = ""
@@ -1079,6 +1182,10 @@ class SystemSpec(BaseModel):
     workflows: list[WorkflowSpec] = Field(default_factory=list)
     channels: list[ChannelSpec] = Field(default_factory=list)
     triggers: list[TriggerSpec] = Field(default_factory=list)
+    # Short-lived teams drawn from the standing organization (ADR-0039).
+    missions: list[Mission] = Field(default_factory=list)
+    # The default model policy, narrowed per agent (ADR-0040).
+    model_policy: ModelPolicy = Field(default_factory=ModelPolicy)
     interaction_flows: list[InteractionFlow] = Field(default_factory=list)
     knowledge: list[KnowledgeSource] = Field(default_factory=list)
     budgets: list[Budget] = Field(default_factory=list)
@@ -1139,6 +1246,15 @@ class SystemSpec(BaseModel):
 
     def endpoint(self, endpoint_id: str) -> Optional[AgentEndpoint]:
         return next((e for e in self.endpoints if e.id == endpoint_id), None)
+
+    def mission(self, mission_id: str) -> Optional[Mission]:
+        return next((m for m in self.missions if m.id == mission_id), None)
+
+    def missions_for(self, agent_id: str, active_only: bool = False) -> list[Mission]:
+        return [
+            m for m in self.missions
+            if agent_id in m.members and (not active_only or m.active)
+        ]
 
     def guardrail(self, guardrail_id: str) -> Optional[Guardrail]:
         return next((g for g in self.guardrails if g.id == guardrail_id), None)

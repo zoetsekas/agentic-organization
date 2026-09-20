@@ -142,6 +142,30 @@ def registry_report(ir: SystemIR) -> str:
         for n in ir.memory.namespaces
     ]
 
+    mission_rows = [
+        f"| `{m.id}` | {m.objective.strip().splitlines()[0][:70] if m.objective else '—'} | "
+        f"`{m.leader}` | {', '.join(m.members)} | {m.status} | "
+        f"{m.starts_on or '—'} → {m.ends_on or '**no end**'} | "
+        f"{len(m.deliverables)} |"
+        for m in ir.missions
+    ]
+
+    model_rows = [
+        f"| `{a.id}` | {a.model_approval.model if a.model_approval else a.model.get('model', '—')} | "
+        f"{', '.join(c.value for c in a.model_policy.classes) or '—'} | "
+        f"{(a.model_policy.max_cost_per_million_tokens or '—')} | "
+        f"{', '.join(a.model_policy.require_regions) or 'any'} | "
+        f"{'yes' if (a.model_approval and a.model_approval.approved) else ('**no**' if a.model_approval else 'not checked')} |"
+        for a in sorted(ir.agents, key=lambda x: x.id)
+    ]
+
+    unapproved_models = [
+        a.id for a in ir.agents if a.model_approval and not a.model_approval.approved
+    ]
+    open_missions = [
+        m.id for m in ir.missions if m.status in ("proposed", "active") and not m.ends_on
+    ]
+
     single_human = [
         a.id for a in ir.agents if len(a.humans) == 1
     ]
@@ -216,6 +240,18 @@ what it may reach, what wakes it and where it talks to people.
 |---|---|---|---|---|
 {chr(10).join(namespace_rows) or "| — |"}
 
+## Missions (short-lived teams)
+
+| Mission | Objective | Leader | Members | Status | Window | Deliverables |
+|---|---|---|---|---|---|---|
+{chr(10).join(mission_rows) or "| — |"}
+
+## Models and model policy
+
+| Agent | Bound model | Permitted classes | Cost ceiling | Regions | Approved |
+|---|---|---|---|---|---|
+{chr(10).join(model_rows) or "| — |"}
+
 ## What wakes them
 
 | Trigger | Kind | When | Agent | Overlap / catch-up | Max runtime | Delivers to | On failure |
@@ -255,6 +291,8 @@ Beyond the hierarchy: who may consult, notify or escalate to whom.
 - **Agents that never run unattended:** {", ".join(f"`{a}`" for a in untriggered) or "none"}
 - **Agents with a single paired human:** {", ".join(f"`{a}`" for a in single_human) or "none"}
 - **Agents with no long-term memory:** {", ".join(f"`{a}`" for a in no_memory) or "none"}
+- **Agents on an unapproved model:** {", ".join(f"`{a}`" for a in unapproved_models) or "none"}
+- **Missions with no end date:** {", ".join(f"`{m}`" for m in open_missions) or "none"}
 - **Compliance frameworks:** {", ".join(ir.compliance.frameworks) or "none declared"}
 - **Data residency:** {", ".join(ir.compliance.data_residency) or "unrestricted"}
 - **Redacted from traces:** {", ".join(ir.compliance.redact_data_classes) or "nothing"}

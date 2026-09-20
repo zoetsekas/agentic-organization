@@ -80,8 +80,9 @@ orgagents seed && orgagents serve                       # UI on localhost:8000
 orgagents phase    examples/acme.system.yaml --binding examples/acme.binding.yaml \
                    --target terraform:gcp    # definition + implementation readiness
 orgagents schedule examples/acme.system.yaml --simulate-days 7
+orgagents catalogs models                    # the approved model shelf
 orgagents records  validate                  # ADR/WS graph integrity
-pytest                                       # 289 tests, no network or API keys
+pytest                                       # 327 tests, no network or API keys
 
 # Design in a browser: drag-and-drop canvas, multi-user, with history
 orgagents serve      # then open http://localhost:8000/ui/#/canvas
@@ -134,8 +135,8 @@ tools and voice as a modality are recorded as backlog, not built.
 
 ## Decisions and delivery
 
-Architecture is recorded, not remembered (ADR-0001). Thirty-eight decision
-records and twenty-four workstream records, machine-validated in CI:
+Architecture is recorded, not remembered (ADR-0001). Forty-one decision records
+and twenty-seven workstream records, machine-validated in CI:
 
 - [docs/decisions/index.md](docs/decisions/index.md) — **ADRs**: why, who, what,
   where, how, when, advantages *and* disadvantages, with statuses, semver,
@@ -171,6 +172,9 @@ implementation: [ADR-0006 v1.1.0](docs/decisions/ADR-0006-recursive-teams-with-l
 | Drag-and-drop canvas designer | `web/canvas.js`, `designer/` |
 | Multi-user designer: RBAC, locks, three-way merge | `designer/` |
 | Pluggable designer persistence: files, relational, memory | `designer/repository.py` |
+| Missions — short-lived teams with a leader and an end date | `spec/model.py` |
+| Per-agent approved-model policy, enforced at compile time | `catalogs/service.py` |
+| Platform catalog: models, MCPs, templates, permission sets | `catalogs/` |
 | Spec validation incl. least-privilege rules | `spec/validate.py` |
 | Two-phase compiler: spec → IR → target plugins | `compiler/` |
 | Local target: Compose stack + single-process mode | `compiler/targets/local.py` |
@@ -275,6 +279,27 @@ back; past a token threshold, older turns compact while recent ones stay
 verbatim — and compaction that would not actually save tokens is refused
 (ADR-0036).
 
+**The org chart is slow; missions are not.** A mission is a short-lived team
+drawn from the standing organization: an objective, deliverables, a leader, and
+always an end date — a mission that never ends is a reorganization and is
+refused. Members keep their home team and their own permissions. Roles assigned
+to a mission are **intersected** with what each member already holds, so a
+mission can never be a permission side-door, and lateral reach never lets
+someone task their own leader (ADR-0039).
+
+**Every agent is limited to approved models.** The spec asks for a *class* —
+`frontier_reasoning`, `balanced`, `fast_cheap`, `long_context` — with
+constraints on cost, context, region and whether the vendor trains on submitted
+data. The **catalog** says which concrete models qualify. The compiler refuses
+the build if the binding picks one outside the policy, and the refusal lists
+what would work instead (ADR-0040).
+
+**One governed catalog feeds the designer.** Models, MCP servers, plugins,
+tools, environment templates, permission sets, guardrails and knowledge sources
+— each with an owner, an approval status and entitlements. Only approved
+entries are selectable; retiring one invalidates it everywhere at once
+(ADR-0041).
+
 **The fleet has a registry.** Every target generates `REGISTRY.md`: each agent
 with its owner, identity, permissions, environment, triggers, channels and
 budget, plus review flags naming unowned agents and unbounded spend (ADR-0022).
@@ -372,6 +397,12 @@ Known gaps, tracked in the workstreams rather than glossed:
   violations are recorded rather than retried (WS-024 M6).
 - **Designer identity comes from a header** and is only safe behind an
   authenticating proxy; OIDC integration is WS-021 M3.
+- **A mission past its end date still confers lateral reach** — the date is
+  recorded but not enforced at runtime (WS-025 M4).
+- **Catalog figures go stale**: model pricing, context windows and regions are
+  typed in, not fetched, so a cost ceiling can check an out-of-date number
+  (WS-027 M6). Non-Anthropic model entries ship as proposals an operator must
+  complete, rather than as guessed figures.
 - **Terraform is generated but not applied or `terraform validate`-ed here** —
   the binary is not installed in this environment, so the tests check
   identifier validity and block balance instead. Real `plan`/`apply` against a

@@ -7,8 +7,8 @@
 
 metadata:
   name: acme
-  spec_version: "1.1.0"
-  version: "0.4.0"
+  spec_version: "1.2.0"
+  version: "0.5.0"
   description: Finance, technology and revenue agents mirroring Acme's org chart.
   owner: Acme Platform Team
   environment: development
@@ -283,6 +283,10 @@ organization:
       name: ceo-agent
       description: Routes company-wide requests and owns cross-function escalation.
       roles: [chief_executive]
+      model_policy:
+        classes: [frontier_reasoning]
+        max_cost_per_million_tokens: 40
+        require_regions: [eu-west]
       environment: {environment: reasoning}
       humans:
         - name: Dana Whitfield
@@ -342,6 +346,12 @@ organization:
           name: financial-analyst-agent
           description: Answers warehouse questions and drafts variance analysis.
           roles: [financial_analyst]
+          model_policy:
+            classes: [balanced, long_context]
+            min_context_tokens: 150000
+            max_cost_per_million_tokens: 20
+            require_regions: [eu-west]
+            subagent_classes: [fast_cheap]
           knowledge: [finance_handbook, company_glossary]
           environment: {environment: analysis, timeout_seconds: 600}
           workflows: [governed_data_request]
@@ -396,6 +406,13 @@ organization:
           name: reconciliation-agent
           description: Reconciles customer identities inside the clean room.
           roles: [reconciliation_specialist]
+          model_policy:
+            # Identifying data never reaches a vendor that trains on it, and
+            # never leaves the region.
+            classes: [balanced]
+            require_no_training_on_data: true
+            require_regions: [eu-west]
+            max_cost_per_million_tokens: 20
           environment: {environment: isolated_review}
           memory:
             long_term_enabled: false      # nothing from the clean room persists
@@ -472,6 +489,10 @@ organization:
               name: platform-engineer-agent
               description: Implements changes and opens pull requests.
               roles: [platform_engineer]
+              model_policy:
+                classes: [code, balanced]
+                max_cost_per_million_tokens: 20
+                require_regions: [eu-west]
               environment: {environment: build}
               knowledge: [engineering_runbooks, company_glossary]
               plugins: [engineering_pack]
@@ -582,6 +603,16 @@ organization:
 
 # Permissions decide what an agent may reach; guardrails decide what may pass
 # (ADR-0035). These apply to every agent; an agent may add more, never fewer.
+# Which models each agent may run on. The catalog says which concrete models
+# satisfy a class; the compiler refuses a binding outside the policy (ADR-0040).
+model_policy:
+  classes: [balanced]
+  require_no_training_on_data: true
+  min_context_tokens: 100000
+  require_regions: [eu-west]
+  subagent_classes: [fast_cheap]
+  max_cost_per_million_tokens: 20
+
 guardrails:
   - id: no_credentials_out
     description: Nothing credential-shaped leaves an agent, ever.
@@ -911,6 +942,57 @@ triggers:
     overlap: allow
     max_runtime_seconds: 600
     failure: {notify_channel: finance_approvals}
+
+# Short-lived teams drawn from the standing organization (ADR-0039). The org
+# chart above changes yearly; these change weekly.
+missions:
+  - id: q4_forecast_rebuild
+    name: Q4 forecast rebuild
+    objective: >-
+      Rebuild the Q4 revenue forecast after the EMEA pipeline restatement, and
+      explain the variance against plan to the board.
+    deliverables:
+      - A restated Q4 forecast with the assumptions written down.
+      - A one-page variance explanation for the board pack.
+    success_criteria:
+      - Every figure traces to a warehouse query.
+      - The CFO and CRO both sign the assumptions.
+    status: active
+    leader: cfo
+    members: [cfo, analyst, cro]
+    sponsor:
+      name: Priya Raman
+      contact: priya@acme.example
+      role_title: Chief Financial Officer
+      roles: [owner]
+    starts_on: "2026-09-15"
+    ends_on: "2026-10-31"
+    channel: finance_approvals
+    internal_delegation: true
+    workflows: [governed_data_request]
+
+  - id: checkout_latency_swat
+    name: Checkout latency task force
+    objective: >-
+      Find and remove the cause of p99 checkout latency regressions introduced
+      in the September releases.
+    deliverables:
+      - A root-cause note with the offending change identified.
+      - A merged fix, or a rollback with a follow-up plan.
+    success_criteria:
+      - p99 back under 400ms for seven consecutive days.
+    status: active
+    leader: platform_lead
+    members: [platform_lead, platform_engineer, sre]
+    sponsor:
+      name: Iris Nakamura
+      contact: iris@acme.example
+      role_title: Chief Technology Officer
+      roles: [owner]
+    starts_on: "2026-09-08"
+    ends_on: "2026-10-06"
+    channel: incidents
+    internal_delegation: true
 
 # Directional links the hierarchy cannot express (ADR-0024).
 interaction_flows:

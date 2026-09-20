@@ -153,6 +153,43 @@ def _compiler_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _catalogs_command(args: argparse.Namespace) -> int:
+    from .catalogs import ApprovalStatus, CatalogKind, CatalogService, seed_catalog
+    from .platform import Platform
+
+    platform = Platform(args.db, configure_logs=False)
+    service = CatalogService(platform.store)
+
+    if args.action == "seed":
+        print(f"published {seed_catalog(service)} entries")
+        return 0
+    if args.action == "stats":
+        print(json.dumps(service.stats(), indent=2))
+        return 0
+    if args.action == "approve":
+        if not args.args:
+            print("usage: orgagents catalogs approve <entry_id>")
+            return 2
+        entry = service.review(args.args[0], ApprovalStatus.APPROVED,
+                               reviewer="cli")
+        print(f"{entry.name}: {entry.status.value}")
+        return 0
+    if args.action == "models":
+        for entry in service.models():
+            attributes = entry.attributes
+            cost = attributes.get("cost_per_million_input")
+            print(f"{entry.name:34} {entry.status.value:11} "
+                  f"{', '.join(attributes.get('classes', [])) or '—':44} "
+                  f"{('$' + str(cost)) if cost else '—':>8}/M in  "
+                  f"{attributes.get('context_tokens', 0):>8} ctx")
+        return 0
+    kind = CatalogKind(args.kind) if args.kind else None
+    for entry in service.search(" ".join(args.args), kind=kind):
+        print(f"{entry.kind.value:22} {entry.name:34} {entry.status.value:11} "
+              f"{entry.summary[:52]}")
+    return 0
+
+
 def _records_command(args: argparse.Namespace) -> int:
     from . import records
 
@@ -237,6 +274,12 @@ def main(argv: list[str] | None = None) -> int:
     p_run_sched.add_argument("--once", action="store_true",
                              help="fire what is due now, then exit")
 
+    p_cat2 = sub.add_parser("catalogs", help="the platform catalog of building blocks")
+    p_cat2.add_argument("action", choices=["list", "seed", "approve", "stats",
+                                           "models"])
+    p_cat2.add_argument("args", nargs="*")
+    p_cat2.add_argument("--kind")
+
     p_rec = sub.add_parser("records", help="ADR and workstream record governance")
     p_rec.add_argument("action", choices=["validate", "index", "graph", "new", "list"])
     p_rec.add_argument("args", nargs="*", help="for 'new': <adr|ws> <title>")
@@ -261,6 +304,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "scheduler":
         return _scheduler_command(args)
+
+    if args.cmd == "catalogs":
+        return _catalogs_command(args)
 
     if args.cmd == "records":
         return _records_command(args)

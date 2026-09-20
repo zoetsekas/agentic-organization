@@ -27,10 +27,13 @@
 | [WS-022](WS-022-concurrent-editing.md) | Concurrent editing — locks, versions and merge | Active | 1.0.0 | Platform Architecture | ADR-0033 | WS-020 |
 | [WS-023](WS-023-canvas-designer.md) | Drag-and-drop canvas designer | Active | 1.0.0 | Product | ADR-0034 | WS-020, WS-021, WS-022 |
 | [WS-024](WS-024-framework-parity.md) | Framework parity — guardrails, context, contracts and shared instructions | Active | 1.0.0 | Platform Architecture | ADR-0035, ADR-0036, ADR-0037, ADR-0038 | WS-011, WS-005 |
+| [WS-025](WS-025-missions.md) | Missions — short-lived teams | Active | 1.0.0 | Product | ADR-0039 | WS-003 |
+| [WS-026](WS-026-model-governance.md) | Model governance — approved models per agent | Active | 1.0.0 | Security Engineering | ADR-0040 | WS-027, WS-005 |
+| [WS-027](WS-027-platform-catalog.md) | Platform catalog of building blocks | Active | 1.0.0 | Platform Architecture | ADR-0041 | WS-020 |
 
 ## By status
 
-- **Active** — [WS-002](WS-002-system-spec-language.md), [WS-003](WS-003-organization-and-roles.md), [WS-004](WS-004-security-model.md), [WS-005](WS-005-compiler-core.md), [WS-006](WS-006-local-deployment-target.md), [WS-008](WS-008-runtime-adapters-and-harness.md), [WS-009](WS-009-designer-ui-and-sdk.md), [WS-012](WS-012-scheduling-and-triggers.md), [WS-013](WS-013-human-channels-and-hitl.md), [WS-014](WS-014-enterprise-registry-and-lifecycle.md), [WS-016](WS-016-human-pairing.md), [WS-017](WS-017-subagents-as-tools.md), [WS-018](WS-018-memory-management.md), [WS-019](WS-019-agent-capability-bundle.md), [WS-020](WS-020-designer-backend.md), [WS-021](WS-021-designer-access-control.md), [WS-022](WS-022-concurrent-editing.md), [WS-023](WS-023-canvas-designer.md), [WS-024](WS-024-framework-parity.md)
+- **Active** — [WS-002](WS-002-system-spec-language.md), [WS-003](WS-003-organization-and-roles.md), [WS-004](WS-004-security-model.md), [WS-005](WS-005-compiler-core.md), [WS-006](WS-006-local-deployment-target.md), [WS-008](WS-008-runtime-adapters-and-harness.md), [WS-009](WS-009-designer-ui-and-sdk.md), [WS-012](WS-012-scheduling-and-triggers.md), [WS-013](WS-013-human-channels-and-hitl.md), [WS-014](WS-014-enterprise-registry-and-lifecycle.md), [WS-016](WS-016-human-pairing.md), [WS-017](WS-017-subagents-as-tools.md), [WS-018](WS-018-memory-management.md), [WS-019](WS-019-agent-capability-bundle.md), [WS-020](WS-020-designer-backend.md), [WS-021](WS-021-designer-access-control.md), [WS-022](WS-022-concurrent-editing.md), [WS-023](WS-023-canvas-designer.md), [WS-024](WS-024-framework-parity.md), [WS-025](WS-025-missions.md), [WS-026](WS-026-model-governance.md), [WS-027](WS-027-platform-catalog.md)
 - **Complete** — [WS-001](WS-001-records-and-governance.md), [WS-011](WS-011-landscape-and-capability-roadmap.md)
 - **Proposed** — [WS-007](WS-007-cloud-terraform-targets.md), [WS-010](WS-010-observability-and-operations.md), [WS-015](WS-015-knowledge-grounding.md)
 

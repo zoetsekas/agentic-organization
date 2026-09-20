@@ -291,6 +291,35 @@ def review_definition(spec: SystemSpec, report: PhaseReport) -> None:
            f"callable without approval: {ungated_external}",
            "gate calls out to agents you do not run")
 
+    # -- missions and model policy (ADR-0039, ADR-0040) -------------------
+    leaderless = [m.id for m in spec.missions if not m.leader]
+    _check(report, "definition", not leaderless, "missions_have_leaders",
+           "Every mission has a leader",
+           f"no leader: {leaderless}",
+           "every team has one accountable leader, however short-lived")
+
+    endless = [m.id for m in spec.missions if not m.ends_on]
+    _check(report, "definition", not endless, "missions_end",
+           "Every mission has an end date",
+           f"no end date: {endless}",
+           "a mission that never ends is a reorganization; put it in the org chart")
+
+    aimless = [m.id for m in spec.missions if not m.objective]
+    _check(report, "definition", not aimless, "missions_have_objectives",
+           "Every mission states its objective",
+           f"no objective: {aimless}",
+           "say what the mission is for; deliverables follow from it")
+
+    policyless = [
+        a.id for a in agents
+        if not (a.model_policy or spec.model_policy).classes
+        and not (a.model_policy or spec.model_policy).allow
+    ]
+    _check(report, "definition", not policyless, "agents_have_a_model_policy",
+           "Every agent is limited to approved models",
+           f"no permitted model class or allow list: {policyless}",
+           "state which model classes this agent may run on (ADR-0040)")
+
     # -- memory (ADR-0028) ------------------------------------------------
     _check(report, "definition",
            not spec.memory.long_term.enabled or bool(spec.memory.namespaces),
@@ -328,7 +357,8 @@ def review_definition(spec: SystemSpec, report: PhaseReport) -> None:
 
 
 def review_implementation(
-    spec: SystemSpec, binding: Optional[Binding], target: str, report: PhaseReport
+    spec: SystemSpec, binding: Optional[Binding], target: str, report: PhaseReport,
+    catalog: Optional[object] = None,
 ) -> None:
     bound: Optional[TargetBinding] = binding.for_target(target) if binding else None
     _check(report, "implementation", bound is not None, "binding_exists",
@@ -428,6 +458,30 @@ def review_implementation(
            "long-term memory is enabled but no store is bound",
            "set `memory` on the target binding (ADR-0028)")
 
+    if catalog is not None:
+        from .compiler.ir import build_ir
+
+        ir = build_ir(spec, target=target, binding=bound)
+        refused = []
+        for agent in ir.agents:
+            decision = catalog.resolve_model(
+                agent.model_policy,
+                provider=agent.model.get("provider", ""),
+                model=agent.model.get("model", ""),
+            ) if False else catalog.resolve_model(
+                agent.model_policy,
+                provider=agent.model.get("provider", ""),
+                model_id=agent.model.get("model", ""),
+                groups=agent.groups, environment=spec.metadata.environment,
+            )
+            if not decision.allowed:
+                refused.append(f"{agent.id}: {decision.reason}")
+        _check(report, "implementation", not refused, "models_are_approved",
+               "Every bound model is permitted and catalogued",
+               "; ".join(refused[:3]),
+               "bind a model the agent's policy permits, or have the catalog "
+               "approve one")
+
     _check(report, "implementation", bool(bound.observability_sink),
            "observability_bound", "An observability sink is selected",
            "observability_sink is empty", "bind traces and metrics (ADR-0016)")
@@ -438,10 +492,11 @@ def review(
     *,
     binding: Optional[Binding] = None,
     target: Optional[str] = None,
+    catalog: Optional[object] = None,
 ) -> PhaseReport:
     """Run both phase reviews; the implementation phase needs a target."""
     report = PhaseReport(spec_name=spec.metadata.name, target=target)
     review_definition(spec, report)
     if target:
-        review_implementation(spec, binding, target, report)
+        review_implementation(spec, binding, target, report, catalog)
     return report
