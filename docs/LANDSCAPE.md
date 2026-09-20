@@ -317,10 +317,55 @@ corroboration: policy enforcement belongs "at the infrastructure layer—not jus
 inside the agent code". That is ADR-0050 and ADR-0054's position, and it is why
 OpenShell's L7 policy engine is interesting to us.
 
+## 8. OpenClaw, read directly
+
+[OpenClaw](https://github.com/openclaw/openclaw) — MIT, TypeScript/Node,
+stewarded by an independent foundation, ~390k stars. A **local-first personal
+assistant**: a **Gateway** acting as the local control plane for sessions,
+tools, events and channel connections; CLI, TUI and control UI on top of it;
+companion apps; pluggable model providers; and a channel layer spanning
+WhatsApp, Telegram, Slack, Discord, Google Chat, Signal, iMessage and twenty
+more. *"State, memory, and credentials live on your hardware."*
+
+It is not a competitor to this platform — it is a personal assistant, not an
+enterprise designer — but three things in it are directly useful.
+
+**1. It is the channel layer we have not built.** WS-013 M4 has been open since
+the human-channels work landed: our `ChannelClass` is abstract, Slack and Teams
+appear only in the binding, and there is no real bridge client behind either —
+routing plans are computed against an in-process stub. OpenClaw already
+maintains bridges to twenty-plus platforms under MIT. Binding our channel class
+to an OpenClaw gateway is a more honest answer than writing and maintaining our
+own Slack and Teams clients, and it fits the binding layer exactly as a runtime
+adapter or a model provider does. It is now the leading candidate for WS-013
+M4, subject to an ADR when somebody implements it. The cost is real and should
+be stated in that ADR: a Node daemon becomes a deployment dependency of a
+Python platform, and a personal-assistant gateway would be doing an enterprise
+messaging job.
+
+**2. Its inbound posture is ours, arrived at independently.** It treats inbound
+messages as untrusted input, and DM-capable channels require pairing approval
+before anyone can talk to the agent. That is ADR-0035's input boundary and a
+control we do **not** have: our approval routing governs what an agent does,
+not who may address it in the first place. An unpaired human messaging an agent
+is an authorization question we have never asked. Added to the roadmap.
+
+**3. Gateway-as-control-plane keeps recurring.** OpenClaw has one, OpenShell has
+one, Agent 365 is one, and our fabric is one. Four independent designs reaching
+the same shape is the strongest corroboration this document contains for
+ADR-0049's split.
+
+It also marks a deployment posture we do not serve: everything on one person's
+hardware, no server, credentials never leaving the device. Our three planes
+assume a fabric somebody operates. A single-user local tenant is a coherent
+thing to want, and nothing in the architecture forbids it — but nothing
+supports it either, and pretending otherwise would be easy.
+
 ---
 
 ## Sources
 
+- Third pass, read directly: [OpenClaw](https://github.com/openclaw/openclaw) · [NVIDIA OpenShell](https://github.com/NVIDIA/openshell) · [Docker Sandboxes](https://www.docker.com/products/docker-sandboxes/)
 - [OpenClaw documentation](https://docs.openclaw.ai/) · [OpenClaw overview](https://openclaw.ai/) · [Milvus: complete guide to OpenClaw](https://milvus.io/blog/openclaw-formerly-clawdbot-moltbot-explained-a-complete-guide-to-the-autonomous-ai-agent.md) · [Yowox: the self-hosted AI gateway](https://yowox.com/posts/openclaw-guide-ai-gateway/)
 - [Microsoft Agent 365: the control plane for AI agents](https://www.microsoft.com/en-us/microsoft-365/blog/2025/11/18/microsoft-agent-365-the-control-plane-for-ai-agents/) · [Agent 365 GA announcement](https://www.microsoft.com/en-us/security/blog/2026/05/01/microsoft-agent-365-now-generally-available-expands-capabilities-and-integrations/) · [Governing agent identities — Entra ID Governance](https://learn.microsoft.com/en-us/entra/id-governance/agent-id-governance-overview) · [Manage Entra Agent IDs in Copilot Studio](https://learn.microsoft.com/en-us/microsoft-copilot-studio/admin-use-entra-agent-identities) · [Copilot Studio security and governance](https://learn.microsoft.com/en-us/microsoft-copilot-studio/security-and-governance)
 - [Claude Cowork](https://claude.com/product/cowork) · [Schedule recurring tasks in Cowork](https://support.claude.com/en/articles/13854387-schedule-recurring-tasks-in-claude-cowork) · [Cowork enterprise administrator guide](https://claude.com/resources/tutorials/claude-cowork-enterprise-administrator-guide) · [Building agents with Claude: skills to scheduled tasks](https://hatchworks.com/blog/claude/building-agents-with-claude/)

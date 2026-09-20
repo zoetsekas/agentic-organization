@@ -55,7 +55,7 @@ class ContainerProvider:
         return BoundaryStatement(
             provider=CONTAINER,
             summary=(
-                "Ordinary containers sharing this host's kernel. A Docker-object "
+                "Ordinary containers on a shared host kernel. A Docker-object "
                 "boundary, not a kernel or account one."
             ),
             kernel_boundary=False,

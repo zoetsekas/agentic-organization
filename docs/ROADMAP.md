@@ -61,7 +61,8 @@ pattern-matching where it should be deciding.
 | 3.1 | Evaluation runner executing declared cases | WS-014 M3 | Evaluation cases are declared and never run, so lifecycle gates check a promise. |
 | 3.2 | Deliverable tracking against mission success criteria | WS-025 M6 | Missions now expire correctly; nothing says whether they achieved anything. |
 | 3.3 | Scheduled mission sweep | WS-025 | Expiry is enforced per delegation; closing the record is still manual. |
-| 3.4 | Real Slack and Teams bridge clients | WS-013 M4 | Routing plans are computed against an in-process bridge. |
+| 3.4 | Real Slack and Teams bridge clients | WS-013 M4 | Routing plans are computed against an in-process bridge. **Leading candidate: bind to an OpenClaw gateway** (MIT, 20+ channels already maintained) rather than writing our own — see LANDSCAPE §8. Needs an ADR: it makes a Node daemon a dependency of a Python platform. |
+| 3.4b | Pairing approval — who may address an agent at all | WS-013 | Our approval routing governs what an agent *does*, never who may talk to it. OpenClaw requires pairing approval on DM-capable channels; we ask nothing. |
 | 3.5 | Runtime approval flow wired through routing plans | WS-013 M5 | In progress; approvals are planned but not enforced end to end. |
 | 3.6 | Retrieval path with citations, and freshness enforcement | WS-015 M3/M4 | Knowledge sources are declared and governed but not retrieved from. |
 | 3.7 | Embedding-backed recall, consolidation, redaction UI | WS-018 M4/M6/M5 | Long-term memory recall is keyword-based. |
