@@ -283,13 +283,12 @@ WORKDIR /workspace
             ir.qualified("isolated" if posture == "none" else "egress")
         )
         service: dict[str, Any] = {
-            # Built from this agent's environment class, so the container it runs
-            # in *is* the isolation boundary the spec declared.
-            "build": {
-                "context": ".",
-                "dockerfile": f"docker/Dockerfile.{env.id}" if env
-                else "Dockerfile",
-            },
+            # The agent process runs on the platform runtime image; the
+            # environment class is the image its *code execution* happens in
+            # (the sandbox-<class> services below, ADR-0055). Conflating the
+            # two gave an agent in a `none` environment a distroless image with
+            # no interpreter to run on.
+            "build": {"context": ".", "dockerfile": "Dockerfile"},
             "image": f"{ir.name}/agent-{agent.id}:{ir.spec_version}",
             "command": ["orgagents", "worker", agent.id],
             "environment": {
