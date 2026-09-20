@@ -46,7 +46,8 @@ COPY --chown=designer:designer src/ ./src/
 COPY --chown=designer:designer web/ ./web/
 COPY --chown=designer:designer examples/ ./examples/
 COPY --chown=designer:designer docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh \
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh \
+ && chmod +x /usr/local/bin/entrypoint.sh \
  && mkdir -p /data && chown designer:designer /data
 
 # /data is where the only mutable state lives. Declared so a `docker run`
