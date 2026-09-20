@@ -75,6 +75,25 @@ class WorkflowBinding(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
 
 
+class ProtocolBinding(BaseModel):
+    """Which wire protocol an external agent endpoint is reached over.
+
+    The spec says an endpoint exists, what it is trusted as and what may be
+    sent to it; *which protocol* reaches it is an implementation choice and
+    lives here, like a model provider or a channel (ADR-0002, ADR-0058).
+    Protocol names are the runtime registry's vocabulary and are deliberately
+    not enumerated in this module — the same stance `WorkflowBinding` takes
+    towards engine names.
+    """
+
+    endpoint: str = ""                    # AgentEndpoint id; "" binds all
+    protocol: str = ""                    # runtime-registry protocol name
+    transport: str = ""                   # the protocol's transport variant
+    protocol_version: str = ""
+    base_url: str = ""                    # the peer's base URL
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
 class CapabilityBinding(BaseModel):
     """How an abstract capability becomes a concrete MCP server mount."""
 
@@ -162,6 +181,7 @@ class TargetBinding(BaseModel):
     channels: list[ChannelBinding] = Field(default_factory=list)
     knowledge: list[KnowledgeBinding] = Field(default_factory=list)
     workflows: list[WorkflowBinding] = Field(default_factory=list)
+    protocols: list[ProtocolBinding] = Field(default_factory=list)
     scheduler: Optional[ScheduleBinding] = None
     memory: Optional[MemoryBinding] = None
     secrets_backend: str = "environment"
@@ -181,6 +201,10 @@ class TargetBinding(BaseModel):
     def workflow_binding(self, workflow_id: str) -> Optional[WorkflowBinding]:
         exact = next((w for w in self.workflows if w.workflow == workflow_id), None)
         return exact or next((w for w in self.workflows if not w.workflow), None)
+
+    def protocol_binding(self, endpoint_id: str) -> Optional[ProtocolBinding]:
+        exact = next((p for p in self.protocols if p.endpoint == endpoint_id), None)
+        return exact or next((p for p in self.protocols if not p.endpoint), None)
 
     def knowledge_binding(self, source_id: str) -> Optional[KnowledgeBinding]:
         return next((k for k in self.knowledge if k.knowledge == source_id), None)

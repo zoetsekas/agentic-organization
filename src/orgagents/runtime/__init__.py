@@ -5,6 +5,15 @@ from .adapters import (
     RuntimeAdapter,
     adapter_for,
 )
+from .a2a import (
+    A2A_PROTOCOL,
+    A2AClient,
+    A2AProtocolBinding,
+    A2AResult,
+    AgentCard,
+    HumanRoutingRequest,
+    RemoteTask,
+)
 from .endpoints import CallerBoundary, EndpointCallResult, call_endpoint
 from .engine import AgentRuntime, RunResult
 # NB: `engines.engine()` is not re-exported — this package already has an
@@ -30,6 +39,13 @@ __all__ = [
     "CallerBoundary",
     "EndpointCallResult",
     "call_endpoint",
+    "A2A_PROTOCOL",
+    "A2AClient",
+    "A2AProtocolBinding",
+    "A2AResult",
+    "AgentCard",
+    "HumanRoutingRequest",
+    "RemoteTask",
     "EngineDescriptor",
     "InvocationMode",
     "InProcessEngine",
