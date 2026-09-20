@@ -40,6 +40,13 @@ class ProviderProfile:
     # Neutral permission verbs that this provider's IAM cannot express at the
     # requested granularity. Declared, not discovered, and surfaced in MAPPING.md.
     coarse_actions: tuple[str, ...] = ()
+    # The per-tenant deployment boundary (ADR-0050): what the tenant's
+    # resources live inside, what Terraform pins it with, and where that is
+    # coarser than one tenant per blast radius.
+    boundary_kind: str = "project"
+    boundary_argument: str = "project"
+    boundary_enforcement: str = ""
+    boundary_coarser_than_model: str = ""
 
 
 PROFILES: dict[str, ProviderProfile] = {
@@ -71,6 +78,20 @@ PROFILES: dict[str, ProviderProfile] = {
         secret_resource="google_secret_manager_secret",
         region_variable="region",
         coarse_actions=("approve",),
+        boundary_kind="project",
+        boundary_argument="project",
+        boundary_enforcement=(
+            "one Google Cloud **project** per tenant, pinned by the provider's "
+            "`project` argument; every IAM binding is a project-level binding "
+            "inside it"
+        ),
+        boundary_coarser_than_model=(
+            "IAM bindings are granted at the project level rather than per "
+            "resource, so an identity reaches every resource of that kind in "
+            "its own tenant's project. Organization-level policy and shared "
+            "VPC attachments are inputs this target does not create, and a "
+            "misconfigured one would reach across projects."
+        ),
     ),
     "aws": ProviderProfile(
         id="aws",
@@ -100,6 +121,19 @@ PROFILES: dict[str, ProviderProfile] = {
         secret_resource="aws_secretsmanager_secret",
         region_variable="region",
         coarse_actions=("approve", "delegate"),
+        boundary_kind="account",
+        boundary_argument="allowed_account_ids",
+        boundary_enforcement=(
+            "one AWS **account** per tenant, pinned by the provider's "
+            "`allowed_account_ids`, so an apply aimed at the wrong account "
+            "fails before it creates anything"
+        ),
+        boundary_coarser_than_model=(
+            "Inline role policies are written per role, but the account is the "
+            "only boundary this target creates; cross-account trust, SCPs and "
+            "resource policies live in the landing zone and are not generated "
+            "here."
+        ),
     ),
     "azure": ProviderProfile(
         id="azure",
@@ -129,6 +163,19 @@ PROFILES: dict[str, ProviderProfile] = {
         secret_resource="azurerm_key_vault_secret",
         region_variable="location",
         coarse_actions=("approve", "delegate", "publish"),
+        boundary_kind="subscription",
+        boundary_argument="subscription_id",
+        boundary_enforcement=(
+            "one Azure **subscription** per tenant, pinned by the provider's "
+            "`subscription_id`; role assignments are scoped to that "
+            "subscription"
+        ),
+        boundary_coarser_than_model=(
+            "Role assignments are subscription-scoped rather than "
+            "resource-scoped, and Azure's built-in roles are broad, so a "
+            "tenant's identity holds more inside its own subscription than "
+            "the spec asked for. This is coarser than the model."
+        ),
     ),
 }
 
@@ -190,6 +237,9 @@ class TerraformTarget:
                 "IAM mapping is lossy; MAPPING.md names every coarsened grant.",
                 f"Actions mapped coarsely on this provider: "
                 f"{', '.join(self.profile.coarse_actions) or 'none'}.",
+                f"The tenant boundary is one {self.profile.boundary_kind} per "
+                f"tenant, which is coarser than ADR-0050's per-resource model; "
+                f"MAPPING.md says where.",
             ],
         }
 
@@ -228,14 +278,20 @@ class TerraformTarget:
 
 provider "{p.terraform_provider}" {{
   {p.region_variable} = var.{p.region_variable}
+  # The tenant boundary on this provider: everything below is created inside
+  # this one {p.boundary_kind}, and an apply pointed elsewhere fails (ADR-0050).
+  {p.boundary_argument} = {"[var.project]" if p.boundary_argument.endswith("ids") else "var.project"}
 }}
 
 locals {{
   system      = "{ir.name}"
   environment = "{ir.environment}"
+  tenant      = "{ir.tenant.id if ir.tenant else ""}"
+  tenant_prefix = "{ir.tenant.namespace_prefix if ir.tenant else ""}"
   labels = {{
     "managed-by"   = "orgagents"
     "system"       = "{_tf_name(ir.name)}"
+    "tenant"       = "{_tf_name(ir.tenant.id) if ir.tenant else ""}"
     "spec-version" = "{ir.spec_version}"
   }}
 }}'''
@@ -256,16 +312,29 @@ locals {{
     def _variables(self, ir: SystemIR) -> str:
         p = self.profile
         secrets = sorted({r.id for r in ir.resources if r.kind == "secret"})
+        # When the fabric has already assigned the tenant a boundary, pin it
+        # here so a plan against somebody else's account cannot even start.
+        boundary = ir.tenant.cloud_boundary if ir.tenant else ""
+        tenant_validation = (
+            f'''
+  validation {{
+    condition     = var.project == "{boundary}"
+    error_message = "This configuration belongs to tenant {ir.tenant.id}, whose {p.boundary_kind} is {boundary}."
+  }}
+'''
+            if boundary
+            else ""
+        )
         blocks = [
             f'''variable "{p.region_variable}" {{
   description = "Deployment {p.region_variable}"
   type        = string
   default     = "{(ir.binding.infrastructure.region or '')}"
 }}''',
-            '''variable "project" {
-  description = "Target project, account or subscription identifier"
+            f'''variable "project" {{
+  description = "The {p.boundary_kind} this tenant deploys into. One {p.boundary_kind} per tenant: it is the boundary, not a label (ADR-0050)."
   type        = string
-}''',
+{tenant_validation}}}''',
             '''variable "image" {
   description = "Container image for the agent runtime"
   type        = string
@@ -294,7 +363,7 @@ locals {{
             blocks.append(
                 f'''resource "{p.identity_resource}" "{name}" {{
   # Workload identity for agent '{agent.id}' (ADR-0015)
-  account_id   = "agent-{agent.id}"
+  account_id   = "{ir.qualified(f'agent-{agent.id}')}"
   display_name = "{agent.identity.display_name}"
 }}'''
             )
@@ -336,7 +405,7 @@ locals {{
             posture = env.network.value if env else "none"
             blocks.append(
                 f'''resource "{service_type}" "{name}" {{
-  name     = "agent-{agent.id}"
+  name     = "{ir.qualified(f'agent-{agent.id}')}"
   {p.region_variable} = var.{p.region_variable}
 
   # team: {' / '.join(agent.team_path)}
@@ -370,7 +439,7 @@ locals {{
                     f'''resource "{job_type}" "{name}_sandbox" {{
   # Execution environment '{env.id}' — tier {env.tier.value}, network {posture},
   # timeout {env.timeout_seconds}s, mounts: {', '.join(env.mounts) or 'none'}
-  name     = "env-{agent.id}"
+  name     = "{ir.qualified(f'env-{agent.id}')}"
   {p.region_variable} = var.{p.region_variable}
 }}'''
                 )
@@ -401,7 +470,7 @@ locals {{
   # {trigger.description or trigger.id}
   # {trigger.schedule}
   # overlap={trigger.overlap} catch_up={trigger.catch_up} retries={trigger.retries}
-  name             = "trigger-{trigger.id}"
+  name             = "{ir.qualified(f'trigger-{trigger.id}')}"
   {p.region_variable} = var.{p.region_variable}
   {p.schedule_field} = "{expression}"
   {p.timezone_field} = "{trigger.timezone}"
@@ -416,7 +485,7 @@ locals {{
                     f'''resource "{p.resources["event_subscription"]}" "{name}" {{
   # {trigger.description or trigger.id}
   # fires on event class '{trigger.event_class}' filtered by {trigger.filters or "{}"}
-  name             = "trigger-{trigger.id}"
+  name             = "{ir.qualified(f'trigger-{trigger.id}')}"
   {p.region_variable} = var.{p.region_variable}
   service_account = {p.identity_resource}.{agent}.email
 }}'''
@@ -425,7 +494,7 @@ locals {{
             blocks.append(
                 f'''resource "{p.resources["message_bus"]}" "dead_letter" {{
   # Runs that exhaust their retries land here (ADR-0025).
-  name = "{ir.binding.scheduler.dead_letter}"
+  name = "{ir.qualified(ir.binding.scheduler.dead_letter)}"
 }}'''
             )
         return "\n\n".join(blocks) + "\n" if blocks else "# no triggers\n"
@@ -452,7 +521,7 @@ locals {{
   # provider={channel.provider} purposes={", ".join(channel.purposes) or "-"}
   # sla={channel.response_sla_minutes or "none"} out_of_hours={channel.out_of_hours}
   # escalation: {escalation}
-  name             = "channel-{channel.id}"
+  name             = "{ir.qualified(f'channel-{channel.id}')}"
   {p.region_variable} = var.{p.region_variable}
 }}'''
             )
@@ -480,7 +549,7 @@ locals {{
   # External agent '{endpoint.id}' — trust: {endpoint.trust.value} (ADR-0030)
   # may be sent: {", ".join(endpoint.send_data_classes) or "nothing"}
   # answers are data, never instructions: {endpoint.treat_output_as_data}
-  name             = "endpoint-{endpoint.id}"
+  name             = "{ir.qualified(f'endpoint-{endpoint.id}')}"
   {p.region_variable} = var.{p.region_variable}
 }}'''
             )
@@ -489,7 +558,7 @@ locals {{
                 f'''resource "{p.resources["knowledge_index"]}" "{_tf_name(source.id)}" {{
   # Grounding source '{source.id}' ({source.kind}); citation required: {source.require_citation}
   # data classes: {", ".join(source.data_classes) or "none"}
-  name             = "knowledge-{source.id}"
+  name             = "{ir.qualified(f'knowledge-{source.id}')}"
   {p.region_variable} = var.{p.region_variable}
 }}'''
             )
@@ -501,7 +570,7 @@ locals {{
 terraform {{
   backend "{self.profile.terraform_provider if self.profile.id != "gcp" else "gcs"}" {{
     bucket = "{backend}"
-    prefix = "{ir.name}/{ir.environment}"
+    prefix = "{ir.tenant.id + '/' if ir.tenant else ''}{ir.name}/{ir.environment}"
   }}
 }}
 '''
@@ -525,11 +594,36 @@ terraform {{
                     rows.append(row)
         unmapped = [k for k in NEUTRAL_RESOURCES if k not in p.resources and
                     k not in ("identity", "policy_binding", "secret")]
+        tenant_section = (
+            f"""## Tenant boundary
+
+Tenant: **{ir.tenant.id}** · namespace prefix `{ir.tenant.namespace_prefix}-` ·
+isolation domain `{ir.tenant.isolation_domain}`.
+
+**What enforces the boundary here:** {p.boundary_enforcement}. Every resource
+name, service identity and secret reference in this configuration carries the
+tenant's namespace prefix, so two tenants' configurations collide on nothing
+even if they are applied into the same {p.boundary_kind} by mistake.
+
+**Where this is coarser than the model:** ADR-0050 treats the tenant boundary as
+absolute and per-resource. Here it is not. {p.boundary_coarser_than_model}
+The namespace prefix prevents collisions; it is not an access control, and it
+does not stop a principal with {p.boundary_kind}-wide credentials from reading
+across it. Read this before you rely on the boundary."""
+            if ir.tenant
+            else """## Tenant boundary
+
+This configuration was compiled **without a tenant**, so nothing enforces a
+tenant boundary and nothing is namespaced. Apply it only into a
+{kind} that hosts this system alone.""".replace("{kind}", p.boundary_kind)
+        )
         return f"""# IAM and resource mapping — {p.display}
 
 Generated from the IR for **{ir.name}** (spec_version {ir.spec_version}).
 This report exists because the mapping is lossy in places, and a gap you cannot
 see is a gap you cannot review (ADR-0012).
+
+{tenant_section}
 
 ## Resource mapping
 

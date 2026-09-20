@@ -2,13 +2,13 @@
 id: WS-030
 title: Fabric common services and operations
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
 contributors: [Product]
 scope: [runtime, targets, security, docs]
-decisions: [ADR-0049]
+decisions: [ADR-0049, ADR-0052]
 depends_on: [WS-010, WS-014, WS-027, WS-028]
 tags: [tenancy, operations]
 ---
@@ -46,10 +46,10 @@ view of a deployment is a contract that a real backend fills in later.
 ## Milestones
 | Milestone | Target | Status |
 |---|---|---|
-| M1 Common-service registry, explicitly listed | Phase 5 | Not started |
-| M2 Deployment lifecycle and transitions | Phase 5 | Not started |
-| M3 Quotas and per-tenant entitlements | Phase 5 | Not started |
-| M4 Health and drift contract with a stub backend | Phase 5 | Not started |
+| M1 Common-service registry, explicitly listed | Phase 5 | Done |
+| M2 Deployment lifecycle and transitions | Phase 5 | Done |
+| M3 Quotas and per-tenant entitlements | Phase 5 | Done |
+| M4 Health and drift contract with a stub backend | Phase 5 | Done |
 | M5 Real backend adapters against a running target | Phase 6 | Not started |
 | M6 Incident capture and escalation | Phase 6 | Not started |
 
@@ -62,6 +62,23 @@ observability, WS-014 for the registry the operational record feeds.
 - An operator can answer "what is running, for whom, and is it healthy" in one
   place.
 - Drift is detected rather than discovered.
+
+## Implementation notes (M1-M4)
+`src/orgagents/fabric/services.py` holds the four listed common services —
+catalog, observability sinks, record layer, identity — each stating what
+crosses the tenant boundary, in which direction and why; the registry refuses a
+service that claims to be shared without saying so. `deployments.py` is the
+lifecycle as an explicit transition table with the role sufficient for each
+move; an illegal transition raises and changes nothing, and every move is
+appended to the deployment's history. `quotas.py` and `health.py` implement
+ADR-0052: a capacity quota degrades between its soft limit and its hard
+ceiling, an entitlement refuses outright, and a health check can never be more
+confident than the observation behind it. Everything persists through the
+existing document `Store`.
+
+The only health backend that exists is `StubBackend`. No adapter in this
+package has spoken to a cloud account or a container daemon, because neither
+exists here — M5 is where that stops being true.
 
 ## Disadvantages
 - **The operational half cannot be proven here.** No cloud account, no Docker
@@ -86,4 +103,5 @@ observability, WS-014 for the registry the operational record feeds.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | M1-M4 done: common-service registry, deployment lifecycle, quotas and entitlements, health and drift against a stub backend (ADR-0052). Adapters remain unproven against a real target. |
 | 1.0.0 | 2026-09-20 | Opened alongside ADR-0049. |

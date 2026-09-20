@@ -59,7 +59,10 @@ class LocalTarget:
                          "channels.json", "memory.json", "REGISTRY.md",
                          "run_local.py", "README.md"],
             "caveats": ["Compose approximates network policy and cannot represent "
-                        "cloud IAM; local runs do not verify those controls."],
+                        "cloud IAM; local runs do not verify those controls.",
+                        "Tenant isolation on one host is a Compose project with "
+                        "its own networks and named volumes — not a kernel or "
+                        "account boundary."],
         }
 
     # -- generation --------------------------------------------------------
@@ -108,17 +111,17 @@ class LocalTarget:
     # -- pieces ------------------------------------------------------------
 
     def _networks(self, ir: SystemIR) -> dict[str, Any]:
-        networks: dict[str, Any] = {"control": {}}
+        networks: dict[str, Any] = {ir.qualified("control"): {}}
         # Channel bridges always need egress to reach the chat provider.
         if any(c.human_facing for c in ir.channels) or any(
             a.environment and a.environment.network.value != "none" for a in ir.agents
         ):
-            networks["egress"] = {}
+            networks[ir.qualified("egress")] = {}
         if any(
             a.environment and a.environment.network.value == "none" for a in ir.agents
         ):
             # An isolated network with no gateway: services on it reach nothing.
-            networks["isolated"] = {"internal": True}
+            networks[ir.qualified("isolated")] = {"internal": True}
         return networks
 
     def _used_environments(self, ir: SystemIR) -> list[Any]:
@@ -244,8 +247,10 @@ CMD ["orgagents", "worker"]
         toolchain = env.toolchains[0].value if env and env.toolchains else "none"
         posture = env.network.value if env else "none"
         limits = TIER_RESOURCES.get(tier, TIER_RESOURCES["minimal"])
-        networks = ["control"]
-        networks.append("isolated" if posture == "none" else "egress")
+        networks = [ir.qualified("control")]
+        networks.append(
+            ir.qualified("isolated" if posture == "none" else "egress")
+        )
         service: dict[str, Any] = {
             # Built from this agent's environment class, so the container it runs
             # in *is* the isolation boundary the spec declared.
@@ -267,6 +272,9 @@ CMD ["orgagents", "worker"]
             "depends_on": ["state"],
             "deploy": {"resources": {"limits": limits}},
             "labels": {
+                # The tenant is on the object itself, so an operator reading a
+                # running container can tell whose it is without the manifest.
+                "org.agentic.tenant": ir.tenant.id if ir.tenant else "",
                 "org.agentic.team": agent.team_id,
                 "org.agentic.network_posture": posture,
                 "org.agentic.identity": agent.identity.id if agent.identity else "",
@@ -284,12 +292,12 @@ CMD ["orgagents", "worker"]
                     "POSTGRES_PASSWORD": "${STATE_PASSWORD}",
                     "POSTGRES_DB": "orgagents",
                 },
-                "networks": ["control"],
-                "volumes": ["state-data:/var/lib/postgresql/data"],
+                "networks": [ir.qualified("control")],
+                "volumes": [f'{ir.qualified("state-data")}:/var/lib/postgresql/data'],
             },
             "telemetry": {
                 "image": "otel/opentelemetry-collector-contrib:latest",
-                "networks": ["control"],
+                "networks": [ir.qualified("control")],
                 "ports": ["4317:4317"],
             },
             "designer": {
@@ -297,7 +305,7 @@ CMD ["orgagents", "worker"]
                 "image": f"{ir.name}/platform:latest",
                 "command": ["orgagents", "serve", "--host", "0.0.0.0"],
                 "ports": ["8000:8000"],
-                "networks": ["control"],
+                "networks": [ir.qualified("control")],
                 "depends_on": ["state"],
             },
         }
@@ -322,7 +330,7 @@ CMD ["orgagents", "worker"]
                     ),
                 },
                 "volumes": ["./triggers.json:/app/triggers.json:ro"],
-                "networks": ["control"],
+                "networks": [ir.qualified("control")],
                 "depends_on": ["state"],
                 "labels": {"org.agentic.triggers": str(len(ir.triggers))},
             }
@@ -343,7 +351,7 @@ CMD ["orgagents", "worker"]
                         ir.memory.long_term.retention_days or 0
                     ),
                 },
-                "networks": ["control"],
+                "networks": [ir.qualified("control")],
                 "depends_on": ["state"],
                 "labels": {
                     "org.agentic.memory.namespaces": ",".join(
@@ -373,7 +381,7 @@ CMD ["orgagents", "worker"]
                 "command": ["serve", "--channel", channel.id],
                 "environment": env,
                 "volumes": ["./channels.json:/app/channels.json:ro"],
-                "networks": ["control", "egress"],
+                "networks": [ir.qualified("control"), ir.qualified("egress")],
                 "labels": {
                     "org.agentic.channel": channel.id,
                     "org.agentic.provider": channel.provider,
@@ -393,7 +401,7 @@ CMD ["orgagents", "worker"]
                     if binding.dsn_secret_ref
                     else {}
                 ),
-                "networks": ["control"],
+                "networks": [ir.qualified("control")],
                 "labels": {"org.agentic.capability": cap.id},
             }
         return yaml.safe_dump(
@@ -401,7 +409,7 @@ CMD ["orgagents", "worker"]
                 "name": ir.name.lower().replace(" ", "-"),
                 "services": services,
                 "networks": self._networks(ir),
-                "volumes": {"state-data": {}},
+                "volumes": {ir.qualified("state-data"): {}},
             },
             sort_keys=False,
             width=100,
@@ -501,6 +509,22 @@ if __name__ == "__main__":
             f"{len(a.permissions)} |"
             for a in ir.agents
         )
+        tenant_section = (
+            f"""This stack belongs to tenant **{ir.tenant.id}** (isolation domain
+`{ir.tenant.isolation_domain}`). Every Compose project name, network, named
+volume, identity and secret reference below carries the prefix
+`{ir.tenant.namespace_prefix}-`, so a second tenant's stack on this host shares
+no Docker object with it.
+
+What enforces the boundary here: the Compose **project name**, the per-tenant
+**networks** and the per-tenant **named volumes**. That is a Docker-level
+boundary, not a kernel or account one — containers still share this host's
+kernel, and anyone with access to the Docker socket can reach every tenant on
+it. Locally, the enforcement is **coarser than the model** ADR-0050 describes."""
+            if ir.tenant
+            else """This system was compiled without a tenant, so nothing here is
+namespaced: it is safe on a host that runs one system and nothing else."""
+        )
         return f"""# {ir.name} — local deployment
 
 Generated from the system spec (spec_version {ir.spec_version}).
@@ -538,6 +562,10 @@ interactive work.
 | Channel | Provider | Purposes | SLA | Out of hours |
 |---|---|---|---|---|
 {channels}
+
+## Tenant isolation
+
+{tenant_section}
 
 ## Caveats
 

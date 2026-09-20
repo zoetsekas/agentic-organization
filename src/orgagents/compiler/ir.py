@@ -83,6 +83,27 @@ NEUTRAL_RESOURCES = (
 )
 
 
+class TenantIR(BaseModel):
+    """The isolation domain the fabric assigned for this compile (ADR-0050).
+
+    It arrives from the fabric, never from the spec: a design that could name
+    its own tenant could widen its own boundary.
+    """
+
+    id: str
+    namespace_prefix: str
+    isolation_domain: str
+    entitlements: list[str] = Field(default_factory=list)
+    # Project / account / subscription a cloud target deploys into, when known.
+    cloud_boundary: str = ""
+
+    def qualify(self, name: str) -> str:
+        return name if self.owns(name) else f"{self.namespace_prefix}-{name}"
+
+    def owns(self, identifier: str) -> bool:
+        return identifier.startswith(f"{self.namespace_prefix}-")
+
+
 class ResponsibilityIR(BaseModel):
     text: str
     source_role: str
@@ -484,6 +505,7 @@ class SystemIR(BaseModel):
     name: str
     spec_version: str
     environment: str = "development"
+    tenant: Optional[TenantIR] = None
     teams: list[TeamIR] = Field(default_factory=list)
     agents: list[AgentIR] = Field(default_factory=list)
     data_classes: list[DataClass] = Field(default_factory=list)
@@ -509,6 +531,10 @@ class SystemIR(BaseModel):
     lifecycle: Lifecycle = Field(default_factory=Lifecycle)
     resilience: Resilience = Field(default_factory=Resilience)
     binding: TargetBinding = Field(default_factory=lambda: default_binding("local"))
+
+    def qualified(self, name: str) -> str:
+        """Tenant-qualify a generated name; a no-op for an untenanted compile."""
+        return self.tenant.qualify(name) if self.tenant else name
 
     def agent(self, agent_id: str) -> Optional[AgentIR]:
         return next((a for a in self.agents if a.id == agent_id), None)
@@ -923,6 +949,7 @@ def build_ir(
     *,
     target: str = "local",
     binding: Optional[TargetBinding] = None,
+    tenant: Optional[TenantIR] = None,
 ) -> SystemIR:
     """Resolve a validated spec into the IR every target consumes."""
     bound = binding or default_binding(target)
@@ -1187,7 +1214,48 @@ def build_ir(
         binding=bound,
     )
     ir.resources = build_resources(ir)
+    if tenant is not None:
+        ir = qualify_for_tenant(ir, tenant)
     return ir
+
+
+def qualify_for_tenant(ir: SystemIR, tenant: TenantIR) -> SystemIR:
+    """Return a copy of the IR in which every generated name is the tenant's.
+
+    Agent, team and capability ids are left alone: they are the *spec's*
+    vocabulary, and renaming them would break every reference the spec makes to
+    itself. What gets qualified is everything the fabric emits from them — the
+    system name, identities, secret references and the resource set — which is
+    what actually becomes an object on a host or in a cloud account.
+    """
+    # Deep copy first: the IR shares capability, endpoint and knowledge objects
+    # with the spec, and the same spec is compiled for the next tenant.
+    out = ir.model_copy(deep=True)
+    out.tenant = tenant
+    out.name = tenant.qualify(out.name)
+
+    for agent in out.agents:
+        if agent.identity:
+            agent.identity.id = tenant.qualify(agent.identity.id)
+            agent.identity.secret_refs = [
+                tenant.qualify(r) for r in agent.identity.secret_refs
+            ]
+        for endpoint in agent.endpoints:
+            if endpoint.secret_ref:
+                endpoint.secret_ref = tenant.qualify(endpoint.secret_ref)
+    # The identity list and the per-agent identities are the same identities.
+    out.identities = [a.identity for a in out.agents if a.identity]
+    for channel in out.channels:
+        if channel.bot_identity_ref:
+            channel.bot_identity_ref = tenant.qualify(channel.bot_identity_ref)
+    for source in out.knowledge:
+        if source.secret_ref:
+            source.secret_ref = tenant.qualify(source.secret_ref)
+
+    out.resources = build_resources(out)
+    for resource in out.resources:
+        resource.id = tenant.qualify(resource.id)
+    return out
 
 
 def _subagent_policy(policy: ModelPolicy) -> ModelPolicy:

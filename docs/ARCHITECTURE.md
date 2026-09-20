@@ -1,239 +1,564 @@
 # Architecture
 
-## Layers
+This is the whole system in one document: what the planes are, what flows
+between them, and where the load-bearing decisions sit. Every claim here is
+anchored to an ADR; where the implementation is thinner than the design, this
+document says so rather than describing the intent as if it were the state.
 
-The platform is a designer and compiler (ADR-0003); the runtime below is one of
-its targets, not the centre.
+Diagrams are Mermaid and render on GitHub.
 
+---
+
+## 1. The three planes
+
+The platform is not one application. It is three, with different jobs,
+different access control and different failure domains (ADR-0049).
+
+```mermaid
+flowchart TB
+    designers["Designers<br/>author organizations"]
+    operators["Platform operators<br/>run the fabric"]
+    people["Paired humans<br/>owners, approvers, reviewers"]
+
+    subgraph DP["Designer plane — authoring"]
+        canvas["Canvas and forms"]
+        sdk["SDK"]
+        spec["System Spec<br/>implementation-neutral"]
+        catalog["Catalog of building blocks"]
+        canvas --> spec
+        sdk --> spec
+        catalog -.offers.-> spec
+    end
+
+    subgraph FP["Fabric plane — control"]
+        command["Command centre"]
+        tenants["Tenant registry<br/>isolation domains"]
+        compiler["Compiler<br/>spec + binding to IR"]
+        deployments["Deployment lifecycle"]
+        common["Common services<br/>catalog, observability, records, identity"]
+        command --> tenants
+        command --> deployments
+        tenants --> compiler
+        compiler --> deployments
+    end
+
+    subgraph TP["Tenant plane — workloads"]
+        t1["Tenant A<br/>own infra, identities, data"]
+        t2["Tenant B<br/>own infra, identities, data"]
+    end
+
+    designers --> canvas
+    designers --> sdk
+    operators --> command
+    spec -- "publish is a request" --> tenants
+    deployments -- generate --> t1
+    deployments -- generate --> t2
+    deployments -. "health, drift, quotas" .-> t1
+    t1 -. "no path" .-x t2
+    t1 --> people
+    common -.-> t1
+    common -.-> t2
 ```
-┌───────────────────────────────────────────────────────────────────┐
-│  Phase gate (phases.py)        — definition ✓ / implementation ✓  │
-├───────────────────────────────────────────────────────────────────┤
-│  System Spec (spec/)           — implementation-neutral source    │
-│    + Binding                     of truth; vendors live here only │
-├───────────────────────────────────────────────────────────────────┤
-│  Compiler (compiler/)          — phase 1: spec → IR (resolve      │
-│    ir · base · engine            permissions, identities, org)    │
-│    targets/local · terraform     phase 2: IR → artifacts          │
-├───────────────────────────────────────────────────────────────────┤
-│  Security (security/rbac.py)   — deny-by-default policy engine    │
-├───────────────────────────────────────────────────────────────────┤
-│  Scheduling (scheduling.py,    — cadences, fire times, overlap,   │
-│   runtime/scheduler.py)          catch-up, retry, halt            │
-├───────────────────────────────────────────────────────────────────┤
-│  Human routing (humans.py)     — availability, SLA, escalation    │
-├───────────────────────────────────────────────────────────────────┤
-│  Memory (memory.py)            — session tier · long-term tier ·  │
-│                                  classified namespaces, promotion │
-├───────────────────────────────────────────────────────────────────┤
-│  Sub-agents (runtime/          — tool-shaped workers, narrow-only │
-│   subagents.py)                  inheritance from the parent      │
-├───────────────────────────────────────────────────────────────────┤
-│  Records (records.py, docs/)   — ADR + workstream governance      │
-├═══════════════════════════════════════════════════════════════════┤
-│  Agentic Designer UI  (web/)   — org chart · designer · market ·  │
-│                                  sessions · operations            │
-├───────────────────────────────────────────────────────────────────┤
-│  REST API  (api.py)            — /api/org /agents /sessions       │
-│                                  /catalog /components /ops        │
-├───────────────────────────────────────────────────────────────────┤
-│  Runtime  (runtime/)           — session loop, delegation,        │
-│    adapters: deep agents · OpenAI Agents SDK · LangGraph · echo    │
-├───────────────────────────────────────────────────────────────────┤
-│  Harness  (harness/)  │  Workflows  │  Messaging  │  Catalog      │
-│  MCP · SQL policy ·   │  declarative│  direct +   │  marketplace  │
-│  sandboxes · tools    │  LangGraph  │  enterprise │               │
-├───────────────────────────────────────────────────────────────────┤
-│  Org (org.py) · Data planes (data/) · Sessions · Observability    │
-├───────────────────────────────────────────────────────────────────┤
-│  Store (store.py)  — JSON documents over SQLite / Postgres        │
-└───────────────────────────────────────────────────────────────────┘
+
+Three rules make the separation structural rather than decorative:
+
+- **A design is not a deployment.** Publishing from the designer is a request
+  to the fabric, which decides whether, where and for whom it runs.
+- **Operator and designer are different principals**, in both directions. An
+  operator can stop, quarantine or re-deploy a tenant; it cannot edit the
+  tenant's organization. A designer cannot see across the tenant boundary.
+- **Isolation belongs to the fabric, not the design** (ADR-0050). A spec never
+  declares its own tenancy, so it stays portable and a tenant cannot widen its
+  own boundary by editing a design.
+
+> **State of play.** The designer plane is built and tested. The fabric plane
+> is recorded (ADR-0049/0050/0051) with the tenancy core and operational model
+> under construction in WS-028 and WS-030. The command centre (WS-029) is not
+> started. No tenant has ever been deployed from here: there is no cloud
+> account and no container daemon in the development environment.
+
+---
+
+## 2. The spine: spec → IR → artifacts
+
+Everything the platform does passes through one pipeline. The spec is
+implementation-neutral; vendors appear only in the binding; permissions resolve
+exactly once, into the IR; every target reads the IR and nothing else
+(ADR-0002, ADR-0003, ADR-0005).
+
+```mermaid
+flowchart LR
+    spec["System Spec<br/>no vendors, no tenancy"]
+    binding["Binding<br/>target-scoped; vendors live here"]
+    gate{"Phase gate<br/>definition complete?"}
+    stop["Refused,<br/>naming what is missing"]
+    tenant["Tenant<br/>namespace prefix"]
+    ir["IR<br/>permissions, identities, org, missions,<br/>models — resolved once"]
+    local["local<br/>Compose stack"]
+    gcp["terraform:gcp"]
+    aws["terraform:aws"]
+    azure["terraform:azure"]
+    runtime["Runtime loader<br/>a target, not the centre"]
+    mapping["MAPPING.md<br/>every coarsened grant named"]
+
+    spec --> gate
+    binding --> gate
+    gate -- no --> stop
+    gate -- yes --> ir
+    tenant --> ir
+    ir --> local
+    ir --> gcp
+    ir --> aws
+    ir --> azure
+    ir --> runtime
+    gcp --> mapping
+    aws --> mapping
+    azure --> mapping
 ```
 
-`Platform` (platform.py) is the runtime's composition root. A compiled system
-enters it through `runtime/loader.py`, which turns the IR's teams into org
-units and its `AgentIR`s into runtime agents — so the runtime consumes the same
-artifact the Terraform targets do, and cannot disagree with them about who may
-do what.
+Why it matters that resolution happens **once**: the Terraform a cloud applies
+and the permissions the runtime enforces are derived from the same resolved
+structure, so they cannot drift into disagreeing about who may do what. A test
+asserts no target module imports `orgagents.spec`.
 
-## The two phases
+### The two phases
 
-The designer's workflow has a definition phase (abstract, vendor-free) and an
-implementation phase (the binding), with a mechanical gate between them
-(ADR-0019). `phases.py` holds the checks as data — each with a phase, a
-verdict and a **fix** — and `orgagents phase` returns non-zero on any failure.
-Some checks are warnings in development and errors in production.
+```mermaid
+stateDiagram-v2
+    [*] --> Definition
+    Definition: Definition phase
+    Definition: org, roles, permissions, data classes,<br/>environments, missions — no vendors
+    Implementation: Implementation phase
+    Implementation: binding picks runtimes, models, providers,<br/>regions, sinks
+    Definition --> Definition: refine
+    Definition --> Implementation: gate passes
+    Implementation --> Definition: gate fails, with the reason
+    Implementation --> Generated: compile
+    Generated --> [*]
+```
 
-## Compilation path
+A definition that is incomplete cannot be compiled, and the refusal names what
+is missing rather than emitting something half-bound (ADR-0019).
 
-1. **Load and validate** the spec (`spec/loader.py`, `spec/validate.py`):
-   structure, references, least privilege, narrow-only environments. Errors stop
-   the build before any target runs.
-2. **Resolve to IR** (`compiler/ir.py`): team inheritance, role expansion,
-   effective permissions, per-agent environment narrowing, delegation edges, one
-   workload identity per agent, the tightest budget per agent, normalized
-   cadences with precomputed fire times, channel contracts merged with their
-   bindings, grounding sources with their secrets attached to the reading
-   agent's identity, and the provider-neutral resource set.
-3. **Generate** (`compiler/engine.py` → targets): each target renders the IR.
-   Output is compiler-owned, hashed into `manifest.json`, and never clobbers a
-   hand-edited file without `--force`; `overlays/` is user-owned (ADR-0014).
+---
 
-The boundary between 2 and 3 is enforced by a test: no target module may import
-`orgagents.spec`.
+## 3. The organization model
 
-## Unattended work and human contact
+Slow-changing structure, fast-changing work.
 
-A **trigger** (ADR-0020) starts a run on a cadence, an event, a webhook or an
-inbound message. `scheduling.py` is the single interpreter of cadence
-vocabulary; `runtime/scheduler.py` applies overlap, catch-up, retry, escalation
-and halt policy with an injectable clock. The scheduler holds no credentials:
-it wakes the owning agent, which runs under its own identity, so unattended
-work cannot be the privileged path.
+```mermaid
+classDiagram
+    class Organization {
+        recursive tree of teams
+    }
+    class Team {
+        +id
+        +mandate
+        +exactly one leader
+        +roles
+    }
+    class Agent {
+        +id
+        +roles
+        +capabilities
+        +model policy
+        +environment
+    }
+    class Mission {
+        +objective
+        +deliverables
+        +leader
+        +always an end date
+    }
+    class Role {
+        +permissions
+        +responsibilities
+    }
+    class HumanCounterpart {
+        +contact
+        +roles: owner, approver, reviewer
+    }
+    class SubAgent {
+        acts as a tool
+        narrow-only inheritance
+    }
 
-A **channel** (ADR-0021) declares what it is for, when its people are
-available, the response SLA, the escalation chain and the data it may never
-carry. `humans.py` turns that into a routing plan: when to deliver, when the
-SLA expires, and who is notified at what time. One generated bridge per channel
-holds the workspace credential.
+    Organization "1" o-- "*" Team
+    Team "1" o-- "*" Team : child teams
+    Team "1" *-- "*" Agent : members
+    Team "1" --> "1" Agent : leader
+    Agent "1" --> "*" Role
+    Team "1" --> "*" Role
+    Agent "1" --> "*" HumanCounterpart : paired with
+    Agent "1" o-- "*" SubAgent
+    Mission "1" --> "*" Agent : members drawn from the org
+    Mission "1" --> "1" Agent : leader, must be a member
+```
 
-## Memory and sub-agents
+- **Every team has exactly one leader**, and a child team's leader participates
+  in the parent implicitly through leadership rather than by double
+  membership (ADR-0006).
+- **A mission is a short-lived team** drawn from the standing organization,
+  with an objective, deliverables and always an end date. Roles assigned to a
+  mission are *intersected* with what members already hold, so a mission can
+  never be a permission side-door, and lateral reach never lets someone task
+  their own leader (ADR-0039).
+- **Sub-agents are tools, not org members.** They have no reporting line, no
+  human counterpart, no session and no memory of their own, and inherit only a
+  narrowing of the parent's authority (ADR-0027).
 
-**Memory** (ADR-0028) has two tiers. Session memory is private to one session
-and always expires. Long-term memory lives in namespaces with a sharing scope,
-so recall is governed by the classification rules in ADR-0017 rather than by a
-second ACL model. Promotion from one to the other requires policy permission,
-namespace compatibility, read access to the class and — where configured — a
-human. `MemoryManager` enforces all of it; the runtime exposes it as tools and
-pre-loads on automatic recall.
+### A mission's reach expires
 
-**Sub-agents** (ADR-0027) are tools, not org members. They are declared inline,
-resolved with narrow-only inheritance from the parent's capabilities, tools,
-knowledge and environment, and invoked as `subagent_<id>` with their calls
-logged into the parent's session. Naming nothing means reaching nothing.
+```mermaid
+sequenceDiagram
+    participant A as Analyst
+    participant G as Delegation gate
+    participant M as Mission window
+    A->>G: delegate to CRO
+    G->>M: is the window open today?
+    alt inside the window
+        M-->>G: open
+        G-->>A: allowed
+    else past the end date
+        M-->>G: closed
+        G-->>A: refused
+    end
+    Note over G,M: Checked per call, not baked in at compile time,<br/>so an unswept mission still confers nothing.
+```
 
-## Governance artifacts
+---
 
-`compiler/registry.py` renders `REGISTRY.md` for every target — the fleet
-inventory with owners, identities, permissions, triggers, channels, budgets,
-declared flows, grounding sources, promotion gates and review flags. It is
-generated from the same IR as the IAM, so the auditor's document and the
-deployment cannot disagree.
+## 4. Security: how a permission is decided
 
-## The request path
+Deny by default, narrow-only inheritance, and an explicit guard rather than an
+ambiguous one (ADR-0008).
 
-A task arriving at an agent takes the same path regardless of runtime:
+```mermaid
+flowchart TB
+    ask["Agent asks to do X on Y"]
+    tenantq{"Same tenant?"}
+    denyT["Denied — absolute.<br/>No 'protected across tenants'"]
+    collect["Collect grants:<br/>team roles inherited + agent roles + own"]
+    matchq{"Any grant matches<br/>action and resource?"}
+    denyN["Denied — nothing granted it"]
+    condq{"Conditions hold?"}
+    denyC["Denied — condition failed"]
+    unlessq{"Any 'unless' guard fires?"}
+    denyU["Denied — guard fired"]
+    classq{"Data classification allows it?"}
+    denyD["Denied — classification"]
+    envq{"Environment and egress allow it?"}
+    denyE["Denied — sandbox policy"]
+    allow["Allowed, and recorded"]
 
-1. **Session opens.** `SessionManager.create` mints a session id, a trace id and
-   a URL (`/sessions/<id>`). A delegated run is a *child* session sharing the
-   parent's trace id, so the delegation tree is reconstructable from the store.
-2. **Harness assembles.** `HarnessBuilder.build` produces the callable toolset:
-   MCP proxies, relational tools, data-plane access, sandbox execution and org
-   introspection. `system_prompt` composes the operating instructions from the
-   agent's place in the org chart, its human counterpart's approval list and its
-   installed skills.
-3. **Session-bound tools attach.** The runtime adds `delegate`,
-   `spawn_subagent`, `run_workflow`, `send_message`, `ask_human` and `escalate`,
-   each closed over *this* agent and *this* session so every call lands in the
-   right trace.
-4. **The adapter runs.** One of four runtimes executes the loop.
-5. **Everything is recorded.** Messages, tool calls, delegations, workflow
-   paths, approvals and errors append to the session's event log; usage rolls
-   up into token and cost counters.
-6. **Policy stops, not crashes.** An approval gate returns a
-   `requires_approval` result; an access violation raises `AccessDenied` and is
-   recorded; a failure raises an alert and escalates to the human counterpart or
-   the manager agent.
+    ask --> tenantq
+    tenantq -- no --> denyT
+    tenantq -- yes --> collect --> matchq
+    matchq -- no --> denyN
+    matchq -- yes --> condq
+    condq -- no --> denyC
+    condq -- yes --> unlessq
+    unlessq -- yes --> denyU
+    unlessq -- no --> classq
+    classq -- no --> denyD
+    classq -- yes --> envq
+    envq -- no --> denyE
+    envq -- yes --> allow
+```
 
-## Delegation and escalation
+Inheritance only ever narrows: a child team cannot hold more than its parent,
+and a mission cannot grant what a member lacked. Ambiguity on a deny fails
+unsafe, which is why the `unless` guard is explicit (ADR-0008 v1.1.0).
 
-`OrgChart.can_delegate(from, to)` is the single routing rule:
+---
 
-| Relationship | Allowed |
-|---|---|
-| Direct report | yes |
-| Anywhere in your subtree (skip-level) | yes |
-| Registered peer (`peer_agent_ids`) | yes |
-| Shared-service agent (`kind == service`) | yes, from anywhere |
-| Your manager, or another branch | **no** — escalate, or use a channel |
+## 5. An agent at runtime
 
-Sub-agents are real agents: `spawn_subagent` creates an ephemeral
-`AgentKind.SUBAGENT` under the caller, inheriting its harness with the depth
-budget decremented, and runs it as a child session. Depth is capped by
-`harness.max_subagent_depth`.
+What actually surrounds the model call.
 
-## Data planes
+```mermaid
+flowchart TB
+    subgraph Agent["One agent, one session"]
+        prompt["Composed prompt<br/>role, responsibilities, org position,<br/>missions, shared instructions"]
+        gin["Guardrails: input"]
+        loop["Agent loop<br/>on an approved model"]
+        gtin["Guardrails: tool input"]
+        tools["Tools"]
+        gtout["Guardrails: tool output"]
+        contract["Output contract<br/>retry on violation, bounded"]
+        gout["Guardrails: output"]
+    end
 
-| Plane | Readers | Writers |
+    subgraph Harness["Harness — what the agent may reach"]
+        mcp["MCP servers"]
+        sql["Relational access<br/>policy-scoped"]
+        skills["Skills and plugins"]
+        endpoints["External agent endpoints"]
+        sandbox["Sandbox environment<br/>tier, network, egress allowlist"]
+    end
+
+    subgraph Memory["Memory — two tiers"]
+        session["Session memory<br/>always expires"]
+        longterm["Long-term memory<br/>classified namespaces,<br/>governed promotion"]
+    end
+
+    subagents["Sub-agents as tools<br/>research, review"]
+    delegate["Delegation<br/>reports, peers, live missions"]
+    workspace["Artifact workspace<br/>offload large tool output"]
+
+    prompt --> gin --> loop
+    loop --> gtin --> tools --> gtout --> loop
+    loop --> contract --> gout
+    tools --- Harness
+    loop --- Memory
+    session -. promotion .-> longterm
+    loop --> subagents
+    loop --> delegate
+    tools --> workspace
+```
+
+Guardrails run **outside** the agent loop, at four boundaries, so a compromised
+prompt cannot argue its way past them (ADR-0035). Judgement at those boundaries
+is pluggable: the deterministic pattern floor is the default, a model-backed
+classifier can add findings but never clear one, and on a provider failure the
+verdict degrades to the pattern floor and is marked degraded rather than
+failing open to nothing (ADR-0045).
+
+---
+
+## 6. Data and memory
+
+```mermaid
+flowchart LR
+    subgraph Classification["Classification governs placement, access and egress"]
+        priv["private<br/>one agent"]
+        prot["protected<br/>a group"]
+        pub["public<br/>everyone in the tenant"]
+    end
+    subgraph Tiers["Memory tiers"]
+        s["Session<br/>scoped to one session<br/>always has an expiry"]
+        l["Long-term<br/>survives sessions<br/>same classification rules"]
+    end
+    promo{"Promotion<br/>governed, recorded"}
+    s --> promo --> l
+    priv --- s
+    prot --- l
+    pub --- l
+    l -. "never crosses" .-x tenant["Another tenant"]
+```
+
+Memory namespaces reuse the classification rules rather than inventing a second
+access model, so "what may this agent remember" and "what may this agent read"
+are answered by the same engine (ADR-0028).
+
+---
+
+## 7. Tenancy and isolation
+
+```mermaid
+flowchart TB
+    spec["One spec<br/>tenant-free, portable"]
+    subgraph FabricAssign["Fabric assigns"]
+        ta["Tenant A<br/>prefix acme-"]
+        tb["Tenant B<br/>prefix globex-"]
+    end
+    subgraph A["Tenant A artifacts"]
+        na["networks, volumes,<br/>identities, secret refs<br/>all acme- qualified"]
+    end
+    subgraph B["Tenant B artifacts"]
+        nb["networks, volumes,<br/>identities, secret refs<br/>all globex- qualified"]
+    end
+    shared["Common services<br/>explicitly listed, audited"]
+
+    spec --> ta --> na
+    spec --> tb --> nb
+    na -. "no shared name,<br/>volume, network or identity" .-x nb
+    shared -.-> na
+    shared -.-> nb
+```
+
+The same spec compiled for two tenants must share **no** identifier, volume,
+network, identity or secret reference. What is shared between tenants is a
+listed fabric decision — never an emergent consequence of naming.
+
+> **The honest caveat.** A boundary is only as strong as the target enforces
+> it. Where cloud IAM is coarser than the model, the generated grant is wider
+> than ADR-0050 describes, and the mapping report has to say so in those words.
+> And isolation nobody has attacked is a claim: generation tests prove
+> artifacts differ, not that a breach fails. That test needs infrastructure
+> this environment does not have — WS-028 M6.
+
+---
+
+## 8. Design to operation, end to end
+
+```mermaid
+sequenceDiagram
+    actor D as Designer
+    participant UI as Designer app
+    participant F as Fabric
+    participant C as Compiler
+    participant T as Target
+    actor O as Operator
+    participant CC as Command centre
+
+    D->>UI: draw and edit the organization
+    UI->>UI: validate — least privilege, org rules, missions
+    D->>UI: publish
+    UI->>F: request deployment for a tenant
+    O->>CC: review the request
+    CC->>F: approve, assign isolation domain
+    F->>C: compile for this tenant
+    C-->>F: artifacts + mapping report
+    F->>T: deploy
+    T-->>F: state
+    loop while running
+        F->>T: observe
+        T-->>F: health
+        F->>F: compare with believed state
+        F-->>CC: drift, quota, incident signals
+    end
+    O->>CC: stop / quarantine / re-quota / re-deploy
+    Note over O,CC: An operator never edits the tenant's organization.<br/>That stays with the tenant's own designers.
+```
+
+### Deployment lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Requested
+    Requested --> Generated: compile succeeds
+    Requested --> Rejected: refused by an operator
+    Generated --> Deployed: applied to a target
+    Deployed --> Running: healthy
+    Running --> Stopped: operator stops
+    Running --> Quarantined: incident or breach suspicion
+    Quarantined --> Running: cleared
+    Stopped --> Running: restart
+    Running --> Retired: decommissioned
+    Stopped --> Retired
+    Rejected --> [*]
+    Retired --> [*]
+```
+
+Transitions are explicit and audited; an illegal transition is refused rather
+than coerced.
+
+---
+
+## 9. Unattended work and reaching humans
+
+```mermaid
+flowchart LR
+    trig["Triggers<br/>schedule, event, webhook, message"]
+    sched["Scheduler<br/>cadence, overlap, catch-up, retry, halt"]
+    run["Agent run<br/>owning agent's identity and permissions"]
+    approve{"Approval required?"}
+    route["Human routing<br/>availability, SLA, escalation"]
+    chan["Channels<br/>Slack, Teams, email — abstract classes"]
+    human["The right human"]
+    proceed["Proceed"]
+
+    trig --> sched --> run --> approve
+    approve -- yes --> route --> chan --> human --> proceed
+    approve -- no --> proceed
+```
+
+A scheduled run has exactly the owning agent's identity and permissions —
+unattended work is not a way to acquire more. Channel *classes* live in the
+spec; Slack and Teams appear only in the binding.
+
+> Real Slack and Teams bridge clients are not built (WS-013 M4); routing plans
+> are computed against an in-process bridge.
+
+---
+
+## 10. Governance: records as build artifacts
+
+```mermaid
+flowchart LR
+    adr["ADR<br/>a decision"]
+    ws["WS<br/>a workstream"]
+    code["Code and tests"]
+    idx["Generated indexes"]
+    val["orgagents records validate"]
+
+    adr -- "decides" --> ws
+    ws -- "delivers" --> code
+    code -- "verifies" --> adr
+    adr --> idx
+    ws --> idx
+    adr --> val
+    ws --> val
+    val -- "dangling reference,<br/>version mismatch,<br/>broken supersession" --> fail["Build fails"]
+```
+
+Decisions are versioned, superseded symmetrically and machine-validated. A
+decision that changes gets a version bump and a changelog row rather than a
+quiet edit — the record of *why* survives the change.
+
+---
+
+## 11. Module map
+
+```mermaid
+flowchart TB
+    subgraph Author["Authoring"]
+        specm["spec/<br/>model, validate, loader,<br/>migrations, schema"]
+        designer["designer/<br/>repository, rbac, locks,<br/>merge, audit, auth"]
+        web["web/<br/>canvas, forms"]
+    end
+    subgraph Build["Build"]
+        comp["compiler/<br/>ir, engine, registry"]
+        targets["compiler/targets/<br/>local, terraform"]
+        phases["phases.py"]
+    end
+    subgraph Fabric["Fabric"]
+        fabricm["fabric/<br/>tenants, deployments,<br/>services, quotas, health"]
+    end
+    subgraph Run["Runtime and services"]
+        rt["runtime/<br/>engine, loader, adapters,<br/>subagents, scheduler"]
+        guard["guardrails.py<br/>classifiers.py"]
+        mem["memory.py<br/>context.py"]
+        org["org.py<br/>missions.py"]
+        cat["catalogs/<br/>entries, service,<br/>sources, usage"]
+        dirm["directory.py"]
+    end
+    store["store.py — JSON documents over SQLite"]
+    records["records.py + docs/"]
+
+    web --> designer --> specm
+    specm --> phases --> comp --> targets
+    comp --> rt
+    fabricm --> comp
+    rt --> guard
+    rt --> mem
+    rt --> org
+    cat -.-> comp
+    dirm -.-> specm
+    designer --> store
+    fabricm --> store
+    rt --> store
+    records -.-> Author
+    records -.-> Build
+    records -.-> Fabric
+```
+
+---
+
+## 12. Where the design is ahead of the implementation
+
+Kept here deliberately, so the diagrams above are not read as a description of
+what runs today. The ordered list with owners is `docs/ROADMAP.md`.
+
+| Area | Designed | Actually true today |
 |---|---|---|
-| Private | the owning agent (and its human) | the owner |
-| Protected | agents sharing a group on the record | grant holders in those groups |
-| Public | every agent | any agent with a public write grant |
-
-Group membership is the agent's own `groups` plus everything inherited down its
-org-unit chain, so adding a team to a division grants its agents the division's
-protected data without editing each agent.
-
-An agent cannot publish to a group it does not belong to — the check is on the
-*writer's* membership, not just the grant.
-
-## Harness
-
-The harness is what governance reviews: model, MCP mounts, relational grants,
-data grants, tool approvals, budgets, interrupt policy and sandbox. Because
-`HarnessBuilder` enforces policy while assembling the toolset, the rules hold
-identically for deep agents, the OpenAI Agents SDK, LangGraph and the echo
-runtime — swapping the framework cannot widen an agent's reach.
-
-Secrets are never inlined. `MCPServerRef.secret_refs` and
-`RelationalGrant.dsn_secret_ref` are names resolved at build time through the
-secret manager (`HarnessBuilder.dsn_resolver`).
-
-## Workflows
-
-Workflows are data, so the designer can render them and governance can diff
-them. Node kinds: `tool`, `agent`, `workflow`, `human`, `branch`, `transform`.
-`WorkflowEngine.run` interprets the graph directly; `compile_langgraph` emits an
-equivalent `StateGraph` with `interrupt_before` wired to the human nodes. Node
-arguments interpolate `{{ expr }}` against workflow state, evaluated with no
-builtins beyond a small safe set.
-
-A `human` node interrupts the run and moves the session to `waiting_human`; the
-session URL is the resume point.
-
-## Communication
-
-- **Direct tool call** — synchronous, checked against `can_delegate` first.
-- **Enterprise channels** — Slack, Teams, email, webhooks and an internal bus,
-  behind pluggable transports (`bus.register_transport`). The default transport
-  records delivery so the system is fully exercisable without external
-  services.
-
-Messages persist, so an inbox and channel history survive process restarts and
-show up in the trace.
-
-## Sessions, tracing and operations
-
-Every session carries `trace_id` / `span_id` / `parent_span_id` on each event,
-which `Observability.export_span` forwards to an OpenTelemetry exporter.
-`metrics()` computes session states, token and cost rollups and per-agent
-breakdowns from the same event store the UI reads; four default alert rules
-(failure rate, cost budget, approval backlog, tool-error spike) evaluate against
-it, and custom rules are plain predicates over the metrics dict.
-
-## Persistence
-
-`Store` keeps each domain object as a JSON document in a typed collection with
-indexed `parent` and `name` columns. SQLite by default with WAL; reimplement the
-same six methods against Postgres for production. Collections: agents, org
-units, sessions, events, messages, records, skills, plugins, workflows, sandbox
-templates, catalog, alerts.
-
-## Deployment shape
-
-The designer's infrastructure palette (`/api/components` → `infrastructure`)
-names the concerns a deployment must choose: Postgres + object storage + vector
-index + Redis for storage; Kubernetes jobs, microVMs or a GPU pool for sandbox
-compute; NATS/Kafka plus Slack/Teams/SMTP for communication; OpenTelemetry,
-Loki, Prometheus and PagerDuty for operations; and a secret manager, OIDC, an
-egress proxy and an immutable audit log for security.
+| Fabric plane | ADR-0049/0050/0051 | Tenancy core and operational model under construction; command centre not started |
+| Tenant isolation | Absolute, fabric-assigned | Proven by generation tests only; no breach attempt, no running tenant |
+| Cloud targets | Terraform for three providers | Generated and syntax-checked; never `terraform apply`-ed |
+| Operations | Health, drift, quotas, incidents | Modelled against stubs; no adapter has met a real target |
+| Guardrails | Pluggable judgement | Works; recall never measured against a labelled corpus |
+| Designer identity | OIDC with group mapping | Works, but the JWT verification is hand-rolled RSA because no crypto library imports here — replace before production |
+| Runtime adapters | Deep agents, OpenAI SDK, LangGraph | Thin bindings; only the `echo` adapter runs in CI |
+| Human channels | Slack, Teams, approval routing | Routing computed; no real bridge client |
+| Knowledge | Declared, governed sources | Not retrieved from |

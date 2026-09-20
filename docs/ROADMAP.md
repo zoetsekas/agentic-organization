@@ -93,7 +93,20 @@ pattern-matching where it should be deciding.
 | 5.6 | Local collector binding and cloud sink bindings | WS-010 M3/M4 | Traces are emitted; nothing collects them per target. |
 | 5.7 | Per-system access within a workspace | WS-021 M4 | Access is workspace-wide. |
 
-## 6. Research and later phases
+## 6. The fabric — command centre, tenancy and operations
+
+Opened after the platform split into three planes (ADR-0049/0050/0051).
+
+| # | Activity | Owner | Why now |
+|---|---|---|---|
+| 6.1 | Command centre application and operator roles | WS-029 M1–M3 | The fabric has tenants, deployments and health with no operator surface over them. |
+| 6.2 | Health and drift against a real target | WS-030 M5 | Every adapter is a stub; a control plane that has never met a target is a design. |
+| 6.3 | Breach attempt against a running tenant | WS-028 M6 | Isolation is proven by generation tests only. Isolation nobody has attacked is a claim. |
+| 6.4 | Cross-tenant references by opaque ARN/URL | WS-028 | Validation is name-based, so a foreign resource with no tenant marker is not caught. |
+| 6.5 | Tenant registration in the CLI and API | WS-028/030 | Tenants exist only through `TenantRegistry` in code. |
+| 6.6 | Incident capture and escalation | WS-030 M6 | Drift raises a signal; nothing routes it to a human. |
+
+## 7. Research and later phases
 
 Sampling strategy for high fan-out (WS-010 M5), step-level checkpointing and
 event-source bindings (WS-012 M4/M5), reusable sub-agent library and parallel
@@ -112,7 +125,9 @@ re-running the landscape scan against products we could not identify
 3. 3.1 and 3.5, which close governance loops that currently check declarations.
 4. Section 4, which is where the product is judged.
 
-Sections 5 and 6 follow the work above rather than leading it.
+Sections 5 and 7 follow the work above rather than leading it. Section 6 is
+new and runs alongside: the fabric is half-built, and 6.2 and 6.3 are the two
+items that decide whether the tenancy model is real or merely described.
 
 ## Added while working
 

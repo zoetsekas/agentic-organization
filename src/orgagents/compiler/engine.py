@@ -11,13 +11,14 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from ..spec.binding import Binding, TargetBinding, default_binding
 from ..spec.model import SystemSpec
 from ..spec.validate import Finding, validate_spec
 from .base import GeneratedFile, register_builtin_targets
-from .ir import SystemIR, apply_model_approvals, build_ir
+from .ir import SystemIR, TenantIR, apply_model_approvals, build_ir
+from .tenancy import assert_artifacts_qualified, assert_within_tenant
 
 MANIFEST = "manifest.json"
 OVERLAY_DIR = "overlays"
@@ -68,13 +69,25 @@ def compile_system(
     force: bool = False,
     write: bool = True,
     catalog: Optional[Any] = None,
+    tenant: Optional[TenantIR] = None,
+    foreign_prefixes: Optional[Iterable[str]] = None,
 ) -> list[CompileResult]:
-    """Validate, resolve to IR, then generate artifacts for each target."""
+    """Validate, resolve to IR, then generate artifacts for each target.
+
+    With a `tenant`, the compile is tenant-scoped (ADR-0050): the spec is first
+    refused if it reaches outside the tenant, and the generated artifacts are
+    refused if any of their names is not the tenant's.
+    """
     findings = validate_spec(spec)
     blocking = [f for f in findings if f.severity == "error"]
     if blocking:
         raise CompileError(
             "spec validation failed:\n  " + "\n  ".join(str(f) for f in blocking)
+        )
+
+    if tenant is not None:
+        assert_within_tenant(
+            spec.model_dump(mode="json"), tenant, foreign_prefixes or ()
         )
 
     registry = register_builtin_targets()
@@ -90,7 +103,7 @@ def compile_system(
         bound: TargetBinding = (
             binding.for_target(target_id) if binding else None
         ) or default_binding(target_id)
-        ir = build_ir(spec, target=target_id, binding=bound)
+        ir = build_ir(spec, target=target_id, binding=bound, tenant=tenant)
         if catalog is not None:
             # A bound model outside the agent's policy stops the build: an
             # unapproved model is not a warning (ADR-0040).
@@ -116,7 +129,14 @@ def compile_system(
                     "the bound model is not permitted for:\n  " + "\n  ".join(refused)
                 )
         files = target.generate(ir)
-        target_dir = Path(out_dir) / target_id.replace(":", "-")
+        if tenant is not None:
+            # Refused, not emitted: an unqualified artifact under a tenant's
+            # name is worse than no artifact at all.
+            assert_artifacts_qualified(ir, files)
+        # Two tenants never share an output directory either: the generated
+        # tree is the first place a collision would show up.
+        base = Path(out_dir) / tenant.namespace_prefix if tenant else Path(out_dir)
+        target_dir = base / target_id.replace(":", "-")
         result = CompileResult(target_id, target_dir, ir, files, findings=findings)
         if write:
             _write(result, force=force)

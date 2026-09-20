@@ -91,6 +91,24 @@ orgagents serve      # then open http://localhost:8000/ui/#/canvas
 Open <http://localhost:8000/ui/> for the **Agentic Designer**: org chart,
 agent/harness designer, marketplace, session traces and the operations console.
 
+## Three planes
+
+The platform is three applications, not one (ADR-0049):
+
+| Plane | Owns | Who uses it |
+|---|---|---|
+| **Designer** | System Specs, canvas, catalog — authoring an agentic organization | Designers |
+| **Fabric** | Tenants, isolation, deployments, common services, operations | Platform operators, via the command centre |
+| **Tenant** | A designed organization actually running, in its own infrastructure | Nobody logs in; it does the work |
+
+A design is not a deployment — publishing is a *request* to the fabric.
+Operator and designer are different principals in both directions: an operator
+can stop, quarantine or re-deploy a tenant but never edit its organization.
+Isolation belongs to the fabric, not the design, so a spec carries no tenancy
+and stays portable (ADR-0050).
+
+The whole system, with diagrams: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
 ## Running the designer in Docker
 
 ```bash
@@ -396,6 +414,14 @@ Implemented and tested end to end: the record layer, the spec and its
 validators, the compiler and IR, the local and three Terraform targets, the
 RBAC engine, and loading a compiled system into the runtime (91 tests, no
 network or API keys).
+
+Tenancy is enforced by construction: the same spec compiled for two tenants
+shares no identifier, volume, network, identity or secret reference, and each
+target's `MAPPING.md` names what actually enforces the boundary there — a
+per-tenant Compose project and networks locally, a project/account/subscription
+per cloud provider — and says where that is coarser than the model claims.
+**The prefix prevents collisions; it is not an access control**, and nobody has
+attempted a breach against a running tenant (WS-028 M6).
 
 The outstanding work is listed in **[docs/ROADMAP.md](docs/ROADMAP.md)**,
 ordered, each item mapped to the workstream milestone that owns it.

@@ -99,6 +99,7 @@ def _compiler_command(args: argparse.Namespace) -> int:
     from .compiler import build_ir, compile_system
     from .compiler.base import register_builtin_targets
     from .compiler.engine import CompileError
+    from .compiler.tenancy import TenantIsolationError
     from .spec import load_binding, load_spec, validate_spec
 
     if args.cmd == "targets":
@@ -231,6 +232,23 @@ def _compiler_command(args: argparse.Namespace) -> int:
                       f"perms={len(agent.permissions)}")
         return 0
 
+    tenant_ir = None
+    foreign_prefixes: set[str] = set()
+    if getattr(args, "tenant", None):
+        from .fabric.tenants import TenantRegistry
+        from .platform import Platform
+
+        registry = TenantRegistry(Platform(args.db, configure_logs=False).store)
+        tenant = registry.get(args.tenant)
+        if tenant is None:
+            print(f"error: no such tenant '{args.tenant}'")
+            return 1
+        if not tenant.may_deploy():
+            print(f"error: tenant '{tenant.id}' is {tenant.status.value}")
+            return 1
+        tenant_ir = tenant.to_ir()
+        foreign_prefixes = registry.prefixes(exclude=tenant.id)
+
     try:
         results = compile_system(
             spec,
@@ -238,8 +256,10 @@ def _compiler_command(args: argparse.Namespace) -> int:
             out_dir=args.out,
             binding=binding,
             force=args.force,
+            tenant=tenant_ir,
+            foreign_prefixes=foreign_prefixes,
         )
-    except CompileError as e:
+    except (CompileError, TenantIsolationError) as e:
         print(f"error: {e}")
         return 1
     for result in results:
@@ -379,6 +399,13 @@ def main(argv: list[str] | None = None) -> int:
     p_comp.add_argument("--binding")
     p_comp.add_argument("--out", default="build")
     p_comp.add_argument("--force", action="store_true")
+    p_comp.add_argument(
+        "--tenant",
+        help="compile for this fabric tenant; every generated name is qualified "
+             "with its namespace prefix and an unqualified artifact is refused",
+    )
+    p_comp.add_argument("--db", default="orgagents.db",
+                        help="fabric database holding the tenant registry")
 
     sub.add_parser("targets", help="list available deployment targets")
 

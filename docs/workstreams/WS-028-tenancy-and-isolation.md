@@ -2,7 +2,7 @@
 id: WS-028
 title: Tenancy and isolation
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
@@ -45,11 +45,11 @@ explicit fabric offering.
 ## Milestones
 | Milestone | Target | Status |
 |---|---|---|
-| M1 Tenant model and registry | Phase 5 | Not started |
-| M2 Tenant-scoped compilation with refusal of untenanted builds | Phase 5 | Not started |
-| M3 Local target isolation (project, networks, volumes) | Phase 5 | Not started |
-| M4 Cloud target isolation and mapping reports | Phase 5 | Not started |
-| M5 Cross-tenant denial proven by generation tests | Phase 5 | Not started |
+| M1 Tenant model and registry | Phase 5 | Done |
+| M2 Tenant-scoped compilation with refusal of untenanted builds | Phase 5 | Done |
+| M3 Local target isolation (project, networks, volumes) | Phase 5 | Done |
+| M4 Cloud target isolation and mapping reports | Phase 5 | Done |
+| M5 Cross-tenant denial proven by generation tests | Phase 5 | Done |
 | M6 Breach attempt against a running deployment | Phase 6 | Not started |
 
 ## Dependencies
@@ -84,4 +84,5 @@ for the cloud targets whose IAM enforces the boundary.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | M1–M5 done: `fabric.tenants` (Tenant, isolation domain, Store-backed registry, validated namespace prefixes), tenant-scoped `build_ir`/`compile_system` that refuses an unqualified artifact, per-tenant Compose project/networks/volumes, per-tenant cloud boundary with the coarseness named in each `MAPPING.md`, and cross-tenant reference validation. M6 still needs infrastructure this environment does not have. |
 | 1.0.0 | 2026-09-20 | Opened alongside ADR-0049 and ADR-0050. |
