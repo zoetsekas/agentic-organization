@@ -2,13 +2,13 @@
 id: WS-026
 title: Model governance — approved models per agent
 status: Active
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Security Engineering
 contributors: [Platform Architecture, Compliance]
 scope: [spec, compiler, security]
-decisions: [ADR-0040]
+decisions: [ADR-0040, ADR-0046]
 depends_on: [WS-027, WS-005]
 tags: [security, models]
 ---
@@ -44,7 +44,7 @@ stops something rather than being noted.
 | M3 Compile-time refusal and phase gate | Phase 4 | Done |
 | M4 Sub-agent model class enforcement | Phase 4 | Done |
 | M5 Automatic fallback to a permitted model | Phase 4 | Done |
-| M6 Catalog figures refreshed from provider data | Phase 4 | Not started |
+| M6 Catalog figures refreshed from provider data | Phase 4 | Done |
 
 ## Dependencies
 WS-027 for the catalog the policy resolves against.
@@ -56,8 +56,15 @@ WS-027 for the catalog the policy resolves against.
 - Retiring a model in the catalog invalidates it everywhere at once.
 
 ## Disadvantages
-- **Catalog figures go stale** — price, context and regions change without
-  telling us, and a cost ceiling then checks a fiction (M6).
+- **A stale figure still permits.** Figures now carry provenance and a
+  horizon, and a decision that turns on an expired one is marked rather than
+  refused (ADR-0046) — an organization that reads no registry gets the old
+  behaviour with a footnote.
+- The horizon is one global default of 180 days, not a per-provider judgement,
+  and freshness now outranks price in fallback ordering — so a fallback can
+  land on a more expensive model than the policy would otherwise have chosen.
+- Nothing refreshes itself: an import is an operator running a source, and a
+  file source they maintain by hand can be as stale as the catalog was.
 - Class tags are editorial; two organizations will disagree about what is
   `balanced`.
 - **A fallback is a quiet change of model.** When `allow_fallback` is on, the
@@ -79,11 +86,14 @@ WS-027 for the catalog the policy resolves against.
 - ~~Sub-agent models are checked against their own classes (M4).~~ Done.
 - ~~A permitted fallback is chosen automatically where the policy allows (M5).~~
   Done, recorded on the IR and in the registry.
-- Catalog figures are refreshed from a source rather than typed (M6).
+- ~~Catalog figures are refreshed from a source rather than typed (M6).~~
+  Done: a `FigureSource` protocol with file-backed and injectable HTTP
+  implementations, provenance and a staleness horizon on every entry.
 
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-20 | M6 done: figure provenance and staleness horizons, a `FigureSource` importer, and a proportionate consequence for stale figures (ADR-0046). |
 | 1.1.0 | 2026-09-20 | M4 and M5 done: sub-agent models checked against `subagent_classes`, opt-in fallback resolved and recorded on the IR. |
 | 1.0.0 | 2026-09-20 | Opened. Policy, resolution and compile-time refusal landed. |

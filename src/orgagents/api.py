@@ -491,7 +491,7 @@ def create_app(
         x_user_name: str = Header(default=""),
         x_user_email: str = Header(default=""),
     ) -> Principal:
-        """Identity per the configured `auth_mode` (ADR-0044).
+        """Identity per the configured `auth_mode` (ADR-0047).
 
         In `oidc` mode this is a verified bearer token and the X-User header is
         ignored entirely; in `trusted_proxy` mode it is the header, which is

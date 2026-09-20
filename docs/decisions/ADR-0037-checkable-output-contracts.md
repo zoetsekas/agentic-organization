@@ -2,7 +2,7 @@
 id: ADR-0037
 title: Output contracts are checkable shapes, not prose promises
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 deciders: [Platform Architecture]
@@ -57,8 +57,8 @@ checked by the `SCHEMA` guardrail check, so a shape violation can also be a
 boundary decision.
 
 ## Timeline
-Phase 3. Automatic retry-with-errors in the adapters is the next milestone;
-today the violation is recorded and surfaced.
+Phase 3 for the contracts themselves; automatic retry-with-errors landed in
+Phase 4 (WS-024 M6).
 
 ## Advantages
 - A caller can rely on a shape rather than parsing prose hopefully.
@@ -73,8 +73,11 @@ today the violation is recorded and surfaced.
   looser schema, which weakens the guarantee it was adopted for.
 - Declaring a contract makes models return JSON, which is often worse prose;
   where the consumer is a person that is a downgrade.
-- Retry-on-violation is not yet implemented in the adapters, so today a
-  violation is visible rather than corrected.
+- Retry spends a whole extra model call per attempt on a formatting problem,
+  and an agent that cannot produce the shape burns the full budget before
+  failing — so a badly-drawn contract is now expensive as well as wrong.
+- A retried answer is a second answer: it may fix the shape and change the
+  substance, and nothing here checks that it did not.
 
 ## Alternatives considered
 - **Full JSON Schema** — complete, and unreadable in a spec people review.
@@ -91,4 +94,5 @@ where a contract was declared, while accepting conforming JSON.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Retry-with-errors implemented in the runtime, bounded and recorded per attempt. |
 | 1.0.0 | 2026-09-20 | Accepted. Reusable contracts over a small schema subset, checked at runtime. |

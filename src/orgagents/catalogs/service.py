@@ -233,8 +233,9 @@ class CatalogService:
         # An explicit allow list, when present, is the whole answer.
         if policy.allow:
             if entry.id in policy.allow or entry.name in policy.allow:
-                return ModelDecision(True, f"'{entry.name}' is named in the policy",
-                                     entry)
+                return ModelDecision(
+                    True, f"'{entry.name}' is named in the policy" + staleness,
+                    entry, stale_figures=stale)
             return ModelDecision(
                 False, f"'{entry.name}' is not in this agent's approved list", entry)
 
@@ -253,8 +254,8 @@ class CatalogService:
             return ModelDecision(
                 False,
                 f"'{entry.name}' has {attributes.context_tokens} context tokens, "
-                f"below the required {policy.min_context_tokens}",
-                entry,
+                f"below the required {policy.min_context_tokens}" + staleness,
+                entry, stale_figures=stale,
             )
         cost = attributes.cost_per_million
         if policy.max_cost_per_million_tokens is not None and cost is not None:

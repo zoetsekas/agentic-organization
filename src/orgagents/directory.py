@@ -13,7 +13,7 @@ This module is the read side of that problem, and deliberately nothing more:
 * Three answers are possible and all three are distinct: **active**,
   **departed**, and **not known to me**. Collapsing the last two would either
   invent departures for contractors the directory never held, or hide real
-  ones; ADR-0044 keeps them apart all the way to the findings.
+  ones; ADR-0047 keeps them apart all the way to the findings.
 * The default is `NullDirectory`, which knows nothing and says so. A system
   with no directory configured must produce *no* findings at all, rather than
   reporting everybody as present (which would be a lie) or everybody as unknown
@@ -95,7 +95,7 @@ class DirectoryUnavailable(RuntimeError):
 
     Raised by adapters, and caught by `reconcile` when `strict=False` (the
     default): a directory outage degrades reconciliation to "no opinion" rather
-    than failing a build (ADR-0044).
+    than failing a build (ADR-0047).
     """
 
 

@@ -47,7 +47,7 @@ class AuditAction(str, Enum):
     WORKSPACE_CREATE = "workspace.create"
     AUDIT_READ = "audit.read"
     # Authentication happens before any of the above, and its failures leave no
-    # other trace (ADR-0044). Successes are not logged: they are every request.
+    # other trace (ADR-0047). Successes are not logged: they are every request.
     AUTH_FAILED = "auth.failed"
 
 

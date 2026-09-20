@@ -205,7 +205,15 @@ def _compiler_command(args: argparse.Namespace) -> int:
 
     if args.cmd == "spec":
         if args.action == "validate":
-            findings = validate_spec(spec)
+            # Without --directory the reconciliation is inert by construction:
+            # NullDirectory knows nobody and produces no findings, so behaviour
+            # is unchanged for anyone who does not supply one (ADR-0047).
+            directory = None
+            if getattr(args, "directory", None):
+                from .directory import StaticDirectory
+
+                directory = StaticDirectory.from_file(args.directory)
+            findings = validate_spec(spec, directory=directory)
             for f in findings:
                 print(f)
             errors = [f for f in findings if f.severity == "error"]
@@ -356,6 +364,10 @@ def main(argv: list[str] | None = None) -> int:
     p_spec.add_argument("path", nargs="?")
     p_spec.add_argument("--binding")
     p_spec.add_argument("--target", default="local")
+    p_spec.add_argument("--directory",
+                        help="a people directory (JSON/YAML) to reconcile human "
+                             "pairings against; without it, departures go "
+                             "undetected")
     p_spec.add_argument("--write", action="store_true",
                         help="for 'migrate': write the upgraded spec back")
     p_spec.add_argument("-o", "--out", dest="out",

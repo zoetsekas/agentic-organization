@@ -60,7 +60,7 @@ class Principal:
     user_id: str
     display_name: str = ""
     email: str = ""
-    # Roles vouched for by the identity provider (ADR-0044), keyed by workspace
+    # Roles vouched for by the identity provider (ADR-0047), keyed by workspace
     # id with "*" for installation-wide. Empty for a header identity, and
     # empty is the whole point: no grant, no access.
     granted_roles: Mapping[str, UserRole] = field(default_factory=dict)
@@ -98,7 +98,7 @@ def role_of(workspace: Optional[Workspace], principal: Principal,
     member = workspace.member(principal.user_id)
     if member:
         # An explicit membership wins over the directory: a role an admin
-        # chose is not quietly rewritten by a group change (ADR-0044).
+        # chose is not quietly rewritten by a group change (ADR-0047).
         return member.role
     return principal.granted_role(workspace.id)
 

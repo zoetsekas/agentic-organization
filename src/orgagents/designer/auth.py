@@ -1,4 +1,4 @@
-"""Who the person *is*, before RBAC asks what they may do (ADR-0044).
+"""Who the person *is*, before RBAC asks what they may do (ADR-0047).
 
 `rbac.py` answers "what may this principal do here". It cannot answer "is this
 principal who the request says it is" — until now that answer came from a
@@ -133,7 +133,7 @@ class JWKSUnavailable(AuthError):
 
     This is the failure mode OIDC adds that header identity did not have: the
     designer is now unavailable when the provider is, for tokens signed with a
-    key we have not seen. ADR-0044 records that trade.
+    key we have not seen. ADR-0047 records that trade.
     """
 
     code = "jwks_unavailable"
@@ -322,7 +322,10 @@ class JWKSCache:
             self.refresh()
         key = self._keys.get(kid) if kid else _sole(self._keys)
         if key is None:
-            self.refresh(force=True)  # rotation: the kid is new to us
+            # Rotation: the kid is new to us, so look again — but through the
+            # rate limit, so a stream of tokens bearing invented kids cannot be
+            # amplified into a stream of requests to the provider.
+            self.refresh()
             key = self._keys.get(kid) if kid else _sole(self._keys)
         if key is None:
             raise UnknownSigningKey(

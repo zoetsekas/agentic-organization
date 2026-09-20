@@ -78,7 +78,7 @@ def validate_spec(
     """Return every finding; an empty list means the spec is sound.
 
     `directory`, when given, is additionally consulted about the people the
-    spec pairs with agents (ADR-0044). It is optional because most callers have
+    spec pairs with agents (ADR-0047). It is optional because most callers have
     none, and a directory that knows nothing contributes nothing.
     """
     # Imported here: `scheduling` reads the spec model, so a module-level import
@@ -826,7 +826,7 @@ def validate_spec(
             warn("unused_capability", f"capability '{cap.id}' is declared but unused",
                  cap.id)
 
-    # -- people who have left (ADR-0044) -----------------------------------
+    # -- people who have left (ADR-0047) -----------------------------------
     out.extend(directory_findings(spec, directory))
 
     return out
@@ -835,7 +835,7 @@ def validate_spec(
 def directory_findings(
     spec: SystemSpec, directory: Optional["Directory"] = None
 ) -> list[Finding]:
-    """Findings for pairings the directory disputes (ADR-0044).
+    """Findings for pairings the directory disputes (ADR-0047).
 
     Severity is the governance call, and it is made here rather than in the
     directory module:

@@ -26,10 +26,10 @@
 | [WS-021](WS-021-designer-access-control.md) | Designer access control for people | Active | 1.1.0 | Security Engineering | ADR-0032, ADR-0043 | WS-020 |
 | [WS-022](WS-022-concurrent-editing.md) | Concurrent editing — locks, versions and merge | Active | 1.0.0 | Platform Architecture | ADR-0033 | WS-020 |
 | [WS-023](WS-023-canvas-designer.md) | Drag-and-drop canvas designer | Active | 1.0.0 | Product | ADR-0034 | WS-020, WS-021, WS-022 |
-| [WS-024](WS-024-framework-parity.md) | Framework parity — guardrails, context, contracts and shared instructions | Active | 1.0.0 | Platform Architecture | ADR-0035, ADR-0036, ADR-0037, ADR-0038 | WS-011, WS-005 |
+| [WS-024](WS-024-framework-parity.md) | Framework parity — guardrails, context, contracts and shared instructions | Active | 1.1.0 | Platform Architecture | ADR-0035, ADR-0036, ADR-0037, ADR-0038, ADR-0045 | WS-011, WS-005 |
 | [WS-025](WS-025-missions.md) | Missions — short-lived teams | Active | 1.1.0 | Product | ADR-0039 | WS-003 |
-| [WS-026](WS-026-model-governance.md) | Model governance — approved models per agent | Active | 1.1.0 | Security Engineering | ADR-0040 | WS-027, WS-005 |
-| [WS-027](WS-027-platform-catalog.md) | Platform catalog of building blocks | Active | 1.0.0 | Platform Architecture | ADR-0041 | WS-020 |
+| [WS-026](WS-026-model-governance.md) | Model governance — approved models per agent | Active | 1.2.0 | Security Engineering | ADR-0040, ADR-0046 | WS-027, WS-005 |
+| [WS-027](WS-027-platform-catalog.md) | Platform catalog of building blocks | Active | 1.1.0 | Platform Architecture | ADR-0041, ADR-0046 | WS-020 |
 
 ## By status
 

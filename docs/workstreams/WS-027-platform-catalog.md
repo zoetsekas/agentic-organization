@@ -2,13 +2,13 @@
 id: WS-027
 title: Platform catalog of building blocks
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
 contributors: [Security Engineering, Product]
 scope: [designer, security, ui]
-decisions: [ADR-0041]
+decisions: [ADR-0041, ADR-0046]
 depends_on: [WS-020]
 tags: [catalog, governance]
 ---
@@ -48,7 +48,7 @@ cost policy is worse than an empty row.
 | M2 Service, API, CLI | Phase 4 | Done |
 | M3 Seeded catalog and UI view | Phase 4 | Done |
 | M4 Canvas pickers backed by the catalog | Phase 4 | In progress |
-| M5 Usage tracking — which designs use which entry | Phase 4 | Not started |
+| M5 Usage tracking — which designs use which entry | Phase 4 | Done |
 | M6 Import from provider and registry sources | Phase 4 | Not started |
 
 ## Dependencies
@@ -60,21 +60,27 @@ WS-020 for the designer the catalog serves.
 - Entitlements express that some blocks belong to some teams.
 
 ## Disadvantages
-- **A catalog is only as current as its maintainer**; stale figures misinform
-  silently, and nothing detects it until M6.
+- **A catalog is only as current as its maintainer**; figures now carry
+  provenance and a horizon (ADR-0046), but nothing refreshes itself and an
+  import is only as good as the source an operator points it at.
 - Twelve kinds overlap with objects also declared in the spec, and the boundary
   between catalogued and declared will confuse people.
 - Approval is friction by design, and teams under deadline will route around it
   by declaring things directly in the spec — which nothing currently prevents.
-- We cannot yet answer "which designs use this entry", so retiring something is
-  riskier than it should be (M5).
+- Usage is recorded from compiled designs, so a design nobody has compiled
+  since the entry was added is invisible to it, and `force=True` still retires
+  an entry out from under its users — the index makes that a decision, not a
+  guarantee.
 
 ## Exit criteria
 - The canvas picks models, servers and templates from the catalog (M4).
-- Retiring an entry lists the designs that use it first (M5).
+- ~~Retiring an entry lists the designs that use it first (M5).~~ Done:
+  references are recorded from the IR and retirement is refused while an entry
+  is in use unless forced.
 
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | M5 done: catalog references recorded from compiled designs, `usage_report`, and retirement refused while an entry is in use. |
 | 1.0.0 | 2026-09-20 | Opened. Entries, service, API, CLI, seed and UI landed. |

@@ -212,7 +212,7 @@ class DesignerSettings(BaseModel):
     lock_break_requires: UserRole = UserRole.ADMIN
     default_merge_strategy: Literal["reject", "merge"] = "merge"
     max_revisions: int = 100
-    # Access (ADR-0032, ADR-0044). The mode is explicit and visible here:
+    # Access (ADR-0032, ADR-0047). The mode is explicit and visible here:
     # `trusted_proxy` means an authenticating proxy owns identity and we read
     # its headers; `oidc` means we verify ID tokens ourselves and a bare header
     # authenticates nothing; `none` is single-user local use.
