@@ -25,7 +25,8 @@ async function api(path, options = {}) {
   return res.status === 204 ? null : res.json();
 }
 
-const state = { components: null, agents: [], units: [], selected: null };
+const state = { components: null, agents: [], units: [], selected: null,
+  canvasReady: false };
 
 /* ---------------------------------------------------------------- tabs */
 $("#tabs").addEventListener("click", (e) => {
@@ -40,7 +41,13 @@ function showView(name) {
   document.querySelectorAll(".view").forEach((v) =>
     v.classList.toggle("active", v.id === `view-${name}`));
   location.hash = `#/${name}`;
-  ({ org: loadOrg, catalog: loadCatalog, sessions: loadSessions, ops: loadOps }[name] || (() => {}))();
+  const loaders = {
+    org: loadOrg, catalog: loadCatalog, sessions: loadSessions, ops: loadOps,
+    canvas: () => (window.initCanvas && !state.canvasReady
+      ? ((state.canvasReady = true), window.initCanvas())
+      : undefined),
+  };
+  (loaders[name] || (() => {}))();
 }
 
 /* ----------------------------------------------------------- org chart */

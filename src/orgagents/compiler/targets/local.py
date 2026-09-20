@@ -1,8 +1,15 @@
-"""Local target: a self-contained stack plus a single-process dev loop (ADR-0011).
+"""Local target: Docker defines the system (ADR-0011 v1.1.0).
 
-Emits a Compose file, a Makefile, an env template that carries secret *names*
-only, per-agent manifests and the IR itself. The same IR feeds the cloud
-targets, so local is the identical system with different bindings — not a mock.
+The whole deployment is expressed in Docker: a **Dockerfile per environment
+class**, built from the binding's image and packages, plus a Compose file that
+wires agents, MCP servers, the scheduler, channel bridges, memory and state
+together. Nothing references an image that this output does not build or name
+explicitly, because a compose file that pulls images nobody can build is a
+demo, not a deployment.
+
+The same IR feeds the cloud targets, so local is the identical system with
+different bindings — not a mock. A single-process mode remains for machines
+without a container runtime.
 """
 from __future__ import annotations
 
@@ -45,7 +52,9 @@ class LocalTarget:
             "title": "Local Compose stack",
             "summary": "Runs the whole system on one machine, with a single-process "
                        "fallback for hosts without a container runtime.",
-            "produces": ["docker-compose.yaml", "Makefile", ".env.example",
+            "produces": ["Dockerfile", "docker/Dockerfile.<environment>",
+                         ".dockerignore", "docker-compose.yaml", "Makefile",
+                         ".env.example",
                          "system.ir.json", "agents/*.json", "triggers.json",
                          "channels.json", "memory.json", "REGISTRY.md",
                          "run_local.py", "README.md"],
@@ -72,6 +81,13 @@ class LocalTarget:
                 [c.model_dump(mode="json") for c in ir.channels], indent=2) + "\n"),
             GeneratedFile("memory.json", json.dumps(
                 ir.memory.model_dump(mode="json"), indent=2) + "\n"),
+            GeneratedFile("Dockerfile", self._runtime_dockerfile(ir)).with_header(ir),
+            GeneratedFile(".dockerignore", self._dockerignore()),
+            GeneratedFile("requirements.txt", self._requirements(ir)),
+        ] + [
+            GeneratedFile(f"docker/Dockerfile.{env.id}",
+                          self._environment_dockerfile(ir, env)).with_header(ir)
+            for env in self._used_environments(ir)
         ]
         for agent in ir.agents:
             files.append(
@@ -105,6 +121,123 @@ class LocalTarget:
             networks["isolated"] = {"internal": True}
         return networks
 
+    def _used_environments(self, ir: SystemIR) -> list[Any]:
+        """Environment classes some agent actually runs in."""
+        used = {a.environment.id: a.environment for a in ir.agents if a.environment}
+        return [used[k] for k in sorted(used)]
+
+    def _requirements(self, ir: SystemIR) -> str:
+        """What the runtime image installs. Pin these for a reproducible build."""
+        adapters = sorted({a.runtime_adapter for a in ir.agents})
+        extras = {
+            "langchain_deepagents": "orgagents[langgraph]",
+            "langgraph_native": "orgagents[langgraph]",
+            "openai_agents_sdk": "orgagents[openai]",
+        }
+        wanted = sorted({extras.get(a, "orgagents") for a in adapters}) or ["orgagents"]
+        provider = ir.binding.model.provider
+        provider_package = {
+            "anthropic": "anthropic>=0.40", "openai": "openai>=1.40",
+        }.get(provider, "")
+        lines = [
+            "# Generated from the compiled system. Pin versions before you ship.",
+            *wanted,
+        ]
+        if provider_package:
+            lines.append(provider_package)
+        return "\n".join(lines) + "\n"
+
+    def _dockerignore(self) -> str:
+        return "\n".join([
+            "# Keep build context small and free of anything secret.",
+            ".git", ".venv", "__pycache__", "*.pyc", "*.db", ".env",
+            "build/", "overlays/", "*.log",
+        ]) + "\n"
+
+    def _runtime_dockerfile(self, ir: SystemIR) -> str:
+        """The image every platform service runs: designer, scheduler, bridges."""
+        return f'''# The orgagents runtime for '{ir.name}'.
+# Built once and reused by the designer, the scheduler, the channel bridges and
+# the memory service, so they cannot drift apart.
+FROM python:3.11-slim AS base
+
+ENV PYTHONUNBUFFERED=1 \\
+    PIP_NO_CACHE_DIR=1 \\
+    ORGAGENTS_SYSTEM={ir.name}
+
+WORKDIR /app
+
+RUN apt-get update \\
+ && apt-get install -y --no-install-recommends ca-certificates curl \\
+ && rm -rf /var/lib/apt/lists/*
+
+# The platform itself. Point this at your own package index or wheel in a
+# regulated build; nothing here reaches the public internet at run time.
+COPY requirements.txt ./
+RUN pip install -r requirements.txt
+
+COPY agents/ /app/agents/
+COPY triggers.json channels.json memory.json system.ir.json /app/
+
+# Never run as root: the sandbox boundary is the platform's, not the image's.
+RUN useradd --create-home --uid 10001 agent \\
+ && chown -R agent:agent /app
+USER agent
+
+HEALTHCHECK --interval=30s --timeout=3s --retries=3 \\
+  CMD curl -fsS http://localhost:8000/healthz || exit 1
+
+EXPOSE 8000
+CMD ["orgagents", "serve", "--host", "0.0.0.0"]
+'''
+
+    def _environment_dockerfile(self, ir: SystemIR, env) -> str:
+        """One image per environment class — the isolation boundary, built."""
+        binding = ir.binding.environment_binding(env.id)
+        image = binding.image if binding else TOOLCHAIN_IMAGES.get(
+            env.toolchains[0].value if env.toolchains else "none", "python:3.11-slim")
+        packages = " ".join(binding.packages) if binding and binding.packages else ""
+        toolchains = ", ".join(t.value for t in env.toolchains) or "none"
+        install = (
+            f"RUN pip install --no-cache-dir {packages}" if packages
+            else "# no additional packages for this environment class"
+        )
+        network_note = {
+            "none": "This environment has NO network. Compose attaches it to an "
+                    "internal network with no gateway.",
+            "allowlist": f"Egress is limited to: "
+                         f"{', '.join(env.egress_allowlist) or 'nothing declared'}.",
+            "internal": "Egress is limited to internal services.",
+            "open": "Egress is unrestricted — review whether this is intended.",
+        }[env.network.value]
+        return f'''# Execution environment '{env.id}' for '{ir.name}'.
+# tier={env.tier.value} · network={env.network.value} · timeout={env.timeout_seconds}s
+# toolchains: {toolchains}
+# mounts: {", ".join(env.mounts) or "none"}
+#
+# {network_note}
+FROM {image}
+
+ENV PYTHONUNBUFFERED=1 \\
+    ORGAGENTS_ENVIRONMENT={env.id}
+
+WORKDIR /workspace
+
+{install}
+
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+COPY agents/ /app/agents/
+COPY system.ir.json /app/system.ir.json
+
+RUN useradd --create-home --uid 10001 agent 2>/dev/null || true \\
+ && mkdir -p /workspace && chown -R agent /workspace /app
+USER agent
+
+CMD ["orgagents", "worker"]
+'''
+
     def _agent_service(self, ir: SystemIR, agent) -> dict[str, Any]:
         env = agent.environment
         tier = env.tier.value if env else "minimal"
@@ -114,8 +247,15 @@ class LocalTarget:
         networks = ["control"]
         networks.append("isolated" if posture == "none" else "egress")
         service: dict[str, Any] = {
-            "image": TOOLCHAIN_IMAGES.get(toolchain, "python:3.11-slim"),
-            "command": ["python", "-m", "orgagents.runtime.worker", agent.id],
+            # Built from this agent's environment class, so the container it runs
+            # in *is* the isolation boundary the spec declared.
+            "build": {
+                "context": ".",
+                "dockerfile": f"docker/Dockerfile.{env.id}" if env
+                else "Dockerfile",
+            },
+            "image": f"{ir.name}/agent-{agent.id}:latest",
+            "command": ["orgagents", "worker", agent.id],
             "environment": {
                 "ORGAGENTS_AGENT_ID": agent.id,
                 "ORGAGENTS_MANIFEST": f"/app/agents/{agent.id}.json",
@@ -153,7 +293,8 @@ class LocalTarget:
                 "ports": ["4317:4317"],
             },
             "designer": {
-                "image": "orgagents/platform:latest",
+                "build": {"context": ".", "dockerfile": "Dockerfile"},
+                "image": f"{ir.name}/platform:latest",
                 "command": ["orgagents", "serve", "--host", "0.0.0.0"],
                 "ports": ["8000:8000"],
                 "networks": ["control"],
@@ -168,7 +309,8 @@ class LocalTarget:
         if ir.triggers:
             scheduler = ir.binding.scheduler
             services["scheduler"] = {
-                "image": "orgagents/platform:latest",
+                "build": {"context": ".", "dockerfile": "Dockerfile"},
+                "image": f"{ir.name}/platform:latest",
                 "command": ["orgagents", "scheduler", "--manifest", "/app/triggers.json"],
                 "environment": {
                     "ORGAGENTS_SCHEDULER": scheduler.provider if scheduler else "internal",
@@ -189,7 +331,8 @@ class LocalTarget:
         if ir.memory.long_term.enabled:
             memory = ir.binding.memory
             services["memory"] = {
-                "image": "orgagents/platform:latest",
+                "build": {"context": ".", "dockerfile": "Dockerfile"},
+                "image": f"{ir.name}/platform:latest",
                 "command": ["orgagents", "memory", "serve"],
                 "environment": {
                     "ORGAGENTS_SESSION_STORE": memory.session_store if memory
@@ -225,7 +368,8 @@ class LocalTarget:
             if channel.bot_identity_ref:
                 env[channel.bot_identity_ref] = f"${{{channel.bot_identity_ref}}}"
             services[f"channel-{channel.id}"] = {
-                "image": "orgagents/channel-bridge:latest",
+                "build": {"context": ".", "dockerfile": "Dockerfile"},
+                "image": f"{ir.name}/platform:latest",
                 "command": ["serve", "--channel", channel.id],
                 "environment": env,
                 "volumes": ["./channels.json:/app/channels.json:ro"],
@@ -241,7 +385,8 @@ class LocalTarget:
             if binding is None:
                 continue
             services[f"mcp-{binding.server_name}"] = {
-                "image": binding.options.get("image", "orgagents/mcp-runner:latest"),
+                "build": {"context": ".", "dockerfile": "Dockerfile"},
+                "image": binding.options.get("image", f"{ir.name}/platform:latest"),
                 "command": [binding.command or "serve", *binding.args],
                 "environment": (
                     {binding.dsn_secret_ref: f"${{{binding.dsn_secret_ref}}}"}
@@ -286,6 +431,9 @@ seed:          ## load the compiled organization into the platform
 
 single:        ## run everything in one process (no container runtime needed)
 \tpython run_local.py
+
+images:        ## list the images this system defines
+	docker compose config --images
 
 validate:      ## re-validate the source spec
 \torgagents spec validate ../../{ir.name}.system.yaml

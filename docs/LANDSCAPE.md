@@ -176,6 +176,74 @@ because they are enforced at the same points.
 
 ---
 
+## 5. Second pass: three agent frameworks, read directly
+
+September 2026. A closer read of the three frameworks our runtime adapters
+target, looking specifically for primitives we had not modelled.
+
+### OpenAI Agents SDK — what we were missing
+Its primitives are agents, handoffs, **guardrails**, sessions, tracing, tools
+and human-in-the-loop, plus sandbox, realtime and voice agents. Two gaps:
+
+* **Guardrails as a first-class, configurable primitive** for input and output
+  validation. We had permissions — *what an agent may reach* — and nothing for
+  *what may pass*. A correctly-permissioned agent could paste a customer's
+  identifiers into a chat channel and no rule in our model said otherwise.
+* **Structured output types.** Agents declare the shape they return. Our
+  sub-agents declared `returns: "a cited findings list"` — useful to a reader,
+  uncheckable by a caller.
+
+**Declined:** realtime and voice agents. A voice modality is a real product
+surface and not one an enterprise agentic *designer* needs before it can
+deploy text and tool work; adding it would widen the channel model
+substantially for a case nobody has asked us for.
+
+### deepagents — what we were missing
+Planning, a virtual **filesystem** over pluggable backends, sub-agents with
+isolated context, **context management** (summarize long threads, offload tool
+outputs to disk), persistent memory, human-in-the-loop, skills and shell
+access. Two gaps:
+
+* **Context management.** We had memory (what an agent *learned*) and sandboxes
+  (where it *executes*) but nothing for the context window itself. A tool
+  returning 200 KB put 200 KB in the window, and a long run simply grew until
+  it broke or became expensive.
+* **A workspace / artifact store.** The place large intermediate material
+  lives. Conflating it with memory is how a scratch file becomes permanent
+  knowledge nobody classified.
+
+**Noted, not yet built:** an explicit planning/todo primitive. Our encoded
+workflows cover auditable processes; a lightweight in-run plan is a different,
+smaller thing and is backlog (WS-024), not a decision.
+
+### Agency Swarm — what we were missing
+Directional communication flows (which we adopted in ADR-0024), typed tools
+with Pydantic validation, a `ToolFactory` that turns OpenAPI schemas into
+tools, thread-persistence callbacks, and **shared instructions** — an
+`agency_manifesto.md` every agent carries. One gap:
+
+* **Shared operating instructions.** We had role responsibilities per agent and
+  nothing that said "this is how *everyone here* works". Every organization has
+  those, and repeating them in each role is how they drift.
+
+**Noted, not yet built:** OpenAPI-derived tools. A capability binding that
+generates tools from a schema is genuinely useful and is backlog (WS-024).
+
+## 6. What this pass added
+
+| Gap | Decision | Where |
+|---|---|---|
+| Guardrails on input and output | ADR-0035 | `guardrails.py`, `spec.guardrails` |
+| Context compaction and offloading | ADR-0036 | `context.py`, `spec.context` |
+| Artifact store (agent workspace) | ADR-0036 | `spec.artifact_stores` |
+| Checkable output contracts | ADR-0037 | `spec.output_contracts` |
+| Shared operating instructions | ADR-0038 | `operating_principles`, team `shared_instructions` |
+
+Backlog from this pass, recorded rather than decided: a planning primitive,
+OpenAPI-derived tools, and realtime/voice as a channel modality (WS-024).
+
+---
+
 ## Sources
 
 - [OpenClaw documentation](https://docs.openclaw.ai/) · [OpenClaw overview](https://openclaw.ai/) · [Milvus: complete guide to OpenClaw](https://milvus.io/blog/openclaw-formerly-clawdbot-moltbot-explained-a-complete-guide-to-the-autonomous-ai-agent.md) · [Yowox: the self-hosted AI gateway](https://yowox.com/posts/openclaw-guide-ai-gateway/)
@@ -183,4 +251,5 @@ because they are enforced at the same points.
 - [Claude Cowork](https://claude.com/product/cowork) · [Schedule recurring tasks in Cowork](https://support.claude.com/en/articles/13854387-schedule-recurring-tasks-in-claude-cowork) · [Cowork enterprise administrator guide](https://claude.com/resources/tutorials/claude-cowork-enterprise-administrator-guide) · [Building agents with Claude: skills to scheduled tasks](https://hatchworks.com/blog/claude/building-agents-with-claude/)
 - [Agency Swarm](https://github.com/VRSEN/agency-swarm) · [Swarms framework](https://github.com/kyegomez/swarms) · [OpenAI Swarm](https://github.com/openai/swarm) · [awesome-agent-swarm](https://github.com/EvoMap/awesome-agent-swarm)
 - [LangGraph](https://github.com/langchain-ai/langgraph) · [The runtime behind production deep agents](https://www.langchain.com/blog/runtime-behind-production-deep-agents) · [Durable execution in LangGraph](https://vadim.blog/durable-execution-agents-that-survive-failure-and-resume-where-they-left-off)
+- Second pass: [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) · [deepagents](https://github.com/langchain-ai/deepagents) · [Agency Swarm](https://github.com/VRSEN/agency-swarm)
 - [Slack: best agentic AI platforms 2026](https://slack.com/blog/productivity/best-agentic-ai-platforms-for-2026-what-they-are-and-how-to-choose-one) · [A2H: Agent-to-Human protocol](https://arxiv.org/html/2602.15831v1) · [AI agents in 2026](https://symphony-solutions.com/insights/ai-agents-in-2026)

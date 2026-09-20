@@ -366,6 +366,13 @@ class Agent(BaseModel):
     subagents: list[dict[str, Any]] = Field(default_factory=list)
     # The resolved two-tier memory contract (ADR-0028).
     memory: dict[str, Any] = Field(default_factory=dict)
+    # Boundary checks on what enters and leaves (ADR-0035).
+    guardrails: list[dict[str, Any]] = Field(default_factory=list)
+    # Workspace and context policy (ADR-0036).
+    artifact_store: dict[str, Any] = Field(default_factory=dict)
+    context_policy: dict[str, Any] = Field(default_factory=dict)
+    # The shape this agent must return, if any (ADR-0037).
+    output_contract: dict[str, Any] = Field(default_factory=dict)
     harness: Harness = Field(default_factory=Harness)
     skill_ids: list[str] = Field(default_factory=list)
     plugin_ids: list[str] = Field(default_factory=list)

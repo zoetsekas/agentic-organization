@@ -20,9 +20,21 @@ from ..catalog import Catalog
 from ..data.planes import AccessDenied, DataPlanes
 from ..harness.builder import HarnessBuilder
 from ..messaging import ChannelKind, DeliveryError, MessageBus
+from ..context import ArtifactWorkspace, ContextManager, ResolvedContext
+from ..guardrails import GuardrailEngine, GuardrailResult, validate_shape
 from ..memory import MemoryError, MemoryManager, ResolvedMemory
 from ..models import Agent, AgentKind, SessionState, Severity, WorkflowRef
-from ..spec.model import MemoryNamespace, MemoryPolicy, MemoryTier, RecallMode, SharingScope
+from ..spec.model import (
+    ArtifactStore,
+    ContextPolicy,
+    Guardrail,
+    GuardrailKind,
+    MemoryNamespace,
+    MemoryPolicy,
+    MemoryTier,
+    RecallMode,
+    SharingScope,
+)
 from ..observability import Observability, log_event
 from ..org import OrgChart
 from ..sessions import SessionManager
@@ -60,6 +72,8 @@ class AgentRuntime:
         self.obs = Observability(store)
         self.harness = harness or HarnessBuilder(store)
         self.memory = MemoryManager(store)
+        self.workspace = ArtifactWorkspace(store)
+        self.context = ContextManager(self.workspace)
         self._depth = 0
 
     # -- public API --------------------------------------------------------
@@ -96,6 +110,7 @@ class AgentRuntime:
         self.preload_memories(agent, session.id, prompt)
 
         tools = self.harness.build(agent)
+        tools.update(self._artifact_tools(agent, session.id))
         tools.update(self._memory_tools(agent, session.id))
         tools.update(self._subagent_tools(agent, session.id))
         tools.update(self._delegation_tools(agent, session.id))
@@ -117,8 +132,33 @@ class AgentRuntime:
             output="",
             state=SessionState.RUNNING,
         )
+        # What arrives is screened before the agent sees it (ADR-0035).
+        inbound = self._screen(agent, session.id, prompt, GuardrailKind.INPUT)
+        if inbound.blocked:
+            result.error = f"input refused: {inbound.reason()}"
+            result.state = self.sessions.set_state(
+                session.id, SessionState.FAILED).state
+            self.sessions.log(session.id, "error", actor=agent.id,
+                              payload={"error": result.error})
+            return result
+        prompt = inbound.content if isinstance(inbound.content, str) else prompt
+
         try:
             out: TurnOutput = adapter.run(prompt)
+            # And what leaves is screened before anyone else sees it.
+            outbound = self._screen(agent, session.id, out.text,
+                                    GuardrailKind.OUTPUT)
+            if outbound.blocked:
+                out.text = (
+                    "This response was withheld at the boundary: "
+                    f"{outbound.reason()}."
+                )
+            elif outbound.redacted:
+                out.text = outbound.content
+            contract_errors = self.check_output_contract(agent, out.text)
+            if contract_errors:
+                self.sessions.log(session.id, "output_contract", actor=agent.id,
+                                  payload={"errors": contract_errors[:5]})
             result.output = out.text
             result.tool_calls = out.tool_calls
             self.sessions.record_usage(session.id, tokens=out.tokens, turns=1)
@@ -158,6 +198,120 @@ class AgentRuntime:
             if e.type == "delegation"
         ]
         return result
+
+    # -- guardrails and workspace (ADR-0035, ADR-0036) ---------------------
+
+    def guardrail_engine(self, agent: Agent) -> GuardrailEngine:
+        return GuardrailEngine(
+            [Guardrail.model_validate(g) for g in agent.guardrails]
+        )
+
+    def context_for(self, agent: Agent) -> ResolvedContext:
+        return ResolvedContext(
+            agent_id=agent.id,
+            policy=ContextPolicy.model_validate(agent.context_policy or {}),
+            store=ArtifactStore.model_validate(agent.artifact_store)
+            if agent.artifact_store else None,
+            groups=tuple(agent.groups),
+            readable_data_classes=tuple(
+                (agent.memory or {}).get("readable_data_classes", [])
+            ),
+        )
+
+    def _screen(self, agent: Agent, session_id: str, content: str,
+                kind: GuardrailKind,
+                context: Optional[dict[str, Any]] = None) -> GuardrailResult:
+        """Run the boundary checks and record what they found."""
+        result = self.guardrail_engine(agent).check(content, kind, context=context)
+        if result.violations:
+            self.sessions.log(
+                session_id, "guardrail", actor=agent.id,
+                payload={
+                    "boundary": kind.value,
+                    "allowed": result.allowed,
+                    "redacted": result.redacted,
+                    "violations": [
+                        {"guardrail": v.guardrail, "check": v.check.value,
+                         "action": v.action.value, "detail": v.detail}
+                        for v in result.violations
+                    ],
+                },
+            )
+        if result.escalate_to:
+            self.obs.raise_alert(
+                "guardrail_escalation", result.reason(), severity=Severity.ERROR,
+                agent_id=agent.id, session_id=session_id,
+            )
+        return result
+
+    def check_output_contract(self, agent: Agent, output: Any) -> list[str]:
+        """Check a result against the agent's declared shape, if it has one."""
+        contract = agent.output_contract or {}
+        schema = contract.get("schema") or contract.get("schema_") or {}
+        if not schema:
+            return []
+        value = output
+        if isinstance(output, str):
+            import json
+
+            try:
+                value = json.loads(output)
+            except (TypeError, ValueError):
+                return [f"expected {contract.get('id', 'the declared shape')}, "
+                        "got unparseable text"]
+        return validate_shape(value, schema)
+
+    def _artifact_tools(self, agent: Agent, session_id: str) -> dict[str, Any]:
+        resolved = self.context_for(agent)
+        if resolved.store is None:
+            return {}
+
+        def artifact_write(content: str, path: str = "",
+                           data_class: str = "") -> dict[str, Any]:
+            """Write a file to your workspace and get a reference back."""
+            try:
+                artifact = self.workspace.write(
+                    resolved, content, path=path, session_id=session_id,
+                    data_class=data_class, source="agent",
+                )
+            except Exception as e:
+                return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+            return {"ok": True, "id": artifact.id, "reference": artifact.reference()}
+
+        def artifact_read(artifact_id: str, offset: int = 0,
+                          limit: int = 8000) -> dict[str, Any]:
+            """Read back an offloaded result, in whole or in part."""
+            artifact = self.workspace.read(resolved, artifact_id, offset=offset,
+                                           limit=limit)
+            if artifact is None:
+                return {"ok": False, "error": "no such artifact, or not yours"}
+            return {"ok": True, "path": artifact.path, "content": artifact.content,
+                    "size_bytes": artifact.size_bytes}
+
+        def artifact_list() -> list[dict[str, Any]]:
+            """List the files in your workspace for this session."""
+            return [
+                {"id": a.id, "path": a.path, "size_bytes": a.size_bytes,
+                 "created_at": a.created_at}
+                for a in self.workspace.list(resolved, session_id)
+            ]
+
+        return {"artifact_write": artifact_write, "artifact_read": artifact_read,
+                "artifact_list": artifact_list}
+
+    def offload_if_large(self, agent: Agent, session_id: str, label: str,
+                         content: str) -> str:
+        """Replace an oversized tool result with a readable reference."""
+        resolved = self.context_for(agent)
+        if resolved.store is None:
+            return content
+        replaced, artifact = self.context.offload(
+            resolved, content, label=label, session_id=session_id)
+        if artifact is not None:
+            self.sessions.log(session_id, "context_offload", actor=agent.id,
+                              payload={"label": label, "artifact": artifact.id,
+                                       "size_bytes": artifact.size_bytes})
+        return replaced
 
     # -- memory (ADR-0028) -------------------------------------------------
 

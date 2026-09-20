@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -51,6 +51,43 @@ class ResumeRequest(BaseModel):
 
 class InstallRequest(BaseModel):
     agent_id: str
+
+
+class CreateSystemRequest(BaseModel):
+    workspace_id: str
+    name: str
+    description: str = ""
+    spec: Optional[dict[str, Any]] = None
+
+
+class SaveSystemRequest(BaseModel):
+    spec: Optional[dict[str, Any]] = None
+    layout: Optional[dict[str, Any]] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    base_version: Optional[int] = None
+    strategy: Optional[str] = None
+    resolutions: dict[str, Any] = {}
+    message: str = ""
+
+
+class LockRequest(BaseModel):
+    target: str = "*"
+    scope: str = "component"
+    note: str = ""
+
+
+class WorkspaceRequest(BaseModel):
+    name: str
+    description: str = ""
+
+
+class MemberRequest(BaseModel):
+    user_id: str
+    display_name: str = ""
+    email: str = ""
+    role: str = "viewer"
 
 
 class PublishRequest(BaseModel):
@@ -320,6 +357,164 @@ def create_app(
     def healthz() -> dict:
         return {"status": "ok", "agents": platform.store.count("agents")}
 
+    # -- designer: workspaces, systems, canvas, locks (ADR-0031/0032/0033) --
+
+    from .designer import (
+        DesignerError,
+        DesignerService,
+        Layout,
+        LockConflict,
+        Member,
+        PermissionDenied,
+        Principal,
+        SystemStatus,
+        UserRole,
+        build_repository,
+    )
+    from .designer.models import DesignerSettings
+
+    designer_settings = DesignerSettings(
+        persistence=os.environ.get("ORGAGENTS_DESIGNER_STORE", "relational"),  # type: ignore[arg-type]
+        storage_path=os.environ.get("ORGAGENTS_DESIGNER_PATH", "./designer-data"),
+    )
+    designer = DesignerService(
+        build_repository(designer_settings, platform.store), designer_settings
+    )
+    app.state.designer = designer
+
+    def principal(
+        x_user: str = Header(default="anonymous"),
+        x_user_name: str = Header(default=""),
+        x_user_email: str = Header(default=""),
+    ) -> Principal:
+        """Identity comes from a header in dev; an OIDC proxy supplies it in
+        production (ADR-0032). The service never trusts a client-sent role."""
+        return Principal(user_id=x_user, display_name=x_user_name or x_user,
+                         email=x_user_email)
+
+    def _guard(fn, *args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except PermissionDenied as e:
+            raise HTTPException(403, str(e)) from e
+        except LockConflict as e:
+            raise HTTPException(
+                409, {"error": str(e), "lock": e.lock.model_dump(mode="json")}
+            ) from e
+        except DesignerError as e:
+            raise HTTPException(404, str(e)) from e
+
+    @app.get("/api/designer/whoami")
+    def designer_whoami(user: Principal = Depends(principal)) -> dict:
+        return designer.whoami(user)
+
+    @app.get("/api/designer/settings")
+    def designer_get_settings() -> dict:
+        return designer.settings.model_dump(mode="json")
+
+    @app.put("/api/designer/settings")
+    def designer_update_settings(changes: dict[str, Any],
+                                 user: Principal = Depends(principal)) -> dict:
+        return _guard(designer.update_settings, user, changes).model_dump(mode="json")
+
+    @app.get("/api/designer/workspaces")
+    def designer_workspaces(user: Principal = Depends(principal)) -> list[dict]:
+        return [w.model_dump(mode="json") for w in designer.workspaces(user)]
+
+    @app.post("/api/designer/workspaces")
+    def designer_create_workspace(req: WorkspaceRequest,
+                                  user: Principal = Depends(principal)) -> dict:
+        return designer.create_workspace(user, req.name,
+                                         req.description).model_dump(mode="json")
+
+    @app.post("/api/designer/workspaces/{workspace_id}/members")
+    def designer_add_member(workspace_id: str, req: MemberRequest,
+                            user: Principal = Depends(principal)) -> dict:
+        member = Member(user_id=req.user_id, display_name=req.display_name,
+                        email=req.email, role=UserRole(req.role))
+        return _guard(designer.add_member, user, workspace_id,
+                      member).model_dump(mode="json")
+
+    @app.delete("/api/designer/workspaces/{workspace_id}/members/{user_id}")
+    def designer_remove_member(workspace_id: str, user_id: str,
+                               user: Principal = Depends(principal)) -> dict:
+        return _guard(designer.remove_member, user, workspace_id,
+                      user_id).model_dump(mode="json")
+
+    @app.get("/api/designer/systems")
+    def designer_systems(workspace_id: Optional[str] = None,
+                         user: Principal = Depends(principal)) -> list[dict]:
+        return designer.list_systems(user, workspace_id)
+
+    @app.post("/api/designer/systems")
+    def designer_create_system(req: CreateSystemRequest,
+                               user: Principal = Depends(principal)) -> dict:
+        return _guard(designer.create_system, user, workspace_id=req.workspace_id,
+                      name=req.name, description=req.description,
+                      spec=req.spec).model_dump(mode="json")
+
+    @app.get("/api/designer/systems/{system_id}")
+    def designer_open_system(system_id: str,
+                             user: Principal = Depends(principal)) -> dict:
+        return _guard(designer.open_system, user, system_id)
+
+    @app.put("/api/designer/systems/{system_id}")
+    def designer_save_system(system_id: str, req: SaveSystemRequest,
+                             user: Principal = Depends(principal)) -> dict:
+        outcome = _guard(
+            designer.save_system, user, system_id, spec=req.spec,
+            layout=Layout.model_validate(req.layout) if req.layout else None,
+            name=req.name, description=req.description,
+            status=SystemStatus(req.status) if req.status else None,
+            base_version=req.base_version, strategy=req.strategy,
+            resolutions=req.resolutions, message=req.message,
+        )
+        return outcome.as_dict()
+
+    @app.delete("/api/designer/systems/{system_id}")
+    def designer_delete_system(system_id: str,
+                               user: Principal = Depends(principal)) -> dict:
+        return {"deleted": _guard(designer.delete_system, user, system_id)}
+
+    @app.post("/api/designer/systems/{system_id}/lock")
+    def designer_acquire_lock(system_id: str, req: LockRequest,
+                              user: Principal = Depends(principal)) -> dict:
+        return _guard(designer.acquire_lock, user, system_id, target=req.target,
+                      scope=req.scope, note=req.note).model_dump(mode="json")
+
+    @app.post("/api/designer/systems/{system_id}/lock/heartbeat")
+    def designer_heartbeat(system_id: str, req: LockRequest,
+                           user: Principal = Depends(principal)) -> dict:
+        lock = designer.heartbeat(user, system_id, req.target)
+        return lock.model_dump(mode="json") if lock else {"held": False}
+
+    @app.delete("/api/designer/systems/{system_id}/lock")
+    def designer_release_lock(system_id: str, target: str = "*",
+                              user: Principal = Depends(principal)) -> dict:
+        return {"released": designer.release_lock(user, system_id, target)}
+
+    @app.post("/api/designer/systems/{system_id}/lock/break")
+    def designer_break_lock(system_id: str, req: LockRequest,
+                            user: Principal = Depends(principal)) -> dict:
+        return {"broken": _guard(designer.break_lock, user, system_id, req.target)}
+
+    @app.get("/api/designer/systems/{system_id}/revisions")
+    def designer_revisions(system_id: str, limit: int = 50,
+                           user: Principal = Depends(principal)) -> list[dict]:
+        return [r.model_dump(mode="json")
+                for r in _guard(designer.revisions, user, system_id, limit)]
+
+    @app.post("/api/designer/systems/{system_id}/restore/{version}")
+    def designer_restore(system_id: str, version: int,
+                         user: Principal = Depends(principal)) -> dict:
+        return _guard(designer.restore, user, system_id,
+                      version).model_dump(mode="json")
+
+    @app.get("/api/designer/palette")
+    def designer_palette() -> dict:
+        """What the canvas can place, and the fields each kind needs."""
+        return PALETTE
+
     # -- UI ----------------------------------------------------------------
 
     if WEB_DIR.is_dir():
@@ -330,6 +525,163 @@ def create_app(
             return RedirectResponse("/ui/")
 
     return app
+
+
+# What the canvas can place, and the form each component needs (ADR-0034).
+# Derived from the spec model so the palette cannot drift from what validates.
+PALETTE: dict[str, Any] = {
+    "groups": [
+        {
+            "id": "organization",
+            "label": "Organization",
+            "kinds": [
+                {"kind": "team", "label": "Team", "icon": "▣",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "name", "type": "string"},
+                     {"name": "leader", "type": "string",
+                      "help": "agent id; must also be a member"},
+                     {"name": "mandate", "type": "list"},
+                     {"name": "groups", "type": "list"},
+                 ]},
+                {"kind": "agent", "label": "Agent", "icon": "◆",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "name", "type": "string"},
+                     {"name": "description", "type": "text"},
+                     {"name": "roles", "type": "list"},
+                     {"name": "capabilities", "type": "list"},
+                     {"name": "knowledge", "type": "list"},
+                     {"name": "skills", "type": "list"},
+                     {"name": "plugins", "type": "list"},
+                     {"name": "tools", "type": "list"},
+                     {"name": "endpoints", "type": "list"},
+                     {"name": "environment", "type": "string",
+                      "help": "environment class id"},
+                     {"name": "shared_service", "type": "bool"},
+                     {"name": "humans", "type": "humans"},
+                 ]},
+                {"kind": "subagent", "label": "Sub-agent", "icon": "◇",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "parent", "type": "string", "required": True},
+                     {"name": "kind", "type": "enum",
+                      "options": ["research", "review", "summarize", "extract",
+                                  "critique", "plan", "verify", "custom"]},
+                     {"name": "purpose", "type": "text"},
+                     {"name": "capabilities", "type": "list"},
+                     {"name": "returns", "type": "string"},
+                     {"name": "max_runtime_seconds", "type": "number"},
+                 ]},
+                {"kind": "role", "label": "Role", "icon": "✦",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "kind", "type": "enum", "options": ["agent", "team"]},
+                     {"name": "responsibilities", "type": "list"},
+                     {"name": "capabilities", "type": "list"},
+                 ]},
+            ],
+        },
+        {
+            "id": "access",
+            "label": "Access",
+            "kinds": [
+                {"kind": "capability", "label": "Capability", "icon": "⚷",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "action", "type": "enum",
+                      "options": ["read", "write", "query", "invoke", "delegate",
+                                  "publish", "approve", "administer"]},
+                     {"name": "resource_class", "type": "string"},
+                     {"name": "data_classes", "type": "list"},
+                     {"name": "secret_ref", "type": "string"},
+                 ]},
+                {"kind": "data_class", "label": "Data class", "icon": "▤",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "scope", "type": "enum",
+                      "options": ["private", "protected", "public"]},
+                     {"name": "groups", "type": "list"},
+                     {"name": "may_leave_region", "type": "bool"},
+                     {"name": "may_appear_in_traces", "type": "bool"},
+                 ]},
+                {"kind": "environment", "label": "Environment", "icon": "▦",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "tier", "type": "enum",
+                      "options": ["minimal", "small", "medium", "large",
+                                  "accelerated"]},
+                     {"name": "network", "type": "enum",
+                      "options": ["none", "allowlist", "internal", "open"]},
+                     {"name": "mounts", "type": "list"},
+                     {"name": "timeout_seconds", "type": "number"},
+                 ]},
+                {"kind": "endpoint", "label": "External agent", "icon": "⇥",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "trust", "type": "enum",
+                      "options": ["internal", "partner", "external"]},
+                     {"name": "send_data_classes", "type": "list"},
+                     {"name": "requires_approval", "type": "bool"},
+                 ]},
+            ],
+        },
+        {
+            "id": "operations",
+            "label": "Operations",
+            "kinds": [
+                {"kind": "channel", "label": "Channel", "icon": "✉",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "channel_class", "type": "enum",
+                      "options": ["direct", "async_bus", "team_chat", "mail",
+                                  "webhook"]},
+                     {"name": "human_facing", "type": "bool"},
+                     {"name": "purposes", "type": "list"},
+                     {"name": "response_sla_minutes", "type": "number"},
+                 ]},
+                {"kind": "trigger", "label": "Trigger", "icon": "⏱",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "kind", "type": "enum",
+                      "options": ["schedule", "event", "webhook", "message",
+                                  "manual"]},
+                     {"name": "agent", "type": "string", "required": True},
+                     {"name": "cadence", "type": "string",
+                      "help": "cron or 'every 15 minutes'"},
+                     {"name": "deliver_to", "type": "list"},
+                 ]},
+                {"kind": "knowledge", "label": "Knowledge", "icon": "▥",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "kind", "type": "enum",
+                      "options": ["document_store", "wiki", "ticketing", "crm",
+                                  "mailbox", "code_repository", "data_warehouse",
+                                  "web"]},
+                     {"name": "data_classes", "type": "list"},
+                 ]},
+                {"kind": "memory_namespace", "label": "Memory namespace",
+                 "icon": "◈",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "scope", "type": "enum",
+                      "options": ["private", "protected", "public"]},
+                     {"name": "groups", "type": "list"},
+                     {"name": "data_classes", "type": "list"},
+                     {"name": "retention_days", "type": "number"},
+                 ]},
+                {"kind": "workflow", "label": "Workflow", "icon": "⤳",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "name", "type": "string"},
+                     {"name": "description", "type": "text"},
+                 ]},
+                {"kind": "note", "label": "Note", "icon": "✎",
+                 "fields": [{"name": "note", "type": "text"}]},
+            ],
+        },
+    ],
+}
 
 
 # Infrastructure options the designer offers for each concern. These are

@@ -31,6 +31,9 @@ from ..spec.model import (
     HumanRole,
     InteractionFlow,
     KnowledgeSource,
+    ArtifactStore,
+    ContextPolicy,
+    Guardrail,
     Lifecycle,
     Memory,
     MemoryNamespace,
@@ -43,6 +46,7 @@ from ..spec.model import (
     PolicyRule,
     Resilience,
     ResourceKind,
+    OutputContract,
     SharingScope,
     SkillSpec,
     SystemSpec,
@@ -72,6 +76,7 @@ NEUTRAL_RESOURCES = (
     "channel_bridge",     # connects a channel to a human surface (ADR-0021)
     "knowledge_index",    # a grounding source's index (ADR-0023)
     "memory_store",       # session and long-term memory (ADR-0028)
+    "artifact_store",     # the agent workspace (ADR-0036)
     "agent_endpoint",     # an agent outside this system (ADR-0030)
 )
 
@@ -244,6 +249,11 @@ class AgentIR(BaseModel):
     runtime_adapter: str = "echo"
     model: dict[str, Any] = Field(default_factory=dict)
     knowledge: list[str] = Field(default_factory=list)
+    guardrails: list[Guardrail] = Field(default_factory=list)
+    artifact_store: Optional[ArtifactStore] = None
+    context: ContextPolicy = Field(default_factory=ContextPolicy)
+    output_contract: Optional[OutputContract] = None
+    shared_instructions: list[dict[str, str]] = Field(default_factory=list)
     skills: list[SkillSpec] = Field(default_factory=list)
     plugins: list[str] = Field(default_factory=list)
     tools: list[ToolIR] = Field(default_factory=list)
@@ -334,6 +344,29 @@ class AgentIR(BaseModel):
                 "- Promote something into long-term memory only when it will be "
                 "useful again; everything you happen to see is not a memory.",
             ]
+        if self.shared_instructions:
+            lines += ["", "## Shared operating principles"]
+            for entry in self.shared_instructions:
+                lines.append(f"- {entry['text']}  _(from {entry['source']})_")
+        if self.guardrails:
+            lines += ["", "## Boundaries enforced on you"]
+            for guardrail in self.guardrails:
+                checks = ", ".join(c.value for c in guardrail.checks)
+                lines.append(
+                    f"- {guardrail.id}: {checks} → {guardrail.on_violation.value}")
+            lines.append(
+                "  These are enforced outside you. Do not attempt to work around "
+                "one; say what you needed instead.")
+        if self.artifact_store:
+            lines += [
+                "",
+                "## Workspace",
+                f"- Large results are written to '{self.artifact_store.id}' and "
+                "replaced by a reference; read one back only if you need it.",
+            ]
+        if self.output_contract:
+            lines += ["", "## Required output shape",
+                      f"- {self.output_contract.description or self.output_contract.id}"]
         lines += ["", "## Operating rules",
                   "- Prefer delegating to a team member whose role covers the task.",
                   "- Use an encoded workflow for any process that must be auditable.",
@@ -372,6 +405,10 @@ class SystemIR(BaseModel):
     identities: list[IdentityIR] = Field(default_factory=list)
     resources: list[ResourceIR] = Field(default_factory=list)
     memory: Memory = Field(default_factory=Memory)
+    guardrails: list[Guardrail] = Field(default_factory=list)
+    artifact_stores: list[ArtifactStore] = Field(default_factory=list)
+    context: ContextPolicy = Field(default_factory=ContextPolicy)
+    operating_principles: list[str] = Field(default_factory=list)
     triggers: list[TriggerIR] = Field(default_factory=list)
     channels: list[ChannelIR] = Field(default_factory=list)
     knowledge: list[KnowledgeIR] = Field(default_factory=list)
@@ -808,6 +845,24 @@ def build_ir(
         subagents = _resolve_subagents(agent, held_caps)
         endpoints = [e for e in (spec.endpoint(i) for i in agent.endpoints) if e]
         memory = _resolve_memory(spec, agent, [a.data_class for a in access.values()])
+        # System guardrails apply to every agent; an agent may add, never remove
+        # (ADR-0035).
+        guardrails = list(spec.guardrails) + [
+            g for g in (spec.guardrail(i) for i in agent.guardrails)
+            if g and g not in spec.guardrails
+        ]
+        artifact_store = (
+            spec.artifact_store(agent.artifact_store) if agent.artifact_store else None
+        )
+        context_policy = agent.context or spec.context
+        output_contract = (
+            spec.output_contract(agent.output_contract) if agent.output_contract
+            else None
+        )
+        shared = [
+            {"source": source, "text": text}
+            for source, text in spec.shared_instructions_for(agent.id)
+        ]
 
         overrides = bound.agent_overrides.get(agent.id, {})
         identity = IdentityIR(
@@ -866,6 +921,11 @@ def build_ir(
                 runtime_adapter=overrides.get("adapter", bound.runtime.adapter),
                 model={**bound.model.model_dump(), **overrides.get("model", {})},
                 knowledge=list(agent.knowledge),
+                guardrails=guardrails,
+                artifact_store=artifact_store,
+                context=context_policy,
+                output_contract=output_contract,
+                shared_instructions=shared,
                 skills=skills,
                 plugins=list(agent.plugins),
                 tools=tools,
@@ -907,6 +967,10 @@ def build_ir(
         compliance=spec.compliance,
         lifecycle=spec.lifecycle,
         memory=spec.memory,
+        guardrails=spec.guardrails,
+        artifact_stores=spec.artifact_stores,
+        context=spec.context,
+        operating_principles=spec.operating_principles,
         resilience=spec.resilience,
         binding=bound,
     )
@@ -1013,6 +1077,13 @@ def build_resources(ir: SystemIR) -> list[ResourceIR]:
                                    "retention_days": ir.memory.long_term.retention_days,
                                    "namespaces": [n.id for n in ir.memory.namespaces],
                                    "promotion": ir.memory.long_term.promotion_allowed})
+        )
+    for store in ir.artifact_stores:
+        resources.append(
+            ResourceIR(kind="artifact_store", id=f"artifacts-{store.id}",
+                       attributes={"scope": store.scope.value,
+                                   "retention_days": store.retention_days,
+                                   "max_total_bytes": store.max_total_bytes})
         )
     for endpoint in {e.id: e for a in ir.agents for e in a.endpoints}.values():
         resources.append(

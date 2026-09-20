@@ -18,7 +18,8 @@
   </div>
   <nav class="tabs" id="tabs">
     <button data-view="org" class="active">Org chart</button>
-    <button data-view="designer">Designer</button>
+    <button data-view="canvas">Canvas</button>
+    <button data-view="designer">Harness</button>
     <button data-view="catalog">Marketplace</button>
     <button data-view="sessions">Sessions</button>
     <button data-view="ops">Operations</button>
@@ -38,6 +39,66 @@
       <aside class="panel">
         <h2>Agent detail</h2>
         <div id="agentdetail" class="empty">Select an agent.</div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- CANVAS DESIGNER -->
+  <section id="view-canvas" class="view">
+    <div class="canvas-bar">
+      <select id="ws-select" title="Workspace"></select>
+      <select id="sys-select" title="Agentic system"></select>
+      <button id="btn-new-system">New system</button>
+      <span class="sep"></span>
+      <button id="btn-lock" title="Lock this design while you edit">Lock</button>
+      <button id="btn-save" class="primary">Save</button>
+      <span id="version-badge" class="badge">v—</span>
+      <span id="lock-badge" class="badge"></span>
+      <span class="sep"></span>
+      <button id="btn-revisions">History</button>
+      <button id="btn-members">People</button>
+      <button id="btn-designer-settings">Settings</button>
+      <span class="grow"></span>
+      <label class="inline">as
+        <input id="user-input" value="ana" size="8" title="Acting user (dev auth)" />
+      </label>
+      <span id="role-badge" class="badge"></span>
+    </div>
+
+    <div id="conflict-bar" class="conflict-bar" hidden>
+      <strong>Conflicting edits</strong>
+      <span id="conflict-summary"></span>
+      <div id="conflict-list" class="conflict-list"></div>
+      <div class="actions">
+        <button id="btn-resolve-mine">Keep mine for all</button>
+        <button id="btn-resolve-theirs">Take theirs for all</button>
+        <button id="btn-resolve-apply" class="primary">Apply choices and save</button>
+        <button id="btn-conflict-dismiss">Dismiss</button>
+      </div>
+    </div>
+
+    <div class="canvas-layout">
+      <aside class="panel palette" id="canvas-palette">
+        <h2>Components</h2>
+        <p class="hint">Drag a component onto the canvas.</p>
+        <div id="palette-groups"></div>
+      </aside>
+
+      <div class="panel canvas-wrap">
+        <div id="canvas" class="canvas-surface">
+          <svg id="canvas-edges" class="canvas-edges"></svg>
+          <div id="canvas-nodes"></div>
+          <div id="canvas-empty" class="canvas-empty">
+            Drag a <strong>Team</strong> here to start, then drop
+            <strong>Agents</strong> onto it.
+          </div>
+        </div>
+      </div>
+
+      <aside class="panel inspector">
+        <h2 id="inspector-title">Inspector</h2>
+        <div id="inspector" class="empty">Select a component on the canvas.</div>
+        <div id="validation" class="validation"></div>
       </aside>
     </div>
   </section>
@@ -196,5 +257,6 @@
   </section>
 </main>
 <script src="app.js"></script>
+<script src="canvas.js"></script>
 </body>
 </html>

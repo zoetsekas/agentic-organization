@@ -30,6 +30,10 @@ spec (what)  +  binding (how)  →  IR (resolved)  →  target plugins  →  art
 | `tools` | Named wrappers over things already granted (ADR-0029) |
 | `endpoints` | External agents ours may call, by trust level (ADR-0030) |
 | `memory` | Session and long-term memory, with namespaces (ADR-0028) |
+| `guardrails` | Checks on what may pass a boundary (ADR-0035) |
+| `artifact_stores` · `context` | Workspaces, offloading and compaction (ADR-0036) |
+| `output_contracts` | Checkable shapes a result must match (ADR-0037) |
+| `operating_principles` | Instructions every agent carries (ADR-0038) |
 | `budgets` | Spend ceilings with a mandatory breach action (ADR-0022) |
 | `lifecycle` | Stages, promotion gates and evaluation cases (ADR-0022) |
 | `compliance` | Residency, retention, redaction, review interval |
@@ -269,6 +273,93 @@ Outbound is classified: a non-`internal` endpoint may be sent public data only,
 or validation fails as exfiltration. Inbound is data, never instruction, and
 the composed prompt says so. The endpoint's credential lands on the **calling
 agent's** identity (ADR-0030).
+
+## Guardrails
+
+Permissions decide what an agent may *reach*; guardrails decide what may
+*pass* (ADR-0035):
+
+```yaml
+guardrails:
+  - id: no_credentials_out
+    applies_to: [output, tool_output]      # input | output | tool_input | tool_output
+    checks: [secrets]                      # secrets | pii | prompt_injection |
+    on_violation: block                    # data_class | url_allowlist | pattern |
+  - id: mask_identifiers                   # max_length | schema
+    applies_to: [output]
+    checks: [pii]
+    on_violation: redact                   # block | redact | flag | escalate
+  - id: pii_stays_in_the_clean_room
+    checks: [data_class]
+    data_classes: [customer_pii]
+    on_violation: escalate
+    escalate_channel: finance_approvals
+```
+
+System guardrails apply to **every** agent; an agent may add, never remove.
+Enforcement happens outside the agent loop, so a jailbroken prompt never
+reaches the check, and the composed prompt tells the agent the boundaries exist
+and to report what it needed rather than work around one.
+
+## Context and workspaces
+
+```yaml
+artifact_stores:
+  - {id: finance_scratch, scope: protected, groups: [finance],
+     data_classes: [finance_internal], retention_days: 14}
+
+context:
+  max_context_tokens: 150000
+  summarize_after_tokens: 100000     # must be below max, or it never fires
+  keep_last_turns: 6
+  offload_tool_output_bytes: 20000
+  offload_to: finance_scratch
+```
+
+A tool result over the threshold is written to the store and replaced by a
+reference plus the first 400 characters; the agent reads it back only if it
+needs to (`artifact_read`). Past the token threshold, older turns compact and
+recent ones stay verbatim — and **compaction that would not reduce tokens is
+refused**, because a summary longer than what it replaces is not a summary.
+
+An artifact store is deliberately a third thing beside memory (what an agent
+learned) and the sandbox (where it executes).
+
+## Output contracts
+
+```yaml
+output_contracts:
+  - id: cited_findings
+    schema:
+      type: object
+      required: [findings]
+      properties:
+        findings:
+          type: array
+          items: {type: object, required: [text, source]}
+    on_violation: retry
+```
+
+Referenced by an agent, a sub-agent or a tool. `returns:` prose stays for the
+reader; the contract is what a caller can check. It validates **shape, not
+correctness** — a conforming answer can still be wrong.
+
+## Shared operating instructions
+
+```yaml
+operating_principles:                 # every agent carries these
+  - Say what you do not know. An unsourced figure is worse than no figure.
+
+organization:
+  teams:
+    - id: finance
+      shared_instructions:            # every member of this team carries these
+        - Every figure names the period and the source table it came from.
+```
+
+Composed into the prompt **with their source**, so a reader sees which rule came
+from the organization and which from Finance. Instructions are not enforcement:
+anything that must hold belongs in a guardrail or a permission (ADR-0038).
 
 ## Interaction flows
 

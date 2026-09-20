@@ -274,6 +274,10 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
                 humans=[_counterpart(h, agent) for h in humans],
                 subagents=agent.get("subagents", []),
                 memory=agent.get("memory", {}),
+                guardrails=agent.get("guardrails", []),
+                artifact_store=agent.get("artifact_store") or {},
+                context_policy=agent.get("context", {}),
+                output_contract=agent.get("output_contract") or {},
                 harness=_harness(enriched, data),
                 workflow_ids=agent.get("workflows", []),
                 sandbox=SandboxSpec(

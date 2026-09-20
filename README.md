@@ -81,11 +81,37 @@ orgagents phase    examples/acme.system.yaml --binding examples/acme.binding.yam
                    --target terraform:gcp    # definition + implementation readiness
 orgagents schedule examples/acme.system.yaml --simulate-days 7
 orgagents records  validate                  # ADR/WS graph integrity
-pytest                                       # 186 tests, no network or API keys
+pytest                                       # 289 tests, no network or API keys
+
+# Design in a browser: drag-and-drop canvas, multi-user, with history
+orgagents serve      # then open http://localhost:8000/ui/#/canvas
 ```
 
 Open <http://localhost:8000/ui/> for the **Agentic Designer**: org chart,
 agent/harness designer, marketplace, session traces and the operations console.
+
+## The designer
+
+`http://localhost:8000/ui/#/canvas` is a drag-and-drop canvas: drop a **Team**,
+drop **Agents** onto it, fill in the inspector forms, and watch validation
+update as you work. Edges are **derived from the spec**, so the picture cannot
+disagree with what would compile, and **layout never enters the spec** — moving
+a box does not change a byte of the design (ADR-0034).
+
+Behind it is a service, not a browser (ADR-0031). Many systems, many
+workspaces, and persistence you choose: **JSON files** laid out for git, a
+**relational** store, or **memory** for previews. Every write captures an
+immutable revision, so history and restore come free.
+
+Several people can work on one design (ADR-0032, ADR-0033):
+
+- five workspace roles — viewer, reviewer, editor, admin, owner — deny by
+  default, with every refusal naming the role and the missing permission;
+- **advisory, expiring locks** at system or component scope, so two people can
+  edit different agents at once and an abandoned tab unfreezes itself;
+- **optimistic versions plus a three-way structural merge**: independent edits
+  to a design merge silently, and the same field edited twice produces a
+  conflict with both values and a choice — never a guess, never a silent loss.
 
 ## Landscape
 
@@ -98,10 +124,18 @@ with a capability matrix, the gaps it exposed, and an explicit list of what we
 hosted-only control plane, unbounded spend). Seven decisions came out of it:
 ADR-0019 through ADR-0025.
 
+A second pass read the three frameworks our adapters target — the **OpenAI
+Agents SDK**, **deepagents** and **Agency Swarm** — for primitives we had not
+modelled. It found four: guardrails on what may *pass* (we only governed what
+an agent may *reach*), context management (offloading large tool results and
+compacting long threads), checkable output contracts, and shared operating
+instructions. ADR-0035 through ADR-0038. A planning primitive, OpenAPI-derived
+tools and voice as a modality are recorded as backlog, not built.
+
 ## Decisions and delivery
 
-Architecture is recorded, not remembered (ADR-0001). Thirty decision records
-and nineteen workstream records, machine-validated in CI:
+Architecture is recorded, not remembered (ADR-0001). Thirty-eight decision
+records and twenty-four workstream records, machine-validated in CI:
 
 - [docs/decisions/index.md](docs/decisions/index.md) — **ADRs**: why, who, what,
   where, how, when, advantages *and* disadvantages, with statuses, semver,
@@ -132,6 +166,11 @@ implementation: [ADR-0006 v1.1.0](docs/decisions/ADR-0006-recursive-teams-with-l
 | Sub-agents callable as tools, narrow-only | `runtime/subagents.py` |
 | Two-tier memory: session + governed long term | `memory.py` |
 | Skills, plugins, wrapper tools, external endpoints | `spec/model.py`, `compiler/ir.py` |
+| Guardrails on input, output and tool boundaries | `guardrails.py` |
+| Context compaction and an artifact workspace | `context.py` |
+| Drag-and-drop canvas designer | `web/canvas.js`, `designer/` |
+| Multi-user designer: RBAC, locks, three-way merge | `designer/` |
+| Pluggable designer persistence: files, relational, memory | `designer/repository.py` |
 | Spec validation incl. least-privilege rules | `spec/validate.py` |
 | Two-phase compiler: spec → IR → target plugins | `compiler/` |
 | Local target: Compose stack + single-process mode | `compiler/targets/local.py` |
@@ -223,6 +262,19 @@ reach, it is reviewed as access (ADR-0029). External agents are trust-classified
 endpoints: public data only may leave, and their answers are marked as data to
 check, never instructions to follow (ADR-0030).
 
+**Guardrails govern what may pass.** Permissions decide what an agent may
+reach; guardrails decide what may leave it. Named checks — secrets, PII,
+injection, data class, URL allowlist, length, shape — at four boundaries, with
+four actions: block, redact, flag, escalate. Enforced **outside** the agent
+loop, so a jailbroken prompt never reaches the check, and system guardrails can
+be added to by an agent but never removed (ADR-0035).
+
+**Long runs stay affordable.** Tool results over a threshold are written to a
+declared **artifact store** and replaced by a reference the agent can read
+back; past a token threshold, older turns compact while recent ones stay
+verbatim — and compaction that would not actually save tokens is refused
+(ADR-0036).
+
 **The fleet has a registry.** Every target generates `REGISTRY.md`: each agent
 with its owner, identity, permissions, environment, triggers, channels and
 budget, plus review flags naming unowned agents and unbounded spend (ADR-0022).
@@ -312,6 +364,14 @@ Known gaps, tracked in the workstreams rather than glossed:
 - **Human pairings name individuals and rot.** Nothing detects a departed
   employee still listed as an approver until directory integration lands
   (WS-016 M4).
+- **Guardrail detection is pattern-based**, so it both misses real cases and
+  fires on innocent ones; model-backed classifiers are WS-024 M5. Injection
+  detection by phrase list is a trace signal, not a defence.
+- **The default summarizer does not summarize** — without a model it keeps the
+  first and last turns and counts the rest (WS-024 M5), and output-contract
+  violations are recorded rather than retried (WS-024 M6).
+- **Designer identity comes from a header** and is only safe behind an
+  authenticating proxy; OIDC integration is WS-021 M3.
 - **Terraform is generated but not applied or `terraform validate`-ed here** —
   the binary is not installed in this environment, so the tests check
   identifier validity and block balance instead. Real `plan`/`apply` against a

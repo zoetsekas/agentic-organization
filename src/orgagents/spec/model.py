@@ -117,6 +117,43 @@ class ChannelClass(str, Enum):
     WEBHOOK = "webhook"
 
 
+class GuardrailKind(str, Enum):
+    """Where a guardrail sits in the loop (ADR-0035)."""
+
+    INPUT = "input"              # what arrives, before the agent sees it
+    OUTPUT = "output"            # what the agent produces, before it leaves
+    TOOL_INPUT = "tool_input"    # arguments, before a tool runs
+    TOOL_OUTPUT = "tool_output"  # results, before they re-enter context
+
+
+class GuardrailCheck(str, Enum):
+    """Named checks, so a guardrail is reviewable rather than a regex soup."""
+
+    PII = "pii"                        # identifying data in free text
+    SECRETS = "secrets"                # credentials, keys, connection strings
+    PROMPT_INJECTION = "prompt_injection"
+    DATA_CLASS = "data_class"          # a classified class leaving its boundary
+    URL_ALLOWLIST = "url_allowlist"
+    SCHEMA = "schema"                  # structured output conformance
+    PATTERN = "pattern"                # declared regular expressions
+    MAX_LENGTH = "max_length"
+
+
+class GuardrailAction(str, Enum):
+    """What happens when a check trips."""
+
+    BLOCK = "block"        # refuse; the agent is told why
+    REDACT = "redact"      # remove the offending content and continue
+    FLAG = "flag"          # allow, record, and surface it
+    ESCALATE = "escalate"  # stop and ask a human
+
+
+class OutputViolationAction(str, Enum):
+    RETRY = "retry"
+    BLOCK = "block"
+    FLAG = "flag"
+
+
 class HumanRole(str, Enum):
     """Why a person is paired with an agent (ADR-0026).
 
@@ -434,6 +471,84 @@ class WorkingHours(BaseModel):
     holidays: list[str] = Field(default_factory=list)   # ISO dates
 
 
+class Guardrail(BaseModel):
+    """A boundary check on what enters or leaves an agent (ADR-0035).
+
+    Permissions decide what an agent may *reach*; a guardrail decides what may
+    *pass*. They are different questions, and a system that answers only the
+    first will happily let a correctly-permissioned agent paste a customer's
+    identifiers into a chat channel.
+    """
+
+    id: str
+    description: str = ""
+    applies_to: list[GuardrailKind] = Field(
+        default_factory=lambda: [GuardrailKind.INPUT, GuardrailKind.OUTPUT]
+    )
+    checks: list[GuardrailCheck] = Field(default_factory=list)
+    on_violation: GuardrailAction = GuardrailAction.BLOCK
+    # Which classified data this guardrail is watching for, when checking
+    # `data_class`.
+    data_classes: list[str] = Field(default_factory=list)
+    patterns: list[str] = Field(default_factory=list)
+    allowed_urls: list[str] = Field(default_factory=list)
+    max_length: Optional[int] = None
+    escalate_channel: Optional[str] = None
+    enabled: bool = True
+
+
+class ArtifactStore(BaseModel):
+    """A workspace agents read and write files in (ADR-0036).
+
+    Distinct from memory (what an agent *learned*) and from a sandbox (where it
+    *executes*): this is where large intermediate material lives so it does not
+    have to sit in the context window.
+    """
+
+    id: str
+    description: str = ""
+    scope: SharingScope = SharingScope.PRIVATE
+    groups: list[str] = Field(default_factory=list)
+    data_classes: list[str] = Field(default_factory=list)
+    retention_days: Optional[int] = 30
+    max_file_bytes: int = 10_000_000
+    max_total_bytes: int = 1_000_000_000
+
+
+class ContextPolicy(BaseModel):
+    """How a long run keeps its context usable and affordable (ADR-0036)."""
+
+    max_context_tokens: int = 150_000
+    # Summarize the thread once it passes this, keeping the most recent turns
+    # verbatim.
+    summarize_after_tokens: int = 100_000
+    keep_last_turns: int = 6
+    # Tool results larger than this are written to the artifact store and
+    # replaced by a reference the agent can read back on demand.
+    offload_tool_output_bytes: int = 20_000
+    offload_to: Optional[str] = None       # artifact store id
+    # Keep each summary as a session memory, so nothing is silently lost.
+    retain_summaries: bool = True
+
+
+class OutputContract(BaseModel):
+    """The shape an agent, sub-agent or tool must return (ADR-0037).
+
+    `returns: "a cited findings list"` tells a person what to expect and tells
+    a caller nothing it can check. A contract is checkable.
+    """
+
+    id: str
+    description: str = ""
+    # A small JSON-Schema subset: type, properties, required, items, enum.
+    schema_: dict[str, Any] = Field(default_factory=dict, alias="schema")
+    required: list[str] = Field(default_factory=list)
+    on_violation: OutputViolationAction = OutputViolationAction.RETRY
+    max_retries: int = 2
+
+    model_config = {"populate_by_name": True}
+
+
 class SkillSpec(BaseModel):
     """A packaged capability pack an agent can hold (ADR-0029).
 
@@ -481,6 +596,8 @@ class ToolSpec(BaseModel):
     # Constraints applied on top of the wrapped thing's own constraints.
     constraints: "CapabilityConstraint" = Field(default_factory=lambda: CapabilityConstraint())
     idempotent: bool = True
+    # Check the result against `output_schema` before it re-enters context.
+    validate_output: bool = False
 
 
 class SubAgentSpec(BaseModel):
@@ -503,6 +620,7 @@ class SubAgentSpec(BaseModel):
     knowledge: list[str] = Field(default_factory=list)
     environment: Optional[str] = None       # environment class id, if it executes
     returns: str = ""                       # what the caller gets back
+    output_contract: Optional[str] = None   # a checkable shape (ADR-0037)
     max_turns: int = 8
     max_runtime_seconds: int = 300
     parallel_safe: bool = True
@@ -625,6 +743,13 @@ class AgentSpec(BaseModel):
     # External agents this agent may reach (ADR-0030).
     endpoints: list[str] = Field(default_factory=list)
     memory: Optional[AgentMemoryOverride] = None
+    # Guardrails this agent adds on top of the system's (ADR-0035).
+    guardrails: list[str] = Field(default_factory=list)
+    # Where large intermediate material goes (ADR-0036).
+    artifact_store: Optional[str] = None
+    context: Optional[ContextPolicy] = None
+    # What this agent must return, when it must return something checkable.
+    output_contract: Optional[str] = None
     workflows: list[str] = Field(default_factory=list)
     channels: list[ChannelClass] = Field(
         default_factory=lambda: [ChannelClass.DIRECT, ChannelClass.ASYNC_BUS]
@@ -684,6 +809,8 @@ class Team(BaseModel):
     teams: list["Team"] = Field(default_factory=list)
     roles: list[RoleAssignment] = Field(default_factory=list)   # team roles
     groups: list[str] = Field(default_factory=list)             # protected-data reach
+    # Instructions every member of this team carries (ADR-0038).
+    shared_instructions: list[str] = Field(default_factory=list)
     labels: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("roles", mode="before")
@@ -938,6 +1065,12 @@ class SystemSpec(BaseModel):
     roles: list[Role] = Field(default_factory=list)
     policies: list[PolicyRule] = Field(default_factory=list)
     organization: Team = Field(default_factory=lambda: Team(id="root", name="root"))
+    # Principles every agent in the organization carries (ADR-0038).
+    operating_principles: list[str] = Field(default_factory=list)
+    guardrails: list[Guardrail] = Field(default_factory=list)
+    artifact_stores: list[ArtifactStore] = Field(default_factory=list)
+    context: ContextPolicy = Field(default_factory=ContextPolicy)
+    output_contracts: list[OutputContract] = Field(default_factory=list)
     skills: list[SkillSpec] = Field(default_factory=list)
     plugins: list[PluginSpec] = Field(default_factory=list)
     tools: list[ToolSpec] = Field(default_factory=list)
@@ -1006,6 +1139,34 @@ class SystemSpec(BaseModel):
 
     def endpoint(self, endpoint_id: str) -> Optional[AgentEndpoint]:
         return next((e for e in self.endpoints if e.id == endpoint_id), None)
+
+    def guardrail(self, guardrail_id: str) -> Optional[Guardrail]:
+        return next((g for g in self.guardrails if g.id == guardrail_id), None)
+
+    def artifact_store(self, store_id: str) -> Optional[ArtifactStore]:
+        return next((a for a in self.artifact_stores if a.id == store_id), None)
+
+    def output_contract(self, contract_id: str) -> Optional[OutputContract]:
+        return next((c for c in self.output_contracts if c.id == contract_id), None)
+
+    def shared_instructions_for(self, agent_id: str) -> list[tuple[str, str]]:
+        """Organization principles and team instructions, with their source."""
+        out = [("organization", text) for text in self.operating_principles]
+        chain: list[Team] = []
+        for team in self.teams():
+            if any(m.id == agent_id for m in team.members):
+                chain.append(team)
+        # Walk up so an outer team's instructions come before an inner one's.
+        for team in chain:
+            parent_ids = [
+                t.id for t in self.teams() if any(c.id == team.id for c in t.teams)
+            ]
+            for parent_id in parent_ids:
+                parent = next((t for t in self.teams() if t.id == parent_id), None)
+                if parent:
+                    out += [(parent.id, text) for text in parent.shared_instructions]
+            out += [(team.id, text) for text in team.shared_instructions]
+        return out
 
     def namespace(self, namespace_id: str) -> Optional[MemoryNamespace]:
         return next((n for n in self.memory.namespaces if n.id == namespace_id), None)
