@@ -1,0 +1,244 @@
+"""The designer front end: what it reads, what it writes, and what it must not.
+
+WS-009 M3 and ADR-0004. The designer's *design* views (org chart, agent editor,
+workspace) edit one System Spec through `/api/designer`; its *runtime* views
+(sessions, operations) observe the running system. These tests hold that line
+from the outside: they parse the bundle for the paths it fetches and assert
+each one exists on the app, that no design view reaches a runtime endpoint for
+a design fact, that the runtime views still do, and that the designer stays
+clear of the command centre's application (ADR-0051).
+"""
+import re
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from orgagents.api import create_app
+
+ROOT = Path(__file__).resolve().parents[1]
+BUNDLE = ROOT / "web"
+
+
+@pytest.fixture(scope="module")
+def app_js() -> str:
+    return (BUNDLE / "app.js").read_text()
+
+
+@pytest.fixture(scope="module")
+def canvas_js() -> str:
+    return (BUNDLE / "canvas.js").read_text()
+
+
+@pytest.fixture(scope="module")
+def index_html() -> str:
+    return (BUNDLE / "index.html").read_text()
+
+
+@pytest.fixture()
+def client(tmp_path) -> TestClient:
+    return TestClient(create_app(str(tmp_path / "ui.db")))
+
+
+# -- the paths the bundle fetches ------------------------------------------
+
+def _literals(source: str, call: str, prefix: str) -> set[tuple[str, str]]:
+    """(method, path) for every `call(...)` in the bundle.
+
+    Paths are template literals; the interpolations are normalised back to the
+    `{param}` form the route table uses.
+    """
+    found = set()
+    pattern = re.compile(call + r"\(\s*[`\"]([^`\"]+)[`\"]((?:[^;]|\n){0,400}?)\)")
+    for match in pattern.finditer(source):
+        raw, tail = match.group(1), match.group(2)
+        method = "GET"
+        verb = re.search(r'method:\s*"(\w+)"', tail)
+        if verb:
+            method = verb.group(1)
+        path = prefix + raw.split("?")[0]
+        path = re.sub(r"\$\{[^}]*workspaceId[^}]*\}", "{workspace_id}", path)
+        path = re.sub(r"\$\{[^}]*systemId[^}]*\}", "{system_id}", path)
+        path = re.sub(r"\$\{[^}]*[Uu]serId[^}]*\}", "{user_id}", path)
+        path = re.sub(r"\$\{[^}]*version[^}]*\}", "{version}", path)
+        path = re.sub(r"\$\{[^}]*\}", "{param}", path)
+        found.add((method, path.rstrip("/")))
+    return found
+
+
+def designer_routes(source: str) -> set[tuple[str, str]]:
+    return _literals(source, r"(?<!\w)dapi", "/api/designer")
+
+
+def runtime_routes(source: str) -> set[tuple[str, str]]:
+    return _literals(source, r"(?<!\w)api", "/api")
+
+
+def _canonical(routes: set[tuple[str, str]]) -> set[tuple[str, str]]:
+    """Path parameters are named differently either side; the shape is what
+    matters here."""
+    return {(m, re.sub(r"\{[^}]+\}", "{}", p)) for m, p in routes}
+
+
+def test_the_designer_routes_the_bundle_calls_exist(client, app_js, canvas_js):
+    backend = _canonical({(method, route.path)
+                          for route in client.app.routes
+                          for method in getattr(route, "methods", ())})
+    called = designer_routes(app_js) | designer_routes(canvas_js)
+    assert called, "no /api/designer routes found in the bundle"
+    missing = _canonical(called) - backend
+    assert not missing, f"the UI calls designer routes that do not exist: {missing}"
+
+
+def test_the_runtime_routes_the_bundle_calls_exist(client, app_js):
+    backend = _canonical({(method, route.path.rstrip("/") or "/")
+                          for route in client.app.routes
+                          for method in getattr(route, "methods", ())})
+    called = _canonical({r for r in runtime_routes(app_js)
+                         if not r[1].startswith("/api/designer")})
+    missing = called - backend
+    assert not missing, f"the UI calls runtime routes that do not exist: {missing}"
+
+
+# -- design facts come from the spec ---------------------------------------
+
+DESIGN_RUNTIME_ENDPOINTS = (
+    "/org/tree", "/org/units", "/agents", "/components",
+)
+
+
+def test_no_design_view_reads_the_runtime_model(app_js):
+    """The org chart, the agent editor and the harness form are design views.
+
+    Reading `/org/tree` or `/agents` there is the bug this milestone removes: a
+    field that silently reports a different document from the one being edited.
+    """
+    for path in DESIGN_RUNTIME_ENDPOINTS:
+        assert f'api("{path}' not in app_js and f"api(`{path}" not in app_js, \
+            f"a design view still reads {path}"
+
+
+def test_the_design_views_read_the_open_spec(app_js):
+    # One document in the browser: the record canvas.js holds.
+    assert "window.designer" in app_js
+    assert "design().spec()" in app_js or "design().find(" in app_js
+    for marker in ("renderOrg", "renderAgentView", "applyAgentForm"):
+        assert f"function {marker}" in app_js
+
+
+def test_the_canvas_publishes_the_open_record_once(canvas_js):
+    assert "window.designer = {" in canvas_js
+    assert 'document.dispatchEvent(new CustomEvent("designer:changed"' in canvas_js
+    # ... and announces every change, so no view can drift from the record.
+    for site in ("markDirty", "openSystem"):
+        assert site in canvas_js
+
+
+def test_the_design_views_say_so_when_no_system_is_open(app_js):
+    assert "No system open" in app_js
+    assert "NO_SYSTEM" in app_js
+
+
+def test_runtime_views_stay_runtime_backed(app_js):
+    """Sessions, traces, alerts and metrics are observations, not design."""
+    called = runtime_routes(app_js)
+    assert ("GET", "/api/sessions") in called
+    assert ("GET", "/api/ops/metrics") in called
+    assert ("GET", "/api/ops/alerts") in called
+    assert ("GET", "/api/sessions/{param}/trace") in called
+    # The marketplace and the platform catalog are platform facts.
+    assert ("GET", "/api/catalog") in called
+    assert ("GET", "/api/catalogs/kinds") in called
+
+
+# -- identity, workspace and audit are reachable ---------------------------
+
+def test_identity_workspaces_and_audit_are_called(app_js, canvas_js):
+    called = designer_routes(app_js) | designer_routes(canvas_js)
+    for route in [
+        ("GET", "/api/designer/whoami"),
+        ("GET", "/api/designer/workspaces"),
+        ("POST", "/api/designer/workspaces"),
+        ("POST", "/api/designer/workspaces/{workspace_id}/members"),
+        ("DELETE", "/api/designer/workspaces/{workspace_id}/members/{user_id}"),
+        ("GET", "/api/designer/audit"),
+        ("GET", "/api/designer/systems"),
+        ("PUT", "/api/designer/systems/{system_id}"),
+    ]:
+        assert route in called, f"the UI never calls {route[0]} {route[1]}"
+
+
+def test_identity_is_persistent_and_shows_the_role(index_html, app_js):
+    assert 'id="whoami"' in index_html
+    assert 'id="role-badge"' in index_html
+    # The bar sits outside <main>, so it is on screen in every view.
+    assert index_html.index('id="contextbar"') < index_html.index("<main>")
+    assert "function renderIdentity" in app_js
+    assert "no role in this workspace" in app_js
+
+
+def test_membership_is_offered_only_to_a_role_that_holds_it(app_js):
+    assert 'may("workspace.members")' in app_js
+    assert "does not manage membership" in app_js
+
+
+def test_a_refusal_is_shown_in_the_api_s_own_words(app_js):
+    # err.message carries the API's detail, which names the role and the reason.
+    assert app_js.count("err.message") >= 3
+    assert "members-error" in app_js and "audit-error" in app_js
+
+
+def test_denied_audit_entries_are_visibly_distinct(app_js, index_html):
+    assert 'event.outcome === "denied"' in app_js
+    assert "denied" in (BUNDLE / "styles.css").read_text()
+    assert 'id="audit"' in index_html
+
+
+def test_the_audit_and_workspace_routes_answer(client):
+    headers = {"X-User": "ana", "X-User-Name": "Ana"}
+    created = client.post("/api/designer/workspaces",
+                          json={"name": "Design"}, headers=headers)
+    assert created.status_code == 200
+    workspace = created.json()["id"]
+
+    whoami = client.get("/api/designer/whoami", headers=headers).json()
+    assert whoami["user_id"] == "ana"
+    membership = [m for m in whoami["workspaces"] if m["workspace_id"] == workspace]
+    assert membership and "workspace.members" in membership[0]["permissions"]
+
+    added = client.post(f"/api/designer/workspaces/{workspace}/members",
+                        json={"user_id": "bob", "role": "viewer"}, headers=headers)
+    assert added.status_code == 200
+
+    # A viewer trying to manage membership is refused, and the refusal is
+    # recorded: that entry is the reason the audit view exists.
+    bob = {"X-User": "bob", "X-User-Name": "Bob"}
+    refused = client.post(f"/api/designer/workspaces/{workspace}/members",
+                          json={"user_id": "eve", "role": "admin"}, headers=bob)
+    assert refused.status_code == 403
+    assert "viewer" in refused.json()["detail"]
+    assert client.get("/api/designer/audit", headers=bob).status_code == 403
+    events = client.get("/api/designer/audit", headers=headers).json()
+    assert any(e["outcome"] == "denied" for e in events), \
+        "the log the UI renders must carry the refusals"
+    assert {e["action"] for e in events} >= {"workspace.member.add"}
+
+    removed = client.delete(f"/api/designer/workspaces/{workspace}/members/bob",
+                            headers=headers)
+    assert removed.status_code == 200
+
+
+# -- two applications, kept apart (ADR-0051) -------------------------------
+
+def test_the_designer_does_not_reach_the_command_centre(app_js, canvas_js,
+                                                        index_html):
+    for source in (app_js, canvas_js, index_html):
+        assert "/api/fabric" not in source
+        assert "/command/" not in source
+        assert "command/app.js" not in source
+
+
+def test_the_designer_bundle_is_served(client):
+    assert client.get("/ui/").status_code == 200
+    assert client.get("/ui/app.js").status_code == 200
+    assert client.get("/ui/canvas.js").status_code == 200

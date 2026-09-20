@@ -1,57 +1,72 @@
 # The Agentic Designer UI
 
-`http://localhost:8000/ui/` after `orgagents serve`. Five views, one API.
+`http://localhost:8000/ui/` after `orgagents serve`. One System Spec, several
+views of it, plus two runtime views that observe what is running.
 
-## Org chart
-The reporting tree, each node an agent with its human counterpart. Selecting an
-agent loads its detail: composed system prompt, assembled toolset (approval-
-gated tools flagged), resolved sandbox run spec, and recent sessions with their
-URLs. **Run a task** starts a session from here.
+## The context bar
 
-## Designer
-The agent builder. Left is the component palette — runtimes, sandbox templates,
-workflows, plugins — served from `/api/components`. Centre is the definition
-form:
+Above every view: who you are (`GET /api/designer/whoami`), the role you hold
+in the current workspace, the workspace and system you have open, the version
+and lock badges, and Save, Lock, History, People and Settings. A refusal is
+only understandable if the role behind it is on screen, so identity is
+persistent rather than a dialog.
 
-- identity, org unit and **reports-to** (which writes both ends of the edge);
-- the **human counterpart**, including the tools that must stop for approval;
-- the **harness**: runtime, model, sandbox template, system prompt and budgets;
-- **relational access**: connection, engine, DSN secret *reference*, reachable
-  tables, allowed statement classes and masked columns;
-- **data planes, skills, workflows and channels** as multi-selects, plus the
-  groups that define protected-data reach.
+## Design views — they edit the open spec
 
-Right is the preview pane with three actions: **Preview harness** renders the
-payload, **Create agent** persists it and shows the composed prompt and
-resolved toolset, and **Dry run** creates the agent on the `echo` runtime and
-runs one turn — verifying wiring (prompt, tools, delegation legality) without
-spending a model call.
+The org chart, the canvas and the agent editor read and write the *same*
+`record.spec`: one document in the browser, owned by `canvas.js` and reached
+through `window.designer`. Editing an agent in the agent editor and moving its
+box on the canvas are the same edit. When no system is open they say so; none
+of them falls back to runtime data.
 
-Below the canvas, the **infrastructure** section lists the platform services
-each concern maps onto: storage, compute, communication, operations, security.
+### Org chart
+The organization as the spec defines it: teams, their leaders and mandates,
+their agents, each agent's roles, capabilities, human counterparts and
+sub-agents. **Edit this agent** opens it in the agent editor.
 
-## Marketplace
-Search across agents, skills, plugins, workflows, sandbox templates and shared
-sessions. Filter by kind, sort by newest/installs/rating, and set *viewer
-groups* to see what a member of that group would see — a protected listing only
-surfaces to its groups. Install attaches the item to an agent (installing an
-*agent* hires a copy as a direct report); rate feeds the marketplace ranking.
+### Canvas
+Drag-and-drop over the same document, with locks, revisions, restore and
+three-way merge with conflict resolution. Edges are derived from the spec, so
+the picture always matches what would compile.
 
-## Sessions
-Every run, with its state, turn count and its `/sessions/<id>` URL. Selecting
-one renders the full trace: the event stream plus nested child sessions, so a
-delegation tree reads top to bottom.
+### Agents
+The agent definition form: id, name, description, team membership and
+leadership (which writes both ends of the edge), human counterparts with the
+capabilities each may approve, and the bindings — roles, capabilities,
+knowledge, workflows, external agents, skills, plugins, channels, environment
+class, artifact store and output contract. Every binding is chosen from what
+*this spec* declares, so an agent cannot reach something the document does not
+define. Save writes the system; validation from the last open is shown beside
+it.
 
-## Operations
-Metric tiles (agents, sessions by state, tokens, cost), open alerts with
-acknowledge, and a per-agent breakdown. Alerts come from the default rules —
-failure rate, cost budget, approval backlog, tool-error spike — evaluated on
-each load.
+### Workspace
+Membership — add, change and remove — offered only to a role that holds
+`workspace.members`, and the audit log (`GET /api/designer/audit`) filtered by
+system, actor and action, with refusals marked. Where the API refuses, its own
+message is shown: it knows which role refused and why.
+
+## Runtime views — they observe the running system
+
+Deliberately *not* unified on the spec, because they are observations rather
+than design:
+
+- **Sessions**: every run with its state, turn count and `/sessions/<id>` URL;
+  selecting one renders the full trace including nested child sessions.
+- **Operations**: metric tiles, open alerts with acknowledge, and a per-agent
+  breakdown.
+
+## Platform views
+
+The **Catalog** is the approved building blocks a design may choose from, and
+the **Marketplace** is search, install and rating across shared items. Both are
+platform facts, not per-design ones, and are unchanged.
 
 ## Notes
-The UI is dependency-free vanilla JS against the documented REST API, so it can
-be replaced wholesale without touching the platform. It follows the system
-colour scheme in both light and dark mode.
+Dependency-free vanilla JS against the documented REST API, so it can be
+replaced wholesale without touching the platform. It follows the system colour
+scheme in both light and dark mode. The operator's command centre is a separate
+application at `/command/` (ADR-0051); nothing here imports from it or links
+into it.
 
 ---
 
@@ -64,49 +79,50 @@ route lists are as measured.
 
 Two separate front ends, correctly separate (ADR-0051):
 
-| Bundle | Size | Serves |
-|---|---|---|
-| `web/` | ~1,700 lines | The designer: org, canvas, designer, platform, catalog, sessions, ops |
-| `web/command/` | ~990 lines | The command centre: tenants, deployments, health, quotas, services, audit, operators |
+| Bundle | Serves |
+|---|---|
+| `web/` | The designer: context bar, org, canvas, agents, workspace, catalog, marketplace, sessions, ops |
+| `web/command/` | The command centre: tenants, deployments, health, quotas, services, audit, operators |
 
-The designer backend is substantially richer than the UI in front of it:
-workspaces and membership, five-role RBAC, OIDC and trusted-proxy identity,
-advisory locks with heartbeat and break, versions with revisions and restore,
-three-way structural merge, an append-only audit log, settings, and a
-component palette — about 2,700 lines under `src/orgagents/designer/`.
+The designer backend is substantially richer than the UI was: workspaces and
+membership, five-role RBAC, OIDC and trusted-proxy identity, advisory locks
+with heartbeat and break, versions with revisions and restore, three-way
+structural merge, an append-only audit log, settings, and a component palette —
+about 2,700 lines under `src/orgagents/designer/`.
 
-## The structural gap: two data models in one application
+## The structural gap: closed (WS-009 M3)
 
-This is the finding that matters, and everything else is downstream of it.
+The finding this review opened with was two data models in one application:
+`web/canvas.js` edited the spec while `web/app.js` never called
+`/api/designer` at all, so the "Designer" tab built an agent in the runtime
+model while the "Canvas" tab edited a System Spec.
 
-- **`web/canvas.js` edits the spec.** It loads `/api/designer/systems`, mutates
-  `record.spec` directly, and uses workspaces, locks, revisions and restore.
-  It is a genuine spec-backed editor.
-- **`web/app.js` never calls `/api/designer` at all.** Its seven views read the
-  *runtime* model: `/agents`, `/org/tree`, `/org/units`, `/sessions`, `/ops`,
-  `/catalog`, `/components`.
-
-So the "Designer" tab builds an agent in the runtime model while the "Canvas"
-tab edits a System Spec, and nothing reconciles them. A user can reasonably
-believe they have designed one system when they have edited two different
-things. This is WS-009 M3 ("UI migrated to spec-backed editing", not started)
-stated in terms of what it actually costs.
+The design views now share one document. `canvas.js` owns the open record and
+publishes it as `window.designer`; the org chart and the agent editor read and
+write that same `record.spec` and are told when it changes. No design view
+reads `/org/tree`, `/org/units`, `/agents` or `/components` any more, and where
+a design view has no spec equivalent it shows nothing rather than a runtime
+value wearing a design label. Sessions and operations stay on `/sessions` and
+`/ops` on purpose: they are observations of a running system, and moving them
+onto the spec would make them lie. `tests/test_designer_ui.py` holds this line
+from outside the bundle.
 
 ## Backend capability with no UI in front of it
 
-Built, tested, and unreachable from the browser:
-
 | Capability | API | In the UI |
 |---|---|---|
-| Who am I, and with what role | `GET /api/designer/whoami` | **No** |
-| Workspace membership | `POST/DELETE .../members` | **No** |
-| Audit log — including refusals | `GET /api/designer/audit` | **No** |
-| Lock heartbeat and break | `.../lock/heartbeat`, `.../lock/break` | Partial (canvas) |
-| Revisions and restore | `.../revisions`, `.../restore/{v}` | Partial (canvas) |
+| Who am I, and with what role | `GET /api/designer/whoami` | Yes — the context bar, every view |
+| Workspace membership | `GET/POST /workspaces`, `POST/DELETE .../members` | Yes — the Workspace view, offered only to `workspace.members` |
+| Audit log — including refusals | `GET /api/designer/audit` | Yes — filtered, with denials marked |
+| Lock heartbeat and break | `.../lock/heartbeat`, `.../lock/break` | Break yes; **no heartbeat is sent**, so a long edit can lose its lock |
+| Revisions and restore | `.../revisions`, `.../restore/{v}` | Yes, but through a `prompt()` rather than a history panel |
 
-An audit log nobody can read is a compliance artifact, not a control. Identity
-and membership being invisible is what makes the multi-user story feel absent
-even though it is implemented.
+Two caveats worth keeping honest. An unscoped audit read that is refused is
+*not* itself recorded — the service raises before it logs — so the log shows
+refusals of changes, not of reads. And the agent editor covers the agent
+portion of the spec; the rest of the document (guardrails, budgets, policies,
+compliance, missions, model policy) is reachable only through the canvas
+inspector, which is form coverage still owed by WS-023 M5.
 
 ## The platform's own purpose is not reachable from the UI
 
@@ -131,14 +147,10 @@ round-trip stability tests (WS-009 M4); per-system access within a workspace
 
 ## Recommendations, in order
 
-1. **Unify on the spec (WS-009 M3).** Make the org and agent views read and
-   write the same System Spec the canvas edits. Until this is done, every
-   other UI feature has to be built twice or built against the wrong model.
-   It is also the decision ADR-0002 already made — the UI and the SDK are
-   *peers* of the spec — so the current split is a deviation, not a design.
-2. **Surface identity, workspace and audit.** Cheap: the backend is finished.
-   Without it nobody can see who they are, who else has access, or what was
-   changed, and the RBAC work reads as theoretical.
+1. ~~**Unify on the spec (WS-009 M3).**~~ Done: the design views edit one
+   document. What remains of it is form coverage, not architecture.
+2. ~~**Surface identity, workspace and audit.**~~ Done, with the two caveats
+   above (no lock heartbeat; a refused audit *read* leaves no entry).
 3. **Add the publish path.** Validate → compile → request deployment, with the
    phase gate's output shown as the reason when it refuses. This is the one
    thing the platform exists to do and the one thing the UI cannot do.
@@ -151,7 +163,8 @@ round-trip stability tests (WS-009 M4); per-system access within a workspace
 ## What this review did not check
 
 Nothing here was exercised in a browser: there is no daemon in this
-environment, so the UI has not been loaded since the SPA landed. Accessibility,
-keyboard navigation, undo/redo and behaviour on a large organization are
-unassessed, and the line counts above say nothing about whether the views
-work.
+environment, so the UI has not been loaded since the SPA landed, and that
+includes the changes described above. The tests assert which routes the bundle
+calls and which it must not; they say nothing about whether a single pixel
+renders. Accessibility, keyboard navigation, undo/redo and behaviour on a large
+organization remain unassessed.

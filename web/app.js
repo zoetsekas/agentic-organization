@@ -38,8 +38,13 @@ async function api(path, options = {}) {
   return res.status === 204 ? null : res.json();
 }
 
-const state = { components: null, agents: [], units: [], selected: null,
-  canvasReady: false };
+/* Runtime-view state only. The design state lives in one place — the open
+   record in canvas.js — and is reached through `window.designer`. */
+const state = { whoami: null, selected: null, agentId: null };
+
+const design = () => window.designer;
+const openSpec = () => (design() ? design().spec() : null);
+const NO_SYSTEM = "No system open. Choose or create one in the bar above.";
 
 /* ---------------------------------------------------------------- tabs */
 $("#tabs").addEventListener("click", (e) => {
@@ -55,16 +60,15 @@ function showView(name) {
     v.classList.toggle("active", v.id === `view-${name}`));
   location.hash = `#/${name}`;
   const loaders = {
-    org: loadOrg, catalog: loadCatalog, sessions: loadSessions, ops: loadOps,
+    org: renderOrg, designer: renderAgentView, workspace: loadWorkspaceView,
+    catalog: loadCatalog, sessions: loadSessions, ops: loadOps,
     platform: loadPlatformCatalog,
-    canvas: () => {
-      if (window.initCanvas && !state.canvasReady) {
-        state.canvasReady = true;
-        window.initCanvas();
-      }
-    },
   };
   (loaders[name] || (() => {}))();
+}
+
+function activeView() {
+  return document.querySelector(".view.active")?.id.replace("view-", "");
 }
 
 window.addEventListener("hashchange", () => {
@@ -74,106 +78,475 @@ window.addEventListener("hashchange", () => {
   else if (route) { showView(route); }
 });
 
-/* ----------------------------------------------------------- org chart */
-async function loadOrg() {
-  const [tree, units, agents] = await Promise.all([
-    api("/org/tree"), api("/org/units"), api("/agents"),
-  ]);
-  state.units = units;
-  state.agents = agents;
-  const root = $("#orgtree");
-  root.replaceChildren(renderTree(tree));
-  populateSelectors();
-}
+/* The open design changed under us — because the canvas moved something, the
+   user switched system, or a save came back. Re-render what is showing. */
+document.addEventListener("designer:changed", async (e) => {
+  const reason = e.detail?.reason;
+  if (reason === "identity") await loadWhoami();
+  renderIdentity();
+  renderOrg();
+  if (reason === "opened") { state.agentId = null; renderAgentView(); }
+  else renderAgentSide();
+  if (activeView() === "workspace") loadWorkspaceView();
+});
 
-function renderTree(nodes) {
-  const ul = el("ul");
-  for (const n of nodes) {
-    const node = el("div", { class: "node", onclick: () => selectAgent(n.id, node) },
-      el("span", { class: "nm" }, n.name),
-      el("span", { class: "ti" }, n.title || n.kind),
-      el("span", { class: "badge" }, n.human || "unassigned"));
-    const li = el("li", {}, node);
-    if (n.children?.length) li.appendChild(renderTree(n.children));
-    ul.appendChild(li);
+/* ------------------------------------------------------------- identity */
+async function loadWhoami() {
+  try {
+    state.whoami = await design().dapi("/whoami");
+  } catch (err) {
+    state.whoami = null;
+    setStatus(`identity: ${err.message}`);
   }
-  return ul;
 }
 
-async function selectAgent(agentId, node) {
-  document.querySelectorAll(".node.sel").forEach((n) => n.classList.remove("sel"));
-  node?.classList.add("sel");
-  state.selected = agentId;
-  const [agent, harness, sessions] = await Promise.all([
-    api(`/agents/${agentId}`), api(`/agents/${agentId}/harness`),
-    api(`/sessions?agent_id=${agentId}&limit=5`),
-  ]);
-  $("#agentdetail").replaceChildren(
+/* The membership that decides what this viewer may do here. A refusal is only
+   understandable if the role behind it is on screen. */
+function membership() {
+  const workspaceId = design()?.state.workspaceId;
+  return (state.whoami?.workspaces || []).find((m) => m.workspace_id === workspaceId)
+    || null;
+}
+
+function renderIdentity() {
+  const who = state.whoami;
+  $("#whoami").textContent = who
+    ? `${who.display_name || who.user_id}${who.email ? ` · ${who.email}` : ""}`
+    : "not identified";
+  const m = membership();
+  const badge = $("#role-badge");
+  badge.textContent = m ? `${m.role} in ${m.workspace}` : "no role in this workspace";
+  badge.className = `badge ${m ? "ok" : "warn"}`;
+}
+
+const may = (permission) => (membership()?.permissions || []).includes(permission);
+
+/* --------------------------------------------- org chart, from the spec */
+function renderOrg() {
+  const root = $("#orgtree");
+  const s = openSpec();
+  if (!s) {
+    root.replaceChildren(el("div", { class: "empty" }, NO_SYSTEM));
+    showDetail(el("div", {}, NO_SYSTEM), true);
+    return;
+  }
+  const selected = state.selected
+    && design().find(state.selected.kind, state.selected.id);
+  if (!selected) state.selected = null;
+  root.replaceChildren(renderTeam(s.organization));
+  showDetail(selected
+    ? (state.selected.kind === "team"
+      ? teamDetail(selected)
+      : agentDetail(selected, state.selected.id))
+    : el("div", {}, "Select a team or an agent."), !selected);
+}
+
+function renderTeam(team) {
+  if (!team) return el("ul");
+  const node = el("div", {
+    class: `node${state.selected?.id === team.id ? " sel" : ""}`,
+    onclick: () => selectOrgNode("team", team.id),
+  },
+    el("span", { class: "nm" }, team.name || team.id),
+    el("span", { class: "ti" }, "team"),
+    el("span", { class: "badge" }, `leader: ${team.leader || "none"}`));
+  const children = el("ul", {},
+    ...(team.members || []).map((agent) => el("li", {}, agentNode(agent))),
+    ...(team.teams || []).map((child) => el("li", {}, renderTeam(child))));
+  return el("ul", {}, el("li", {}, node, children));
+}
+
+function agentNode(agent) {
+  const owner = (agent.humans || []).find((h) => (h.roles || []).includes("owner"));
+  return el("div", {
+    class: `node${state.selected?.id === agent.id ? " sel" : ""}`,
+    onclick: () => selectOrgNode("agent", agent.id),
+  },
+    el("span", { class: "nm" }, agent.name || agent.id),
+    el("span", { class: "ti" }, roleIds(agent.roles).join(", ") || "agent"),
+    el("span", { class: "badge" }, owner ? owner.name : "unassigned"));
+}
+
+/* A role may be written as an id or as an assignment object; both are valid. */
+const roleIds = (roles) =>
+  (roles || []).map((r) => (typeof r === "string" ? r : r.role)).filter(Boolean);
+
+function showDetail(content, empty = false) {
+  const host = $("#agentdetail");
+  host.className = empty ? "empty" : "";
+  host.replaceChildren(content);
+}
+
+function selectOrgNode(kind, id) {
+  state.selected = { kind, id };
+  renderOrg();
+}
+
+function teamDetail(team) {
+  return el("div", {},
     el("div", { class: "statrow" },
-      stat("Kind", agent.kind), stat("Tools", harness.tools.length),
-      stat("Sessions", sessions.length)),
-    el("h3", {}, "Human counterpart"),
-    el("p", { class: "hint" }, agent.human
-      ? `${agent.human.display_name} · ${agent.human.role_title} · ${agent.human.email}`
-      : "none assigned"),
-    el("h3", {}, "Composed system prompt"),
-    el("pre", { class: "code" }, harness.system_prompt),
-    el("h3", {}, "Toolset"),
-    el("div", { class: "meta" }, harness.tools.map((t) =>
-      el("span", { class: `badge${t.requires_approval ? " warn" : ""}` }, t.name))),
-    el("h3", {}, "Sandbox"),
-    el("pre", { class: "code" }, JSON.stringify(harness.sandbox, null, 2) || "none"),
-    el("h3", {}, "Recent sessions"),
-    el("div", { class: "list" }, sessions.map((s) =>
-      el("div", {}, el("span", { class: "grow" }, s.title || s.id),
-        el("span", { class: "badge" }, s.state),
-        el("a", { href: s.url, target: "_blank" }, "open")))),
+      stat("Members", (team.members || []).length),
+      stat("Sub-teams", (team.teams || []).length),
+      stat("Roles", roleIds(team.roles).length)),
+    el("h3", {}, "Leader"),
+    el("p", { class: "hint" }, team.leader || "none named"),
+    el("h3", {}, "Mandate"),
+    el("ul", {}, (team.mandate || []).map((m) => el("li", {}, m))),
+    el("h3", {}, "Shared instructions"),
+    el("ul", {}, (team.shared_instructions || []).map((i) => el("li", {}, i))),
+    el("h3", {}, "Groups"),
+    el("div", { class: "meta" },
+      (team.groups || []).map((g) => el("span", { class: "badge" }, g))));
+}
+
+function agentDetail(agent, id) {
+  const team = design().agents().find((a) => a.agent.id === id)?.team;
+  return el("div", {},
+    el("div", { class: "statrow" },
+      stat("Capabilities", (agent.capabilities || []).length),
+      stat("Humans", (agent.humans || []).length),
+      stat("Sub-agents", (agent.subagents || []).length)),
+    el("h3", {}, "Team"),
+    el("p", { class: "hint" },
+      `${team ? team.name || team.id : "—"}${team && team.leader === id ? " · leads it" : ""}`),
+    el("h3", {}, "Description"),
+    el("p", { class: "hint" }, agent.description || "none"),
+    el("h3", {}, "Roles"),
+    el("div", { class: "meta" },
+      roleIds(agent.roles).map((r) => el("span", { class: "badge" }, r))),
+    el("h3", {}, "Capabilities"),
+    el("div", { class: "meta" }, (agent.capabilities || []).map((c) =>
+      el("span", { class: "badge" }, c))),
+    el("h3", {}, "Human counterparts"),
+    el("div", { class: "list" }, (agent.humans || []).map((h) =>
+      el("div", {},
+        el("span", { class: "grow" }, `${h.name} · ${h.contact}`),
+        ...(h.roles || []).map((r) => el("span", { class: "badge" }, r)),
+        ...(h.approves || []).map((a) =>
+          el("span", { class: "badge warn" }, `approves ${a}`))))),
+    el("h3", {}, "Sub-agents"),
+    el("div", { class: "list" }, (agent.subagents || []).map((sub) =>
+      el("div", {}, el("span", { class: "grow" }, sub.name || sub.id),
+        el("span", { class: "badge" }, sub.kind || "custom")))),
+    el("h3", {}, "Environment"),
+    el("p", { class: "hint" }, agent.environment || "inherited"),
     el("div", { class: "actions" },
-      el("button", { onclick: () => runAgent(agentId) }, "Run a task")),
-  );
+      el("button", { onclick: () => editAgent(id) }, "Edit this agent")));
 }
 
-async function runAgent(agentId) {
-  const prompt = window.prompt("Task for this agent:");
-  if (!prompt) return;
-  setStatus("running…");
-  const r = await api(`/agents/${agentId}/run`, {
-    method: "POST", body: JSON.stringify({ prompt, created_by: "designer-ui" }),
+/* -------------------------------------------- agent editor, on the spec */
+function editAgent(id) {
+  state.agentId = id;
+  showView("designer");
+}
+
+function currentAgent() {
+  return state.agentId ? design().find("agent", state.agentId) : null;
+}
+
+function renderAgentView() {
+  renderAgentSide();
+  const form = $("#agentform");
+  const agent = currentAgent();
+  const s = openSpec();
+  $("#agentform-empty").hidden = !!agent;
+  $("#agentform-empty").textContent = s
+    ? "Select an agent, or add one."
+    : NO_SYSTEM;
+  form.hidden = !agent;
+  $("#btn-new-agent").disabled = !s || !design().canEdit();
+  if (!agent) { $("#preview").textContent = s ? "Select an agent." : NO_SYSTEM; return; }
+
+  const { team } = design().agents().find((a) => a.agent.id === state.agentId) || {};
+  form.elements.id.value = agent.id;
+  form.elements.name.value = agent.name || "";
+  form.elements.description.value = agent.description || "";
+  fillSelect(form.elements.team_id,
+    design().teams().map((t) => [t.id, t.name || t.id]));
+  form.elements.team_id.value = team ? team.id : "";
+  form.elements.leader.checked = !!team && team.leader === agent.id;
+  form.elements.shared_service.checked = !!agent.shared_service;
+  form.elements.max_delegation_depth.value = agent.max_delegation_depth ?? 3;
+  form.elements.humans.value = (agent.humans || []).map((h) =>
+    [h.name, h.contact, (h.roles || []).join(","), (h.approves || []).join(",")]
+      .join(" | ")).join("\n");
+
+  /* Every binding is chosen from what this spec declares: an agent cannot
+     reach a capability the document does not define. */
+  bind("#pick-roles", s.roles, roleIds(agent.roles));
+  bind("#pick-capabilities", s.capabilities, agent.capabilities);
+  bind("#pick-knowledge", s.knowledge, agent.knowledge);
+  bind("#pick-workflows", s.workflows, agent.workflows);
+  bind("#pick-endpoints", s.endpoints, agent.endpoints);
+  bind("#pick-skills", s.skills, agent.skills);
+  bind("#pick-plugins", s.plugins, agent.plugins);
+  checkboxes($("#pick-channels"), channelClasses().map((c) => [c, c]));
+  check("#pick-channels", agent.channels || []);
+  fillSelect(form.elements.environment,
+    [["", "— inherited —"], ...(s.environments || []).map((e2) => [e2.id, e2.id])]);
+  form.elements.environment.value = agent.environment || "";
+  fillSelect(form.elements.artifact_store,
+    [["", "— none —"], ...(s.artifact_stores || []).map((a) => [a.id, a.id])]);
+  form.elements.artifact_store.value = agent.artifact_store || "";
+  fillSelect(form.elements.output_contract,
+    [["", "— none —"], ...(s.output_contracts || []).map((o) => [o.id, o.id])]);
+  form.elements.output_contract.value = agent.output_contract || "";
+
+  const readOnly = !design().canEdit();
+  [...form.elements].forEach((input) => {
+    if (input.name !== "id") input.disabled = readOnly;
   });
-  setStatus(`session ${r.state}`);
-  alert(`${r.output}\n\nSession: ${r.session_url}`);
+  form.elements.id.readOnly = true;
+  renderAgentPreview();
 }
 
-/* ------------------------------------------------------------ designer */
-async function loadComponents() {
-  const c = await api("/components");
-  state.components = c;
-  $("#palette").replaceChildren(
-    ...paletteGroup("Runtimes", c.runtimes.map((r) => [r.name, r.id])),
-    ...paletteGroup("Sandbox templates",
-      c.sandbox_templates.map((t) => [t.name, `${t.cpu} cpu · ${t.memory} · ${t.network}`])),
-    ...paletteGroup("Workflows", c.workflows.map((w) => [w.name, w.description])),
-    ...paletteGroup("Plugins", c.plugins.map((p) => [p.name, p.description])),
-  );
-  fillSelect($("[name=kind]"),
-    ["executive", "manager", "individual", "subagent", "service"].map((k) => [k, k]));
-  fillSelect($("[name=runtime]"), c.runtimes.map((r) => [r.id, r.name]));
-  fillSelect($("[name=sandbox]"),
-    [["", "none"], ...c.sandbox_templates.map((t) => [t.id, t.name])]);
-  checkboxes($("#pick-planes"), c.data_planes.map((p) => [p.id, `${p.name} — ${p.detail}`]));
-  checkboxes($("#pick-skills"), c.skills.map((s) => [s.id, s.name]));
-  checkboxes($("#pick-workflows"), c.workflows.map((w) => [w.id, w.name]));
-  checkboxes($("#pick-channels"), c.channels.map((ch) => [ch.id, ch.name]));
-  $("#infra").replaceChildren(...Object.entries(c.infrastructure).map(([group, items]) =>
-    el("div", { class: "group" }, el("h4", {}, group),
-      el("ul", {}, items.map((i) => el("li", {},
-        el("strong", {}, i.name), ` — ${i.use}`))))));
+/* The channel vocabulary comes from the palette, which the backend derives
+   from the spec model — never a list kept here. */
+function channelClasses() {
+  const field = (design().kindSpec("channel").fields || [])
+    .find((f) => f.name === "channel_class");
+  return field?.options || [];
 }
 
-function paletteGroup(title, items) {
-  return [el("h4", {}, title),
-    ...items.map(([name, detail]) =>
-      el("div", { class: "item" }, name, el("small", {}, detail || "")))];
+function bind(selector, collection, chosen) {
+  checkboxes($(selector), (collection || []).map((item) =>
+    [item.id, item.title || item.name || item.id]));
+  check(selector, chosen || []);
+}
+
+function check(selector, values) {
+  document.querySelectorAll(`${selector} input`).forEach((input) => {
+    input.checked = values.includes(input.value);
+  });
+}
+
+function renderAgentSide() {
+  const s = openSpec();
+  $("#agent-list").replaceChildren(...(s
+    ? design().agents().map(({ agent, team }) =>
+      el("div", { class: agent.id === state.agentId ? "sel" : "" },
+        el("span", { class: "grow", style: "cursor:pointer",
+          onclick: () => { state.agentId = agent.id; renderAgentView(); } },
+        agent.name || agent.id),
+        el("span", { class: "badge" }, team.name || team.id)))
+    : [el("div", { class: "empty" }, NO_SYSTEM)]));
+  $("#spec-inventory").replaceChildren(...(s
+    ? [["roles", s.roles], ["capabilities", s.capabilities],
+      ["data classes", s.data_classes], ["environments", s.environments],
+      ["knowledge", s.knowledge], ["workflows", s.workflows],
+      ["channels", s.channels], ["triggers", s.triggers],
+      ["endpoints", s.endpoints], ["skills", s.skills], ["plugins", s.plugins],
+      ["memory namespaces", s.memory?.namespaces]].map(([label, items]) =>
+      el("div", {}, el("span", { class: "grow" }, label),
+        el("span", { class: "badge" }, String((items || []).length))))
+    : []));
+  renderValidationInto($("#agent-validation"), design()?.state.validation);
+}
+
+function renderValidationInto(host, validation) {
+  if (!host) return;
+  if (!validation) return host.replaceChildren();
+  host.replaceChildren(
+    el("h4", {}, validation.ok ? "Valid" : "Not yet valid"),
+    el("ul", {},
+      ...validation.errors.map((e) => el("li", { class: "v-err" }, e)),
+      ...validation.warnings.slice(0, 5).map((w) => el("li", { class: "v-warn" }, w))));
+}
+
+function renderAgentPreview() {
+  const agent = currentAgent();
+  $("#preview").textContent = agent
+    ? JSON.stringify(agent, null, 2)
+    : "Select an agent.";
+}
+
+const picked = (id) =>
+  [...document.querySelectorAll(`${id} input:checked`)].map((i) => i.value);
+const csv = (s) => (s || "").split(",").map((x) => x.trim()).filter(Boolean);
+
+function parseHumans(text) {
+  return (text || "").split("\n").filter((line) => line.trim()).map((line) => {
+    const [name, contact, roles, approves] = line.split("|").map((x) => (x || "").trim());
+    return {
+      name, contact: contact || "",
+      roles: csv(roles).length ? csv(roles) : ["owner"],
+      approves: csv(approves),
+    };
+  });
+}
+
+/* One handler for the whole form: the spec is the model, the form is a view of
+   it, and writing every field back on each keystroke keeps them identical. */
+function applyAgentForm() {
+  const agent = currentAgent();
+  if (!agent || !design().canEdit()) return;
+  const form = $("#agentform");
+  agent.name = form.elements.name.value;
+  agent.description = form.elements.description.value;
+  agent.shared_service = form.elements.shared_service.checked;
+  agent.max_delegation_depth = Number(form.elements.max_delegation_depth.value) || 3;
+  agent.humans = parseHumans(form.elements.humans.value);
+  agent.roles = picked("#pick-roles");
+  agent.capabilities = picked("#pick-capabilities");
+  agent.knowledge = picked("#pick-knowledge");
+  agent.workflows = picked("#pick-workflows");
+  agent.endpoints = picked("#pick-endpoints");
+  agent.skills = picked("#pick-skills");
+  agent.plugins = picked("#pick-plugins");
+  agent.channels = picked("#pick-channels");
+  agent.environment = form.elements.environment.value || null;
+  agent.artifact_store = form.elements.artifact_store.value || null;
+  agent.output_contract = form.elements.output_contract.value || null;
+  moveAgent(agent, form.elements.team_id.value, form.elements.leader.checked);
+  design().markDirty();
+  renderAgentPreview();
+  renderAgentSide();
+  renderOrg();
+}
+
+/* Reporting structure is a design fact: changing the team here is the same
+   edit as dragging the box onto another team on the canvas. */
+function moveAgent(agent, teamId, leads) {
+  const entry = design().agents().find((a) => a.agent.id === agent.id);
+  const from = entry?.team;
+  const to = design().teams().find((t) => t.id === teamId);
+  if (!to) return;
+  if (from && from !== to) {
+    from.members = (from.members || []).filter((m) => m.id !== agent.id);
+    if (from.leader === agent.id) from.leader = (from.members[0] || {}).id || "";
+    to.members = [...(to.members || []), agent];
+  }
+  if (leads) to.leader = agent.id;
+  else if (to.leader === agent.id) to.leader = (to.members.find((m) =>
+    m.id !== agent.id) || {}).id || "";
+}
+
+function wireAgentEditor() {
+  const form = $("#agentform");
+  form.addEventListener("submit", (e) => e.preventDefault());
+  form.addEventListener("input", applyAgentForm);
+  form.addEventListener("change", applyAgentForm);
+  $("#btn-new-agent").addEventListener("click", () => {
+    const id = window.prompt("Id for the new agent:");
+    if (!id) return;
+    try {
+      design().add("agent", id);
+      design().markDirty();
+      state.agentId = id;
+      renderAgentView();
+      renderOrg();
+    } catch (err) { setStatus(err.message); }
+  });
+  $("#btn-agent-save").addEventListener("click", () => design().save());
+  $("#btn-agent-remove").addEventListener("click", () => {
+    const agent = currentAgent();
+    if (!agent || !window.confirm(`Remove ${agent.id} from this system?`)) return;
+    design().remove("agent", agent.id);
+    design().markDirty();
+    state.agentId = null;
+    renderAgentView();
+    renderOrg();
+  });
+}
+
+/* ------------------------------ workspace: membership and the audit log */
+async function loadWorkspaceView() {
+  renderMembers();
+  await loadAudit();
+}
+
+function renderMembers() {
+  const d = design();
+  const workspace = d.state.workspaces.find((w) => w.id === d.state.workspaceId);
+  const host = $("#members");
+  const canManage = may("workspace.members");
+  const role = membership()?.role;
+  $("#members-hint").textContent = canManage
+    ? "Add someone, or change the role they hold here."
+    : `Your role (${role || "none"}) does not manage membership; this list is`
+      + " read-only.";
+  $("#memberform").hidden = !canManage;
+  $("#members-error").textContent = "";
+  host.replaceChildren(...((workspace?.members || []).map((m) =>
+    el("div", {},
+      el("span", { class: "grow" }, `${m.display_name || m.user_id} (${m.user_id})`),
+      el("span", { class: "badge" }, m.role),
+      ...(canManage ? [el("button", { onclick: () => removeMember(m.user_id) },
+        "Remove")] : []))) || []));
+}
+
+async function removeMember(userId) {
+  const d = design();
+  try {
+    await d.dapi(`/workspaces/${d.state.workspaceId}/members/${userId}`,
+      { method: "DELETE" });
+    await d.reloadWorkspaces();
+    loadWorkspaceView();
+  } catch (err) {
+    // The API's own words: it knows which role refused and why, and we do not.
+    $("#members-error").textContent = err.message;
+  }
+}
+
+function wireWorkspaceView() {
+  $("#memberform").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const d = design();
+    const f = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      await d.dapi(`/workspaces/${d.state.workspaceId}/members`, {
+        method: "POST",
+        body: JSON.stringify({
+          user_id: f.user_id, display_name: f.display_name || f.user_id,
+          email: f.email, role: f.role,
+        }),
+      });
+      e.target.reset();
+      await d.reloadWorkspaces();
+      loadWorkspaceView();
+    } catch (err) {
+      $("#members-error").textContent = err.message;
+    }
+  });
+  $("#btn-audit-reload").addEventListener("click", loadAudit);
+  ["#audit-system", "#audit-actor", "#audit-action"].forEach((sel) =>
+    $(sel).addEventListener("input", debounce(loadAudit, 250)));
+}
+
+async function loadAudit() {
+  const d = design();
+  const systems = d.state.systems || [];
+  const select = $("#audit-system");
+  const chosen = select.value;
+  fillSelect(select, [["", "All systems"], ...systems.map((s) => [s.id, s.name])]);
+  select.value = chosen;
+  const query = new URLSearchParams({ limit: "100" });
+  if (chosen) query.set("system_id", chosen);
+  if ($("#audit-actor").value) query.set("actor", $("#audit-actor").value);
+  if ($("#audit-action").value) query.set("action", $("#audit-action").value);
+  try {
+    const events = await d.dapi(`/audit?${query}`);
+    $("#audit-error").textContent = "";
+    $("#audit").replaceChildren(...(events.length
+      ? events.map(auditRow)
+      : [el("div", { class: "empty" }, "Nothing recorded for this filter.")]));
+  } catch (err) {
+    $("#audit").replaceChildren();
+    $("#audit-error").textContent = err.message;
+  }
+}
+
+/* A refusal reads differently from a change, because it is the entry a
+   reviewer is looking for. */
+function auditRow(event) {
+  const denied = event.outcome === "denied";
+  return el("div", { class: denied ? "denied" : "" },
+    el("span", { class: `badge ${denied ? "err" : "ok"}` }, event.outcome),
+    el("span", { class: "grow" },
+      `${event.timestamp.slice(0, 19).replace("T", " ")} · ${event.actor_name || event.actor} · ${event.action}`),
+    event.system_id ? el("span", { class: "badge" }, event.system_id) : null,
+    event.permission ? el("span", { class: "badge warn" }, event.permission) : null,
+    event.reason ? el("span", { class: "hint" }, event.reason) : null);
 }
 
 function fillSelect(select, pairs) {
@@ -184,93 +557,6 @@ function checkboxes(container, pairs) {
   container.replaceChildren(...pairs.map(([v, label]) =>
     el("label", {}, el("input", { type: "checkbox", value: v }), label)));
 }
-
-function populateSelectors() {
-  fillSelect($("[name=org_unit_id]"),
-    [["", "— none —"], ...state.units.map((u) => [u.id, `${u.name} (${u.kind})`])]);
-  fillSelect($("[name=manager_agent_id]"),
-    [["", "— top level —"], ...state.agents.map((a) => [a.id, a.name])]);
-}
-
-const picked = (id) =>
-  [...document.querySelectorAll(`${id} input:checked`)].map((i) => i.value);
-const csv = (s) => (s || "").split(",").map((x) => x.trim()).filter(Boolean);
-
-function buildAgentPayload() {
-  const f = Object.fromEntries(new FormData($("#agentform")).entries());
-  const planes = picked("#pick-planes");
-  const groups = csv(f.groups);
-  const dataGrants = planes.map((v) => ({
-    visibility: v, groups: v === "protected" ? groups : [],
-    can_read: true, can_write: true,
-  }));
-  const relational = f.db_connection ? [{
-    connection_name: f.db_connection, engine: f.db_engine,
-    dsn_secret_ref: f.db_secret, tables: csv(f.db_tables),
-    allowed_statements: csv(f.db_statements).length ? csv(f.db_statements) : ["select"],
-    masked_columns: csv(f.db_masked),
-  }] : [];
-  return {
-    name: f.name, title: f.title, kind: f.kind, description: f.description,
-    org_unit_id: f.org_unit_id || null,
-    manager_agent_id: f.manager_agent_id || null,
-    groups,
-    human: f.human_email ? {
-      user_id: f.human_email, display_name: f.human_name || f.human_email,
-      email: f.human_email, role_title: f.human_role,
-      approval_required_for: csv(f.approval_required_for),
-    } : null,
-    harness: {
-      runtime: f.runtime, system_prompt: f.system_prompt,
-      model: { model: f.model },
-      data_grants: dataGrants, relational_grants: relational,
-      max_turns: Number(f.max_turns), max_subagent_depth: Number(f.max_subagent_depth),
-      token_budget: Number(f.token_budget),
-    },
-    skill_ids: picked("#pick-skills"),
-    workflow_ids: picked("#pick-workflows"),
-    channels: picked("#pick-channels").length ? picked("#pick-channels")
-      : ["direct_tool_call", "internal_bus"],
-    sandbox: f.sandbox ? { template_id: f.sandbox } : null,
-  };
-}
-
-$("#btn-preview").addEventListener("click", () => {
-  $("#preview").textContent = JSON.stringify(buildAgentPayload(), null, 2);
-});
-
-$("#agentform").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  try {
-    const created = await api("/agents", {
-      method: "POST", body: JSON.stringify(buildAgentPayload()),
-    });
-    const harness = await api(`/agents/${created.id}/harness`);
-    $("#preview").textContent =
-      `created ${created.id}\n\n${harness.system_prompt}\n\ntools:\n` +
-      harness.tools.map((t) => `  - ${t.name}`).join("\n");
-    setStatus(`created ${created.name}`);
-    await loadOrg();
-  } catch (err) {
-    $("#preview").textContent = `error: ${err.message}`;
-  }
-});
-
-$("#btn-dryrun").addEventListener("click", async () => {
-  const payload = buildAgentPayload();
-  payload.harness.runtime = "echo";
-  try {
-    const created = await api("/agents", { method: "POST", body: JSON.stringify(payload) });
-    const run = await api(`/agents/${created.id}/run`, {
-      method: "POST",
-      body: JSON.stringify({ prompt: "Dry run: confirm wiring.", created_by: "designer-ui" }),
-    });
-    $("#preview").textContent =
-      `${run.output}\n\nstate: ${run.state}\nsession: ${run.session_url}`;
-  } catch (err) {
-    $("#preview").textContent = `error: ${err.message}`;
-  }
-});
 
 /* ----------------------------------------------------------- catalog */
 async function loadCatalog() {
@@ -304,7 +590,9 @@ function catalogCard(e) {
 }
 
 async function installEntry(entryId) {
-  const agentId = window.prompt("Install into which agent id?", state.selected || "");
+  // A runtime agent id: the marketplace installs into the running system, not
+  // into the spec being edited.
+  const agentId = window.prompt("Install into which runtime agent id?");
   if (!agentId) return;
   try {
     const r = await api(`/catalog/${entryId}/install`, {
@@ -453,10 +741,16 @@ function stat(k, v) {
 function setStatus(text) { $("#status").textContent = text; }
 
 /* -------------------------------------------------------------- boot */
-(async function boot() {
+/* The designer opens with a design context, not with a runtime read: the
+   canvas is initialised for every view, because the org chart and the agent
+   editor read the record it holds. */
+window.addEventListener("DOMContentLoaded", async () => {
   try {
-    await loadComponents();
-    await loadOrg();
+    wireAgentEditor();
+    wireWorkspaceView();
+    await window.initCanvas();
+    await loadWhoami();
+    renderIdentity();
     const route = location.hash.match(/^#\/(\w+)/)?.[1];
     const session = location.hash.match(/^#\/sessions\/(\S+)/)?.[1];
     if (session) { showView("sessions"); loadTrace(session); }
@@ -465,4 +759,4 @@ function setStatus(text) { $("#status").textContent = text; }
   } catch (err) {
     setStatus(`error: ${err.message}`);
   }
-})();
+});
