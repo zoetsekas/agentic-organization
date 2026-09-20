@@ -19,53 +19,58 @@
   <nav class="tabs" id="tabs">
     <button data-view="org" class="active">Org chart</button>
     <button data-view="canvas">Canvas</button>
-    <button data-view="designer">Harness</button>
+    <button data-view="designer">Agents</button>
     <button data-view="platform">Catalog</button>
     <button data-view="catalog">Marketplace</button>
+    <button data-view="workspace">Workspace</button>
     <button data-view="sessions">Sessions</button>
     <button data-view="ops">Operations</button>
   </nav>
   <div class="status" id="status">connecting…</div>
 </header>
 
+<!-- The design context every design view shares: who you are, which workspace,
+     which system is open. Runtime views ignore it. -->
+<div class="contextbar" id="contextbar">
+  <label class="inline">as
+    <input id="user-input" value="ana" size="8" title="Acting user (dev auth)" />
+  </label>
+  <span id="whoami" class="who">identifying…</span>
+  <span id="role-badge" class="badge"></span>
+  <span class="sep"></span>
+  <select id="ws-select" title="Workspace"></select>
+  <select id="sys-select" title="Agentic system"></select>
+  <button id="btn-new-system">New system</button>
+  <span id="version-badge" class="badge">v—</span>
+  <span id="lock-badge" class="badge"></span>
+  <span class="sep"></span>
+  <button id="btn-lock" title="Lock this design while you edit">Lock</button>
+  <button id="btn-save" class="primary">Save</button>
+  <button id="btn-revisions">History</button>
+  <button id="btn-members">People</button>
+  <button id="btn-designer-settings">Settings</button>
+</div>
+
 <main>
   <!-- ORG CHART -->
   <section id="view-org" class="view active">
     <div class="split">
       <div class="panel">
-        <h2>Reporting structure</h2>
-        <p class="hint">Each node is an agent with a human counterpart. Select one to load it into the designer.</p>
+        <h2>Organization</h2>
+        <p class="hint">Teams and agents as the open System Spec defines them.
+          Select one to see its detail; edits land in the same document the
+          canvas draws.</p>
         <div id="orgtree" class="orgtree"></div>
       </div>
       <aside class="panel">
-        <h2>Agent detail</h2>
-        <div id="agentdetail" class="empty">Select an agent.</div>
+        <h2>Detail</h2>
+        <div id="agentdetail" class="empty">Select a team or an agent.</div>
       </aside>
     </div>
   </section>
 
   <!-- CANVAS DESIGNER -->
   <section id="view-canvas" class="view">
-    <div class="canvas-bar">
-      <select id="ws-select" title="Workspace"></select>
-      <select id="sys-select" title="Agentic system"></select>
-      <button id="btn-new-system">New system</button>
-      <span class="sep"></span>
-      <button id="btn-lock" title="Lock this design while you edit">Lock</button>
-      <button id="btn-save" class="primary">Save</button>
-      <span id="version-badge" class="badge">v—</span>
-      <span id="lock-badge" class="badge"></span>
-      <span class="sep"></span>
-      <button id="btn-revisions">History</button>
-      <button id="btn-members">People</button>
-      <button id="btn-designer-settings">Settings</button>
-      <span class="grow"></span>
-      <label class="inline">as
-        <input id="user-input" value="ana" size="8" title="Acting user (dev auth)" />
-      </label>
-      <span id="role-badge" class="badge"></span>
-    </div>
-
     <div id="conflict-bar" class="conflict-bar" hidden>
       <strong>Conflicting edits</strong>
       <span id="conflict-summary"></span>
@@ -104,101 +109,78 @@
     </div>
   </section>
 
-  <!-- DESIGNER -->
+  <!-- AGENT EDITOR (spec-backed) -->
   <section id="view-designer" class="view">
     <div class="designer">
       <aside class="panel palette">
-        <h2>Components</h2>
-        <div id="palette"></div>
+        <h2>Agents</h2>
+        <p class="hint">Every agent in the open system.</p>
+        <div id="agent-list" class="list"></div>
+        <div class="actions">
+          <button id="btn-new-agent">New agent</button>
+        </div>
+        <h3>In this spec</h3>
+        <div id="spec-inventory" class="inventory"></div>
       </aside>
 
       <div class="panel canvas">
         <h2>Agent definition</h2>
-        <form id="agentform" class="form">
+        <div id="agentform-empty" class="empty">No system open.</div>
+        <form id="agentform" class="form" hidden>
           <div class="row">
-            <label>Name<input name="name" required placeholder="finance-analyst-agent" /></label>
-            <label>Title<input name="title" placeholder="Financial Analyst" /></label>
+            <label>Id<input name="id" readonly /></label>
+            <label>Name<input name="name" placeholder="finance-analyst" /></label>
+            <label>Team<select name="team_id"></select></label>
           </div>
           <label>Description<textarea name="description" rows="2"></textarea></label>
           <div class="row">
-            <label>Kind<select name="kind"></select></label>
-            <label>Org unit<select name="org_unit_id"></select></label>
-            <label>Reports to<select name="manager_agent_id"></select></label>
+            <label class="inline"><input type="checkbox" name="leader" /> Leads this team</label>
+            <label class="inline"><input type="checkbox" name="shared_service" /> Shared service</label>
+            <label>Max delegation depth<input name="max_delegation_depth" type="number" /></label>
           </div>
 
           <fieldset>
-            <legend>Human counterpart</legend>
-            <div class="row">
-              <label>Name<input name="human_name" placeholder="Tom Becker" /></label>
-              <label>Email<input name="human_email" type="email" placeholder="tom@acme.example" /></label>
-              <label>Role<input name="human_role" placeholder="Senior Analyst" /></label>
-            </div>
-            <label>Requires approval for (comma separated)
-              <input name="approval_required_for" placeholder="erp_post_journal, sandbox_exec" />
+            <legend>Human counterparts</legend>
+            <label>One per line: <code>name | contact | roles | approves</code>
+              <textarea name="humans" rows="3"
+                placeholder="Tom Becker | tom@acme.example | owner,approver | erp_post_journal"></textarea>
             </label>
           </fieldset>
 
           <fieldset>
-            <legend>Harness</legend>
-            <div class="row">
-              <label>Runtime<select name="runtime"></select></label>
-              <label>Model<input name="model" value="claude-opus-5" /></label>
-              <label>Sandbox template<select name="sandbox"></select></label>
-            </div>
-            <label>System prompt<textarea name="system_prompt" rows="3"
-              placeholder="You answer financial questions from the warehouse, with sources."></textarea></label>
-            <div class="row">
-              <label>Max turns<input name="max_turns" type="number" value="40" /></label>
-              <label>Sub-agent depth<input name="max_subagent_depth" type="number" value="3" /></label>
-              <label>Token budget<input name="token_budget" type="number" value="2000000" /></label>
-            </div>
-          </fieldset>
-
-          <fieldset>
-            <legend>Relational access (MCP)</legend>
-            <div class="row">
-              <label>Connection<input name="db_connection" placeholder="warehouse" /></label>
-              <label>Engine<select name="db_engine">
-                <option>postgres</option><option>mysql</option><option>sqlite</option>
-                <option>snowflake</option><option>bigquery</option></select></label>
-              <label>DSN secret ref<input name="db_secret" placeholder="WAREHOUSE_DSN" /></label>
-            </div>
-            <div class="row">
-              <label>Tables<input name="db_tables" placeholder="customers, invoices" /></label>
-              <label>Statements<input name="db_statements" value="select" /></label>
-              <label>Masked columns<input name="db_masked" placeholder="tax_id" /></label>
-            </div>
-          </fieldset>
-
-          <fieldset>
-            <legend>Data planes, skills, workflows, channels</legend>
+            <legend>Bindings</legend>
             <div class="grid4">
-              <div><h4>Data grants</h4><div id="pick-planes" class="checks"></div></div>
-              <div><h4>Skills</h4><div id="pick-skills" class="checks"></div></div>
+              <div><h4>Roles</h4><div id="pick-roles" class="checks"></div></div>
+              <div><h4>Capabilities</h4><div id="pick-capabilities" class="checks"></div></div>
+              <div><h4>Knowledge</h4><div id="pick-knowledge" class="checks"></div></div>
               <div><h4>Workflows</h4><div id="pick-workflows" class="checks"></div></div>
-              <div><h4>Channels</h4><div id="pick-channels" class="checks"></div></div>
             </div>
-            <label>Groups (protected data)<input name="groups" placeholder="finance, confidential" /></label>
+            <div class="grid4">
+              <div><h4>External agents</h4><div id="pick-endpoints" class="checks"></div></div>
+              <div><h4>Channels</h4><div id="pick-channels" class="checks"></div></div>
+              <div><h4>Skills</h4><div id="pick-skills" class="checks"></div></div>
+              <div><h4>Plugins</h4><div id="pick-plugins" class="checks"></div></div>
+            </div>
+            <div class="row">
+              <label>Environment class<select name="environment"></select></label>
+              <label>Artifact store<select name="artifact_store"></select></label>
+              <label>Output contract<select name="output_contract"></select></label>
+            </div>
           </fieldset>
 
           <div class="actions">
-            <button type="submit" class="primary">Create agent</button>
-            <button type="button" id="btn-preview">Preview harness</button>
-            <button type="button" id="btn-dryrun">Dry run</button>
+            <button type="button" id="btn-agent-save" class="primary">Save system</button>
+            <button type="button" id="btn-agent-remove">Remove agent</button>
           </div>
         </form>
       </div>
 
       <aside class="panel preview">
-        <h2>Preview</h2>
-        <pre id="preview" class="code">Fill the form, then preview the assembled harness.</pre>
+        <h2>This agent in the spec</h2>
+        <pre id="preview" class="code">Select an agent.</pre>
+        <h3>Validation</h3>
+        <div id="agent-validation" class="validation"></div>
       </aside>
-    </div>
-
-    <div class="panel">
-      <h2>Infrastructure</h2>
-      <p class="hint">Platform services the designed agents run on.</p>
-      <div id="infra" class="infra"></div>
     </div>
   </section>
 
@@ -254,6 +236,48 @@
       </div>
       <div id="catstats" class="statrow"></div>
       <div id="catalog" class="cards"></div>
+    </div>
+  </section>
+
+  <!-- WORKSPACE: identity, membership and audit -->
+  <section id="view-workspace" class="view">
+    <div class="split">
+      <div class="panel">
+        <h2>People in this workspace</h2>
+        <p class="hint" id="members-hint"></p>
+        <div id="members" class="list"></div>
+        <form id="memberform" class="form" hidden>
+          <div class="row">
+            <label>User id<input name="user_id" required placeholder="bob" /></label>
+            <label>Display name<input name="display_name" placeholder="Bob Mayer" /></label>
+            <label>Email<input name="email" type="email" placeholder="bob@acme.example" /></label>
+            <label>Role<select name="role">
+              <option value="viewer">viewer</option>
+              <option value="reviewer">reviewer</option>
+              <option value="editor">editor</option>
+              <option value="admin">admin</option>
+              <option value="owner">owner</option>
+            </select></label>
+          </div>
+          <div class="actions">
+            <button type="submit" class="primary">Add or change</button>
+          </div>
+        </form>
+        <div id="members-error" class="v-err"></div>
+      </div>
+      <aside class="panel">
+        <h2>Audit log</h2>
+        <p class="hint">Every change and every refusal, as the designer recorded
+          it. Refusals are marked.</p>
+        <div class="toolbar">
+          <select id="audit-system"><option value="">All systems</option></select>
+          <input id="audit-actor" placeholder="actor" size="10" />
+          <input id="audit-action" placeholder="action (e.g. system.save)" />
+          <button id="btn-audit-reload">Reload</button>
+        </div>
+        <div id="audit" class="list"></div>
+        <div id="audit-error" class="v-err"></div>
+      </aside>
     </div>
   </section>
 

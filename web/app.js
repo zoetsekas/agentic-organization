@@ -1,4 +1,17 @@
-/* Agentic Designer — vanilla SPA over the platform API. */
+/* Agentic Designer — vanilla SPA over the platform API.
+
+   Two kinds of view live here, and the difference is the point:
+
+   - *Design* views (org chart, agent editor, workspace) read and write the
+     System Spec open in the designer — the same `record.spec` the canvas
+     mutates, owned by canvas.js and reached through `window.designer`. There
+     is one document in the browser, so editing an agent here and moving its
+     box on the canvas are the same edit (ADR-0004, WS-009 M3).
+   - *Runtime* views (sessions, operations) read the running system through
+     `/sessions` and `/ops`. Those are observations, not design, and unifying
+     them onto the spec would make them lie. The marketplace and the platform
+     catalog are platform facts, not per-design ones, and stay where they are.
+*/
 const API = "/api";
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (tag, attrs = {}, ...kids) => {

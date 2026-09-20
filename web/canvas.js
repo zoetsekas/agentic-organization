@@ -47,6 +47,13 @@ async function dapi(path, options = {}) {
   return body;
 }
 
+/* The design views outside this file (org chart, agent editor) read and write
+   the very same `canvas.record.spec`, so they are told whenever it changes
+   rather than keeping a copy that could disagree with the canvas. */
+function announce(reason) {
+  document.dispatchEvent(new CustomEvent("designer:changed", { detail: { reason } }));
+}
+
 /* ------------------------------------------------------------ spec model */
 /* The canvas edits the spec document directly; these helpers find and mutate
    the right collection for a component kind. */
@@ -506,6 +513,7 @@ async function loadSystems() {
     canvas.record = null;
     renderCanvas();
     renderInspector();
+    announce("opened");
   }
 }
 
@@ -518,11 +526,12 @@ async function openSystem(systemId) {
   canvas.locks = payload.locks || [];
   canvas.dirty = false;
   canvas.selected = null;
-  $("#role-badge").textContent = canvas.role || "no access";
   updateBadges();
+  canvas.validation = payload.validation;
   renderCanvas();
   renderInspector();
   renderValidation(payload.validation);
+  announce("opened");
 }
 
 function updateBadges() {
@@ -537,10 +546,11 @@ function updateBadges() {
   $("#btn-save").textContent = canvas.dirty ? "Save •" : "Save";
 }
 
-function markDirty() {
+function markDirty(reason = "edited") {
   canvas.dirty = true;
   canvas.record.layout.updated_at = new Date().toISOString();
   updateBadges();
+  announce(reason);
 }
 
 function renderValidation(validation) {
@@ -632,10 +642,12 @@ function renderConflicts() {
 function wireCanvas() {
   $("#user-input").addEventListener("change", async (e) => {
     canvas.user = e.target.value.trim() || "anonymous";
+    announce("identity");
     await loadWorkspaces();
   });
   $("#ws-select").addEventListener("change", async (e) => {
     canvas.workspaceId = e.target.value;
+    announce("identity");
     await loadSystems();
   });
   $("#sys-select").addEventListener("change", async (e) => {
@@ -688,22 +700,7 @@ function wireCanvas() {
       { method: "POST" });
     await openSystem(canvas.systemId);
   });
-  $("#btn-members").addEventListener("click", async () => {
-    const workspace = canvas.workspaces.find((w) => w.id === canvas.workspaceId);
-    const listing = workspace.members.map((m) => `${m.user_id} — ${m.role}`).join("\n");
-    const entry = window.prompt(
-      `People in ${workspace.name}:\n${listing}\n\n` +
-      "Add or change: user_id role  (e.g. 'bob editor')");
-    if (!entry) return;
-    const [user_id, role = "viewer"] = entry.trim().split(/\s+/);
-    try {
-      await dapi(`/workspaces/${canvas.workspaceId}/members`, {
-        method: "POST",
-        body: JSON.stringify({ user_id, display_name: user_id, role }),
-      });
-      await loadWorkspaces();
-    } catch (err) { alert(err.message); }
-  });
+  $("#btn-members").addEventListener("click", () => showView("workspace"));
   $("#btn-designer-settings").addEventListener("click", async () => {
     const settings = await dapi("/settings");
     const entry = window.prompt(
@@ -741,3 +738,22 @@ async function initCanvas() {
   await loadWorkspaces();
 }
 window.initCanvas = initCanvas;
+
+/* The one door onto the open design. Everything else in the bundle goes
+   through this, so there is exactly one copy of the spec in the browser. */
+window.designer = {
+  state: canvas,
+  dapi,
+  spec,
+  teams: allTeams,
+  agents: allAgents,
+  kindSpec,
+  find: findComponent,
+  add: addComponent,
+  remove: removeComponent,
+  markDirty,
+  save: saveSystem,
+  reopen: () => (canvas.systemId ? openSystem(canvas.systemId) : null),
+  reloadWorkspaces: loadWorkspaces,
+  canEdit: () => canvas.permissions.includes("system.edit"),
+};
