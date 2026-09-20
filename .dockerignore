@@ -1,0 +1,17 @@
+.git
+.github
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+*.db
+*.db-shm
+*.db-wal
+build
+dist
+*.egg-info
+.venv
+venv
+out
+generated
+docs/decisions
+docs/workstreams

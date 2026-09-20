@@ -35,12 +35,12 @@ pattern-matching where it should be deciding.
 
 | # | Activity | Owner | Why now |
 |---|---|---|---|
-| 1.1 | Model-backed classifier guardrails and a real summarizer | WS-024 M5 | Pattern matching both misses real cases and fires on innocent ones; the default summarizer does not summarize. |
+| 1.1 | ~~Model-backed classifier guardrails and a real summarizer~~ **done** | WS-024 M5 | Judgement is now replaceable and fails open to the pattern floor. Not *proven better*: recall is still unmeasured against a labelled corpus. |
 | 1.2 | ~~Sub-agent model class enforcement, and fallback to a permitted model~~ **done** | WS-026 M4/M5 | Sub-agent models are now judged against the catalog and narrowed to `subagent_classes`; fallback is opt-in and recorded. |
-| 1.3 | Retry on output-contract violation in the adapters | WS-024 M6 | Violations are recorded and returned rather than corrected. |
-| 1.4 | OIDC for designer identity and group mapping | WS-021 M3 | Identity comes from a header today, safe only behind an authenticating proxy. |
-| 1.5 | Directory integration to detect departed people | WS-016 M4 | A departed employee stays listed as an accountable owner or approver indefinitely. |
-| 1.6 | Catalog figures refreshed from provider data | WS-026 M6 | Pricing, context windows and regions are typed in, so a cost ceiling can check a stale number. |
+| 1.3 | ~~Retry on output-contract violation~~ **done** | WS-024 M6 | Bounded re-prompt; an exhausted budget still fails loudly. |
+| 1.4 | ~~OIDC for designer identity and group mapping~~ **done, with a caveat** | WS-021 M3 | Verification is hand-rolled RSA because no crypto library imports here. Replace with a vetted library before production. |
+| 1.5 | ~~Directory integration to detect departed people~~ **done** | WS-016 M4 | `spec validate --directory` runs it. Detects departures, not reassignments. |
+| 1.6 | ~~Catalog figures refreshed from provider data~~ **done** | WS-026 M6 | Provenance and staleness horizons; fallback prefers fresh figures over cheap ones. No live source is wired. |
 | 1.7 | ~~Audit log of designer actions~~ **done** | WS-021 M5 | Append-only events across all three backends, recording refusals as well as changes. The actor is still only as trustworthy as the proxy in front of it — OIDC is 1.4. |
 
 ## 2. Making the generated output trustworthy
@@ -115,6 +115,15 @@ re-running the landscape scan against products we could not identify
 Sections 5 and 6 follow the work above rather than leading it.
 
 ## Added while working
+
+- **Replace the hand-rolled JWT verification with a vetted library** once
+  `cryptography`/`PyJWT` can be imported. Highest-priority item here: it is
+  auth-path crypto written by hand (ADR-0047).
+- **Build and run the designer image on a machine with a Docker daemon**
+  (ADR-0048) — the assets are unbuilt here.
+- **Measure guardrail recall against a labelled corpus.** WS-024 M5 made
+  judgement replaceable; it did not show the replacement is better.
+- Wire `record_ir_usage` into the compile path (WS-027 M5).
 
 - `jsonschema` as a dev dependency, so "the exported schema accepts the worked
   example" is verified in CI rather than skipped (WS-002 M5).

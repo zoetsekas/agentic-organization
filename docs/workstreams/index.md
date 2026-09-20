@@ -23,7 +23,7 @@
 | [WS-018](WS-018-memory-management.md) | Memory management — session and long term | Active | 1.0.0 | Platform Architecture | ADR-0028 | WS-004, WS-005 |
 | [WS-019](WS-019-agent-capability-bundle.md) | Agent capability bundle — skills, plugins, tools and external endpoints | Active | 1.0.0 | Platform Architecture | ADR-0029, ADR-0030 | WS-005, WS-004 |
 | [WS-020](WS-020-designer-backend.md) | Designer backend and pluggable persistence | Active | 1.0.0 | Platform Architecture | ADR-0031 | WS-009 |
-| [WS-021](WS-021-designer-access-control.md) | Designer access control for people | Active | 1.1.0 | Security Engineering | ADR-0032, ADR-0043 | WS-020 |
+| [WS-021](WS-021-designer-access-control.md) | Designer access control for people | Active | 1.2.0 | Security Engineering | ADR-0032, ADR-0043, ADR-0047 | WS-020 |
 | [WS-022](WS-022-concurrent-editing.md) | Concurrent editing — locks, versions and merge | Active | 1.0.0 | Platform Architecture | ADR-0033 | WS-020 |
 | [WS-023](WS-023-canvas-designer.md) | Drag-and-drop canvas designer | Active | 1.0.0 | Product | ADR-0034 | WS-020, WS-021, WS-022 |
 | [WS-024](WS-024-framework-parity.md) | Framework parity — guardrails, context, contracts and shared instructions | Active | 1.1.0 | Platform Architecture | ADR-0035, ADR-0036, ADR-0037, ADR-0038, ADR-0045 | WS-011, WS-005 |

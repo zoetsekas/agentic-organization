@@ -91,6 +91,29 @@ orgagents serve      # then open http://localhost:8000/ui/#/canvas
 Open <http://localhost:8000/ui/> for the **Agentic Designer**: org chart,
 agent/harness designer, marketplace, session traces and the operations console.
 
+## Running the designer in Docker
+
+```bash
+docker compose up --build                    # UI at http://localhost:8000/ui/
+ORGAGENTS_SEED=1 docker compose up --build   # ...with the demo organization
+```
+
+This is the **designer application** — the workshop you build agentic systems
+in. It is not the Compose stack the compiler *generates* for a system you
+design (`orgagents compile --target local`); those are separate artifacts and
+are not meant to be merged. State lives on a `/data` volume, the container runs
+as a non-root user, seeding is opt-in and first-start only, and the trigger
+scheduler sits behind a Compose profile because unattended execution should be
+something you asked for. Anything that is not `serve` is passed to the CLI, so
+`docker compose run --rm designer spec validate examples/acme.system.yaml`
+works from the same image. Details and limits: **[docs/DOCKER.md](docs/DOCKER.md)**,
+ADR-0048.
+
+**The image has not been built or run here** — there is no Docker daemon in the
+environment it was written in. `tests/test_docker_assets.py` keeps the assets
+from drifting from the application, but that is not the same as a successful
+`docker build`.
+
 ## The designer
 
 `http://localhost:8000/ui/#/canvas` is a drag-and-drop canvas: drop a **Team**,
@@ -374,6 +397,9 @@ validators, the compiler and IR, the local and three Terraform targets, the
 RBAC engine, and loading a compiled system into the runtime (91 tests, no
 network or API keys).
 
+The outstanding work is listed in **[docs/ROADMAP.md](docs/ROADMAP.md)**,
+ordered, each item mapped to the workstream milestone that owns it.
+
 Known gaps, tracked in the workstreams rather than glossed:
 
 - **Declared evaluations are not executed.** `evaluations_passed` is a gate
@@ -400,8 +426,13 @@ Known gaps, tracked in the workstreams rather than glossed:
 - **The default summarizer does not summarize** — without a model it keeps the
   first and last turns and counts the rest (WS-024 M5), and output-contract
   violations are recorded rather than retried (WS-024 M6).
-- **Designer identity comes from a header** and is only safe behind an
-  authenticating proxy; OIDC integration is WS-021 M3.
+- **The OIDC token verification is hand-rolled.** `PyJWT` and `cryptography`
+  are both unimportable in this environment (a broken `_cffi_backend`), so
+  RSASSA-PKCS1-v1_5 was implemented directly against `hashlib`. It is RSA-only
+  — no EC or EdDSA — and hand-written signature verification in an auth path is
+  not what you want in production. Replace it with a vetted library before
+  anyone relies on it (ADR-0047). Header identity remains available as an
+  explicit `trusted_proxy` mode, not a silent fallback.
 - **Closing finished missions is manual** — expiry is enforced on every
   delegation, but nothing runs `missions sweep` on a schedule, so a stale
   `active` record misreports the organization until somebody closes it

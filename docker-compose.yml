@@ -1,0 +1,56 @@
+# Stand up the agentic designer locally:
+#
+#   docker compose up --build        -> UI at http://localhost:8000/ui/
+#   ORGAGENTS_SEED=1 docker compose up --build   -> with the demo organization
+#   docker compose --profile scheduler up        -> also run declared triggers
+#
+# This runs the designer. The Compose file the *compiler* generates for a
+# system you design in it is a separate artifact (`orgagents compile --target
+# local`), and the two are not meant to be merged.
+
+services:
+  designer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: orgagents-designer:local
+    container_name: orgagents-designer
+    ports:
+      - "${ORGAGENTS_PORT:-8000}:8000"
+    environment:
+      ORGAGENTS_DB: /data/designer.db
+      ORGAGENTS_BASE_URL: ${ORGAGENTS_BASE_URL:-http://localhost:8000}
+      # Session URLs are handed out to humans, so the base URL has to be the
+      # one they can actually reach — not the container's own address.
+      ORGAGENTS_SEED: ${ORGAGENTS_SEED:-0}
+    volumes:
+      - designer-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status==200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  # Opt-in: runs the triggers a designed system declares. Off by default
+  # because an unattended agent loop should be something you asked for.
+  scheduler:
+    profiles: ["scheduler"]
+    image: orgagents-designer:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: orgagents-scheduler
+    command: ["scheduler", "--manifest", "/data/triggers.json", "--db", "/data/designer.db"]
+    environment:
+      ORGAGENTS_DB: /data/designer.db
+    volumes:
+      - designer-data:/data
+    depends_on:
+      designer:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  designer-data:
