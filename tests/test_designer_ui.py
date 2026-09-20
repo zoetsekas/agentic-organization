@@ -135,7 +135,7 @@ def test_the_canvas_publishes_the_open_record_once(canvas_js):
 
 
 def test_the_design_views_say_so_when_no_system_is_open(app_js):
-    assert "No system open" in app_js
+    assert "No organisation open" in app_js
     assert "NO_SYSTEM" in app_js
 
 

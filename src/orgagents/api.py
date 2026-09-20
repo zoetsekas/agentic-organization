@@ -35,6 +35,12 @@ from .models import (
     Visibility,
     WorkflowRef,
 )
+# Imported at module level, not inside `create_app`: this module uses
+# `from __future__ import annotations`, so FastAPI resolves a route's
+# annotations as strings against the *module* globals. A model imported inside
+# the factory is invisible there, and FastAPI silently degrades the parameter
+# to a query field — which is how POST /api/catalogs came to be uncallable.
+from .catalogs import CatalogEntry as PlatformCatalogEntry
 from .platform import Platform
 from .store import PLUGINS, SKILLS, WORKFLOWS
 
@@ -399,7 +405,6 @@ def create_app(
 
     from .catalogs import (
         ApprovalStatus,
-        CatalogEntry as PlatformCatalogEntry,
         CatalogKind,
         CatalogService,
         Entitlement,
