@@ -26,15 +26,16 @@ Holding both role sets is two grants, never one inferred from the other.
 | Role | Value | Grants |
 |---|---|---|
 | Automation | `fabric_automation` | all reads, `fabric.deployment.quarantine` |
-| Operator | `fabric_operator` | all reads, deploy / stop / quarantine / redeploy, re-quota |
-| Admin | `fabric_admin` | all of the above, plus `fabric.audit.read` and `fabric.operator.grant` |
+| Operator | `fabric_operator` | all reads, deploy / stop / quarantine / redeploy, re-quota, `fabric.tenant.lifecycle` |
+| Admin | `fabric_admin` | all of the above, plus `fabric.audit.read`, `fabric.operator.grant` and `fabric.tenant.register` |
 
 Admin is not "operator plus" in the lifecycle: the transition table
 (`src/orgagents/fabric/deployments.py`) decides each move on its own, and some
 moves — leaving quarantine — are admin-only by design.
 
 Permission names, all `fabric.`-prefixed and disjoint from the designer's:
-`fabric.tenant.read`, `fabric.deployment.read`, `fabric.health.read`,
+`fabric.tenant.read`, `fabric.tenant.register`, `fabric.tenant.lifecycle`,
+`fabric.deployment.read`, `fabric.health.read`,
 `fabric.quota.read`, `fabric.service.read`, `fabric.audit.read`,
 `fabric.deployment.deploy`, `fabric.deployment.stop`,
 `fabric.deployment.quarantine`, `fabric.deployment.redeploy`,
@@ -63,6 +64,8 @@ the role and the states involved, and is safe to show to an operator.
 | GET | `/api/fabric/whoami` | none (authentication only) | The caller's operator roles and permissions. |
 | GET | `/api/fabric/tenants` | `fabric.tenant.read` | Every tenant, with deployment counts and states. |
 | GET | `/api/fabric/tenants/{tenant_id}` | `fabric.tenant.read` | One tenant: deployments, health, drift, quotas. |
+| POST | `/api/fabric/tenants` | `fabric.tenant.register` | Register a tenant and mint its isolation domain. |
+| POST | `/api/fabric/tenants/{tenant_id}/actions/{action}` | `fabric.tenant.lifecycle` | Tenant lifecycle: activate / suspend / resume / retire. |
 | GET | `/api/fabric/deployments?tenant_id=` | `fabric.deployment.read` | Deployments, all tenants or one. |
 | GET | `/api/fabric/deployments/{deployment_id}` | `fabric.deployment.read` | One deployment with its last health check. |
 | GET | `/api/fabric/deployments/{deployment_id}/history` | `fabric.deployment.read` | Its transition history. |
@@ -79,6 +82,8 @@ the role and the states involved, and is safe to show to an operator.
 | DELETE | `/api/fabric/operators/{user_id}` | `fabric.operator.grant` | Revoke them. |
 
 These are the only writes in the namespace, and none of them touches a spec.
+Creating and retiring a tenant is an operator act, never a designer one: it is
+authorized here, by a fabric grant, and audited like every other one.
 
 ---
 
@@ -301,7 +306,8 @@ Admin only. Query parameters: `tenant_id`, `actor`, `cross_tenant_only`
 ```
 
 `action` is one of the permission-shaped values plus
-`fabric.operator.revoke`. `outcome`: `success`, `denied`, `conflict`,
+`fabric.operator.revoke`. A registration carries the assigned prefix and
+domain in `detail`; a lifecycle move carries `from`, `to` and `acted_as`. `outcome`: `success`, `denied`, `conflict`,
 `failed`. The log is append-only: there is no route that edits or deletes a
 row.
 
@@ -335,6 +341,62 @@ Two refusals, and they mean different things:
 Where the caller holds several roles, the backend acts as one the table
 accepts for that specific move; the role it used appears in the audit row's
 `detail.acted_as` and in the deployment's history.
+
+### POST `/api/fabric/tenants`
+
+Admin only. The isolation domain is **not** in the body: the fabric derives it
+from the namespace prefix and assigns it (ADR-0050), so a tenant cannot widen
+its own domain by asking.
+
+```json
+{
+  "id": "globex",
+  "name": "Globex",
+  "namespace_prefix": "globex",
+  "entitlements": ["catalog.reviewer"],
+  "cloud_boundary": "",
+  "reason": "onboarding"
+}
+```
+
+`namespace_prefix` omitted defaults to `id`, and is tidied before validation
+(uppercase folded, stray characters turned into hyphens). Returns the tenant
+object of §3.2 plus `allowed_transitions` (`{status: [roles]}`), and a
+`history` array that is empty until the first lifecycle move.
+
+**409** on a prefix the fabric will not accept, with the reason in `detail`:
+
+* not safe in a generated identifier — 3–20 characters, lowercase letters,
+  digits and hyphens, starting with a letter, no `--`;
+* reserved by the platform (`fabric`, `designer`, `system`, …);
+* colliding with an existing prefix, which includes one prefixing the other
+  (`acme` and `acme-eu` cannot both exist), **and includes retired tenants**:
+  a retired prefix is spent forever, because a new tenant must never inherit
+  what the old one left behind.
+
+Registering does not create quotas; use §4 re-quota afterwards.
+
+### POST `/api/fabric/tenants/{tenant_id}/actions/{action}`
+
+Body is the operator-action body: `{"reason": "…"}`. Returns the tenant, as
+above.
+
+| `action` | Lifecycle move | Sufficient role |
+|---|---|---|
+| `activate` | `pending` → `active` | `fabric_operator`, `fabric_admin` |
+| `suspend` | `pending`/`active` → `suspended` | `fabric_operator`, `fabric_admin` |
+| `resume` | `suspended` → `active` | `fabric_operator`, `fabric_admin` |
+| `retire` | any → `retired` | `fabric_admin` only |
+
+A suspended tenant is kept but refused a compile; `retired` is terminal and
+there is no route back. Refusals read the same way as the deployment ones:
+
+* **409** — off the machine (`resume` on a retired tenant), *or* retirement
+  refused because the tenant still has live deployments (`requested`,
+  `generated`, `deployed`, `running` or `quarantined`). The message names
+  them; stop or retire them first. Nothing changed.
+* **403** — legal, but not for this role: retiring is admin-only.
+* **404** — no such tenant, or an unknown action name.
 
 ### PUT `/api/fabric/tenants/{tenant_id}/quotas`
 

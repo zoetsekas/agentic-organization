@@ -639,7 +639,18 @@ def _verdict(
 
     total_weight = sum(r.weight for r in results) or 1.0
     rate = sum(r.weight for r in passed) / total_weight
-    state = GateState.PASSED if rate >= min_pass_rate else GateState.FAILED
+    if rate >= min_pass_rate:
+        state = GateState.PASSED
+    elif not failed and not errored and unsupported:
+        # Nothing was checkable, so nothing was checked. "We cannot verify
+        # this" is not "the agent got it wrong": reporting it as FAILED would
+        # blame the agent for the suite being unwritten, and a reviewer chasing
+        # a failure that does not exist stops trusting the gate. It still does
+        # not pass — NOT_EVALUATED is the honest state, and it is the same
+        # distinction the gate already draws when no run exists at all.
+        state = GateState.NOT_EVALUATED
+    else:
+        state = GateState.FAILED
     detail = []
     if failed:
         detail.append(f"{len(failed)} failed: " + ", ".join(

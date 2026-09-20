@@ -334,10 +334,10 @@ class _Collector:
 def _permission_severity(key: str) -> Severity:
     """A grant's blast radius: what it lets an agent do, and to how much."""
     action, _kind, resource = key.split(":", 2)
+    # A state-changing action over every resource of a kind is the worst shape
+    # a grant can take; anything else newly granted is still a finding.
     if action in _POWERFUL_ACTIONS and resource == "*":
         return Severity.CRITICAL
-    if action in _POWERFUL_ACTIONS or resource == "*":
-        return Severity.HIGH
     return Severity.HIGH
 
 
@@ -693,7 +693,10 @@ def _diff_data_access(out: _Collector, agent_id: str, left: AgentIR, right: Agen
             )
 
 
-def _diff_agent(out: _Collector, left: AgentIR, right: AgentIR) -> None:
+def _diff_agent(
+    out: _Collector, left: AgentIR, right: AgentIR,
+    *, skip_guardrails: frozenset[str] = frozenset(),
+) -> None:
     agent_id = left.id
     # An id reused for a different agent: everything else in the comparison
     # would read as an edit when it is really a replacement.
@@ -738,7 +741,13 @@ def _diff_agent(out: _Collector, left: AgentIR, right: AgentIR) -> None:
 
     _diff_permissions(out, "agent", agent_id, left.permissions, right.permissions)
     _diff_environment(out, agent_id, left.environment, right.environment)
-    _diff_guardrails(out, "agent", agent_id, left.guardrails, right.guardrails)
+    # A guardrail added or removed system-wide lands on every agent; it is
+    # reported once against the system instead of once per agent.
+    _diff_guardrails(
+        out, "agent", agent_id,
+        [g for g in left.guardrails if g.id not in skip_guardrails],
+        [g for g in right.guardrails if g.id not in skip_guardrails],
+    )
     _diff_endpoints(out, agent_id, left.endpoints, right.endpoints)
     _diff_model(out, agent_id, left, right)
     _diff_data_access(out, agent_id, left, right)
@@ -852,7 +861,9 @@ def _diff_identities(out: _Collector, left: SystemIR, right: SystemIR) -> None:
             )
 
 
-def _diff_system_level(out: _Collector, left: SystemIR, right: SystemIR) -> None:
+def _diff_system_level(
+    out: _Collector, left: SystemIR, right: SystemIR
+) -> frozenset[str]:
     if left.name != right.name:
         out.add(
             subject_kind="system", subject=left.name, field="name",
@@ -872,6 +883,7 @@ def _diff_system_level(out: _Collector, left: SystemIR, right: SystemIR) -> None
             before=left.environment, after=right.environment,
         )
     _diff_guardrails(out, "system", left.name, left.guardrails, right.guardrails)
+    system_guardrails = {g.id for g in left.guardrails} ^ {g.id for g in right.guardrails}
 
     old_policies = _keyed(left.policies)
     new_policies = _keyed(right.policies)
@@ -933,6 +945,7 @@ def _diff_system_level(out: _Collector, left: SystemIR, right: SystemIR) -> None
                          "be posted to it",
             noun="forbidden data class", protective=True,
         )
+    return frozenset(system_guardrails)
 
 
 def diff_ir(left: SystemIR, right: SystemIR, *, force: bool = False) -> IRDiff:
@@ -945,7 +958,7 @@ def diff_ir(left: SystemIR, right: SystemIR, *, force: bool = False) -> IRDiff:
         assert_comparable(left, right)
 
     out = _Collector()
-    _diff_system_level(out, left, right)
+    system_guardrails = _diff_system_level(out, left, right)
     _diff_identities(out, left, right)
 
     old_teams, new_teams = _keyed(left.teams), _keyed(right.teams)
@@ -1014,7 +1027,8 @@ def diff_ir(left: SystemIR, right: SystemIR, *, force: bool = False) -> IRDiff:
             before=aid,
         )
     for aid in sorted(old_agents.keys() & new_agents.keys()):
-        _diff_agent(out, old_agents[aid], new_agents[aid])
+        _diff_agent(out, old_agents[aid], new_agents[aid],
+                    skip_guardrails=system_guardrails)
 
     changes = sorted(
         out.changes,

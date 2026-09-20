@@ -169,9 +169,14 @@ def test_a_prose_expectation_is_unsupported_rather_than_judged(store):
     result = run.results[0]
     assert result.outcome is CaseOutcome.UNSUPPORTED
     assert "not implemented" in result.assertions[0].detail
-    # Unverifiable is not passing: the gate must not read as met.
-    assert run.verdict("analyst").state is GateState.FAILED
-    assert run.verdict("analyst").unsupported == 1
+    # Unverifiable is not passing — but it is not failing either. Nothing was
+    # checkable, so nothing was checked: reporting FAILED would blame the agent
+    # for the suite being unwritten, and send a reviewer chasing a failure that
+    # does not exist. The gate must simply not read as met.
+    verdict = run.verdict("analyst")
+    assert verdict.state is GateState.NOT_EVALUATED
+    assert verdict.state is not GateState.PASSED
+    assert verdict.unsupported == 1
 
 
 def test_a_case_that_asserts_nothing_is_unsupported(store):
@@ -319,3 +324,16 @@ def test_the_default_runner_needs_no_credentials(store, monkeypatch):
     assert isinstance(service.runner, EchoRunner)
     assert run.results[0].outcome is CaseOutcome.PASSED
     assert "ping" in run.results[0].response
+
+
+def test_a_real_failure_still_reads_as_failed_alongside_unverifiable_ones(store):
+    # The correction above must not swallow genuine failures: a suite with one
+    # checkable case that fails is a failure, whatever else it contains.
+    spec = make_spec([
+        EvaluationCase(id="prose", given="hi", expect="Something a human judges."),
+        EvaluationCase(id="checkable", given="hi", expect="exact:the right answer"),
+    ])
+    run = EvaluationService(store, fixed_runner("the wrong answer")).run(spec)
+    verdict = run.verdict("analyst")
+    assert verdict.state is GateState.FAILED
+    assert verdict.unsupported == 1
