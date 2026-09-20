@@ -44,7 +44,10 @@ const state = { whoami: null, selected: null, agentId: null };
 
 const design = () => window.designer;
 const openSpec = () => (design() ? design().spec() : null);
-const NO_SYSTEM = "No system open. Choose or create one in the bar above.";
+/* One saved design holds exactly one organisation, so the empty state is about
+   the organisation rather than about a "system"; the wire keeps the older word
+   ("No system open" was this copy, and /api/designer/systems is the route). */
+const NO_SYSTEM = "No organisation open. Choose or create one above.";
 
 /* ---------------------------------------------------------------- tabs */
 $("#tabs").addEventListener("click", (e) => {
@@ -121,12 +124,221 @@ function renderIdentity() {
 
 const may = (permission) => (membership()?.permissions || []).includes(permission);
 
+/* ------------------------------------- the organisation being designed */
+/* One design = one organisation (`SystemSpec.organization`). The selector here
+   and the one in the context bar are filled by canvas.js from the same open
+   id, so switching in either switches both. Everything destructive is gated on
+   the permission the API reports, and every refusal is shown in the API's own
+   words. */
+
+function orgMetadata() {
+  const s = openSpec();
+  return s ? (s.metadata = s.metadata || {}) : null;
+}
+
+function renderOrgToolbar() {
+  const d = design();
+  const record = d?.state.record;
+  const canEdit = !!d && d.canEdit();
+  const blocked = d ? d.lockedByOther() : null;
+  $("#org-version").textContent = record ? `v${record.version}` : "v—";
+  const lock = $("#org-lock");
+  lock.textContent = blocked
+    ? `locked by ${blocked.holder_name || blocked.holder}` : "";
+  lock.className = `badge ${blocked ? "warn" : ""}`;
+  // A viewer, or someone else's lock, is not offered a control that would be
+  // refused: the gate is the permission the API reported when it opened.
+  $("#btn-org-new").disabled = !d;
+  $("#btn-org-edit").disabled = !record || !canEdit || !!blocked;
+  $("#btn-org-duplicate").disabled = !record || !canEdit;
+  $("#btn-org-delete").disabled = !record || !canEdit || !!blocked;
+}
+
+function labelsToText(labels) {
+  return Object.entries(labels || {}).map(([k, v]) => `${k}=${v}`).join("\n");
+}
+
+function labelsFromText(text) {
+  const out = {};
+  for (const line of (text || "").split("\n")) {
+    const [key, ...rest] = line.split("=");
+    if (key.trim()) out[key.trim()] = rest.join("=").trim();
+  }
+  return out;
+}
+
+function showOrgForm(mode) {
+  const form = $("#orgform");
+  form.dataset.mode = mode;
+  $("#orgform-error").textContent = "";
+  $("#org-error").textContent = "";
+  const record = design()?.state.record;
+  const metadata = mode === "edit" ? (orgMetadata() || {}) : {};
+  $("#orgform-title").textContent = mode === "edit"
+    ? `Edit ${record?.name || "this organisation"}` : "New organisation";
+  $("#btn-orgform-save").textContent = mode === "edit" ? "Save changes" : "Create";
+  form.elements.name.value = mode === "edit"
+    ? (record?.name || metadata.name || "") : "";
+  form.elements.description.value = mode === "edit"
+    ? (record?.description || metadata.description || "") : "";
+  form.elements.owner.value = metadata.owner || "";
+  form.elements.environment.value = metadata.environment || "development";
+  form.elements.labels.value = labelsToText(metadata.labels);
+  form.hidden = false;
+  form.elements.name.focus();
+}
+
+function hideOrgForm() {
+  $("#orgform").hidden = true;
+}
+
+function orgFormValues() {
+  const form = $("#orgform");
+  return {
+    name: form.elements.name.value.trim(),
+    description: form.elements.description.value.trim(),
+    owner: form.elements.owner.value.trim(),
+    environment: form.elements.environment.value,
+    labels: labelsFromText(form.elements.labels.value),
+  };
+}
+
+/* Create: the API makes the record and its starter spec; the rest of the
+   metadata the user gave is written straight after, through the same PUT that
+   every other edit uses. */
+async function createOrganisation(values) {
+  const d = design();
+  const created = await d.dapi("/systems", {
+    method: "POST",
+    body: JSON.stringify({
+      workspace_id: d.state.workspaceId,
+      name: values.name,
+      description: values.description,
+    }),
+  });
+  d.state.systemId = created.id;
+  await d.reloadSystems();
+  applyOrgMetadata(values);
+  await d.save();
+}
+
+function applyOrgMetadata(values) {
+  const metadata = orgMetadata();
+  if (!metadata) return;
+  metadata.name = values.name;
+  metadata.description = values.description;
+  metadata.owner = values.owner;
+  metadata.environment = values.environment;
+  metadata.labels = values.labels;
+  const record = design().state.record;
+  record.name = values.name;
+  record.description = values.description;
+  // The organisation node carries the name people read on the chart.
+  if (record.spec.organization && !record.spec.organization.name)
+    record.spec.organization.name = values.name;
+  design().markDirty("organisation");
+}
+
+/* Duplicate: there is no server-side copy route, and none is needed — the open
+   record's spec and layout are everything a new one needs. */
+async function duplicateOrganisation() {
+  const d = design();
+  const systemId = d.state.systemId;
+  const source = await d.dapi(`/systems/${systemId}`);
+  const record = source.record;
+  const copyName = `${record.name} (copy)`;
+  const spec = JSON.parse(JSON.stringify(record.spec));
+  spec.metadata = spec.metadata || {};
+  spec.metadata.name = copyName;
+  const created = await d.dapi("/systems", {
+    method: "POST",
+    body: JSON.stringify({
+      workspace_id: record.workspace_id,
+      name: copyName,
+      description: record.description,
+      spec,
+    }),
+  });
+  // Create takes no layout, so the copy's boxes are placed by the save that
+  // follows it; otherwise the duplicate would open on an empty canvas.
+  await d.dapi(`/systems/${created.id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      layout: JSON.parse(JSON.stringify(record.layout)),
+      base_version: created.version,
+      strategy: "merge",
+      message: `duplicated from ${record.name}`,
+    }),
+  });
+  d.state.systemId = created.id;
+  await d.reloadSystems();
+}
+
+async function deleteOrganisation() {
+  const d = design();
+  const record = d.state.record;
+  if (!record) return;
+  if (!window.confirm(
+    `Delete the organisation "${record.name}"?\n\n`
+    + "Its spec, layout and revision history go with it. This cannot be undone."))
+    return;
+  try {
+    await d.dapi(`/systems/${d.state.systemId}`, { method: "DELETE" });
+    d.state.systemId = null;
+    await d.reloadSystems();
+    $("#org-error").textContent = "";
+  } catch (err) {
+    // Whatever refused — a lock, a role — says so better than we could.
+    $("#org-error").textContent = err.message;
+  }
+}
+
+function wireOrgView() {
+  $("#btn-org-new").addEventListener("click", () => showOrgForm("create"));
+  // The context bar's create button is the same affordance, not a second one.
+  $("#btn-new-system").addEventListener("click", () => {
+    showView("org");
+    showOrgForm("create");
+  });
+  $("#btn-org-edit").addEventListener("click", () => showOrgForm("edit"));
+  $("#btn-org-duplicate").addEventListener("click", async () => {
+    $("#org-error").textContent = "";
+    try {
+      await duplicateOrganisation();
+    } catch (err) {
+      $("#org-error").textContent = err.message;
+    }
+  });
+  $("#btn-org-delete").addEventListener("click", deleteOrganisation);
+  $("#btn-orgform-cancel").addEventListener("click", hideOrgForm);
+  $("#orgform").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const values = orgFormValues();
+    if (!values.name) return;
+    try {
+      if (e.target.dataset.mode === "edit") {
+        applyOrgMetadata(values);
+        await design().save();
+      } else {
+        await createOrganisation(values);
+      }
+      hideOrgForm();
+    } catch (err) {
+      $("#orgform-error").textContent = err.message;
+    }
+  });
+}
+
 /* --------------------------------------------- org chart, from the spec */
 function renderOrg() {
   const root = $("#orgtree");
   const s = openSpec();
+  renderOrgToolbar();
   if (!s) {
-    root.replaceChildren(el("div", { class: "empty" }, NO_SYSTEM));
+    root.replaceChildren(el("div", { class: "empty" }, NO_SYSTEM,
+      el("div", { class: "actions" },
+        el("button", { class: "primary", onclick: () => showOrgForm("create") },
+          "Create an organisation"))));
     showDetail(el("div", {}, NO_SYSTEM), true);
     return;
   }
@@ -440,7 +652,7 @@ function wireAgentEditor() {
   $("#btn-agent-save").addEventListener("click", () => design().save());
   $("#btn-agent-remove").addEventListener("click", () => {
     const agent = currentAgent();
-    if (!agent || !window.confirm(`Remove ${agent.id} from this system?`)) return;
+    if (!agent || !window.confirm(`Remove ${agent.id} from this organisation?`)) return;
     design().remove("agent", agent.id);
     design().markDirty();
     state.agentId = null;
@@ -518,7 +730,7 @@ async function loadAudit() {
   const systems = d.state.systems || [];
   const select = $("#audit-system");
   const chosen = select.value;
-  fillSelect(select, [["", "All systems"], ...systems.map((s) => [s.id, s.name])]);
+  fillSelect(select, [["", "All organisations"], ...systems.map((s) => [s.id, s.name])]);
   select.value = chosen;
   const query = new URLSearchParams({ limit: "100" });
   if (chosen) query.set("system_id", chosen);
@@ -747,6 +959,7 @@ function setStatus(text) { $("#status").textContent = text; }
 window.addEventListener("DOMContentLoaded", async () => {
   try {
     wireAgentEditor();
+    wireOrgView();
     wireWorkspaceView();
     await window.initCanvas();
     await loadWhoami();

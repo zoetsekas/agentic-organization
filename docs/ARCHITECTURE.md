@@ -71,11 +71,16 @@ Three rules make the separation structural rather than decorative:
   declares its own tenancy, so it stays portable and a tenant cannot widen its
   own boundary by editing a design.
 
-> **State of play.** The designer plane is built and tested. The fabric plane
-> is recorded (ADR-0049/0050/0051) with the tenancy core and operational model
-> under construction in WS-028 and WS-030. The command centre (WS-029) is not
-> started. No tenant has ever been deployed from here: there is no cloud
-> account and no container daemon in the development environment.
+> **State of play.** The designer plane is built and tested, and its *design*
+> views — org chart, agent editor, workspace — now read and write the System
+> Spec itself rather than the runtime model, so editing an agent in a form and
+> moving its box on the canvas are the same edit. Session and operations views
+> stay runtime-backed on purpose: those are observations of a running system,
+> and putting them on the spec would make them lie. The fabric plane is
+> recorded (ADR-0049/0050/0051); the tenancy core, the operational model and
+> the command centre (backend and front end) are all built. No tenant has ever
+> been deployed from here: there is no cloud account and no container daemon in
+> the development environment.
 
 ---
 
@@ -120,6 +125,33 @@ Why it matters that resolution happens **once**: the Terraform a cloud applies
 and the permissions the runtime enforces are derived from the same resolved
 structure, so they cannot drift into disagreeing about who may do what. A test
 asserts no target module imports `orgagents.spec`.
+
+### Reviewing a change
+
+A reviewer looking at a spec change sees the spec, not its consequences. One
+line moved in a role widens resolved permissions three levels down the team
+tree; one environment override adds an egress destination; a binding edit moves
+an agent onto a model the catalog never approved. None of that is visible in a
+source diff and all of it is visible in the IR — which is what resolving
+exactly once buys. `orgagents spec diff <before> <after>` compiles both and
+reports the difference in those terms.
+
+Two properties make the report usable. It is **keyed by identity, not
+position**, like the designer's structural merge, so reordering a list is not a
+change and an id that moved is a move rather than a deletion plus an addition.
+And it reports **direction, not just difference**: widening — the system can
+now reach, send or trust something it could not — is a security finding;
+narrowing is reported too, because it breaks things, but it is never ranked as
+a risk. Severity follows consequence rather than field type: removing a
+guardrail or widening an egress allowlist outranks adding an agent, and every
+finding carries the rule that assigned its severity so a reviewer can argue
+with the ranking rather than only with the verdict.
+
+Two IRs that do not describe the same thing are **refused** rather than
+compared. Different targets, different tenants or incompatible IR majors would
+render as a long list of changes nobody made, and a reviewer would read
+consequence into an artefact of the comparison. The refusal has its own exit
+code: "I will not compare these" is not "these differ".
 
 ### The two phases
 
@@ -468,12 +500,425 @@ A scheduled run has exactly the owning agent's identity and permissions —
 unattended work is not a way to acquire more. Channel *classes* live in the
 spec; Slack and Teams appear only in the binding.
 
-> Real Slack and Teams bridge clients are not built (WS-013 M4); routing plans
-> are computed against an in-process bridge.
+> Routing answers *whether, when, how long* and *who*. What puts a question in
+> front of a person, and what makes their answer count, is the channel bridge
+> port in §10. Slack and Teams clients are still not built; Mattermost is the
+> first adapter, and it has never met a server.
 
 ---
 
-## 10. Governance: records as build artifacts
+## 10. Reaching a human: the channel bridge
+
+A routing plan says *who* to reach and *by when*. It does not put anything on a
+screen. That is the bridge port's job (ADR-0061): five verbs and a declaration
+— say who the bot is, post, reply in a thread, open an approval, resolve the
+click that answers one. Reading history, listing channels, managing membership,
+reactions and uploads are all things a chat product does and none of them is a
+thing the platform needs, so none of them is on the port.
+
+Two refusals happen at **bind time**, not on the first call, because by the
+first call somebody is already waiting for an answer:
+
+- a bridge that can only post as a **person's account** does not bind at all —
+  an agent speaking through somebody's account makes every message in the
+  channel a lie about who said it, and a bridge that cannot *mint* a bot
+  principal is refused for the same reason one hand-made shared account is;
+- a bridge without **authenticated interactive callbacks** binds `notify`,
+  `report`, `ask` and `handoff` happily, and may not bind `APPROVE`. There is
+  no fallback to matching the word "approve" in chat text, because that is
+  forgeable by anyone who can type in the channel: a forged approval is worse
+  than an unreachable one.
+
+### The approval round trip
+
+```mermaid
+sequenceDiagram
+    participant AG as Agent run
+    participant SV as ChannelService
+    participant LG as Approval ledger
+    participant BR as Bound bridge<br/>(Mattermost)
+    actor H as Named approver
+    participant CB as Callback endpoint
+
+    AG->>SV: request_approval(question, approvers, expiry)
+    alt bridge does not carry APPROVE
+        SV-->>AG: PurposeNotBound — refused at the binding
+    else carries APPROVE
+        SV->>LG: open() — names who may answer, and by when
+        LG-->>SV: pending request
+        SV->>BR: open_approval(request)
+        BR->>H: a post with two buttons, carrying our context
+    end
+    H->>CB: clicks approve or deny
+    CB->>BR: raw callback payload
+    BR->>BR: authenticate: our token, a named user,<br/>a decision we recognise
+    alt cannot be attributed
+        BR-->>CB: CallbackNotAuthenticated — never reaches correlation
+    else authenticated
+        BR->>LG: ApprovalCallback(request_id, responder, tenant, decision)
+        alt another tenant's request
+            LG-->>CB: CrossTenantCallback
+        else no such request
+            LG-->>CB: UnknownApproval
+        else already answered
+            LG-->>CB: AlreadyAnswered — a replay does not flip a denial
+        else past expires_at
+            LG-->>CB: StaleApproval — a decision nobody made today
+        else responder not on the list
+            LG-->>CB: UnexpectedApprover — seeing it is not answering it
+        else correlated
+            LG-->>AG: approved or denied, recorded with who and when
+        end
+    end
+```
+
+An approval request that names no approvers is refused when it is opened:
+"anyone in the channel" is the absence of an approver set, not one. An approval
+that never expires is refused for the same kind of reason — a permission that
+cannot go stale is a standing grant, not a decision. Every refusal above is
+raised rather than swallowed, because a dropped callback looks to the human
+like a button that did nothing and to the agent like a human who never
+answered: two different wrong stories about one event.
+
+Text a human types comes back the other way as untrusted input and is handed to
+the runtime as a prompt, so it crosses the existing input guardrail (ADR-0035).
+There is deliberately no second, channel-shaped screening path: two boundaries
+would drift, and then one of them would be wrong.
+
+> **State of play.** The port, the ledger, a Mattermost adapter over an
+> injected transport, and a conformance suite the next adapter subclasses all
+> exist and are tested against a fake server. **Nothing has been run against a
+> Mattermost server**; the request and response shapes sit behind a stated
+> `TODO(mattermost-wire)` boundary, and the riskiest assumption — whether a bot
+> can obtain a `trigger_id` for an agent-initiated dialog out of band — is
+> named in the adapter rather than hidden. `open_approval` deliberately does
+> not depend on it.
+
+---
+
+## 11. Work that comes from people: the task port
+
+An agent is a member of an organization, so work reaches it the way work
+reaches anybody: somebody assigns it, in the tool they already use. `TaskPort`
+(ADR-0057) is that seam — nine methods, and *creating* a task is not one of
+them. We receive work; we do not open it.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Open: a paired human assigns work<br/>in their own tool
+    Open: open — assigned, nobody has picked it up
+    Claimed: claimed — the agent has taken it
+    InProgress: in_progress — the agent is working, and says so
+    Done: done
+    Failed: failed
+    Cancelled: cancelled (terminal)
+
+    Open --> Claimed: agent
+    Open --> Cancelled: human
+    Claimed --> InProgress: agent
+    Claimed --> Open: agent releases, or human takes it back
+    Claimed --> Failed: agent
+    Claimed --> Cancelled: human
+    InProgress --> Done: agent
+    InProgress --> Failed: agent
+    InProgress --> Cancelled: human
+    Done --> Open: human reopens
+    Failed --> Open: human reopens
+    Cancelled --> [*]
+
+    note right of InProgress
+        Exactly one run per task. The session id is
+        written back before the outcome is recorded,
+        and a second link is refused.
+    end note
+    note right of Open
+        An agent cannot cancel its own work and
+        cannot reopen what it failed: both are
+        the assigner's call.
+    end note
+```
+
+Four rules carry the weight:
+
+- **A backend that cannot give an agent its own principal is refused at bind
+  time**, with the reason. An agent acts as itself or not at all; borrowing a
+  person's credentials makes the audit trail a lie, and a refusal discovered on
+  the first call is a refusal discovered after the deployment went live.
+- **Being able to edit a board is not authority to direct an agent.**
+  Assignment is checked against the pairing model on our side of the port —
+  owner, approver and operator direct an agent; reviewers, stakeholders and
+  escalation contacts do not. We cannot stop anyone creating a row on somebody
+  else's board; we can refuse to act on it.
+- **One task, at most one run.** The run's session id is written back so a
+  person can get from the work they asked for to what the agent actually did,
+  and linking a second run is refused — otherwise nobody can say which
+  execution answered the request.
+- **Divergence is reported, never reconciled.** A task closed while its run is
+  live, a run finished against a task somebody reopened, a task naming a run
+  this runtime has never heard of: each is surfaced as a report for a person.
+  There is no `reconcile()` and there is not going to be one — a control plane
+  that quietly makes its own state match somebody else's is one nobody can
+  trust.
+
+The task's text is handed to the runtime as a prompt and crosses the ordinary
+input guardrail, exactly as a human's chat message does.
+
+> **State of play.** The port, a local reference backend over the existing
+> `Store`, the conformance suite an adapter subclasses, one-run-per-task and
+> divergence reporting are built and tested. **No real product adapter
+> exists** — the product choice is deliberately deferred — and identity has
+> never been verified against a real task service (WS-031 M5/M6). The reference
+> backend has no projects, columns, labels or priorities on purpose: if it
+> grew a board, we would have written a task manager by accident.
+
+---
+
+## 12. Calling another organization's agent: A2A
+
+External agent endpoints have been trust-classified and governed since
+ADR-0030; what was missing was a protocol to actually speak. A2A is bound as
+that protocol (ADR-0058) — and bound *beneath* the existing rules, not beside
+them. Every outbound call, **including the agent-card fetch**, goes through
+`runtime/endpoints.call_endpoint`, so the transport is the last thing that
+happens, not the first.
+
+```mermaid
+flowchart TB
+    ask["Agent calls an A2A peer<br/>SendMessage · GetTask · CancelTask · fetch card"]
+    impl{"In the implemented subset?<br/>JSON-RPC binding, three operations"}
+    unsup["UnsupportedOperation —<br/>never a guessed wire shape"]
+    tenantq{"Endpoint in the caller's tenant?"}
+    dTen["cross_tenant"]
+    egressq{"Egress allowed?<br/>network class, then allowlist"}
+    dEgr["egress_blocked /<br/>egress_not_allowlisted"]
+    dclassq{"Payload data classes<br/>within send_data_classes?"}
+    dCls["data_class_refused"]
+    credq{"Endpoint has its own secret_ref?"}
+    discq{"Body-less card fetch?"}
+    dCred["no_credential"]
+    waive["credential_waived_for_discovery —<br/>only this check, only for a public card"]
+    inheritq{"Is it the caller's own credential?"}
+    dInh["credential_inherited"]
+    apprq{"Approval required and granted?"}
+    dApp["approval_required"]
+    wire["Transport — the wire is touched here,<br/>and not before"]
+    guardq{"Answer crosses the<br/>tool-output guardrail"}
+    dGuard["guardrail_blocked"]
+    cardnode["Card parsed as inert data;<br/>trust, classes and credentials unchanged"]
+    stateq{"Task state?"}
+    human["input-required / auth-required →<br/>routed to a human, no secret forwarded"]
+    ok["Result, mapped to one session per remote task"]
+
+    ask --> impl
+    impl -- no --> unsup
+    impl -- yes --> tenantq
+    tenantq -- no --> dTen
+    tenantq -- yes --> egressq
+    egressq -- no --> dEgr
+    egressq -- yes --> dclassq
+    dclassq -- no --> dCls
+    dclassq -- yes --> credq
+    credq -- no --> discq
+    discq -- no --> dCred
+    discq -- yes --> waive
+    credq -- yes --> inheritq
+    inheritq -- yes --> dInh
+    inheritq -- no --> apprq
+    waive --> apprq
+    apprq -- no --> dApp
+    apprq -- yes --> wire
+    wire --> guardq
+    guardq -- blocked --> dGuard
+    guardq -- passed --> cardnode
+    cardnode --> stateq
+    stateq -- needs a person --> human
+    stateq -- otherwise --> ok
+```
+
+**An agent card is a claim, not configuration.** A peer's card can say it is
+trusted, that it accepts any data class, which security schemes to use, which
+extensions to enable — and none of it changes anything. The keys that would
+escalate are listed by name so a report can say which ones a card tried, and
+the card object itself exposes no method that could be mistaken for a decision.
+Trust, sendable data classes and the credential stay where the spec put them.
+
+**The credential waiver is narrow, and it is a waiver of one check.** A public
+agent card is meant to be fetched unauthenticated, so requiring a credential
+made every public peer undiscoverable. The waiver applies only to a body-less
+read of the well-known card path, it waives only the credential check — tenant,
+egress allowlist and the tool-output guardrail all still run — and what comes
+back is still untrusted data.
+
+**`input-required` and `auth-required` are questions for a person.** The
+runtime routes them to a human through the ordinary channel machinery and
+answers neither itself. There is no code path that mints or forwards a
+credential to satisfy a remote prompt, and the routing request type carries a
+`credential` field that is asserted to be `None`.
+
+**The protocol name lives in the binding.** A spec says an endpoint exists,
+what it is trusted as and what may be sent to it; `a2a`, its transport variant
+and the peer's base URL are binding-layer facts.
+
+> **State of play.** The **JSON-RPC binding only**, with `SendMessage`,
+> `GetTask`, `CancelTask` and card discovery. gRPC and REST are defined by A2A
+> 1.0.0 and refused here rather than implied; streaming, `ListTasks`,
+> subscriptions, push-notification configuration and the extended card raise
+> `UnsupportedOperation` rather than guessing a wire shape. The JSON-RPC method
+> names and message field names are **our** model of the wire — the protocol
+> site is blocked by this environment's egress proxy and the SDK is not
+> installed — and say so at the point where it matters. No real peer has ever
+> been called. Inbound A2A, serving our own card, is not built and the default
+> is that no agent is exposed (WS-019 M5).
+
+---
+
+## 13. The message bus
+
+In single-process mode an in-process bus is the whole story. In the generated
+Docker stack every agent is its own container and nothing shares memory, so
+there is a broker: NATS with JetStream, **one per tenant** (ADR-0059).
+
+```mermaid
+flowchart TB
+    subgraph TA["Tenant A — its own broker"]
+        natsA["NATS + JetStream<br/>orgagents.acme.>"]
+        a1["agent: analyst<br/>orgagents.acme.agent.analyst"]
+        a2["agent: reconciler<br/>orgagents.acme.agent.reconciler"]
+        wA["Inbound worker<br/>re-runs the org-chart check"]
+        natsA --> wA --> a1
+        natsA --> a2
+    end
+    subgraph TB2["Tenant B — its own broker"]
+        natsB["NATS + JetStream<br/>orgagents.globex.>"]
+        b1["agent: sre<br/>orgagents.globex.agent.sre"]
+        natsB --> b1
+    end
+    send["MessageBus.send<br/>org chart checked before publishing"]
+    dur["Durability per channel:<br/>a channel that must survive a restart<br/>declares a JetStream stream;<br/>the rest stay at-most-once core NATS"]
+
+    send --> natsA
+    natsA -. "no subject, stream,<br/>credential or instance in common" .-x natsB
+    dur -.-> natsA
+    dur -.-> natsB
+```
+
+Subjects are tenant-prefixed even though each tenant already has its own
+broker. The prefix is a second line behind the per-tenant instance, not the
+isolation itself: two brokers wrongly merged by an operator would still not
+share a subject.
+
+**The wire is not the boundary.** The outbound path refuses an addressed
+message the org chart refuses — before the bytes exist, because a refusal after
+publishing is not a refusal. The inbound worker then makes *the same check
+again*, on its own account, because receiving on a subject is not proof the
+sender was allowed to send: a publisher that bypassed our client, or an
+operator who mis-scoped a subject, produces bytes that look identical to a
+legitimate message. A message addressed to somebody else, or from an agent that
+may not reach this one, never reaches the handler; a malformed payload is
+refused rather than thrown, because a decode error on a boundary anything can
+publish to is an expected event, not a bug.
+
+`requires_response` maps onto NATS request/reply rather than becoming a second
+concept, since it already means "I expect an answer".
+
+> **State of play.** The subject namespace, the adapter, the durability
+> declaration and the inbound worker are built and tested against a fake
+> client. `nats-py` is not a dependency and no client is imported: the client
+> is injected. The NATS service is generated into the Compose stack and parsed
+> by Docker's own parser — **never started**. Nothing here has spoken to a real
+> broker.
+
+---
+
+## 14. Evaluations and the promotion gate
+
+`evaluations_passed` has been a promotion-gate requirement since ADR-0022, and
+for a long time it gated on nothing: cases were declared, the requirement was
+recorded, and no code ever ran a case. A governance control nobody executes is
+a promise. ADR-0060 turned it into evidence, at a price that is stated rather
+than hidden.
+
+**A case asserts what a machine can check, or it asserts nothing.** The
+assertion is chosen by prefix — `exact:`, `contains:`, `schema:`, `guardrail:`,
+`refuses`. An unprefixed expectation is prose written for a human reviewer;
+there is no LLM judge in this platform, and inventing one that "sort of" agrees
+with prose would give the gate a pass rate nobody could reproduce. Prose is
+reported as unsupported: counted in the denominator, never in the numerator.
+
+```mermaid
+flowchart TB
+    runq{"Has a run judged this agent?"}
+    notrun["NOT_EVALUATED<br/>nobody looked — an open question,<br/>not a verdict"]
+    staleq{"Does the run still describe<br/>what it judged?<br/>spec version · spec fingerprint ·<br/>agent fingerprint"}
+    stale["STALE<br/>evidence about a definition<br/>that no longer exists"]
+    anyq{"Did any case assert something<br/>a machine can check?"}
+    unver["NOT_EVALUATED<br/>prose is counted in the denominator,<br/>never in the numerator"]
+    rateq{"Weighted pass rate ≥<br/>the gate's minimum?"}
+    failed["FAILED<br/>cases were checked and lost"]
+    passed["PASSED<br/>the only state that opens the gate"]
+
+    runq -- no --> notrun
+    runq -- yes --> staleq
+    staleq -- no --> stale
+    staleq -- yes --> anyq
+    anyq -- "no: only unsupported<br/>or unverifiable" --> unver
+    anyq -- yes --> rateq
+    rateq -- no --> failed
+    rateq -- yes --> passed
+```
+
+Two distinctions in that picture are the whole point. **"Never run" is not
+"failed"**: an absent verdict is an open question, and collapsing it into
+either answer loses the fact that nobody looked — the same position ADR-0052
+takes when it refuses to let a stale observation read as `healthy`. And **a
+result older than what it judged is not evidence**: staleness is in the model,
+not in a comment, and it has two triggers because two different mistakes
+happen. A declared version bump invalidates the evidence because that is what a
+reviewer cites; the fingerprints catch the commoner case, an edit shipped
+without a bump.
+
+A suite where nothing was checkable reports `NOT_EVALUATED` rather than
+`FAILED`. Reporting it as a failure would blame the agent for the suite being
+unwritten, and a reviewer chasing a failure that does not exist stops trusting
+the gate. It still does not pass.
+
+> **State of play.** The runner executes declared cases, records results and
+> answers the gate; `orgagents evaluate` and `orgagents gate` expose it. It
+> needs no provider credential, because the default runner is the `echo`
+> adapter — which is also the limit: **an echo run proves the wiring, not the
+> agent.** Whether a real model would have passed a case has never been
+> measured here.
+
+---
+
+## 15. Sandbox providers
+
+The spec says what a boundary must be; how it is enforced is a binding concern,
+behind a provider seam (ADR-0054). Four providers are modelled: ordinary
+containers, microVMs (`sbx`), NVIDIA OpenShell, and delegating the boundary to
+the generated cloud target. A provider that cannot be detected degrades to the
+portable floor — containers — and the degradation is reported rather than
+silently taken.
+
+What makes the seam worth having is that each provider must state its boundary
+in writing: what it enforces, what it does **not**, and how faithfully it can
+express "this sandbox belongs to one tenant". The container provider says
+plainly that it is a Docker-object boundary and not a kernel one, that a kernel
+escape reaches every tenant on the host, and that anyone who can reach the
+Docker socket can reach every tenant on it. That statement is generated into
+the target's README, so a reader is told the boundary they actually got.
+
+> **State of play.** Every boundary statement carries `verified=False`, and
+> that is not modesty: there is no Docker daemon, no `sbx` binary and no
+> `openshell` binary in this environment, so each claim is a restatement of a
+> vendor's documentation rather than a measurement. The OpenShell adapter
+> models the four policy domains in our own types and refuses to serialize to a
+> wire format it has not seen — an invented schema that reads as authoritative
+> is worse than a stated gap.
+
+---
+
+## 16. Governance: records as build artifacts
 
 ```mermaid
 flowchart LR
@@ -499,17 +944,18 @@ quiet edit — the record of *why* survives the change.
 
 ---
 
-## 11. Module map
+## 17. Module map
 
 ```mermaid
 flowchart TB
     subgraph Author["Authoring"]
         specm["spec/<br/>model, validate, loader,<br/>migrations, schema"]
         designer["designer/<br/>repository, rbac, locks,<br/>merge, audit, auth"]
-        web["web/<br/>canvas, forms"]
+        web["web/<br/>canvas, spec-backed forms,<br/>command centre"]
     end
     subgraph Build["Build"]
         comp["compiler/<br/>ir, engine, registry"]
+        diffm["compiler/diff.py<br/>consequence-ranked IR diff"]
         targets["compiler/targets/<br/>local, terraform"]
         phases["phases.py"]
     end
@@ -518,47 +964,96 @@ flowchart TB
     end
     subgraph Run["Runtime and services"]
         rt["runtime/<br/>engine, loader, adapters,<br/>subagents, scheduler"]
+        a2am["runtime/a2a.py<br/>+ runtime/endpoints.py"]
+        busm["bus.py + runtime/bus_worker.py<br/>NATS, per tenant"]
         guard["guardrails.py<br/>classifiers.py"]
         mem["memory.py<br/>context.py"]
         org["org.py<br/>missions.py"]
         cat["catalogs/<br/>entries, service,<br/>sources, usage"]
         dirm["directory.py"]
+        sbx["sandboxes/<br/>provider seam, openshell"]
+    end
+    subgraph Ports["Ports to other people's systems"]
+        tasks["tasks/<br/>port, local backend,<br/>binding, divergence, conformance"]
+        chans["channels/<br/>port, binding, approvals,<br/>mattermost, conformance"]
+        evals["evaluations.py<br/>cases, runner, the gate"]
     end
     store["store.py — JSON documents over SQLite"]
     records["records.py + docs/"]
 
     web --> designer --> specm
     specm --> phases --> comp --> targets
+    comp --> diffm
     comp --> rt
     fabricm --> comp
     rt --> guard
     rt --> mem
     rt --> org
+    rt --> a2am
+    rt --> busm
+    rt --> sbx
+    tasks --> rt
+    chans --> rt
+    a2am -.-> chans
+    evals -.-> specm
+    evals -.-> rt
     cat -.-> comp
     dirm -.-> specm
     designer --> store
     fabricm --> store
     rt --> store
+    tasks --> store
+    evals --> store
     records -.-> Author
     records -.-> Build
     records -.-> Fabric
+    records -.-> Ports
 ```
+
+`tasks/`, `channels/` and `runtime/a2a.py` are all the same shape: a narrow
+port, a bind-time refusal, a conformance suite or a fake, and exactly one
+adapter that has never met its real counterpart. That is deliberate — the
+product is the part that ages, so the seam it sits behind must not encode one
+product's habits.
 
 ---
 
-## 12. Where the design is ahead of the implementation
+## 18. Where the design is ahead of the implementation
 
 Kept here deliberately, so the diagrams above are not read as a description of
-what runs today. The ordered list with owners is `docs/ROADMAP.md`.
+what runs today. The ordered list with owners is `docs/ROADMAP.md`; the
+alpha-blocking subset is `docs/ALPHA.md`.
+
+Most rows here are one of two shapes. A **contract** is modelled, tested
+against a fake, and has never met its real counterpart — honest in isolation,
+and worth counting because there are now a lot of them. A **gap** is something
+the design describes and the code does not do yet.
 
 | Area | Designed | Actually true today |
 |---|---|---|
-| Fabric plane | ADR-0049/0050/0051 | Tenancy core and operational model under construction; command centre not started |
-| Tenant isolation | Absolute, fabric-assigned | Proven by generation tests only; no breach attempt, no running tenant |
-| Cloud targets | Terraform for three providers | Generated and syntax-checked; never `terraform apply`-ed |
-| Operations | Health, drift, quotas, incidents | Modelled against stubs; no adapter has met a real target |
+| Tenant isolation | Absolute, fabric-assigned | Proven by generation tests only; no breach attempt, no running tenant (WS-028 M6) |
+| The local Docker stack | A generated tenant that starts and works | Generated, and every Compose file is parsed by Docker's own parser; **never started** — no daemon here |
+| Cloud targets | Terraform for three providers | Generated and syntax-checked; never `terraform apply`-ed, never `terraform validate`-ed |
+| Operations: health and drift | Live signals from each target | Stub backend only; no adapter has met a target |
+| Human channels | A bridge that reaches people and takes their answer | Port, ledger, conformance suite and a **Mattermost adapter** built; run only against a fake transport. No Slack or Teams client. The riskiest wire assumption (obtaining a `trigger_id` for an agent-initiated dialog) is stated, not resolved |
+| Task intake | Work assigned in a person's own tool reaches an agent | Port, local reference backend, conformance suite, one-run-per-task and divergence reporting built; **no real product adapter**, and identity never verified against a real service (WS-031 M5/M6) |
+| Agent-to-agent (A2A) | An external endpoint is callable | JSON-RPC binding with three operations and card discovery, under the full endpoint check; tested against a fake peer, **never called a real one**. Method and message field names are our model of the wire. gRPC/REST, streaming and the rest raise `UnsupportedOperation` |
+| Inbound A2A | Other organizations calling our agents | Not built; the default is that no agent is exposed (WS-019 M5) |
+| Message bus | NATS/JetStream, one per tenant | Subject namespace, adapter, durability and the inbound org-chart re-check built against a fake client; the NATS service is generated and parsed, **never started**, and `nats-py` is not a dependency |
+| Evaluations | A gate backed by evidence | The runner executes declared cases and answers the gate. It runs on the `echo` adapter, so it proves the wiring, not the agent; prose expectations are reported unverifiable rather than judged |
+| Divergence signals | Disagreement reaches somebody | Computed on demand and returned to the caller; nothing routes or stores them (ALPHA B6) |
+| Sandbox providers | Prefer a kernel boundary | `container` is the portable floor and the only one available here; `microvm_sbx` and `openshell` are contracts with no binary behind them, and every boundary statement carries `verified=False` |
+| Workflow engines | Pluggable, out-of-process engines are egress events | `native` exercised; the Langflow path exercised through a fake transport; LangGraph, LangChain and ADK are binding entries only |
+| Runtime adapters | Deep agents, OpenAI SDK, LangGraph | Thin lazily-imported bindings; only the `echo` adapter runs in CI |
 | Guardrails | Pluggable judgement | Works; recall never measured against a labelled corpus |
 | Designer identity | OIDC with group mapping | Works, but the JWT verification is hand-rolled RSA because no crypto library imports here — replace before production |
-| Runtime adapters | Deep agents, OpenAI SDK, LangGraph | Thin bindings; only the `echo` adapter runs in CI |
-| Human channels | Slack, Teams, approval routing | Routing computed; no real bridge client |
-| Knowledge | Declared, governed sources | Not retrieved from |
+| Knowledge | Declared, governed sources | Not retrieved from; `freshness_seconds` is declared and unenforced |
+| Memory recall | Finds what is relevant | Token overlap, not embeddings: it misses paraphrases often enough to matter |
+| Human pairings | Named, accountable people | Named individuals that rot; nothing detects a departed employee still listed as an approver (WS-016 M4) |
+
+Rows that used to be here and are not any more, because the code caught up: the
+command centre (backend and front end are built, with operator roles disjoint
+from designer roles); the fabric tenancy core and operational model; the
+designer UI editing the runtime model instead of the spec (its design views are
+spec-backed now); declared evaluations never being executed; and external agent
+endpoints being governed but uncallable.

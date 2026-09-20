@@ -82,7 +82,7 @@ orgagents phase    examples/acme.system.yaml --binding examples/acme.binding.yam
 orgagents schedule examples/acme.system.yaml --simulate-days 7
 orgagents catalogs models                    # the approved model shelf
 orgagents records  validate                  # ADR/WS graph integrity
-pytest                                       # 327 tests, no network or API keys
+pytest                                       # the whole suite, no network or API keys
 
 # Design in a browser: drag-and-drop canvas, multi-user, with history
 orgagents serve      # then open http://localhost:8000/ui/#/canvas
@@ -176,8 +176,8 @@ tools and voice as a modality are recorded as backlog, not built.
 
 ## Decisions and delivery
 
-Architecture is recorded, not remembered (ADR-0001). Forty-one decision records
-and twenty-seven workstream records, machine-validated in CI:
+Architecture is recorded, not remembered (ADR-0001). Sixty-one decision records
+and thirty-one workstream records, machine-validated in CI:
 
 - [docs/decisions/index.md](docs/decisions/index.md) — **ADRs**: why, who, what,
   where, how, when, advantages *and* disadvantages, with statuses, semver,
@@ -201,6 +201,13 @@ implementation: [ADR-0006 v1.1.0](docs/decisions/ADR-0006-recursive-teams-with-l
 | Two-phase designer with a mechanical gate | `phases.py` |
 | Scheduling, event, webhook and message triggers | `scheduling.py`, `runtime/scheduler.py` |
 | Human channels: Teams, Slack, mail, SLA, escalation | `humans.py` |
+| Channel bridge port + Mattermost adapter, clickable approvals | `channels/` |
+| Task intake: a task port, a local backend, a conformance suite | `tasks/` |
+| A2A over the governed endpoint path | `runtime/a2a.py` |
+| Per-tenant NATS/JetStream bus and its inbound worker | `bus.py`, `runtime/bus_worker.py` |
+| Evaluation runner and the `evaluations_passed` gate | `evaluations.py` |
+| IR diffing: widening vs narrowing, ranked by consequence | `compiler/diff.py` |
+| Pluggable sandbox providers with written boundary statements | `sandboxes/` |
 | Generated agent registry for the whole fleet | `compiler/registry.py` |
 | Lifecycle stages, promotion gates, evaluations, budgets | `spec/model.py` |
 | Knowledge grounding sources | `spec/model.py`, `compiler/ir.py` |
@@ -412,8 +419,8 @@ Adapters import their framework lazily, so a deployment installs only what it us
 
 Implemented and tested end to end: the record layer, the spec and its
 validators, the compiler and IR, the local and three Terraform targets, the
-RBAC engine, and loading a compiled system into the runtime (91 tests, no
-network or API keys).
+RBAC engine, and loading a compiled system into the runtime — the whole suite
+runs with no network and no API keys.
 
 Tenancy is enforced by construction: the same spec compiled for two tenants
 shares no identifier, volume, network, identity or secret reference, and each
@@ -428,21 +435,47 @@ ordered, each item mapped to the workstream milestone that owns it.
 
 Known gaps, tracked in the workstreams rather than glossed:
 
-- **Declared evaluations are not executed.** `evaluations_passed` is a gate
-  requirement the registry records and nothing verifies until WS-014 M3. It is
-  the most misleading gap in the current build.
-- **Channel delivery is recorded, not performed.** Routing, SLA and escalation
-  are computed and tested; no message actually reaches Slack or Teams until
-  WS-013 M4 ships real bridge clients.
+- **Evaluations run, on the `echo` adapter.** The declared cases are executed,
+  results recorded and the gate answered (ADR-0060). "Never run" and "stale"
+  are kept distinct from "failed", and a prose expectation is reported
+  unverifiable rather than judged — there is no LLM judge here. What an echo
+  run proves is the wiring, not whether a real model would have passed.
+- **Channels reach a bridge, not a chat server.** There is a bridge port, an
+  approval ledger that refuses stale, replayed, cross-tenant and unexpected
+  callbacks, and a **Mattermost** adapter over an injected transport
+  (ADR-0061). A bridge that cannot deliver an authenticated callback may not
+  bind `approve` at all — reading the word "approve" out of chat text is not
+  offered as a fallback. None of it has met a Mattermost server, and there is
+  still no Slack or Teams client.
 - **`freshness_seconds` on knowledge sources is declared but unenforced**
   (WS-015 M4), and step-level checkpointing is honoured only by the LangGraph
   adapter (ADR-0025).
 - **Memory recall is token overlap, not embeddings.** It misses paraphrases and
   will return the wrong memory often enough to matter; embedding-backed recall
   is WS-018 M4. This is the honest limit of the memory feature today.
-- **External agent endpoints are governed but not yet callable** — no
-  agent-to-agent protocol is bound (WS-019 M4), and inbound endpoints (other
-  organizations calling our agents) are entirely unaddressed (WS-019 M5).
+- **A2A is bound, and has never called a real peer.** The JSON-RPC binding
+  with `SendMessage`, `GetTask`, `CancelTask` and agent-card discovery sits
+  *beneath* the existing endpoint governance, so tenant, egress,
+  classification, credential, approval and the tool-output guardrail all run
+  before the transport is touched (ADR-0058). An agent card is untrusted data
+  and changes nothing; `input-required` and `auth-required` go to a human, with
+  no code path that forwards a credential to satisfy a remote prompt; the one
+  credential waiver is a body-less fetch of a public card. gRPC, REST,
+  streaming and the rest of the operation set refuse rather than guess a wire
+  shape. Inbound endpoints — other organizations calling our agents — remain
+  unaddressed, and the default is that no agent is exposed (WS-019 M5).
+- **Work assigned by people reaches agents through a port, with no product
+  behind it.** `TaskPort`, a local reference backend, a conformance suite,
+  one-run-per-task with the session id written back, and divergence that is
+  reported and never silently reconciled (ADR-0057). A backend that cannot give
+  an agent its own principal is refused at bind time rather than worked around
+  by borrowing a person's credentials. No real task service has been spoken to.
+- **The message bus is generated, not started.** NATS with JetStream, one
+  broker per tenant, tenant-prefixed subjects, and an inbound worker that
+  re-runs the org-chart check because receiving on a subject is not proof the
+  sender was allowed to send (ADR-0059). `nats-py` is not a dependency: the
+  client is injected and the tests use a fake. The NATS service is generated
+  into the Compose stack and parsed; no broker has ever run.
 - **Human pairings name individuals and rot.** Nothing detects a departed
   employee still listed as an approver until directory integration lands
   (WS-016 M4).
@@ -473,8 +506,11 @@ Known gaps, tracked in the workstreams rather than glossed:
   identifier validity and block balance instead. Real `plan`/`apply` against a
   scratch account is WS-007's exit criterion, and the provider mappings are
   first-cut.
-- **The designer UI still edits the runtime model, not the spec** — spec-backed
-  editing and SDK parity are WS-009 M2/M3.
+- **The designer's *design* views now edit the spec** — org chart, agent
+  editor and workspace read and write the System Spec the canvas owns, so a
+  form edit and a canvas move are the same edit. Sessions and operations stay
+  runtime-backed deliberately: they are observations of something running, and
+  putting them on the spec would make them lie. SDK parity is still open.
 - **The deep-agents and OpenAI Agents SDK adapters** are thin, lazily imported
   bindings needing their optional dependency and provider credentials; only the
   `echo` adapter is exercised in CI (WS-008 M3).

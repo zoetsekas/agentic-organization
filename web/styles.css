@@ -118,6 +118,12 @@ button.primary { background: var(--accent); color: #fff; border-color: var(--acc
 /* cards, lists, stats */
 .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .toolbar input { flex: 1; min-width: 200px; }
+/* The organisation toolbar is a row of affordances, not a search bar: its
+   inputs must not stretch, and a disabled control must read as unavailable. */
+.org-toolbar { align-items: center; }
+.org-toolbar input, .org-toolbar select { flex: 0 0 auto; min-width: 0; }
+.org-toolbar button[disabled] { opacity: 0.45; cursor: not-allowed; }
+#orgform { margin-bottom: 12px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 12px; }
 .card { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; background: var(--surface-2); }
 .card h3 { margin: 0 0 4px; font-size: 14px; }

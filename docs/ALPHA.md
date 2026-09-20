@@ -3,13 +3,13 @@
 What exists, what is real, and what stands between here and a first alpha that
 somebody else can run on their own machine with `docker compose up`.
 
-Written 2026-09-20. **821 tests passing, 1 skipped. 90 records, 0 violations.**
+Written 2026-09-20. **821 tests passing, 1 skipped. 92 records, 0 violations.**
 
 The single fact that shapes this document: **no Docker daemon, no cloud
-account, no provider credentials and no message broker have ever existed in the
-environment this was built in.** Everything below is generated, parsed and
-unit-tested. Nothing has been started. An alpha is the point at which that
-stops being true.
+account, no provider credentials, no message broker, no chat server, no task
+service and no A2A peer have ever existed in the environment this was built
+in.** Everything below is generated, parsed and unit-tested. Nothing has been
+started. An alpha is the point at which that stops being true.
 
 ---
 
@@ -24,6 +24,7 @@ but knowingly incomplete. **Not started**.
 | Component | State | Notes |
 |---|---|---|
 | Designer app (API, canvas, CLI) | Built | Runs; containerized (ADR-0048), image unbuilt |
+| Designer UI — design views on the spec | Built | Org chart, agent editor and workspace read and write the spec (WS-009 M3); sessions and ops stay runtime-backed deliberately |
 | Designer backend (repos, RBAC, locks, merge) | Built | Three persistence backends |
 | Designer identity — OIDC | Partial | Works, but **the JWT verification is hand-rolled RSA** because no crypto library imports here. Replace before anyone relies on it |
 | Designer audit log | Built | Append-only, records refusals, all three backends |
@@ -46,6 +47,7 @@ but knowingly incomplete. **Not started**.
 | Local Docker target | Built | Per-tenant project, networks, volumes, sandbox images, Langflow, artifact store |
 | **Compose validated by Docker's own parser** | Built | `docker compose config` runs without a daemon — a real gate |
 | Terraform targets (GCP, AWS, Azure) | **Contract** | Generated and syntax-checked; never `terraform apply`-ed |
+| IR diffing for change review | Built | `orgagents spec diff`: severity by consequence, widening separated from narrowing, incomparable IRs refused with their own exit code |
 | Mapping reports | Built | Name what enforces each boundary and where it is coarser |
 | Image pinning | Partial | 12 of 14 digests resolved against the real registry; Keycloak blocked by this proxy; mirroring not done |
 
@@ -62,12 +64,12 @@ but knowingly incomplete. **Not started**.
 | Output contracts + bounded retry | Built | |
 | Scheduling and triggers | Built | |
 | Workflow engines | Partial | `native` exercised; Langflow path exercised **through a fake transport**; LangGraph/LangChain/ADK are binding entries only |
-| Human channels (Slack, Teams) | **Contract** | Routing computed against an in-process bridge; no real client |
-| Agent-to-agent (A2A) | In progress | ADR-0058 accepted; implementation running |
-| Message bus | In progress | ADR-0059 (NATS/JetStream per tenant); implementation running |
-| Task intake | Built (port) | Port, local backend, conformance suite; **no real product adapter** |
+| Human channel bridge | **Contract** | Port, approval ledger and a **Mattermost** adapter (ADR-0061), exercised against a fake transport. Approval is an authenticated click, correlated, expiring; stale, replayed, cross-tenant and unexpected callbacks refused. A bridge without interactive callbacks may not bind `approve`. Never met a server; no Slack or Teams client |
+| Agent-to-agent (A2A) | **Contract** | JSON-RPC subset — `SendMessage`, `GetTask`, `CancelTask`, card discovery — beneath `runtime/endpoints` (ADR-0058). Cards are untrusted data; `input-required`/`auth-required` route to a human. Tested against a fake peer; never called a real one. Method and field names are our model of the wire |
+| Message bus | **Contract** | Tenant-prefixed subjects, per-channel JetStream durability, and an inbound worker that re-runs the org-chart check (ADR-0059). `nats-py` is not a dependency; the client is injected. The NATS service is generated and parsed, never started |
+| Task intake | Built (port) | Port, local backend, conformance suite, one-run-per-task, divergence reported and never reconciled; bind-time refusal of a backend that cannot give an agent its own principal. **No real product adapter** |
 | Knowledge / retrieval | Not started | Sources declared and governed, never retrieved from |
-| Evaluations | Not started | Declared and never run — so nothing learns |
+| Evaluations | Built (on `echo`) | The runner executes declared cases and answers the gate (ADR-0060). "Never run" and "stale" stay distinct from "failed"; prose expectations are reported unverifiable. An echo run proves the wiring, not the agent |
 
 ### Runtime adapters
 
@@ -109,8 +111,8 @@ An alpha is not "more features". It is the first build where the claims are
 
 | # | Item | Why |
 |---|---|---|
-| B1 | Wire the runtime to the NATS bus once the adapter lands | Containerized agents otherwise cannot reach each other |
-| B2 | One real human channel (Slack **or** Teams) | Approval routing is currently theatre without it; OpenClaw's gateway is the candidate |
+| B1 | Run the NATS bus against a real broker | The adapter, the subject namespace and the inbound worker exist and are wired from the environment the generated stack sets; no broker has ever answered |
+| B2 | Stand up a Mattermost server and confirm the adapter against it | The bridge, the ledger and the adapter exist; the wire shapes behind `TODO(mattermost-wire)` are unconfirmed, and whether a bot can obtain a `trigger_id` out of band is the riskiest assumption in it |
 | B3 | Health/drift adapter against the Docker target | The command centre shows a stub's opinion |
 | B4 | Retention and redaction policy for the audit log | It records people indefinitely with no policy |
 | ~~B5~~ | ~~`jsonschema` as a dev dependency~~ **done** | Un-skipping it found a real bug: the exported schema rejected our own worked example. Fixed |
@@ -126,22 +128,25 @@ An alpha is not "more features". It is the first build where the claims are
 - A real task-service adapter. The port exists; the product choice is
   deliberately deferred (ADR-0057).
 - Inbound A2A — serving our own agent card. Default is none (WS-019 M5).
-- Evaluations, retrieval, learning. Not started, and the cognitive gap in
-  LANDSCAPE §7 is not an alpha problem.
+- Retrieval and learning. Not started, and the cognitive gap in LANDSCAPE §7 is
+  not an alpha problem. Evaluations now run, but only on the `echo` adapter:
+  judging a real model's answers is not an alpha problem either.
 
 ---
 
 ## 4. The honest summary
 
-The **design** is further along than the **deployment** by a wide margin: 90
+The **design** is further along than the **deployment** by a wide margin: 92
 governance records, 821 tests, four compile targets, three planes — and not one
 container has ever started. That is a real risk and it is concentrated in A1
 and A2. Everything else on the blocking list is a day or two of work; those two
 are the ones that will find out what is actually wrong.
 
-The second risk is quieter. Several components are **contracts tested against
-fakes** — health, drift, Slack, Teams, the cloud targets, two sandbox
-providers, three runtime adapters, three workflow engines. Each is honest in
+The second risk is quieter, and it has grown. Several components are
+**contracts tested against fakes** — health, drift, the channel bridge and its
+Mattermost adapter, A2A, the message bus, the task port's only backend, the
+cloud targets, two sandbox providers, three runtime adapters, three workflow
+engines. Each is honest in
 isolation. Together they mean the proportion of this system that has met its
 real counterpart is smaller than the test count suggests, and an alpha is where
 that gets corrected rather than compounded.

@@ -500,21 +500,32 @@ async function loadWorkspaces() {
 
 async function loadSystems() {
   canvas.systems = await dapi(`/systems?workspace_id=${canvas.workspaceId}`);
-  fillSelect($("#sys-select"),
-    canvas.systems.length
-      ? canvas.systems.map((s) => [s.id, `${s.name} (v${s.version})`])
-      : [["", "— no systems —"]]);
   if (canvas.systems.length) {
     canvas.systemId = canvas.systems.some((s) => s.id === canvas.systemId)
       ? canvas.systemId : canvas.systems[0].id;
-    $("#sys-select").value = canvas.systemId;
+    renderOrgSelectors();
     await openSystem(canvas.systemId);
   } else {
+    canvas.systemId = null;
     canvas.record = null;
+    renderOrgSelectors();
     renderCanvas();
     renderInspector();
     announce("opened");
   }
+}
+
+/* Every organisation selector in the page — the context bar's and the org
+   chart tab's — is filled from this one list and this one open id, so the two
+   cannot drift apart: they are two views of `canvas.systemId`. */
+function renderOrgSelectors() {
+  const options = canvas.systems.length
+    ? canvas.systems.map((s) => [s.id, `${s.name} (v${s.version})`])
+    : [["", "— no organisations —"]];
+  document.querySelectorAll("[data-org-select]").forEach((select) => {
+    fillSelect(select, options);
+    select.value = canvas.systemId || "";
+  });
 }
 
 async function openSystem(systemId) {
@@ -526,6 +537,7 @@ async function openSystem(systemId) {
   canvas.locks = payload.locks || [];
   canvas.dirty = false;
   canvas.selected = null;
+  renderOrgSelectors();
   updateBadges();
   canvas.validation = payload.validation;
   renderCanvas();
@@ -650,20 +662,13 @@ function wireCanvas() {
     announce("identity");
     await loadSystems();
   });
-  $("#sys-select").addEventListener("change", async (e) => {
-    if (e.target.value) await openSystem(e.target.value);
-  });
-  $("#btn-new-system").addEventListener("click", async () => {
-    const name = window.prompt("Name for the new agentic system:");
-    if (!name) return;
-    try {
-      const created = await dapi("/systems", {
-        method: "POST",
-        body: JSON.stringify({ workspace_id: canvas.workspaceId, name }),
-      });
-      canvas.systemId = created.id;
-      await loadSystems();
-    } catch (err) { alert(err.message); }
+  /* Both selectors change the one open organisation; the creation affordance
+     lives with the rest of organisation management in app.js. */
+  document.querySelectorAll("[data-org-select]").forEach((select) => {
+    select.addEventListener("change", async (e) => {
+      if (e.target.value) await openSystem(e.target.value);
+      else renderOrgSelectors();
+    });
   });
   $("#btn-save").addEventListener("click", () => saveSystem());
   $("#btn-lock").addEventListener("click", async () => {
@@ -755,5 +760,9 @@ window.designer = {
   save: saveSystem,
   reopen: () => (canvas.systemId ? openSystem(canvas.systemId) : null),
   reloadWorkspaces: loadWorkspaces,
+  reloadSystems: loadSystems,
+  open: openSystem,
+  renderSelectors: renderOrgSelectors,
+  lockedByOther: () => canvas.locks.find((l) => l.holder !== canvas.user) || null,
   canEdit: () => canvas.permissions.includes("system.edit"),
 };

@@ -30,7 +30,7 @@
 </header>
 
 <!-- The design context every design view shares: who you are, which workspace,
-     which system is open. Runtime views ignore it. -->
+     which organisation is open. Runtime views ignore it. -->
 <div class="contextbar" id="contextbar">
   <label class="inline">as
     <input id="user-input" value="ana" size="8" title="Acting user (dev auth)" />
@@ -39,8 +39,8 @@
   <span id="role-badge" class="badge"></span>
   <span class="sep"></span>
   <select id="ws-select" title="Workspace"></select>
-  <select id="sys-select" title="Agentic system"></select>
-  <button id="btn-new-system">New system</button>
+  <select id="sys-select" data-org-select title="Organisation"></select>
+  <button id="btn-new-system">New organisation</button>
   <span id="version-badge" class="badge">v—</span>
   <span id="lock-badge" class="badge"></span>
   <span class="sep"></span>
@@ -54,10 +54,49 @@
 <main>
   <!-- ORG CHART -->
   <section id="view-org" class="view active">
+    <!-- One saved design holds exactly one organisation, so managing the
+         organisation belongs on the tab that shows it. This selector and the
+         one in the context bar are the same control over the same state. -->
+    <div class="toolbar org-toolbar">
+      <label class="inline">Organisation
+        <select id="org-select" data-org-select title="Organisation"></select>
+      </label>
+      <span id="org-version" class="badge">v—</span>
+      <span id="org-lock" class="badge"></span>
+      <span class="sep"></span>
+      <button id="btn-org-new">New…</button>
+      <button id="btn-org-edit">Edit definition…</button>
+      <button id="btn-org-duplicate">Duplicate</button>
+      <button id="btn-org-delete">Delete…</button>
+    </div>
+    <div id="org-error" class="v-err"></div>
+
+    <form id="orgform" class="panel form" hidden>
+      <h2 id="orgform-title">New organisation</h2>
+      <div class="row">
+        <label>Name<input name="name" required placeholder="Acme Finance" /></label>
+        <label>Owner<input name="owner" placeholder="head-of-finance" /></label>
+        <label>Environment<select name="environment">
+          <option value="development">development</option>
+          <option value="staging">staging</option>
+          <option value="production">production</option>
+        </select></label>
+      </div>
+      <label>Description<textarea name="description" rows="2"
+        placeholder="What this organisation is for."></textarea></label>
+      <label>Labels<textarea name="labels" rows="2"
+        placeholder="one per line: key=value"></textarea></label>
+      <div class="actions">
+        <button type="submit" class="primary" id="btn-orgform-save">Save</button>
+        <button type="button" id="btn-orgform-cancel">Cancel</button>
+      </div>
+      <div id="orgform-error" class="v-err"></div>
+    </form>
+
     <div class="split">
       <div class="panel">
-        <h2>Organization</h2>
-        <p class="hint">Teams and agents as the open System Spec defines them.
+        <h2>Organisation</h2>
+        <p class="hint">Teams and agents as the open organisation defines them.
           Select one to see its detail; edits land in the same document the
           canvas draws.</p>
         <div id="orgtree" class="orgtree"></div>
@@ -114,7 +153,7 @@
     <div class="designer">
       <aside class="panel palette">
         <h2>Agents</h2>
-        <p class="hint">Every agent in the open system.</p>
+        <p class="hint">Every agent in this organisation.</p>
         <div id="agent-list" class="list"></div>
         <div class="actions">
           <button id="btn-new-agent">New agent</button>
@@ -125,7 +164,7 @@
 
       <div class="panel canvas">
         <h2>Agent definition</h2>
-        <div id="agentform-empty" class="empty">No system open.</div>
+        <div id="agentform-empty" class="empty">No organisation open.</div>
         <form id="agentform" class="form" hidden>
           <div class="row">
             <label>Id<input name="id" readonly /></label>
@@ -169,7 +208,7 @@
           </fieldset>
 
           <div class="actions">
-            <button type="button" id="btn-agent-save" class="primary">Save system</button>
+            <button type="button" id="btn-agent-save" class="primary">Save organisation</button>
             <button type="button" id="btn-agent-remove">Remove agent</button>
           </div>
         </form>
@@ -270,7 +309,7 @@
         <p class="hint">Every change and every refusal, as the designer recorded
           it. Refusals are marked.</p>
         <div class="toolbar">
-          <select id="audit-system"><option value="">All systems</option></select>
+          <select id="audit-system"><option value="">All organisations</option></select>
           <input id="audit-actor" placeholder="actor" size="10" />
           <input id="audit-action" placeholder="action (e.g. system.save)" />
           <button id="btn-audit-reload">Reload</button>
