@@ -2,7 +2,7 @@
 id: WS-005
 title: Compiler core — IR, target plugin API and generation engine
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
@@ -43,9 +43,9 @@ regeneration is always safe.
 ## Milestones
 | Milestone | Target | Status |
 |---|---|---|
-| M1 IR model and resolver | Phase 1 | In progress |
-| M2 Target protocol and registry | Phase 1 | In progress |
-| M3 Engine, manifest, overlays | Phase 2 | In progress |
+| M1 IR model and resolver | Phase 1 | Done |
+| M2 Target protocol and registry | Phase 1 | Done |
+| M3 Engine, manifest, overlays | Phase 2 | Done |
 | M4 IR diffing for change review | Phase 3 | Not started |
 
 ## Dependencies
@@ -71,4 +71,5 @@ WS-002 for the spec, WS-004 for permission resolution semantics.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Milestone statuses reconciled with what has shipped. |
 | 1.0.0 | 2026-09-20 | Opened. IR, plugin API and engine in progress. |

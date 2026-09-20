@@ -285,7 +285,12 @@ always an end date — a mission that never ends is a reorganization and is
 refused. Members keep their home team and their own permissions. Roles assigned
 to a mission are **intersected** with what each member already holds, so a
 mission can never be a permission side-door, and lateral reach never lets
-someone task their own leader (ADR-0039).
+someone task their own leader (ADR-0039). The reach a mission lends **expires
+with it**: each member's mission peers are compiled together with the window
+they are good for, and the runtime re-checks that window on every delegation,
+so a mission left open past its end date confers nothing. `orgagents missions
+<spec> list` shows each window's state and `... sweep` closes the records that
+are over.
 
 **Every agent is limited to approved models.** The spec asks for a *class* —
 `frontier_reasoning`, `balanced`, `fast_cheap`, `long_context` — with
@@ -397,8 +402,11 @@ Known gaps, tracked in the workstreams rather than glossed:
   violations are recorded rather than retried (WS-024 M6).
 - **Designer identity comes from a header** and is only safe behind an
   authenticating proxy; OIDC integration is WS-021 M3.
-- **A mission past its end date still confers lateral reach** — the date is
-  recorded but not enforced at runtime (WS-025 M4).
+- **Closing finished missions is manual** — expiry is enforced on every
+  delegation, but nothing runs `missions sweep` on a schedule, so a stale
+  `active` record misreports the organization until somebody closes it
+  (WS-025). Missions are also not yet editable on the canvas (WS-025 M5) and
+  success criteria go unverified (WS-025 M6).
 - **Catalog figures go stale**: model pricing, context windows and regions are
   typed in, not fetched, so a cost ceiling can check an out-of-date number
   (WS-027 M6). Non-Anthropic model entries ship as proposals an operator must

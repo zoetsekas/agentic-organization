@@ -88,6 +88,36 @@ def _compiler_command(args: argparse.Namespace) -> int:
             print("pass --target to review the implementation phase too")
         return 0 if not report.failures() else 1
 
+    if args.cmd == "missions":
+        from datetime import date as _date
+
+        from .missions import sweep, window_is_open
+
+        on = _date.fromisoformat(args.on) if args.on else _date.today()
+        if args.action == "sweep":
+            closed = sweep(spec, on)
+            if not closed:
+                print(f"nothing to sweep as of {on.isoformat()}")
+            for mission_id in closed:
+                print(f"completed {mission_id}")
+            if closed and args.write:
+                from .spec.loader import dump_spec
+
+                Path(args.path).write_text(dump_spec(spec))
+                print(f"wrote {args.path}")
+            elif closed:
+                print("(pass --write to save; the runtime already ignores them)")
+            return 0
+        for mission in spec.missions:
+            state = "open" if window_is_open(
+                mission.status.value, mission.starts_on, mission.ends_on, on
+            ) else "closed"
+            window = f"{mission.starts_on or '?'} → {mission.ends_on or '?'}"
+            print(f"{mission.id:28} {mission.status.value:10} {state:7} {window}")
+            print(f"{'':28} leader={mission.leader} "
+                  f"members={', '.join(mission.members)}")
+        return 0
+
     if args.cmd == "schedule":
         from datetime import datetime, timedelta, timezone
 
@@ -274,6 +304,14 @@ def main(argv: list[str] | None = None) -> int:
     p_run_sched.add_argument("--once", action="store_true",
                              help="fire what is due now, then exit")
 
+    p_mis = sub.add_parser("missions", help="short-lived teams and their windows")
+    p_mis.add_argument("path")
+    p_mis.add_argument("action", nargs="?", default="list",
+                       choices=["list", "sweep"])
+    p_mis.add_argument("--on", help="evaluate as of this ISO date (default: today)")
+    p_mis.add_argument("--write", action="store_true",
+                       help="for 'sweep': write the closed missions back to the spec")
+
     p_cat2 = sub.add_parser("catalogs", help="the platform catalog of building blocks")
     p_cat2.add_argument("action", choices=["list", "seed", "approve", "stats",
                                            "models"])
@@ -299,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
         uvicorn.run(create_app(args.db, args.base_url), host=args.host, port=args.port)
         return 0
 
-    if args.cmd in ("spec", "compile", "targets", "phase", "schedule"):
+    if args.cmd in ("spec", "compile", "targets", "phase", "schedule", "missions"):
         return _compiler_command(args)
 
     if args.cmd == "scheduler":

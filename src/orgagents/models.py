@@ -358,6 +358,9 @@ class Agent(BaseModel):
     report_agent_ids: list[str] = Field(default_factory=list)
     # Peers reachable by direct tool call without going through the manager.
     peer_agent_ids: list[str] = Field(default_factory=list)
+    # Reach lent by a mission, each with the window it is good for. Kept apart
+    # from `peer_agent_ids` because it expires (ADR-0039 v1.1.0).
+    mission_grants: list[dict[str, Any]] = Field(default_factory=list)
     # The accountable owner, kept for callers that want one person.
     human: Optional[HumanCounterpart] = None
     # Everyone paired with this agent, in their named capacities (ADR-0026).

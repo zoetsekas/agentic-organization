@@ -1,8 +1,10 @@
 """Organizational hierarchy: reporting lines, delegation and escalation."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Optional
 
+from .missions import open_peers
 from .models import Agent, AgentKind, OrgUnit
 from .store import AGENTS, ORG_UNITS, Store
 
@@ -105,14 +107,33 @@ class OrgChart:
             stack.extend(a.report_agent_ids)
         return out
 
-    def can_delegate(self, from_agent_id: str, to_agent_id: str) -> bool:
-        """True when `from` may hand work directly to `to`."""
+    def mission_peers(
+        self, agent_id: str, on: Optional[date] = None
+    ) -> list[str]:
+        """Who a mission lets this agent work with *today*.
+
+        Evaluated per call rather than baked in at compile time: a mission past
+        its end date confers nothing, whether or not anybody swept it.
+        """
+        src = self.agent(agent_id)
+        return open_peers(src.mission_grants, on) if src else []
+
+    def can_delegate(
+        self,
+        from_agent_id: str,
+        to_agent_id: str,
+        on: Optional[date] = None,
+    ) -> bool:
+        """True when `from` may hand work directly to `to`, on the given day."""
         if from_agent_id == to_agent_id:
             return False
         src = self.agent(from_agent_id)
         if not src:
             return False
         if to_agent_id in src.report_agent_ids or to_agent_id in src.peer_agent_ids:
+            return True
+        # Lateral reach on loan from a live mission (ADR-0039 v1.1.0).
+        if to_agent_id in open_peers(src.mission_grants, on):
             return True
         # Anywhere in the subtree (skip-level delegation).
         if any(a.id == to_agent_id for a in self.subtree(from_agent_id)):

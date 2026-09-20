@@ -2,7 +2,7 @@
 id: ADR-0039
 title: Missions are short-lived teams drawn from the standing organization
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 deciders: [Platform Architecture, Product]
@@ -36,7 +36,7 @@ members referenced by agent id, a human sponsor, a start and — always — an
 **end date**. Members keep their home team, their reporting line and their own
 permissions.
 
-Four rules make it a team rather than a label:
+Five rules make it a team rather than a label:
 
 1. **Every mission has a leader**, and the leader is one of its members.
 2. **Every mission ends.** A mission without an end date is refused: one that
@@ -45,7 +45,14 @@ Four rules make it a team rather than a label:
 3. **A mission never grants access.** Roles assigned to a mission are
    **intersected** with what each member already holds. Something a member
    lacks is dropped and reported, never granted (ADR-0008).
-4. **A mission never inverts the hierarchy.** Members may work laterally with
+4. **A mission's reach expires with it.** The window is enforced where the
+   delegation happens, not where the spec was written: the compiler records
+   each member's mission peers *with the window they are good for*, and the
+   runtime re-checks that window on every delegation. A mission left `active`
+   past its end date confers nothing, whether or not anybody closed the record.
+   Sweeping the record (`orgagents missions sweep`) is tidiness, not the
+   control.
+5. **A mission never inverts the hierarchy.** Members may work laterally with
    each other for the duration; the mission *leader* may task members, and
    nobody gains the ability to task their own leader — in the mission or in the
    standing organization.
@@ -64,8 +71,13 @@ members existing in the organization, objective and end date, sane dates,
 duration, channel and workflow references, and the intersection rule.
 `compiler.ir` resolves `MissionIR` with the per-member granted intersection and
 computes each agent's mission peers, excluding the mission leader and the
-member's own management chain. The registry gains a missions table and flags
-any mission with no end date.
+member's own management chain. Those peers are carried as `MissionGrantIR`
+entries — peers plus status, start and end — separately from
+`standing_delegates_to`, so the runtime can tell borrowed reach from permanent
+reach. `orgagents.missions` holds the window arithmetic; `OrgChart.can_delegate`
+consults it on every call, `orgagents missions list|sweep` inspects and closes
+records, and the validator warns on an open mission past its end date. The
+registry gains a missions table and flags any mission with no end date.
 
 ## Timeline
 Phase 4.
@@ -78,9 +90,14 @@ Phase 4.
 - Intersection means a mission cannot become a permission side-door.
 
 ## Disadvantages
-- A second structure to keep current: a finished mission left `active` keeps
-  conferring lateral reach, and nothing sweeps it automatically — the end date
-  is recorded but not enforced at runtime yet.
+- A second structure to keep current: a finished mission left `active` is a
+  stale record that misreports the organization, even though it no longer
+  confers anything.
+- Delegation now depends on the clock, so the same call is allowed on Friday
+  and refused on Monday. That is the point, and it makes a refusal harder to
+  diagnose from the spec alone.
+- Sweeping is manual: nothing runs it on a schedule, so closing records
+  remains somebody's job.
 - Membership in several missions makes an agent's effective reach harder to
   read than the tree alone, and only the registry shows the whole picture.
 - The intersection rule silently drops permissions a mission asked for, which
@@ -104,10 +121,15 @@ mission with no leader, no objective, no end date, bad dates or unknown
 members, the too-long warning, the intersection rule dropping rather than
 granting, mission peers appearing in delegation, a completed mission conferring
 nothing, and — specifically — that no member gains the ability to task its own
-leader while the leader may task members.
+leader while the leader may task members. Runtime expiry is covered end to end:
+a loaded system allows the lateral call inside the window, refuses it the day
+after the mission ends and the day before it starts, leaves standing reporting
+lines untouched either way, sweeps idempotently, and reports an overdue open
+mission from the validator.
 
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Mission reach expires at runtime: grants carry their window, `can_delegate` re-checks it per call, and `missions sweep` closes stale records. |
 | 1.0.0 | 2026-09-20 | Accepted. Missions with leaders, end dates, intersected roles, no hierarchy inversion. |

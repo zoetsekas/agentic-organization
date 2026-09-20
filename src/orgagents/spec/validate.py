@@ -640,6 +640,16 @@ def validate_spec(spec: SystemSpec) -> list[Finding]:
             except ValueError:
                 err("mission_bad_dates", f"mission '{mission.id}' has unparseable "
                     "dates; use ISO format", mission.id)
+        if mission.ends_on and mission.status.value in ("proposed", "active"):
+            try:
+                if date.fromisoformat(mission.ends_on) < date.today():
+                    warn("mission_past_its_end_date",
+                         f"mission '{mission.id}' ended on {mission.ends_on} but is "
+                         f"still marked '{mission.status.value}'; the runtime stops "
+                         "honouring it either way, so close the record "
+                         "(`orgagents missions sweep`)", mission.id)
+            except ValueError:
+                pass
         if mission.channel and mission.channel not in {c.id for c in spec.channels}:
             err("unknown_mission_channel", f"mission '{mission.id}' uses unknown "
                 f"channel '{mission.channel}'", mission.id)

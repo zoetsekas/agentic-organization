@@ -2,7 +2,7 @@
 id: WS-006
 title: Local deployment target — Compose stack and single-process dev loop
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Developer Experience
@@ -41,9 +41,9 @@ network policy or IAM instead of implying parity.
 ## Milestones
 | Milestone | Target | Status |
 |---|---|---|
-| M1 Compose generation from IR | Phase 2 | In progress |
-| M2 Single-process mode | Phase 2 | In progress |
-| M3 Makefile, env template, README | Phase 2 | In progress |
+| M1 Compose generation from IR | Phase 2 | Done |
+| M2 Single-process mode | Phase 2 | Done |
+| M3 Makefile, env template, README | Phase 2 | Done |
 | M4 CI smoke test of the generated stack | Phase 2 | Not started |
 | M5 Local Kubernetes mode evaluation | Phase 3 | Not started |
 
@@ -72,4 +72,5 @@ WS-005 for the IR and plugin API.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Milestone statuses reconciled with what has shipped. |
 | 1.0.0 | 2026-09-20 | Opened. Compose and single-process generation in progress. |

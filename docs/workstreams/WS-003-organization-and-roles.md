@@ -2,7 +2,7 @@
 id: WS-003
 title: Organization modelling — recursive teams, leaders, roles and responsibilities
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
@@ -44,9 +44,9 @@ accountability and authority cannot drift apart.
 ## Milestones
 | Milestone | Target | Status |
 |---|---|---|
-| M1 Team/role model and validators | Phase 1 | In progress |
-| M2 Role resolution in the IR | Phase 1 | In progress |
-| M3 Runtime consumes resolved org | Phase 2 | Not started |
+| M1 Team/role model and validators | Phase 1 | Done |
+| M2 Role resolution in the IR | Phase 1 | Done |
+| M3 Runtime consumes resolved org | Phase 2 | Done |
 | M4 UI team-aware org chart | Phase 2 | Not started |
 | M5 Matrix/dotted-line investigation | Phase 3 | Not started |
 
@@ -75,4 +75,5 @@ WS-002 for the spec. Feeds WS-004, which inherits permissions along this tree.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Milestone statuses reconciled with what has shipped. |
 | 1.0.0 | 2026-09-20 | Opened. Team/role model and resolution in progress. |

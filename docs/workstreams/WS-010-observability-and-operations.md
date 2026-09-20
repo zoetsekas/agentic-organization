@@ -2,7 +2,7 @@
 id: WS-010
 title: Observability and operations across targets
 status: Proposed
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform SRE
@@ -43,8 +43,8 @@ conditions as predicates over the shared metric set so thresholds are portable.
 ## Milestones
 | Milestone | Target | Status |
 |---|---|---|
-| M1 Contract in the spec | Phase 2 | Not started |
-| M2 Trace propagation verified end to end | Phase 2 | In progress |
+| M1 Contract in the spec | Phase 2 | Done |
+| M2 Trace propagation verified end to end | Phase 2 | Done |
 | M3 Local collector binding | Phase 2 | Not started |
 | M4 Cloud sink bindings per provider | Phase 3 | Not started |
 | M5 Sampling strategy for high fan-out | Phase 3 | Not started |
@@ -74,4 +74,5 @@ WS-005 for the IR, WS-006 for the first target binding.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Milestone statuses reconciled with what has shipped. |
 | 1.0.0 | 2026-09-20 | Opened as Proposed; trace propagation already in progress in the runtime. |

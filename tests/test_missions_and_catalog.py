@@ -343,3 +343,74 @@ def test_a_mission_leader_from_another_team_can_task_its_members(spec):
     assert {"platform_engineer", "sre"} <= set(lead.mission_delegates_to)
     # And a member cannot task that leader back.
     assert "platform_lead" not in ir.agent("sre").mission_delegates_to
+
+
+# -- runtime expiry (ADR-0039 v1.1.0, WS-025 M4) ---------------------------
+
+
+def test_the_ir_carries_the_window_each_grant_is_good_for(spec):
+    analyst = build_ir(spec).agent("analyst")
+    grant = next(g for g in analyst.mission_grants
+                 if g.mission == "q4_forecast_rebuild")
+    assert grant.peers == ["cro"]
+    assert grant.ends_on == "2026-10-31"
+    # Standing reach is recorded separately, so the runtime can tell the two
+    # apart once the mission is over.
+    assert "cro" not in analyst.standing_delegates_to
+
+
+def _loaded(tmp_path, spec, binding, name="runtime.db"):
+    from orgagents.platform import Platform
+    from orgagents.runtime.loader import load_system
+
+    ir = build_ir(spec, target="local", binding=binding.for_target("local"))
+    platform = Platform(str(tmp_path / name), configure_logs=False)
+    load_system(platform, ir)
+    return platform
+
+
+def test_a_live_mission_confers_lateral_reach_at_runtime(tmp_path, spec, binding):
+    platform = _loaded(tmp_path, spec, binding, "live.db")
+    from datetime import date
+
+    assert platform.org.can_delegate("analyst", "cro", on=date(2026, 10, 1))
+    assert platform.org.mission_peers("analyst", on=date(2026, 10, 1)) == ["cro"]
+
+
+def test_a_mission_past_its_end_date_confers_nothing(tmp_path, spec, binding):
+    from datetime import date
+
+    platform = _loaded(tmp_path, spec, binding, "expired.db")
+    # The day after the mission ends, the same call is refused — no recompile,
+    # no sweep, nothing else changed.
+    assert not platform.org.can_delegate("analyst", "cro", on=date(2026, 11, 1))
+    assert platform.org.mission_peers("analyst", on=date(2026, 11, 1)) == []
+    # Standing reporting lines are untouched by expiry.
+    assert platform.org.can_delegate("cfo", "analyst", on=date(2026, 11, 1))
+
+
+def test_a_mission_confers_nothing_before_it_starts(tmp_path, spec, binding):
+    from datetime import date
+
+    platform = _loaded(tmp_path, spec, binding, "early.db")
+    assert not platform.org.can_delegate("analyst", "cro", on=date(2026, 9, 1))
+
+
+def test_sweeping_closes_missions_that_are_over(spec):
+    from datetime import date
+
+    from orgagents.missions import sweep
+
+    copy = spec.model_copy(deep=True)
+    assert sweep(copy, date(2026, 10, 15)) == ["checkout_latency_swat"]
+    assert copy.mission("checkout_latency_swat").status is MissionStatus.COMPLETED
+    # Idempotent: a second sweep on the same day finds nothing left.
+    assert sweep(copy, date(2026, 10, 15)) == []
+
+
+def test_an_overdue_mission_is_reported_by_the_validator(spec):
+    overdue = spec.model_copy(deep=True)
+    overdue.mission("q4_forecast_rebuild").ends_on = "2020-01-31"
+    overdue.mission("q4_forecast_rebuild").starts_on = "2020-01-01"
+    findings = {f.code for f in validate_spec(overdue)}
+    assert "mission_past_its_end_date" in findings

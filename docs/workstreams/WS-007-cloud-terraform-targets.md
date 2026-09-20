@@ -2,7 +2,7 @@
 id: WS-007
 title: Cloud deployment targets — Terraform for GCP, AWS and Azure
 status: Proposed
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform SRE
@@ -45,11 +45,11 @@ report rather than silently widening or narrowing.
 ## Milestones
 | Milestone | Target | Status |
 |---|---|---|
-| M1 Neutral resource set in the IR | Phase 3 | Not started |
-| M2 GCP target | Phase 3 | Not started |
-| M3 AWS target | Phase 3 | Not started |
-| M4 Azure target | Phase 3 | Not started |
-| M5 Mapping reports and IAM gap review | Phase 3 | Not started |
+| M1 Neutral resource set in the IR | Phase 3 | Done (generated, not applied) |
+| M2 GCP target | Phase 3 | Done (generated, not applied) |
+| M3 AWS target | Phase 3 | Done (generated, not applied) |
+| M4 Azure target | Phase 3 | Done (generated, not applied) |
+| M5 Mapping reports and IAM gap review | Phase 3 | In progress — reports generated, review pending |
 
 ## Dependencies
 WS-005 (IR, plugin API) and WS-004 (resolved permissions; IAM cannot be emitted
@@ -79,4 +79,5 @@ without them). Blocked until both land.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Milestone statuses reconciled with what has shipped. |
 | 1.0.0 | 2026-09-20 | Opened as Proposed; blocked on WS-004 and WS-005. |

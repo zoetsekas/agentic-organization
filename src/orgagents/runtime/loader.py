@@ -266,10 +266,14 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
                 description=agent.get("description", ""),
                 org_unit_id=agent.get("team_id"),
                 manager_agent_id=agent.get("reports_to"),
+                # Standing reach only: mission peers arrive as grants below,
+                # so a finished mission stops conferring reach on its own.
                 peer_agent_ids=[
-                    p for p in agent.get("delegates_to", [])
+                    p for p in agent.get("standing_delegates_to",
+                                         agent.get("delegates_to", []))
                     if p not in (agent.get("reports_to"),)
                 ],
+                mission_grants=list(agent.get("mission_grants", [])),
                 human=_counterpart(owner, agent) if owner else None,
                 humans=[_counterpart(h, agent) for h in humans],
                 subagents=agent.get("subagents", []),

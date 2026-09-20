@@ -2,7 +2,7 @@
 id: WS-004
 title: Security model — RBAC, policies, least privilege, sandboxing and identity
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Security Engineering
@@ -48,9 +48,9 @@ in the target's mapping report rather than hiding it.
 ## Milestones
 | Milestone | Target | Status |
 |---|---|---|
-| M1 RBAC/policy engine and IR resolution | Phase 1 | In progress |
-| M2 Least-privilege validators | Phase 1 | In progress |
-| M3 Environment-class bindings, local target | Phase 2 | Not started |
+| M1 RBAC/policy engine and IR resolution | Phase 1 | Done |
+| M2 Least-privilege validators | Phase 1 | Done |
+| M3 Environment-class bindings, local target | Phase 2 | Done |
 | M4 Per-provider IAM mapping and gap reports | Phase 3 | Not started |
 | M5 External security review of the model | Phase 3 | Not started |
 
@@ -80,4 +80,5 @@ cloud targets in WS-007, which cannot emit IAM without resolved permission sets.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Milestone statuses reconciled with what has shipped. |
 | 1.0.0 | 2026-09-20 | Opened. Engine, resolution and validators in progress. |

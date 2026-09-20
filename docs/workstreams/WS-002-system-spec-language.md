@@ -2,7 +2,7 @@
 id: WS-002
 title: System Spec language, schema and versioning
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
@@ -43,9 +43,9 @@ write the migration path before the first breaking change, not after.
 ## Milestones
 | Milestone | Target | Status |
 |---|---|---|
-| M1 Model and loader | Phase 1 | In progress |
-| M2 Validator with least-privilege rules | Phase 1 | In progress |
-| M3 Worked example specification | Phase 1 | In progress |
+| M1 Model and loader | Phase 1 | Done |
+| M2 Validator with least-privilege rules | Phase 1 | Done |
+| M3 Worked example specification | Phase 1 | Done |
 | M4 `spec_version` migration tooling | Phase 2 | Not started |
 | M5 JSON Schema export for third-party editors | Phase 2 | Not started |
 
@@ -74,4 +74,5 @@ WS-001 for the record process. Blocks WS-003, WS-004, WS-005 and every target.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Milestone statuses reconciled with what has shipped. |
 | 1.0.0 | 2026-09-20 | Opened. Model, loader, validator and worked example in progress. |

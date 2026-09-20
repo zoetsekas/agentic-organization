@@ -2,7 +2,7 @@
 id: WS-008
 title: Runtime adapters and harness binding
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
@@ -43,7 +43,7 @@ dry-run path, which keeps the suite free of network calls and API keys.
 | Milestone | Target | Status |
 |---|---|---|
 | M1 Adapter protocol and echo runtime | Phase 1 | Done |
-| M2 Harness assembly from IR | Phase 2 | In progress |
+| M2 Harness assembly from IR | Phase 2 | Done |
 | M3 Deep agents and OpenAI SDK adapters verified against live models | Phase 2 | Not started |
 | M4 LangGraph workflow compilation verified | Phase 2 | Not started |
 
@@ -71,4 +71,5 @@ WS-005 for the IR the harness is assembled from.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Milestone statuses reconciled with what has shipped. |
 | 1.0.0 | 2026-09-20 | Opened. Protocol and echo adapter done; harness binding in progress. |

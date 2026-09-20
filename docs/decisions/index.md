@@ -41,7 +41,7 @@
 | [ADR-0036](ADR-0036-context-management-and-artifact-workspace.md) | Context is managed by offloading and compaction, over a declared workspace | Accepted | 1.0.0 | spec, compiler, runtime | WS-024 | — |
 | [ADR-0037](ADR-0037-checkable-output-contracts.md) | Output contracts are checkable shapes, not prose promises | Accepted | 1.0.0 | spec, compiler, runtime | WS-024 | — |
 | [ADR-0038](ADR-0038-shared-operating-instructions.md) | Shared operating instructions live at the organization and the team | Accepted | 1.0.0 | spec, compiler, runtime | WS-024 | — |
-| [ADR-0039](ADR-0039-missions-short-lived-teams.md) | Missions are short-lived teams drawn from the standing organization | Accepted | 1.0.0 | spec, compiler, runtime | WS-025 | — |
+| [ADR-0039](ADR-0039-missions-short-lived-teams.md) | Missions are short-lived teams drawn from the standing organization | Accepted | 1.1.0 | spec, compiler, runtime | WS-025 | — |
 | [ADR-0040](ADR-0040-approved-models-per-agent.md) | Every agent is limited to an approved set of models | Accepted | 1.0.0 | spec, compiler, security | WS-026 | — |
 | [ADR-0041](ADR-0041-platform-catalog-feeds-the-marketplace.md) | A governed platform catalog is what the marketplace and the designer offer | Accepted | 1.0.0 | spec, designer, security, ui | WS-027 | — |
 

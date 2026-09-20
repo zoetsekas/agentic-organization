@@ -173,6 +173,21 @@ class KnowledgeIR(BaseModel):
     secret_ref: Optional[str] = None
 
 
+class MissionGrantIR(BaseModel):
+    """One agent's lateral reach through one mission, and when it holds.
+
+    Carried per agent rather than flattened into `delegates_to` so the runtime
+    can re-check the window on every delegation instead of trusting a list
+    that was correct only on the day the system was compiled.
+    """
+
+    mission: str
+    peers: list[str] = Field(default_factory=list)
+    status: str = "proposed"
+    starts_on: Optional[str] = None
+    ends_on: Optional[str] = None
+
+
 class MissionIR(BaseModel):
     """A resolved short-lived team (ADR-0039)."""
 
@@ -292,6 +307,12 @@ class AgentIR(BaseModel):
     model_approval: Optional[ModelIR] = None
     missions: list[str] = Field(default_factory=list)
     mission_delegates_to: list[str] = Field(default_factory=list)
+    # Reach that does not depend on a mission, so the runtime can tell a
+    # standing peer from one an expiring mission lent it.
+    standing_delegates_to: list[str] = Field(default_factory=list)
+    # The same lateral reach, but with the window it is good for, so the
+    # runtime can stop honouring it once the mission is over (ADR-0039 v1.1.0).
+    mission_grants: list[MissionGrantIR] = Field(default_factory=list)
     knowledge: list[str] = Field(default_factory=list)
     guardrails: list[Guardrail] = Field(default_factory=list)
     artifact_store: Optional[ArtifactStore] = None
@@ -1002,6 +1023,7 @@ def build_ir(
         # leader, in the mission or in the standing organization (ADR-0039).
         upward = _management_chain(spec, agent.id)
         mission_peers: list[str] = []
+        mission_grants: list[MissionGrantIR] = []
         for m in agent_missions:
             if not m.internal_delegation:
                 continue
@@ -1013,7 +1035,14 @@ def build_ir(
                     x for x in m.members
                     if x != agent.id and x != m.leader and x not in upward
                 ]
+            candidates = sorted(dict.fromkeys(candidates))
             mission_peers += candidates
+            mission_grants.append(
+                MissionGrantIR(
+                    mission=m.id, peers=candidates, status=m.status.value,
+                    starts_on=m.starts_on, ends_on=m.ends_on,
+                )
+            )
         mission_peers = sorted(dict.fromkeys(mission_peers))
 
         overrides = bound.agent_overrides.get(agent.id, {})
@@ -1052,6 +1081,11 @@ def build_ir(
                         + flow_delegates + mission_peers
                     )
                 ),
+                standing_delegates_to=sorted(
+                    dict.fromkeys(
+                        _delegation_targets(spec, agent, team, index) + flow_delegates
+                    )
+                ),
                 shared_service=agent.shared_service,
                 humans=list(agent.humans),
                 responsibilities=responsibilities,
@@ -1080,6 +1114,7 @@ def build_ir(
                     for m in agent_missions
                 ],
                 mission_delegates_to=mission_peers,
+                mission_grants=mission_grants,
                 knowledge=list(agent.knowledge),
                 guardrails=guardrails,
                 artifact_store=artifact_store,
