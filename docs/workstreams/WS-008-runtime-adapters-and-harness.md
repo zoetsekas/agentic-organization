@@ -2,13 +2,13 @@
 id: WS-008
 title: Runtime adapters and harness binding
 status: Active
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
 contributors: [Developer Experience]
 scope: [runtime, targets]
-decisions: [ADR-0013, ADR-0010]
+decisions: [ADR-0013, ADR-0010, ADR-0030, ADR-0035, ADR-0056]
 depends_on: [WS-005]
 tags: [runtime]
 ---
@@ -28,6 +28,12 @@ agent may reach.
 - Declarative workflow execution that compiles onto LangGraph when installed and
   runs on the built-in interpreter otherwise.
 - Tests asserting identical policy behaviour across adapters.
+- A workflow engine registry (ADR-0056) where the engine is a binding choice:
+  in-process engines run under the calling agent's identity, permissions and
+  sandbox, while an out-of-process engine is invoked through the external
+  endpoint path — egress allowlist, data classification, the engine's own
+  `secret_ref`, tenant scoping, and its reply crossing the tool-output
+  guardrail.
 
 ## Scope
 In: the agent execution loop, harness assembly and workflow execution. Out:
@@ -46,6 +52,8 @@ dry-run path, which keeps the suite free of network calls and API keys.
 | M2 Harness assembly from IR | Phase 2 | Done |
 | M3 Deep agents and OpenAI SDK adapters verified against live models | Phase 2 | Not started |
 | M4 LangGraph workflow compilation verified | Phase 2 | Not started |
+| M5 Engine registry and governed out-of-process invocation | Phase 5 | Done |
+| M6 LangChain / LangGraph / Gemini ADK engines exercised | Phase 5 | Not started |
 
 ## Dependencies
 WS-005 for the IR the harness is assembled from.
@@ -61,6 +69,14 @@ WS-005 for the IR the harness is assembled from.
 - Four code paths, only one of which is cheap to test exhaustively; the
   live-model adapters are the least covered and the most used in production.
 - Most real failures will occur inside third-party loops, below our abstraction.
+- Of the five engines the registry recognizes, only `native` is exercised.
+  `langgraph`, `langchain` and `gemini_adk` are thin bindings that fall back to
+  the built-in interpreter when the library is absent — which it is here — and
+  `langflow` has been driven only through a fake transport. Nothing has called
+  a real engine.
+- A service engine's work happens outside the agent's sandbox. What is governed
+  is the call, not the execution, which is a weaker guarantee than the
+  environment class implies (ADR-0056).
 
 ## Exit criteria
 - The same compiled agent runs on all four adapters with identical policy
@@ -71,5 +87,6 @@ WS-005 for the IR the harness is assembled from.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-20 | Workflow engines are pluggable: engine registry, in-process engines bounded by their caller, and out-of-process invocation routed through the external-endpoint path (ADR-0056). |
 | 1.1.0 | 2026-09-20 | Milestone statuses reconciled with what has shipped. |
 | 1.0.0 | 2026-09-20 | Opened. Protocol and echo adapter done; harness binding in progress. |

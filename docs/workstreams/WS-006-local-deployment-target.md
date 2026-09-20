@@ -2,13 +2,13 @@
 id: WS-006
 title: Local deployment target — Compose stack and single-process dev loop
 status: Active
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Developer Experience
 contributors: [Platform Architecture]
 scope: [targets]
-decisions: [ADR-0011, ADR-0005, ADR-0009, ADR-0014]
+decisions: [ADR-0011, ADR-0005, ADR-0009, ADR-0014, ADR-0053, ADR-0056]
 depends_on: [WS-005]
 tags: [targets, local]
 ---
@@ -26,6 +26,11 @@ minutes, with the same permission semantics they will get in production.
 - Environment-class binding to container images, resource limits and Compose
   networks, with `none` mapping to an egress-free internal network.
 - CI job compiling the example spec and asserting the stack is well formed.
+- A service workflow engine in the stack (ADR-0056): when a binding names an
+  out-of-process engine, the target emits a pinned, tenant-scoped `langflow`
+  service on the tenant's egress network, with its flows mounted read-only and
+  its own secret, plus a README section stating that a flow running there is
+  outside the agent's sandbox.
 
 ## Scope
 In: local development and demonstration. Out: production deployment, local
@@ -46,6 +51,7 @@ network policy or IAM instead of implying parity.
 | M3 Makefile, env template, README | Phase 2 | Done |
 | M4 CI smoke test of the generated stack | Phase 2 | Not started |
 | M5 Local Kubernetes mode evaluation | Phase 3 | Not started |
+| M6 Out-of-process workflow engine service | Phase 5 | Generated, never started |
 
 ## Dependencies
 WS-005 for the IR and plugin API.
@@ -62,6 +68,9 @@ WS-005 for the IR and plugin API.
 - Laptop resource limits are advisory; `large` and `gpu` classes cannot be
   exercised honestly.
 - Generated stacks age against Docker/Compose schema changes.
+- The Langflow service is generated and parsed by `docker compose config`, and
+  nothing more: no daemon here has pulled the image, so its tag is pinned but
+  unresolved, and the engine has never been started or called.
 
 ## Exit criteria
 - `orgagents compile --target local && make up` runs the example system.
@@ -72,5 +81,6 @@ WS-005 for the IR and plugin API.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-20 | Local stack emits a pinned, tenant-scoped Langflow service with mounted flows, its own secret and the sandbox caveat in the README (ADR-0056). |
 | 1.1.0 | 2026-09-20 | Milestone statuses reconciled with what has shipped. |
 | 1.0.0 | 2026-09-20 | Opened. Compose and single-process generation in progress. |

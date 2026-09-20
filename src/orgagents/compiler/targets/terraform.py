@@ -617,6 +617,61 @@ This configuration was compiled **without a tenant**, so nothing enforces a
 tenant boundary and nothing is namespaced. Apply it only into a
 {kind} that hosts this system alone.""".replace("{kind}", p.boundary_kind)
         )
+        # The sandbox boundary is a separate claim from the tenant boundary, and
+        # a reader who trusts one will trust the other unless we say which is
+        # which (ADR-0054).
+        from ...sandboxes import EnvironmentFacts, detect_context, resolve_provider
+
+        context = detect_context(target=f"terraform:{p.id}" if hasattr(p, "id")
+                                 else "terraform")
+        # One statement for the provider, then only what differs per class:
+        # repeating the same paragraph per environment trains readers to skip
+        # the section, and this is a section that must be read.
+        statement = None
+        gaps: dict[str, list[str]] = {}
+        for env in ir.environments:
+            facts = EnvironmentFacts.from_environment_class(
+                env, tenant_id=ir.tenant.id if ir.tenant else None
+            )
+            resolution = resolve_provider("target_native", facts, context)
+            statement = statement or resolution.boundary
+            unexpressible = list(resolution.mapping.unexpressible)
+            if unexpressible:
+                gaps[env.id] = unexpressible
+        if statement is None:
+            sandbox_section = (
+                "## Sandbox execution\n\n"
+                "This system declares no environment classes.\n"
+            )
+        else:
+            lines = [
+                "## Sandbox execution",
+                "",
+                f"Provider in force: **{statement.provider}** "
+                f"({statement.maturity}). {statement.summary}",
+                "",
+                f"- **Enforces:** {'; '.join(statement.enforces)}",
+                f"- **Does not enforce:** "
+                f"{'; '.join(statement.does_not_enforce)}",
+                f"- **Tenant isolation:** {statement.tenant_scoping.value} — "
+                f"{statement.tenant_note}",
+                "- **Verified here:** no. No sandbox provider was run in this "
+                "environment; this restates the target's documentation "
+                "(ADR-0054).",
+            ]
+            if gaps:
+                lines += ["", "What the environment class cannot express here:", ""]
+                # Identical gaps across every class is the usual case; listing
+                # it once per class buries the one class that differs.
+                distinct = {tuple(v) for v in gaps.values()}
+                if len(distinct) == 1 and len(gaps) == len(ir.environments):
+                    for item in next(iter(distinct)):
+                        lines.append(f"- {item} (every environment class)")
+                else:
+                    for env_id, items in gaps.items():
+                        lines.append(f"- `{env_id}`: " + "; ".join(items))
+            sandbox_section = "\n".join(lines) + "\n"
+
         return f"""# IAM and resource mapping — {p.display}
 
 Generated from the IR for **{ir.name}** (spec_version {ir.spec_version}).
@@ -625,6 +680,7 @@ see is a gap you cannot review (ADR-0012).
 
 {tenant_section}
 
+{sandbox_section}
 ## Resource mapping
 
 | Neutral resource | {p.display} |

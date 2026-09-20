@@ -5,7 +5,19 @@ from .adapters import (
     RuntimeAdapter,
     adapter_for,
 )
+from .endpoints import CallerBoundary, EndpointCallResult, call_endpoint
 from .engine import AgentRuntime, RunResult
+# NB: `engines.engine()` is not re-exported — this package already has an
+# `engine` submodule, and rebinding the name here would hide it.
+from .engines import (
+    EngineDescriptor,
+    InProcessEngine,
+    InvocationMode,
+    ServiceEngine,
+    engine_for_binding,
+    engine_names,
+    register_engine,
+)
 
 __all__ = [
     "AgentRuntime",
@@ -15,4 +27,14 @@ __all__ = [
     "OpenAIAgentsAdapter",
     "EchoAdapter",
     "adapter_for",
+    "CallerBoundary",
+    "EndpointCallResult",
+    "call_endpoint",
+    "EngineDescriptor",
+    "InvocationMode",
+    "InProcessEngine",
+    "ServiceEngine",
+    "engine_for_binding",
+    "engine_names",
+    "register_engine",
 ]
