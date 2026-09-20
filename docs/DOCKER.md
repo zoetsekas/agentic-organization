@@ -93,10 +93,12 @@ a separate application, whatever ADR-0051 says.
 A tenant plane is not in this repository as a file; it is *generated*:
 
 ```bash
-orgagents compile examples/acme.system.yaml --target local --tenant northwind --out build
-cd build/northwind/local && cp .env.example .env && make up
+orgagents compile examples/acme.system.yaml --target local --out build
+cd build/local && cp .env.example .env && make up
 ```
 
+`--tenant <id>` compiles for a tenant the fabric has registered (an unknown id
+is refused, ADR-0050: a design does not get to name its own isolation domain).
 Each tenant gets its own Compose project name, its own networks, its own named
 volumes, its own `postgres:16-alpine` and its own
 `minio/minio:RELEASE...` artifact workspace. A shared database with a tenant

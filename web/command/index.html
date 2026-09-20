@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fabric Command Centre</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23b0640a'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <div>
+      <h1>Fabric Command Centre</h1>
+      <p class="sub">Operator surface &mdash; reads across tenants, authors inside none</p>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button data-view="tenants" class="active">Tenants</button>
+    <button data-view="deployments">Deployments</button>
+    <button data-view="health">Health &amp; drift</button>
+    <button data-view="quotas">Quotas</button>
+    <button data-view="services">Services</button>
+    <button data-view="audit">Audit</button>
+    <button data-view="operators">Operators</button>
+  </nav>
+  <div class="status" id="whoami">identifying…</div>
+</header>
+
+<div id="source-banner" class="source-banner" hidden>
+  <strong>Fixture data</strong>
+  <span id="source-detail">the backend is unreachable; this page is showing
+    <code>command-centre.sample.json</code>. Nothing you see is live and no operator action can be taken.</span>
+  <button id="btn-retry">Retry the backend</button>
+</div>
+
+<main>
+  <div id="error-bar" class="error-bar" hidden>
+    <strong id="error-title">Refused</strong>
+    <span id="error-detail"></span>
+    <button id="btn-error-dismiss">Dismiss</button>
+  </div>
+
+  <section id="view-tenants" class="view active">
+    <div class="split">
+      <div class="panel">
+        <h2>Tenants</h2>
+        <p class="hint">Lifecycle status, isolation domain and entitlements. Select a tenant for its
+          deployments, health, quotas and recent audit.</p>
+        <div class="toolbar"><input id="tenant-filter" placeholder="Filter tenants…" /></div>
+        <div id="tenant-list" class="list"></div>
+      </div>
+      <aside class="panel">
+        <h2>Tenant detail</h2>
+        <div id="tenant-detail" class="empty">Select a tenant.</div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="view-deployments" class="view">
+    <div class="split">
+      <div class="panel">
+        <h2>Deployments</h2>
+        <p class="hint">Every tenant's deployments and their lifecycle state.</p>
+        <div id="deployment-list" class="list"></div>
+      </div>
+      <aside class="panel">
+        <h2>Deployment</h2>
+        <div id="deployment-detail" class="empty">Select a deployment.</div>
+      </aside>
+    </div>
+  </section>
+
+  <section id="view-health" class="view">
+    <div class="panel">
+      <h2>Health</h2>
+      <p class="hint">A stale or unobserved observation is reported as <em>unknown</em>: we cannot see it,
+        which is neither healthy nor broken.</p>
+      <div id="health-list"></div>
+    </div>
+    <div class="panel">
+      <h2>Drift</h2>
+      <div id="drift-list" class="list"></div>
+    </div>
+  </section>
+
+  <section id="view-quotas" class="view">
+    <div class="panel">
+      <h2>Quotas and entitlements</h2>
+      <p class="hint">A request above the soft limit and below the hard ceiling is served and recorded as a
+        breach &mdash; its own state, neither within the limit nor refused.</p>
+      <div id="quota-list"></div>
+    </div>
+  </section>
+
+  <section id="view-services" class="view">
+    <div class="panel">
+      <h2>Common services</h2>
+      <div id="service-list" class="cards"></div>
+    </div>
+    <div class="panel">
+      <h2>Boundary report</h2>
+      <p class="hint">What crosses between the fabric and a tenant, and why.</p>
+      <div id="boundary-list"></div>
+    </div>
+  </section>
+
+  <section id="view-audit" class="view">
+    <div class="panel">
+      <h2>Operator audit</h2>
+      <p class="hint">Admin only. Append-only: nothing in this application edits a row.</p>
+      <div class="toolbar">
+        <input id="audit-tenant" placeholder="tenant id (optional)" />
+        <input id="audit-actor" placeholder="actor (optional)" />
+        <label class="inline"><input type="checkbox" id="audit-cross" /> cross-tenant reads only</label>
+        <button id="btn-audit-reload">Reload</button>
+      </div>
+      <div id="audit-list"></div>
+    </div>
+  </section>
+
+  <section id="view-operators" class="view">
+    <div class="panel">
+      <h2>Operators</h2>
+      <p class="hint">Who operates the fabric. A fabric grant is separate from any designer role.</p>
+      <div id="operator-list"></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="action-dialog">
+  <form method="dialog" class="form">
+    <h2 id="action-title">Action</h2>
+    <p class="hint" id="action-hint"></p>
+    <label>Reason
+      <input id="action-reason" placeholder="why you are doing this" />
+    </label>
+    <div class="actions">
+      <button value="cancel">Cancel</button>
+      <button value="confirm" class="primary" id="action-confirm">Confirm</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

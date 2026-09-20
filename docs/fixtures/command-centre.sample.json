@@ -1,0 +1,1630 @@
+{
+  "generated_from": "orgagents.api:create_app - real responses, not hand-written",
+  "contract": "docs/COMMAND_CENTRE_API.md",
+  "identities": {
+    "operator": {
+      "X-User": "olive",
+      "roles": [
+        "fabric_operator"
+      ]
+    },
+    "admin": {
+      "X-User": "adam",
+      "roles": [
+        "fabric_admin"
+      ]
+    },
+    "designer_only": {
+      "X-User": "dana",
+      "roles": []
+    }
+  },
+  "routes": {
+    "GET /api/fabric/whoami": {
+      "path": "/api/fabric/whoami",
+      "status": 200,
+      "response": {
+        "user_id": "olive",
+        "display_name": "Olive Operator",
+        "operator_roles": [
+          "fabric_operator"
+        ],
+        "permissions": [
+          "fabric.deployment.deploy",
+          "fabric.deployment.quarantine",
+          "fabric.deployment.read",
+          "fabric.deployment.redeploy",
+          "fabric.deployment.stop",
+          "fabric.health.read",
+          "fabric.quota.read",
+          "fabric.quota.write",
+          "fabric.service.read",
+          "fabric.tenant.read"
+        ],
+        "is_operator": true
+      }
+    },
+    "GET /api/fabric/tenants": {
+      "path": "/api/fabric/tenants",
+      "status": 200,
+      "response": [
+        {
+          "id": "acme",
+          "name": "Acme",
+          "namespace_prefix": "acme",
+          "isolation_domain": {
+            "id": "acme-domain",
+            "network": "acme-net",
+            "identity_realm": "acme-identities",
+            "secret_scope": "acme-secrets",
+            "data_scope": "acme-data",
+            "cloud_boundary": ""
+          },
+          "entitlements": [
+            "catalog.reviewer"
+          ],
+          "status": "active",
+          "created_at": "2026-09-20T21:33:50+00:00",
+          "deployment_count": 2,
+          "states": [
+            "running",
+            "stopped"
+          ]
+        },
+        {
+          "id": "globex",
+          "name": "Globex",
+          "namespace_prefix": "globex",
+          "isolation_domain": {
+            "id": "globex-domain",
+            "network": "globex-net",
+            "identity_realm": "globex-identities",
+            "secret_scope": "globex-secrets",
+            "data_scope": "globex-data",
+            "cloud_boundary": ""
+          },
+          "entitlements": [],
+          "status": "active",
+          "created_at": "2026-09-20T21:33:50+00:00",
+          "deployment_count": 1,
+          "states": [
+            "quarantined"
+          ]
+        }
+      ]
+    },
+    "GET /api/fabric/tenants/{tenant_id}": {
+      "path": "/api/fabric/tenants/acme",
+      "status": 200,
+      "response": {
+        "tenant": {
+          "id": "acme",
+          "name": "Acme",
+          "namespace_prefix": "acme",
+          "isolation_domain": {
+            "id": "acme-domain",
+            "network": "acme-net",
+            "identity_realm": "acme-identities",
+            "secret_scope": "acme-secrets",
+            "data_scope": "acme-data",
+            "cloud_boundary": ""
+          },
+          "entitlements": [
+            "catalog.reviewer"
+          ],
+          "status": "active",
+          "created_at": "2026-09-20T21:33:50+00:00"
+        },
+        "deployments": [
+          {
+            "id": "dep_e0f44465a97644a0",
+            "tenant_id": "acme",
+            "name": "acme-core",
+            "system_id": "sys_acme",
+            "revision": "r7",
+            "target": "local",
+            "state": "running",
+            "history": [
+              {
+                "at": "2026-09-20T21:33:50.318371+00:00",
+                "source": "requested",
+                "target": "generated",
+                "actor": "olive",
+                "role": "fabric_operator",
+                "reason": "compiled for acme"
+              },
+              {
+                "at": "2026-09-20T21:33:50.323075+00:00",
+                "source": "generated",
+                "target": "deployed",
+                "actor": "olive",
+                "role": "fabric_operator",
+                "reason": "applied to local target"
+              },
+              {
+                "at": "2026-09-20T21:33:50.327021+00:00",
+                "source": "deployed",
+                "target": "running",
+                "actor": "olive",
+                "role": "fabric_operator",
+                "reason": "healthy after apply"
+              }
+            ],
+            "created_at": "2026-09-20T21:33:50.305571+00:00",
+            "updated_at": "2026-09-20T21:33:50.327035+00:00",
+            "allowed_transitions": {
+              "stopped": [
+                "fabric_admin",
+                "fabric_operator"
+              ],
+              "quarantined": [
+                "fabric_admin",
+                "fabric_automation",
+                "fabric_operator"
+              ]
+            }
+          },
+          {
+            "id": "dep_5e803273ac3842eb",
+            "tenant_id": "acme",
+            "name": "acme-reporting",
+            "system_id": "sys_acme_rep",
+            "revision": "r3",
+            "target": "local",
+            "state": "stopped",
+            "history": [
+              {
+                "at": "2026-09-20T21:33:50.331202+00:00",
+                "source": "requested",
+                "target": "generated",
+                "actor": "olive",
+                "role": "fabric_operator",
+                "reason": "compiled"
+              },
+              {
+                "at": "2026-09-20T21:33:50.335079+00:00",
+                "source": "generated",
+                "target": "deployed",
+                "actor": "olive",
+                "role": "fabric_operator",
+                "reason": "applied"
+              },
+              {
+                "at": "2026-09-20T21:33:50.339028+00:00",
+                "source": "deployed",
+                "target": "stopped",
+                "actor": "olive",
+                "role": "fabric_operator",
+                "reason": "cost review"
+              }
+            ],
+            "created_at": "2026-09-20T21:33:50.305858+00:00",
+            "updated_at": "2026-09-20T21:33:50.339042+00:00",
+            "allowed_transitions": {
+              "running": [
+                "fabric_admin",
+                "fabric_operator"
+              ],
+              "quarantined": [
+                "fabric_admin",
+                "fabric_automation",
+                "fabric_operator"
+              ],
+              "retired": [
+                "fabric_admin",
+                "fabric_operator"
+              ]
+            }
+          }
+        ],
+        "health": [
+          {
+            "id": "hc_dep_e0f44465a97644a0",
+            "deployment_id": "dep_e0f44465a97644a0",
+            "tenant_id": "acme",
+            "believed_state": "running",
+            "believed_revision": "r7",
+            "observed_state": "running",
+            "observed_revision": "r6",
+            "status": "degraded",
+            "confidence": "fresh",
+            "observed_at": "2026-09-20T21:33:50.353471+00:00",
+            "observation_age_seconds": 0.022306,
+            "staleness_horizon_seconds": 300.0,
+            "signals": [
+              {
+                "deployment_id": "dep_e0f44465a97644a0",
+                "tenant_id": "acme",
+                "kind": "revision_mismatch",
+                "severity": "warning",
+                "believed": "r7",
+                "observed": "r6",
+                "detail": "the target runs a different revision than was generated",
+                "raised_at": "2026-09-20T21:33:50.375848+00:00"
+              }
+            ],
+            "checked_at": "2026-09-20T21:33:50.375777+00:00"
+          },
+          {
+            "id": "hc_dep_5e803273ac3842eb",
+            "deployment_id": "dep_5e803273ac3842eb",
+            "tenant_id": "acme",
+            "believed_state": "stopped",
+            "believed_revision": "r3",
+            "observed_state": null,
+            "observed_revision": "",
+            "status": "unknown",
+            "confidence": "unobserved",
+            "observed_at": null,
+            "observation_age_seconds": null,
+            "staleness_horizon_seconds": 300.0,
+            "signals": [
+              {
+                "deployment_id": "dep_5e803273ac3842eb",
+                "tenant_id": "acme",
+                "kind": "missing_on_target",
+                "severity": "critical",
+                "believed": "stopped",
+                "observed": "absent",
+                "detail": "the fabric believes this is on the target; the target has never heard of it",
+                "raised_at": "2026-09-20T21:33:50.376372+00:00"
+              }
+            ],
+            "checked_at": "2026-09-20T21:33:50.376350+00:00"
+          }
+        ],
+        "drift": [
+          {
+            "deployment_id": "dep_e0f44465a97644a0",
+            "tenant_id": "acme",
+            "kind": "revision_mismatch",
+            "severity": "warning",
+            "believed": "r7",
+            "observed": "r6",
+            "detail": "the target runs a different revision than was generated",
+            "raised_at": "2026-09-20T21:33:50.375848+00:00"
+          },
+          {
+            "deployment_id": "dep_5e803273ac3842eb",
+            "tenant_id": "acme",
+            "kind": "missing_on_target",
+            "severity": "critical",
+            "believed": "stopped",
+            "observed": "absent",
+            "detail": "the fabric believes this is on the target; the target has never heard of it",
+            "raised_at": "2026-09-20T21:33:50.376372+00:00"
+          }
+        ],
+        "quotas": {
+          "id": "acme",
+          "tenant_id": "acme",
+          "quotas": {
+            "agents": {
+              "kind": "agents",
+              "soft_limit": 5,
+              "hard_ceiling": 10,
+              "unit": ""
+            },
+            "monthly_spend_usd": {
+              "kind": "monthly_spend_usd",
+              "soft_limit": 2000,
+              "hard_ceiling": -1,
+              "unit": "usd"
+            }
+          },
+          "catalog_entries": [
+            "cat_reviewer",
+            "cat_summarizer"
+          ],
+          "usage": {
+            "agents": 6
+          },
+          "breaches": [
+            {
+              "at": "2026-09-20T21:33:50.358158+00:00",
+              "kind": "agents",
+              "decision": "allow_degraded",
+              "reason": "over the soft limit of 5; served and reported so an operator decides in daylight, not at 3am"
+            }
+          ],
+          "updated_at": "2026-09-20T21:33:50.358169+00:00",
+          "tenant_entitlements": [
+            "catalog.reviewer"
+          ],
+          "recorded": true
+        }
+      }
+    },
+    "GET /api/fabric/deployments": {
+      "path": "/api/fabric/deployments",
+      "status": 200,
+      "response": [
+        {
+          "id": "dep_e0f44465a97644a0",
+          "tenant_id": "acme",
+          "name": "acme-core",
+          "system_id": "sys_acme",
+          "revision": "r7",
+          "target": "local",
+          "state": "running",
+          "history": [
+            {
+              "at": "2026-09-20T21:33:50.318371+00:00",
+              "source": "requested",
+              "target": "generated",
+              "actor": "olive",
+              "role": "fabric_operator",
+              "reason": "compiled for acme"
+            },
+            {
+              "at": "2026-09-20T21:33:50.323075+00:00",
+              "source": "generated",
+              "target": "deployed",
+              "actor": "olive",
+              "role": "fabric_operator",
+              "reason": "applied to local target"
+            },
+            {
+              "at": "2026-09-20T21:33:50.327021+00:00",
+              "source": "deployed",
+              "target": "running",
+              "actor": "olive",
+              "role": "fabric_operator",
+              "reason": "healthy after apply"
+            }
+          ],
+          "created_at": "2026-09-20T21:33:50.305571+00:00",
+          "updated_at": "2026-09-20T21:33:50.327035+00:00",
+          "allowed_transitions": {
+            "stopped": [
+              "fabric_admin",
+              "fabric_operator"
+            ],
+            "quarantined": [
+              "fabric_admin",
+              "fabric_automation",
+              "fabric_operator"
+            ]
+          }
+        },
+        {
+          "id": "dep_5e803273ac3842eb",
+          "tenant_id": "acme",
+          "name": "acme-reporting",
+          "system_id": "sys_acme_rep",
+          "revision": "r3",
+          "target": "local",
+          "state": "stopped",
+          "history": [
+            {
+              "at": "2026-09-20T21:33:50.331202+00:00",
+              "source": "requested",
+              "target": "generated",
+              "actor": "olive",
+              "role": "fabric_operator",
+              "reason": "compiled"
+            },
+            {
+              "at": "2026-09-20T21:33:50.335079+00:00",
+              "source": "generated",
+              "target": "deployed",
+              "actor": "olive",
+              "role": "fabric_operator",
+              "reason": "applied"
+            },
+            {
+              "at": "2026-09-20T21:33:50.339028+00:00",
+              "source": "deployed",
+              "target": "stopped",
+              "actor": "olive",
+              "role": "fabric_operator",
+              "reason": "cost review"
+            }
+          ],
+          "created_at": "2026-09-20T21:33:50.305858+00:00",
+          "updated_at": "2026-09-20T21:33:50.339042+00:00",
+          "allowed_transitions": {
+            "running": [
+              "fabric_admin",
+              "fabric_operator"
+            ],
+            "quarantined": [
+              "fabric_admin",
+              "fabric_automation",
+              "fabric_operator"
+            ],
+            "retired": [
+              "fabric_admin",
+              "fabric_operator"
+            ]
+          }
+        },
+        {
+          "id": "dep_b5ba160b3aa242a9",
+          "tenant_id": "globex",
+          "name": "globex-core",
+          "system_id": "sys_globex",
+          "revision": "r2",
+          "target": "local",
+          "state": "quarantined",
+          "history": [
+            {
+              "at": "2026-09-20T21:33:50.343174+00:00",
+              "source": "requested",
+              "target": "generated",
+              "actor": "olive",
+              "role": "fabric_operator",
+              "reason": "fixture"
+            },
+            {
+              "at": "2026-09-20T21:33:50.347027+00:00",
+              "source": "generated",
+              "target": "deployed",
+              "actor": "olive",
+              "role": "fabric_operator",
+              "reason": "applied"
+            },
+            {
+              "at": "2026-09-20T21:33:50.351302+00:00",
+              "source": "deployed",
+              "target": "quarantined",
+              "actor": "olive",
+              "role": "fabric_operator",
+              "reason": "suspected egress from an unapproved tool"
+            }
+          ],
+          "created_at": "2026-09-20T21:33:50.306093+00:00",
+          "updated_at": "2026-09-20T21:33:50.351317+00:00",
+          "allowed_transitions": {
+            "stopped": [
+              "fabric_admin"
+            ],
+            "retired": [
+              "fabric_admin"
+            ]
+          }
+        }
+      ]
+    },
+    "GET /api/fabric/deployments/{deployment_id}": {
+      "path": "/api/fabric/deployments/dep_e0f44465a97644a0",
+      "status": 200,
+      "response": {
+        "id": "dep_e0f44465a97644a0",
+        "tenant_id": "acme",
+        "name": "acme-core",
+        "system_id": "sys_acme",
+        "revision": "r7",
+        "target": "local",
+        "state": "running",
+        "history": [
+          {
+            "at": "2026-09-20T21:33:50.318371+00:00",
+            "source": "requested",
+            "target": "generated",
+            "actor": "olive",
+            "role": "fabric_operator",
+            "reason": "compiled for acme"
+          },
+          {
+            "at": "2026-09-20T21:33:50.323075+00:00",
+            "source": "generated",
+            "target": "deployed",
+            "actor": "olive",
+            "role": "fabric_operator",
+            "reason": "applied to local target"
+          },
+          {
+            "at": "2026-09-20T21:33:50.327021+00:00",
+            "source": "deployed",
+            "target": "running",
+            "actor": "olive",
+            "role": "fabric_operator",
+            "reason": "healthy after apply"
+          }
+        ],
+        "created_at": "2026-09-20T21:33:50.305571+00:00",
+        "updated_at": "2026-09-20T21:33:50.327035+00:00",
+        "allowed_transitions": {
+          "stopped": [
+            "fabric_admin",
+            "fabric_operator"
+          ],
+          "quarantined": [
+            "fabric_admin",
+            "fabric_automation",
+            "fabric_operator"
+          ]
+        },
+        "health": {
+          "id": "hc_dep_e0f44465a97644a0",
+          "deployment_id": "dep_e0f44465a97644a0",
+          "tenant_id": "acme",
+          "believed_state": "running",
+          "believed_revision": "r7",
+          "observed_state": "running",
+          "observed_revision": "r6",
+          "status": "degraded",
+          "confidence": "fresh",
+          "observed_at": "2026-09-20T21:33:50.353471+00:00",
+          "observation_age_seconds": 0.022306,
+          "staleness_horizon_seconds": 300.0,
+          "signals": [
+            {
+              "deployment_id": "dep_e0f44465a97644a0",
+              "tenant_id": "acme",
+              "kind": "revision_mismatch",
+              "severity": "warning",
+              "believed": "r7",
+              "observed": "r6",
+              "detail": "the target runs a different revision than was generated",
+              "raised_at": "2026-09-20T21:33:50.375848+00:00"
+            }
+          ],
+          "checked_at": "2026-09-20T21:33:50.375777+00:00"
+        }
+      }
+    },
+    "GET /api/fabric/deployments/{deployment_id}/history": {
+      "path": "/api/fabric/deployments/dep_e0f44465a97644a0/history",
+      "status": 200,
+      "response": [
+        {
+          "at": "2026-09-20T21:33:50.318371+00:00",
+          "source": "requested",
+          "target": "generated",
+          "actor": "olive",
+          "role": "fabric_operator",
+          "reason": "compiled for acme"
+        },
+        {
+          "at": "2026-09-20T21:33:50.323075+00:00",
+          "source": "generated",
+          "target": "deployed",
+          "actor": "olive",
+          "role": "fabric_operator",
+          "reason": "applied to local target"
+        },
+        {
+          "at": "2026-09-20T21:33:50.327021+00:00",
+          "source": "deployed",
+          "target": "running",
+          "actor": "olive",
+          "role": "fabric_operator",
+          "reason": "healthy after apply"
+        }
+      ]
+    },
+    "GET /api/fabric/health": {
+      "path": "/api/fabric/health",
+      "status": 200,
+      "response": [
+        {
+          "id": "hc_dep_e0f44465a97644a0",
+          "deployment_id": "dep_e0f44465a97644a0",
+          "tenant_id": "acme",
+          "believed_state": "running",
+          "believed_revision": "r7",
+          "observed_state": "running",
+          "observed_revision": "r6",
+          "status": "degraded",
+          "confidence": "fresh",
+          "observed_at": "2026-09-20T21:33:50.353471+00:00",
+          "observation_age_seconds": 0.039615,
+          "staleness_horizon_seconds": 300.0,
+          "signals": [
+            {
+              "deployment_id": "dep_e0f44465a97644a0",
+              "tenant_id": "acme",
+              "kind": "revision_mismatch",
+              "severity": "warning",
+              "believed": "r7",
+              "observed": "r6",
+              "detail": "the target runs a different revision than was generated",
+              "raised_at": "2026-09-20T21:33:50.393126+00:00"
+            }
+          ],
+          "checked_at": "2026-09-20T21:33:50.393086+00:00"
+        },
+        {
+          "id": "hc_dep_5e803273ac3842eb",
+          "deployment_id": "dep_5e803273ac3842eb",
+          "tenant_id": "acme",
+          "believed_state": "stopped",
+          "believed_revision": "r3",
+          "observed_state": null,
+          "observed_revision": "",
+          "status": "unknown",
+          "confidence": "unobserved",
+          "observed_at": null,
+          "observation_age_seconds": null,
+          "staleness_horizon_seconds": 300.0,
+          "signals": [
+            {
+              "deployment_id": "dep_5e803273ac3842eb",
+              "tenant_id": "acme",
+              "kind": "missing_on_target",
+              "severity": "critical",
+              "believed": "stopped",
+              "observed": "absent",
+              "detail": "the fabric believes this is on the target; the target has never heard of it",
+              "raised_at": "2026-09-20T21:33:50.393651+00:00"
+            }
+          ],
+          "checked_at": "2026-09-20T21:33:50.393630+00:00"
+        },
+        {
+          "id": "hc_dep_b5ba160b3aa242a9",
+          "deployment_id": "dep_b5ba160b3aa242a9",
+          "tenant_id": "globex",
+          "believed_state": "quarantined",
+          "believed_revision": "r2",
+          "observed_state": "quarantined",
+          "observed_revision": "r2",
+          "status": "unknown",
+          "confidence": "stale",
+          "observed_at": "2026-09-20T20:53:50.353471+00:00",
+          "observation_age_seconds": 2400.040579,
+          "staleness_horizon_seconds": 300.0,
+          "signals": [
+            {
+              "deployment_id": "dep_b5ba160b3aa242a9",
+              "tenant_id": "globex",
+              "kind": "stale_belief",
+              "severity": "warning",
+              "believed": "quarantined",
+              "observed": "healthy",
+              "detail": "last observed 2400s ago, past the 300s horizon; reported as unknown, not as health",
+              "raised_at": "2026-09-20T21:33:50.394083+00:00"
+            }
+          ],
+          "checked_at": "2026-09-20T21:33:50.394050+00:00"
+        }
+      ]
+    },
+    "GET /api/fabric/drift": {
+      "path": "/api/fabric/drift",
+      "status": 200,
+      "response": [
+        {
+          "deployment_id": "dep_e0f44465a97644a0",
+          "tenant_id": "acme",
+          "kind": "revision_mismatch",
+          "severity": "warning",
+          "believed": "r7",
+          "observed": "r6",
+          "detail": "the target runs a different revision than was generated",
+          "raised_at": "2026-09-20T21:33:50.398573+00:00"
+        },
+        {
+          "deployment_id": "dep_5e803273ac3842eb",
+          "tenant_id": "acme",
+          "kind": "missing_on_target",
+          "severity": "critical",
+          "believed": "stopped",
+          "observed": "absent",
+          "detail": "the fabric believes this is on the target; the target has never heard of it",
+          "raised_at": "2026-09-20T21:33:50.399195+00:00"
+        },
+        {
+          "deployment_id": "dep_b5ba160b3aa242a9",
+          "tenant_id": "globex",
+          "kind": "stale_belief",
+          "severity": "warning",
+          "believed": "quarantined",
+          "observed": "healthy",
+          "detail": "last observed 2400s ago, past the 300s horizon; reported as unknown, not as health",
+          "raised_at": "2026-09-20T21:33:50.399622+00:00"
+        }
+      ]
+    },
+    "GET /api/fabric/quotas": {
+      "path": "/api/fabric/quotas",
+      "status": 200,
+      "response": [
+        {
+          "id": "acme",
+          "tenant_id": "acme",
+          "quotas": {
+            "agents": {
+              "kind": "agents",
+              "soft_limit": 5,
+              "hard_ceiling": 10,
+              "unit": ""
+            },
+            "monthly_spend_usd": {
+              "kind": "monthly_spend_usd",
+              "soft_limit": 2000,
+              "hard_ceiling": -1,
+              "unit": "usd"
+            }
+          },
+          "catalog_entries": [
+            "cat_reviewer",
+            "cat_summarizer"
+          ],
+          "usage": {
+            "agents": 6
+          },
+          "breaches": [
+            {
+              "at": "2026-09-20T21:33:50.358158+00:00",
+              "kind": "agents",
+              "decision": "allow_degraded",
+              "reason": "over the soft limit of 5; served and reported so an operator decides in daylight, not at 3am"
+            }
+          ],
+          "updated_at": "2026-09-20T21:33:50.358169+00:00",
+          "tenant_entitlements": [
+            "catalog.reviewer"
+          ],
+          "recorded": true
+        },
+        {
+          "tenant_id": "globex",
+          "quotas": {},
+          "usage": {},
+          "breaches": [],
+          "catalog_entries": [],
+          "tenant_entitlements": [],
+          "recorded": false
+        }
+      ]
+    },
+    "GET /api/fabric/services": {
+      "path": "/api/fabric/services",
+      "status": 200,
+      "response": [
+        {
+          "id": "svc_catalog",
+          "name": "Catalog of building blocks",
+          "kind": "catalog",
+          "summary": "One curated catalog of skills, plugins, workflows and approved models, read by every tenant's design and compile path (WS-027).",
+          "shared": true,
+          "exposes": [
+            {
+              "what": "catalog entry metadata and version",
+              "direction": "fabric_to_tenant",
+              "why": "a tenant must resolve the blocks its design names, and a per-tenant copy would fork review and leave known-bad versions in use",
+              "visible_to_other_tenants": true
+            },
+            {
+              "what": "usage counts per catalog entry",
+              "direction": "tenant_to_fabric",
+              "why": "the fabric deprecates an entry only when it knows who is still on it; counts are aggregated and carry no payload",
+              "visible_to_other_tenants": false
+            }
+          ],
+          "failure_impact": "No tenant can resolve a building block; compiles fail closed rather than falling back to an unreviewed local copy.",
+          "registered_at": "2026-09-20T21:33:50.237369+00:00"
+        },
+        {
+          "id": "svc_identity",
+          "name": "Identity",
+          "kind": "identity",
+          "summary": "One issuer for operator and designer principals (ADR-0047). Workload identities inside a tenant are minted per tenant and are deliberately not shared (ADR-0050).",
+          "shared": true,
+          "exposes": [
+            {
+              "what": "human principal assertions (issuer, subject, roles)",
+              "direction": "fabric_to_tenant",
+              "why": "an operator is one person across tenants and an audit trail that cannot join them is not an audit trail",
+              "visible_to_other_tenants": false
+            }
+          ],
+          "failure_impact": "Nobody can authenticate to the fabric; already-running tenants keep running on their own workload identities.",
+          "registered_at": "2026-09-20T21:33:50.237395+00:00"
+        },
+        {
+          "id": "svc_observability",
+          "name": "Observability sinks",
+          "kind": "observability",
+          "summary": "Traces, metrics and audit events from every tenant land in fabric sinks so an operator can answer 'is it healthy' in one place (WS-010).",
+          "shared": true,
+          "exposes": [
+            {
+              "what": "trace, metric and audit records tagged with tenant id",
+              "direction": "tenant_to_fabric",
+              "why": "operations need cross-tenant aggregates; the tenant tag is what keeps a query from reading across the boundary",
+              "visible_to_other_tenants": false
+            }
+          ],
+          "failure_impact": "The fabric goes blind: health and drift fall back to belief alone, which health.py reports as unobserved rather than healthy.",
+          "registered_at": "2026-09-20T21:33:50.237385+00:00"
+        },
+        {
+          "id": "svc_records",
+          "name": "Record layer",
+          "kind": "record_layer",
+          "summary": "Decisions and workstreams (ADR-0001) describing the platform all tenants run on, plus the operational record each tenant feeds (WS-014).",
+          "shared": true,
+          "exposes": [
+            {
+              "what": "platform decision and workstream records",
+              "direction": "fabric_to_tenant",
+              "why": "the rules a tenant is held to should be readable by the people held to them",
+              "visible_to_other_tenants": true
+            }
+          ],
+          "failure_impact": "Operators lose the written reason for a platform behaviour; running tenants are unaffected.",
+          "registered_at": "2026-09-20T21:33:50.237391+00:00"
+        }
+      ]
+    },
+    "GET /api/fabric/services/boundary": {
+      "path": "/api/fabric/services/boundary",
+      "status": 200,
+      "response": [
+        {
+          "service": "Catalog of building blocks",
+          "kind": "catalog",
+          "what": "catalog entry metadata and version",
+          "direction": "fabric_to_tenant",
+          "why": "a tenant must resolve the blocks its design names, and a per-tenant copy would fork review and leave known-bad versions in use",
+          "visible_to_other_tenants": "true"
+        },
+        {
+          "service": "Catalog of building blocks",
+          "kind": "catalog",
+          "what": "usage counts per catalog entry",
+          "direction": "tenant_to_fabric",
+          "why": "the fabric deprecates an entry only when it knows who is still on it; counts are aggregated and carry no payload",
+          "visible_to_other_tenants": "false"
+        },
+        {
+          "service": "Identity",
+          "kind": "identity",
+          "what": "human principal assertions (issuer, subject, roles)",
+          "direction": "fabric_to_tenant",
+          "why": "an operator is one person across tenants and an audit trail that cannot join them is not an audit trail",
+          "visible_to_other_tenants": "false"
+        },
+        {
+          "service": "Observability sinks",
+          "kind": "observability",
+          "what": "trace, metric and audit records tagged with tenant id",
+          "direction": "tenant_to_fabric",
+          "why": "operations need cross-tenant aggregates; the tenant tag is what keeps a query from reading across the boundary",
+          "visible_to_other_tenants": "false"
+        },
+        {
+          "service": "Record layer",
+          "kind": "record_layer",
+          "what": "platform decision and workstream records",
+          "direction": "fabric_to_tenant",
+          "why": "the rules a tenant is held to should be readable by the people held to them",
+          "visible_to_other_tenants": "true"
+        }
+      ]
+    },
+    "GET /api/fabric/operators": {
+      "path": "/api/fabric/operators",
+      "status": 200,
+      "response": [
+        {
+          "id": "adam",
+          "user_id": "adam",
+          "roles": [
+            "fabric_admin"
+          ],
+          "granted_by": "bootstrap",
+          "reason": "installation bootstrap",
+          "granted_at": "2026-09-20T21:33:50.304895+00:00"
+        },
+        {
+          "id": "olive",
+          "user_id": "olive",
+          "roles": [
+            "fabric_operator"
+          ],
+          "granted_by": "adam",
+          "reason": "on the rota",
+          "granted_at": "2026-09-20T21:33:50.305242+00:00"
+        }
+      ]
+    },
+    "GET /api/fabric/audit": {
+      "path": "/api/fabric/audit",
+      "status": 200,
+      "response": [
+        {
+          "id": "fab_58bb3d104d1b49b8",
+          "timestamp": "2026-09-20T21:33:50.411219+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.service.read",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.service.read",
+          "reason": "",
+          "detail": {
+            "tenant_count": 0,
+            "tenant_ids": [],
+            "truncated": false
+          },
+          "tenant_id": "",
+          "deployment_id": "",
+          "cross_tenant": false,
+          "route": "GET /api/fabric/services/boundary",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_6dbaff3b539b42d6",
+          "timestamp": "2026-09-20T21:33:50.407356+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.service.read",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.service.read",
+          "reason": "",
+          "detail": {
+            "tenant_count": 0,
+            "tenant_ids": [],
+            "truncated": false
+          },
+          "tenant_id": "",
+          "deployment_id": "",
+          "cross_tenant": false,
+          "route": "GET /api/fabric/services",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_e1a0de72d4b9475c",
+          "timestamp": "2026-09-20T21:33:50.403467+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.quota.read",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.quota.read",
+          "reason": "",
+          "detail": {
+            "tenant_count": 2,
+            "tenant_ids": [
+              "acme",
+              "globex"
+            ],
+            "truncated": false
+          },
+          "tenant_id": "",
+          "deployment_id": "",
+          "cross_tenant": true,
+          "route": "GET /api/fabric/quotas",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_99f933c84c9f4dda",
+          "timestamp": "2026-09-20T21:33:50.399934+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.health.read",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.health.read",
+          "reason": "",
+          "detail": {
+            "tenant_count": 2,
+            "tenant_ids": [
+              "acme",
+              "globex"
+            ],
+            "truncated": false
+          },
+          "tenant_id": "",
+          "deployment_id": "",
+          "cross_tenant": true,
+          "route": "GET /api/fabric/drift",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_85224d3edfe64d0d",
+          "timestamp": "2026-09-20T21:33:50.394512+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.health.read",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.health.read",
+          "reason": "",
+          "detail": {
+            "tenant_count": 2,
+            "tenant_ids": [
+              "acme",
+              "globex"
+            ],
+            "truncated": false
+          },
+          "tenant_id": "",
+          "deployment_id": "",
+          "cross_tenant": true,
+          "route": "GET /api/fabric/health",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_5216eee89f10468a",
+          "timestamp": "2026-09-20T21:33:50.388914+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.deployment.read",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.deployment.read",
+          "reason": "",
+          "detail": {
+            "tenant_count": 1,
+            "tenant_ids": [
+              "acme"
+            ],
+            "truncated": false
+          },
+          "tenant_id": "",
+          "deployment_id": "",
+          "cross_tenant": false,
+          "route": "GET /api/fabric/deployments/{deployment_id}/history",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_cbc9911810334015",
+          "timestamp": "2026-09-20T21:33:50.384860+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.deployment.read",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.deployment.read",
+          "reason": "",
+          "detail": {
+            "tenant_count": 1,
+            "tenant_ids": [
+              "acme"
+            ],
+            "truncated": false
+          },
+          "tenant_id": "",
+          "deployment_id": "",
+          "cross_tenant": false,
+          "route": "GET /api/fabric/deployments/{deployment_id}",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_dd20986bbe96474a",
+          "timestamp": "2026-09-20T21:33:50.380650+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.deployment.read",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.deployment.read",
+          "reason": "",
+          "detail": {
+            "tenant_count": 2,
+            "tenant_ids": [
+              "acme",
+              "globex"
+            ],
+            "truncated": false
+          },
+          "tenant_id": "",
+          "deployment_id": "",
+          "cross_tenant": true,
+          "route": "GET /api/fabric/deployments",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_3a848b388cfc4e19",
+          "timestamp": "2026-09-20T21:33:50.376834+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.tenant.read",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.tenant.read",
+          "reason": "",
+          "detail": {
+            "tenant_count": 1,
+            "tenant_ids": [
+              "acme"
+            ],
+            "truncated": false
+          },
+          "tenant_id": "acme",
+          "deployment_id": "",
+          "cross_tenant": false,
+          "route": "GET /api/fabric/tenants/{tenant_id}",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_bad140e685c542ee",
+          "timestamp": "2026-09-20T21:33:50.371801+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.tenant.read",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.tenant.read",
+          "reason": "",
+          "detail": {
+            "tenant_count": 2,
+            "tenant_ids": [
+              "acme",
+              "globex"
+            ],
+            "truncated": false
+          },
+          "tenant_id": "",
+          "deployment_id": "",
+          "cross_tenant": true,
+          "route": "GET /api/fabric/tenants",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_54b8f2b383b64896",
+          "timestamp": "2026-09-20T21:33:50.364370+00:00",
+          "actor": "adam",
+          "actor_name": "Adam Admin",
+          "action": "fabric.deployment.redeploy",
+          "outcome": "conflict",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.deployment.redeploy",
+          "reason": "'quarantined' -> 'running' is not a legal deployment transition",
+          "detail": {},
+          "tenant_id": "globex",
+          "deployment_id": "dep_b5ba160b3aa242a9",
+          "cross_tenant": false,
+          "route": "POST /api/fabric/deployments/{deployment_id}/actions/redeploy",
+          "operator_roles": [
+            "fabric_admin"
+          ]
+        },
+        {
+          "id": "fab_ab3a61af38c349cd",
+          "timestamp": "2026-09-20T21:33:50.360897+00:00",
+          "actor": "dana",
+          "actor_name": "Dana Designer",
+          "action": "fabric.tenant.read",
+          "outcome": "denied",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.tenant.read",
+          "reason": "no platform-operator role is granted to this principal",
+          "detail": {},
+          "tenant_id": "",
+          "deployment_id": "",
+          "cross_tenant": false,
+          "route": "GET /api/fabric/tenants",
+          "operator_roles": []
+        },
+        {
+          "id": "fab_f7770c083c084e9c",
+          "timestamp": "2026-09-20T21:33:50.356771+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.quota.write",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.quota.write",
+          "reason": "growth plan approved",
+          "detail": {
+            "before": {},
+            "after": {
+              "agents": {
+                "kind": "agents",
+                "soft_limit": 5,
+                "hard_ceiling": 10,
+                "unit": ""
+              },
+              "monthly_spend_usd": {
+                "kind": "monthly_spend_usd",
+                "soft_limit": 2000,
+                "hard_ceiling": -1,
+                "unit": "usd"
+              }
+            }
+          },
+          "tenant_id": "acme",
+          "deployment_id": "",
+          "cross_tenant": false,
+          "route": "PUT /api/fabric/tenants/{tenant_id}/quotas",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_664e8ccd0a9148cb",
+          "timestamp": "2026-09-20T21:33:50.351959+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.deployment.quarantine",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.deployment.quarantine",
+          "reason": "suspected egress from an unapproved tool",
+          "detail": {
+            "from": "deployed",
+            "to": "quarantined",
+            "acted_as": "fabric_operator"
+          },
+          "tenant_id": "globex",
+          "deployment_id": "dep_b5ba160b3aa242a9",
+          "cross_tenant": false,
+          "route": "POST /api/fabric/deployments/{deployment_id}/actions/quarantine",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_2a464258f9554776",
+          "timestamp": "2026-09-20T21:33:50.347514+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.deployment.deploy",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.deployment.deploy",
+          "reason": "applied",
+          "detail": {
+            "from": "generated",
+            "to": "deployed",
+            "acted_as": "fabric_operator"
+          },
+          "tenant_id": "globex",
+          "deployment_id": "dep_b5ba160b3aa242a9",
+          "cross_tenant": false,
+          "route": "POST /api/fabric/deployments/{deployment_id}/actions/deploy",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_91094c711a224ad0",
+          "timestamp": "2026-09-20T21:33:50.343705+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.deployment.deploy",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.deployment.deploy",
+          "reason": "fixture",
+          "detail": {
+            "from": "requested",
+            "to": "generated",
+            "acted_as": "fabric_operator"
+          },
+          "tenant_id": "globex",
+          "deployment_id": "dep_b5ba160b3aa242a9",
+          "cross_tenant": false,
+          "route": "POST /api/fabric/deployments/{deployment_id}/actions/generate",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_5582aac5b82f40ae",
+          "timestamp": "2026-09-20T21:33:50.339418+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.deployment.stop",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.deployment.stop",
+          "reason": "cost review",
+          "detail": {
+            "from": "deployed",
+            "to": "stopped",
+            "acted_as": "fabric_operator"
+          },
+          "tenant_id": "acme",
+          "deployment_id": "dep_5e803273ac3842eb",
+          "cross_tenant": false,
+          "route": "POST /api/fabric/deployments/{deployment_id}/actions/stop",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_2f3ffef8dcae434c",
+          "timestamp": "2026-09-20T21:33:50.335767+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.deployment.deploy",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.deployment.deploy",
+          "reason": "applied",
+          "detail": {
+            "from": "generated",
+            "to": "deployed",
+            "acted_as": "fabric_operator"
+          },
+          "tenant_id": "acme",
+          "deployment_id": "dep_5e803273ac3842eb",
+          "cross_tenant": false,
+          "route": "POST /api/fabric/deployments/{deployment_id}/actions/deploy",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_7254683515c34797",
+          "timestamp": "2026-09-20T21:33:50.331630+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.deployment.deploy",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.deployment.deploy",
+          "reason": "compiled",
+          "detail": {
+            "from": "requested",
+            "to": "generated",
+            "acted_as": "fabric_operator"
+          },
+          "tenant_id": "acme",
+          "deployment_id": "dep_5e803273ac3842eb",
+          "cross_tenant": false,
+          "route": "POST /api/fabric/deployments/{deployment_id}/actions/generate",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_2d89db7849934c46",
+          "timestamp": "2026-09-20T21:33:50.327614+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.deployment.redeploy",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.deployment.redeploy",
+          "reason": "healthy after apply",
+          "detail": {
+            "from": "deployed",
+            "to": "running",
+            "acted_as": "fabric_operator"
+          },
+          "tenant_id": "acme",
+          "deployment_id": "dep_e0f44465a97644a0",
+          "cross_tenant": false,
+          "route": "POST /api/fabric/deployments/{deployment_id}/actions/redeploy",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_81848846a7a44059",
+          "timestamp": "2026-09-20T21:33:50.323515+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.deployment.deploy",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.deployment.deploy",
+          "reason": "applied to local target",
+          "detail": {
+            "from": "generated",
+            "to": "deployed",
+            "acted_as": "fabric_operator"
+          },
+          "tenant_id": "acme",
+          "deployment_id": "dep_e0f44465a97644a0",
+          "cross_tenant": false,
+          "route": "POST /api/fabric/deployments/{deployment_id}/actions/deploy",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        },
+        {
+          "id": "fab_d4acf54dc41743a0",
+          "timestamp": "2026-09-20T21:33:50.318973+00:00",
+          "actor": "olive",
+          "actor_name": "Olive Operator",
+          "action": "fabric.deployment.deploy",
+          "outcome": "success",
+          "workspace_id": "",
+          "system_id": "",
+          "version_before": null,
+          "version_after": null,
+          "merged": false,
+          "conflict_paths": [],
+          "lock_target": "",
+          "lock_holder": "",
+          "permission": "fabric.deployment.deploy",
+          "reason": "compiled for acme",
+          "detail": {
+            "from": "requested",
+            "to": "generated",
+            "acted_as": "fabric_operator"
+          },
+          "tenant_id": "acme",
+          "deployment_id": "dep_e0f44465a97644a0",
+          "cross_tenant": false,
+          "route": "POST /api/fabric/deployments/{deployment_id}/actions/generate",
+          "operator_roles": [
+            "fabric_operator"
+          ]
+        }
+      ]
+    }
+  },
+  "errors": {
+    "403 designer-only credentials": {
+      "detail": "no platform-operator role is granted to this principal"
+    },
+    "403 role refused by the lifecycle table": {
+      "detail": "role 'fabric_operator' may not move a deployment from 'quarantined' to 'stopped'; allowed: fabric_admin"
+    },
+    "409 illegal transition": {
+      "detail": "'quarantined' -> 'running' is not a legal deployment transition"
+    },
+    "404 unknown tenant": {
+      "detail": "no such tenant: nope"
+    }
+  }
+}

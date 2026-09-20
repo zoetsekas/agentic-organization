@@ -2,7 +2,7 @@
 id: ADR-0053
 title: The infrastructure images each plane runs on
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 deciders: [Platform Architecture]
@@ -63,9 +63,20 @@ All four build `FROM python:3.11-slim`. One base, one patch cadence.
 ### Sandbox images, by toolchain
 
 The environment classes in `docs/SANDBOX_TEMPLATES.md` map to images, not to
-ad-hoc installs: `none` → `gcr.io/distroless/static-debian12`; `python` →
-`python:3.11-slim`; `node` → `node:22-alpine`; `data` → `python:3.11-slim`
-plus the pinned analysis wheels. A sandbox with `network: none` gets no network
+ad-hoc installs: `none` → `gcr.io/distroless/static-debian12:nonroot`;
+`python` → `python:3.11-slim`; `node` → `node:22-alpine`; `data` →
+`python:3.11-slim` plus the pinned analysis wheels.
+
+**Amended in v1.1.0.** The first table named four images for eight toolchain
+classes, and the three unnamed ones fell back to `python:3.11-slim` — which
+meant a `browser` sandbox had no browser, silently. That is a capability a
+design asked for and did not get, which is worse than a refusal. So:
+`browser` → `mcr.microsoft.com/playwright/python` (the browsers and their
+system libraries are the point of that image; pin the exact tag in the lock
+file); `document` and `model_training` → `python:3.11-slim` **plus pinned
+wheels**, named explicitly here rather than inherited by accident. A toolchain
+with no image mapping must **fail the build**, not quietly resolve to a base
+image that cannot do the job. A sandbox with `network: none` gets no network
 in Compose; `allowlist` gets an egress proxy, because Docker cannot express a
 destination allowlist on its own.
 
@@ -74,6 +85,13 @@ destination allowlist on its own.
 1. **Pin by digest, not by tag.** A tag moves; a digest is the thing that was
    reviewed. Tags appear in this table for readability and in the generated
    files as digests.
+
+   **Not met today (v1.1.0).** Digests cannot be resolved in this environment —
+   no daemon, no registry access — so `docker/images.lock` carries the literal
+   token `UNRESOLVED` for every entry and the generated Compose files carry
+   tags. `docker/resolve-images.sh` fills the lock in and rewrites the Compose
+   files on a machine that can. Until somebody runs it, rules 1 and 2 are
+   stated intent, not enforced practice, and `docs/DOCKER.md` says so.
 2. **Mirror before use.** The fabric deploys from a registry it controls, so a
    deleted or re-pushed upstream tag cannot change what a tenant runs.
 3. **A tenant's data stores are the tenant's own.** Postgres and MinIO are
@@ -142,4 +160,5 @@ image this ADR names. Nothing here is verified against a running daemon.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Named images for all eight toolchain classes after `browser` silently resolved to a browserless base; recorded that digest pinning and mirroring are not met in this environment. |
 | 1.0.0 | 2026-09-20 | Accepted. Four first-party images on one base, nine pinned third-party images, per-tenant data stores. |

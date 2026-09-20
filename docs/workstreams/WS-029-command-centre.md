@@ -2,7 +2,7 @@
 id: WS-029
 title: The command centre
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Product
@@ -40,11 +40,16 @@ roles, different routes. Read across tenants freely, author inside none.
 ## Milestones
 | Milestone | Target | Status |
 |---|---|---|
-| M1 Operator roles and route separation | Phase 5 | Not started |
+| M1 Operator roles and route separation | Phase 5 | Done |
 | M2 Tenant list and detail views | Phase 5 | Not started |
-| M3 Operator actions with audit | Phase 5 | Not started |
+| M3 Operator actions with audit | Phase 5 | Done |
 | M4 Health, quota and drift surfacing | Phase 5 | Not started |
 | M5 Incident view and acknowledgement | Phase 6 | Not started |
+
+## Interfaces
+The operator API contract is `docs/COMMAND_CENTRE_API.md`, with a generated
+fixture at `docs/fixtures/command-centre.sample.json` so the front end (M2,
+M4) can be built without a running backend.
 
 ## Dependencies
 WS-028 for tenants, WS-030 for the operational signals to display, WS-021 for
@@ -75,4 +80,5 @@ the identity the operator roles hang from.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | M1 and M3 done: platform-operator roles in `fabric/rbac.py`, the `fabric` API namespace, operator actions routed through the lifecycle table, and an append-only operator log recording actions and cross-tenant reads. Contract written down in `docs/COMMAND_CENTRE_API.md`. |
 | 1.0.0 | 2026-09-20 | Opened alongside ADR-0051. |

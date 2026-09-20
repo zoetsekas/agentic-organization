@@ -64,7 +64,13 @@ Three consequences follow, and are implemented rather than merely stated:
    internal network. A zero-network sandbox that can still resolve its
    neighbours is not zero-network. (The agent *process* that uses the class
    stays on the gateway-less internal network, which is a different object.)
-3. **A binding may still override the image.** `environment_binding(...).image`
+3. **An agent's own container is not its sandbox image.** The agent process
+   runs on the platform runtime image; the environment class is the image its
+   *code execution* happens in. Before this, the local target built the agent
+   container from the environment class, which under this mapping would have
+   given an agent in a `none` environment a distroless image with no
+   interpreter to run on.
+4. **A binding may still override the image.** `environment_binding(...).image`
    wins, because a company with its own reviewed, mirrored toolchain image
    should not have to fork the compiler to use it. That image is then the
    company's supply-chain decision, not ours.

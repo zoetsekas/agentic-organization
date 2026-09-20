@@ -2,7 +2,7 @@
 id: ADR-0054
 title: Sandbox execution is pluggable, and prefers a kernel boundary
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 deciders: [Platform Architecture, Security Engineering]
@@ -49,10 +49,27 @@ and where a provider offers a kernel boundary we prefer it.**
    describing *what* the boundary must be; the provider decides *how*. No
    provider name enters `src/orgagents/spec/` — this is a binding-layer choice,
    exactly like a runtime adapter or a model.
-2. Three providers are named: `container` (today's behaviour, the portable
-   floor), `microvm_sbx` (Docker Sandboxes, preferred locally), and
-   `target_native` (whatever the cloud target already isolates with — the
-   generated infrastructure keeps owning that).
+2. Four providers are named: `container` (today's behaviour, the portable
+   floor), `microvm_sbx` (Docker Sandboxes, preferred on a developer machine),
+   `openshell` (NVIDIA OpenShell, preferred where a fabric operates many
+   sandboxes), and `target_native` (whatever the cloud target already isolates
+   with — the generated infrastructure keeps owning that).
+
+   **On OpenShell specifically (v1.1.0).** It is the closest external match to
+   what this platform already describes: a *gateway* control plane over sandbox
+   lifecycle, a *policy engine* covering filesystem, network, process and
+   provider credentials, egress routed through policy, credentials injected as
+   environment variables at runtime rather than written to disk, microVM or
+   container sandboxes, Python and TypeScript SDKs, Helm charts for Kubernetes,
+   Apache 2.0. Our environment class — tier, network posture, egress allowlist,
+   mount scopes, persistence, secret refs — maps onto its policy domains almost
+   field for field, and its network policy is hot-reloadable, which our model
+   currently cannot express at all.
+
+   It is also **alpha**, pre-1.0, with a large open issue count. So it is a
+   named provider and a strong candidate, not a dependency to build the
+   platform's guarantees on yet. The seam is what makes that judgement cheap to
+   revisit.
 3. **Preference, not requirement.** `sbx` is a developer-machine tool driven by
    a CLI, not a server-side orchestrator with a documented API, so a deployment
    must still work without it. A provider that is unavailable degrades to
@@ -104,6 +121,13 @@ Phase 5, alongside WS-028's local isolation work.
   isolation is Docker's, quoted, not measured by us.
 - Platform coverage is macOS, Windows and Ubuntu; a Linux host outside that set
   falls back to containers.
+- **The OpenShell option is alpha software** (v1.1.0). Adopting a pre-1.0
+  control plane for the strongest isolation claim trades one young dependency
+  for another, and its API will move. An SDK and a Helm chart make it easier to
+  drive than a CLI, which makes it *more* tempting to depend on before it is
+  ready.
+- Two credible external providers plus our own floor is three code paths for
+  one guarantee, and CI exercises only the floor.
 
 ## Alternatives considered
 - **Keep containers only** — leaves the weakest claim where it is, and the
@@ -113,6 +137,9 @@ Phase 5, alongside WS-028's local isolation work.
 - **gVisor or Kata directly** — comparable isolation without the product
   dependency, at the cost of running the runtime ourselves; worth revisiting if
   the seam proves out.
+- **Build our own gateway and policy engine** — which is what OpenShell already
+  is, under Apache 2.0. Rebuilding it would be the clearest case of work that is
+  not this platform's job.
 - **Firecracker ourselves** — the same boundary and a great deal of work that
   is not this platform's job.
 
@@ -127,4 +154,5 @@ verified against a running `sbx`.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Added `openshell` as a named provider: its policy domains map onto our environment class almost field for field, but it is alpha, so it is a candidate rather than a dependency. |
 | 1.0.0 | 2026-09-20 | Accepted. Pluggable sandbox providers, microVM preferred locally, degradation must be loud. |
