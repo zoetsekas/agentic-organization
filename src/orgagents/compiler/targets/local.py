@@ -696,8 +696,8 @@ agent environment class's (ADR-0056).
 |---|---|---|---|
 {rows}
 
-**A flow that runs in one of these services runs outside the agent's
-sandbox.** Its CPU and memory limits, its network posture and its filesystem
+**A flow that runs in one of these services runs
+outside the agent's sandbox.** Its CPU and memory limits, its network posture and its filesystem
 are the engine's, not the ones the agent's environment class declares. What
 this platform governs is the **call**: the agent's egress allowlist decides
 whether the engine is reachable at all (an agent whose environment is

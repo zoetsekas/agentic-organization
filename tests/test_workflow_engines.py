@@ -259,7 +259,8 @@ def _service_agent(platform) -> Agent:
     agent = Agent(
         id="agt_flow_caller",
         name="flow-caller",
-        human=HumanCounterpart(name="Ana Silva", email="ana@example.com"),
+        human=HumanCounterpart(user_id="hum_ana", display_name="Ana Silva",
+                               email="ana@example.com"),
         workflow_ids=["wfl_report"],
         sandbox=SandboxSpec(template_id="sbx_software_engineering"),
     )
