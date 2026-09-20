@@ -205,6 +205,36 @@ def _compiler_command(args: argparse.Namespace) -> int:
         return 0
 
     if args.cmd == "spec":
+        if args.action == "diff":
+            from .compiler.diff import IncomparableIRError, diff_ir
+
+            if not args.against:
+                print("error: 'spec diff' needs two specs: <before> <after>")
+                return 2
+            bound = binding.for_target(args.target) if binding else None
+            left = build_ir(spec, target=args.target, binding=bound)
+            right = build_ir(load_spec(args.against), target=args.target,
+                             binding=bound)
+            try:
+                result = diff_ir(left, right, force=args.force)
+            except IncomparableIRError as e:
+                # Distinct exit code: "I will not compare these" is a different
+                # answer from "I compared them and found something".
+                print(f"refused: {e}")
+                return 2
+            print(json.dumps(result.to_dict(), indent=2)
+                  if args.format == "json" else result.to_text())
+            if args.fail_on != "none":
+                order = ["low", "medium", "high", "critical"]
+                floor = order.index(args.fail_on)
+                blocking = [
+                    c for c in result.changes
+                    if c.security_relevant
+                    and c.severity.value in order
+                    and order.index(c.severity.value) >= floor
+                ]
+                return 1 if blocking else 0
+            return 0
         if args.action == "validate":
             # Without --directory the reconciliation is inert by construction:
             # NullDirectory knows nobody and produces no findings, so behaviour
@@ -328,6 +358,155 @@ def _catalogs_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _tenants_command(args: argparse.Namespace) -> int:
+    """`tenants list|show|register|suspend|resume|retire` — the fabric plane.
+
+    The CLI is an operator at the console of its own installation, so it acts
+    as `fabric_admin`; the transition table still decides every move, and a
+    refusal here is the same refusal the API gives (WS-028 M5).
+    """
+    from .fabric.audit import FabricAuditAction, FabricAuditLog
+    from .fabric.deployments import DeploymentService, OperatorRole
+    from .fabric.tenants import (
+        PrefixError,
+        TenantIllegalTransition,
+        TenantRegistry,
+        TenantRetirementBlocked,
+        TenantStatus,
+        TenantTransitionDenied,
+    )
+    from .designer.audit import AuditOutcome
+    from .platform import Platform
+
+    platform = Platform(args.db, configure_logs=False)
+    tenants = TenantRegistry(platform.store)
+    deployments = DeploymentService(platform.store)
+    audit = FabricAuditLog(platform.store)
+    actor = args.actor
+
+    def record(action: FabricAuditAction, tenant_id: str,
+               outcome: AuditOutcome, **detail) -> None:
+        audit.record(action, actor=actor, outcome=outcome, tenant_id=tenant_id,
+                     route=f"cli tenants {args.action}", reason=args.reason,
+                     operator_roles=[OperatorRole.ADMIN.value], detail=detail)
+
+    if args.action == "list":
+        for tenant in tenants.list():
+            print(f"{tenant.id:24} {tenant.namespace_prefix:20} "
+                  f"{tenant.status.value:10} {tenant.isolation_domain.id:26} "
+                  f"{len(deployments.list(tenant.id)):>3} deployments")
+        return 0
+
+    if not args.args:
+        print(f"usage: orgagents tenants {args.action} <tenant_id>")
+        return 2
+    tenant_id = args.args[0]
+
+    if args.action == "show":
+        tenant = tenants.get(tenant_id)
+        if tenant is None:
+            print(f"error: no such tenant: {tenant_id}")
+            return 1
+        payload = tenant.model_dump(mode="json")
+        payload["deployments"] = [
+            {"id": d.id, "state": d.state.value} for d in deployments.list(tenant_id)
+        ]
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    if args.action == "register":
+        try:
+            tenant = tenants.register(
+                id=tenant_id,
+                name=args.name or " ".join(args.args[1:]) or tenant_id,
+                namespace_prefix=args.prefix,
+                entitlements=args.entitlement,
+                cloud_boundary=args.cloud_boundary,
+            )
+        except PrefixError as e:
+            # Every prefix rule — shape, reserved names, collisions, and the
+            # prefixes of retired tenants — is decided in fabric/tenants.py.
+            record(FabricAuditAction.TENANT_REGISTER, tenant_id,
+                   AuditOutcome.CONFLICT, error=str(e))
+            print(f"error: {e}")
+            return 1
+        record(FabricAuditAction.TENANT_REGISTER, tenant.id, AuditOutcome.SUCCESS,
+               namespace_prefix=tenant.namespace_prefix,
+               isolation_domain=tenant.isolation_domain.id)
+        print(f"registered {tenant.id}: prefix={tenant.namespace_prefix} "
+              f"domain={tenant.isolation_domain.id} status={tenant.status.value}")
+        return 0
+
+    target = {"suspend": TenantStatus.SUSPENDED,
+              "resume": TenantStatus.ACTIVE,
+              "retire": TenantStatus.RETIRED}[args.action]
+    try:
+        moved = tenants.transition(
+            tenant_id, target, actor=actor, role=OperatorRole.ADMIN,
+            reason=args.reason,
+            deployments=deployments.list(tenant_id),
+        )
+    except KeyError as e:
+        print(f"error: {e}")
+        return 1
+    except (TenantIllegalTransition, TenantRetirementBlocked,
+            TenantTransitionDenied) as e:
+        record(FabricAuditAction.TENANT_LIFECYCLE, tenant_id,
+               AuditOutcome.CONFLICT, error=str(e))
+        print(f"error: {e}")
+        return 1
+    record(FabricAuditAction.TENANT_LIFECYCLE, tenant_id, AuditOutcome.SUCCESS,
+           to=moved.status.value)
+    print(f"{moved.id}: {moved.status.value}")
+    return 0
+
+
+def _evaluation_command(args: argparse.Namespace) -> int:
+    """Run the declared cases, or report the gate without running anything.
+
+    `gate` deliberately does not run: it answers "what does the evidence say
+    today", and a command that silently produced evidence in order to report
+    on it would defeat the point of the gate.
+    """
+    from .evaluations import EvaluationService, GateState
+    from .platform import Platform
+    from .spec import load_spec
+    from .spec.model import LifecycleStage
+
+    spec = load_spec(args.path)
+    stage = LifecycleStage(args.stage) if args.stage else LifecycleStage.PRODUCTION
+    db = getattr(args, "eval_db", None) or getattr(args, "gate_db", None)
+    platform = Platform(db, configure_logs=False)
+    service = EvaluationService(platform.store)
+
+    if args.cmd == "evaluate":
+        run = service.run(
+            spec,
+            agent_ids=[args.agent] if args.agent else None,
+            to_stage=stage,
+        )
+        for result in run.results:
+            mark = {"passed": "ok", "failed": "FAIL"}.get(
+                result.outcome.value, result.outcome.value)
+            print(f"{mark:>11}  {result.agent_id:18} {result.case_id:22} "
+                  f"{result.reason}")
+        print()
+    # Both commands report the gate; only `evaluate` produced the evidence.
+    verdicts = service.gate_states(spec, to_stage=stage)
+
+    blocking = 0
+    for agent_id, verdict in sorted(verdicts.items()):
+        state = verdict.state.value
+        required = getattr(verdict, "required", True)
+        flag = "" if state == GateState.PASSED.value or not required else "  <-"
+        print(f"{state:15} {agent_id:20} {getattr(verdict, 'reason', '')}{flag}")
+        if required and state != GateState.PASSED.value:
+            blocking += 1
+    if blocking:
+        print(f"\n{blocking} agent(s) do not meet a required evaluation gate")
+    return 1 if blocking else 0
+
+
 def _records_command(args: argparse.Namespace) -> int:
     from . import records
 
@@ -380,9 +559,20 @@ def main(argv: list[str] | None = None) -> int:
 
     p_spec = sub.add_parser("spec", help="work with a System Spec")
     p_spec.add_argument("action",
-                        choices=["validate", "ir", "show", "migrate", "schema"])
+                        choices=["validate", "ir", "show", "migrate", "schema",
+                                 "diff"])
     p_spec.add_argument("path", nargs="?")
     p_spec.add_argument("--binding")
+    p_spec.add_argument("against", nargs="?",
+                        help="for 'diff': the second spec; the first is `path`")
+    p_spec.add_argument("--format", choices=["text", "json"], default="text")
+    p_spec.add_argument("--fail-on",
+                        choices=["critical", "high", "medium", "low", "none"],
+                        default="none",
+                        help="for 'diff': exit 1 on a security finding at or "
+                             "above this severity")
+    p_spec.add_argument("--force", action="store_true",
+                        help="for 'diff': compare IRs the diff would refuse")
     p_spec.add_argument("--target", default="local")
     p_spec.add_argument("--directory",
                         help="a people directory (JSON/YAML) to reconcile human "
@@ -443,6 +633,29 @@ def main(argv: list[str] | None = None) -> int:
     p_cat2.add_argument("args", nargs="*")
     p_cat2.add_argument("--kind")
 
+    p_ten = sub.add_parser("tenants", help="fabric tenants and their lifecycle")
+    p_ten.add_argument("action", choices=["list", "show", "register", "suspend",
+                                          "resume", "retire"])
+    p_ten.add_argument("args", nargs="*", help="for everything but 'list': <tenant_id>")
+    p_ten.add_argument("--name", default="", help="human-readable tenant name")
+    p_ten.add_argument("--prefix", help="namespace prefix (default: the tenant id)")
+    p_ten.add_argument("--entitlement", action="append", default=[])
+    p_ten.add_argument("--cloud-boundary", default="",
+                       help="the project/account/subscription cloud targets deploy into")
+    p_ten.add_argument("--reason", default="", help="recorded in the operator audit log")
+    p_ten.add_argument("--actor", default="cli", help="who is acting, for the audit log")
+
+    p_eval = sub.add_parser("evaluate", help="run the declared evaluation cases")
+    p_eval.add_argument("path")
+    p_eval.add_argument("--agent")
+    p_eval.add_argument("--stage")
+    p_eval.add_argument("--db", dest="eval_db", default="orgagents.db")
+
+    p_gate = sub.add_parser("gate", help="print the evaluation gate per agent")
+    p_gate.add_argument("path")
+    p_gate.add_argument("--stage")
+    p_gate.add_argument("--db", dest="gate_db", default="orgagents.db")
+
     p_rec = sub.add_parser("records", help="ADR and workstream record governance")
     p_rec.add_argument("action", choices=["validate", "index", "graph", "new", "list"])
     p_rec.add_argument("args", nargs="*", help="for 'new': <adr|ws> <title>")
@@ -462,6 +675,9 @@ def main(argv: list[str] | None = None) -> int:
         uvicorn.run(create_app(args.db, args.base_url), host=args.host, port=args.port)
         return 0
 
+    if args.cmd in ("evaluate", "gate"):
+        return _evaluation_command(args)
+
     if args.cmd in ("spec", "compile", "targets", "phase", "schedule", "missions"):
         return _compiler_command(args)
 
@@ -470,6 +686,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "catalogs":
         return _catalogs_command(args)
+
+    if args.cmd == "tenants":
+        return _tenants_command(args)
 
     if args.cmd == "records":
         return _records_command(args)

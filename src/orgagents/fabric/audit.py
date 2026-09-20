@@ -56,6 +56,9 @@ class FabricAuditAction(str, Enum):
     SERVICE_READ = "fabric.service.read"
     AUDIT_READ = "fabric.audit.read"
 
+    TENANT_REGISTER = "fabric.tenant.register"
+    TENANT_LIFECYCLE = "fabric.tenant.lifecycle"
+
     DEPLOY = "fabric.deployment.deploy"
     STOP = "fabric.deployment.stop"
     QUARANTINE = "fabric.deployment.quarantine"

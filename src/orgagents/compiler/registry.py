@@ -9,11 +9,15 @@ It is the document an auditor asks for, so it is generated for every target.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from ..catalogs.service import STALE_MARKER
 from .ir import SystemIR
 
 
-def registry_report(ir: SystemIR) -> str:
+def registry_report(
+    ir: SystemIR, evaluation_states: Optional[dict[str, str]] = None
+) -> str:
     rows = []
     for agent in sorted(ir.agents, key=lambda a: a.id):
         owner = agent.owner.name if agent.owner else "**unowned**"
@@ -73,6 +77,15 @@ def registry_report(ir: SystemIR) -> str:
     unowned = [a.id for a in ir.agents if a.owner is None]
     unbudgeted = [a.id for a in ir.agents if not a.budget_usd]
     untriggered = [a.id for a in ir.agents if not a.triggers]
+
+    # `evaluations_passed` is only worth printing as a verdict when something
+    # ran the cases (WS-014 M3). Absent a run the registry says so, rather than
+    # leaving a requirement that reads as though it had been met.
+    states = evaluation_states or {}
+    evaluation_rows = "\n".join(
+        f"| `{agent.id}` | {states.get(agent.id, 'not_evaluated')} |"
+        for agent in sorted(ir.agents, key=lambda a: a.id)
+    ) or "| — | — |"
 
     gates = "\n".join(
         f"| {g.to_stage.value} | {', '.join(r.value for r in g.requires)} | "
@@ -304,6 +317,15 @@ Beyond the hierarchy: who may consult, notify or escalate to whom.
 | To stage | Requires | Min pass rate | Approvers |
 |---|---|---|---|
 {gates}
+
+## Evaluation gate
+
+`evaluations_passed` as of the last recorded run; `not_evaluated` means nobody
+has run the declared cases, which is not the same as having failed them.
+
+| Agent | `evaluations_passed` |
+|---|---|
+{evaluation_rows}
 
 ## Review flags
 
