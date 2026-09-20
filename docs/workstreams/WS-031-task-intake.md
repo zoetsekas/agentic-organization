@@ -2,7 +2,7 @@
 id: WS-031
 title: Task intake — human-assigned work
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Product
@@ -43,10 +43,10 @@ for evidence while the work that does not depend on it proceeds.
 ## Milestones
 | Milestone | Target | Status |
 |---|---|---|
-| M1 Port, record and local backend | Phase 5 | Not started |
-| M2 Conformance suite | Phase 5 | Not started |
-| M3 Runtime integration — a task becomes a run, the session id returns | Phase 5 | Not started |
-| M4 Divergence reporting | Phase 5 | Not started |
+| M1 Port, record and local backend | Phase 5 | Done |
+| M2 Conformance suite | Phase 5 | Done |
+| M3 Runtime integration — a task becomes a run, the session id returns | Phase 5 | Done |
+| M4 Divergence reporting | Phase 5 | Done |
 | M5 Identity verification against a real product | Phase 6 | Not started |
 | M6 First real adapter | Phase 6 | Not started |
 
@@ -83,4 +83,5 @@ channels that notify about it.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | M1–M4 done: `TaskPort`, `TaskRecord` with an explicit transition table, a local reference backend over `Store`, bind-time identity refusal, a conformance suite adapters subclass, one-run-per-task with the session id written back, and divergence reporting. |
 | 1.0.0 | 2026-09-20 | Opened alongside ADR-0057. |

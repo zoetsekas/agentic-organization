@@ -33,7 +33,7 @@
 | [WS-028](WS-028-tenancy-and-isolation.md) | Tenancy and isolation | Active | 1.1.0 | Platform Architecture | ADR-0049, ADR-0050 | WS-004, WS-005, WS-007 |
 | [WS-029](WS-029-command-centre.md) | The command centre | Active | 1.2.0 | Product | ADR-0049, ADR-0051 | WS-021, WS-028, WS-030 |
 | [WS-030](WS-030-fabric-common-services-and-operations.md) | Fabric common services and operations | Active | 1.1.0 | Platform Architecture | ADR-0049, ADR-0052 | WS-010, WS-014, WS-027, WS-028 |
-| [WS-031](WS-031-task-intake.md) | Task intake — human-assigned work | Active | 1.0.0 | Product | ADR-0057 | WS-016, WS-013 |
+| [WS-031](WS-031-task-intake.md) | Task intake — human-assigned work | Active | 1.1.0 | Product | ADR-0057 | WS-016, WS-013 |
 
 ## By status
 
