@@ -75,7 +75,9 @@ def build_demo_warehouse(path: str = DEMO_WAREHOUSE) -> str:
 def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000") -> Platform:
     platform = Platform(db_path, base_url=base_url)
     org, store = platform.org, platform.store
-    warehouse = build_demo_warehouse()
+    db_dir = Path(db_path).parent if Path(db_path).parent.name else Path(".")
+    warehouse_path = db_dir / DEMO_WAREHOUSE
+    warehouse = build_demo_warehouse(str(warehouse_path))
     # The harness resolves DSNs from secret references; wire the demo one up.
     os.environ.setdefault("WAREHOUSE_DSN", str(Path(warehouse).resolve()))
 
@@ -305,6 +307,133 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
         visibility=Visibility.PROTECTED, groups=["finance"],
         tags=["board deck", "quarterly review"],
     )
+
+    # -- designer workspace and system -------------------------------------
+    try:
+        from .designer.models import (
+            CanvasEdge,
+            CanvasNode,
+            Layout,
+            Member,
+            NodeKind,
+            SystemRecord,
+            UserRole,
+            Workspace,
+        )
+        from .designer.repository import SYSTEMS, WORKSPACES
+        from .spec.loader import load_spec
+
+        # Ensure demo users belong to default workspace
+        workspaces = store.list(WORKSPACES, Workspace)
+        if not workspaces:
+            default_ws = Workspace(
+                id="ws_default",
+                name="Acme Corp Workspace",
+                description="Default workspace for Acme Corp agent designs",
+                members=[
+                    Member(user_id="ana", display_name="Ana Silva", email="ana@acme.example", role=UserRole.OWNER),
+                    Member(user_id="tom", display_name="Tom Becker", email="tom@acme.example", role=UserRole.EDITOR),
+                    Member(user_id="priya", display_name="Priya Raman", email="priya@acme.example", role=UserRole.EDITOR),
+                    Member(user_id="dana", display_name="Dana Whitfield", email="dana@acme.example", role=UserRole.ADMIN),
+                    Member(user_id="anonymous", display_name="Anonymous", email="", role=UserRole.OWNER),
+                ],
+            )
+            store.put(WORKSPACES, default_ws, name=default_ws.name)
+        else:
+            default_ws = workspaces[0]
+            existing_members = {m.user_id for m in default_ws.members}
+            updated = False
+            for uid, name, role in [
+                ("ana", "Ana Silva", UserRole.OWNER),
+                ("tom", "Tom Becker", UserRole.EDITOR),
+                ("priya", "Priya Raman", UserRole.EDITOR),
+                ("dana", "Dana Whitfield", UserRole.ADMIN),
+                ("anonymous", "Anonymous", UserRole.OWNER),
+            ]:
+                if uid not in existing_members:
+                    default_ws.members.append(Member(user_id=uid, display_name=name, email="", role=role))
+                    updated = True
+            if updated:
+                store.put(WORKSPACES, default_ws, name=default_ws.name)
+
+        # Populate the Acme system spec into the designer
+        acme_spec_path = Path(__file__).resolve().parents[2] / "examples" / "acme.system.yaml"
+        if acme_spec_path.is_file():
+            spec_obj = load_spec(str(acme_spec_path))
+            spec_dict = spec_obj.model_dump(mode="json")
+            layout = Layout()
+
+            # Auto-layout tree for canvas nodes
+            col_x = 40
+            row_y = 40
+
+            def walk_layout(team_dict, parent_team_id=None, depth=0):
+                nonlocal col_x, row_y
+                t_id = team_dict.get("id")
+                if t_id:
+                    layout.nodes[t_id] = CanvasNode(
+                        id=t_id, kind=NodeKind.TEAM, x=col_x, y=row_y, width=220, height=80
+                    )
+                    if parent_team_id:
+                        layout.edges.append(
+                            CanvasEdge(source=parent_team_id, target=t_id, kind="member_of")
+                        )
+                    row_y += 120
+
+                # members
+                for m in team_dict.get("members", []):
+                    m_id = m.get("id")
+                    if m_id:
+                        layout.nodes[m_id] = CanvasNode(
+                            id=m_id, kind=NodeKind.AGENT, x=col_x + 280, y=row_y - 80, width=220, height=80
+                        )
+                        layout.edges.append(
+                            CanvasEdge(source=t_id, target=m_id, kind="member_of")
+                        )
+                        for sub in m.get("subagents", []):
+                            sub_id = sub.get("id")
+                            if sub_id:
+                                layout.nodes[sub_id] = CanvasNode(
+                                    id=sub_id, kind=NodeKind.SUBAGENT, x=col_x + 560, y=row_y - 80, width=200, height=70
+                                )
+                                layout.edges.append(
+                                    CanvasEdge(source=m_id, target=sub_id, kind="uses")
+                                )
+                        row_y += 110
+
+                for child_team in team_dict.get("teams", []):
+                    walk_layout(child_team, t_id, depth + 1)
+
+            if spec_dict.get("organization"):
+                walk_layout(spec_dict["organization"])
+
+            # Also place capabilities, triggers, and data_classes
+            misc_x = 40
+            misc_y = row_y + 40
+            for cap in spec_dict.get("capabilities", []):
+                c_id = cap.get("id")
+                if c_id:
+                    layout.nodes[c_id] = CanvasNode(
+                        id=c_id, kind=NodeKind.CAPABILITY, x=misc_x, y=misc_y, width=220, height=80
+                    )
+                    misc_x += 260
+                    if misc_x > 900:
+                        misc_x = 40
+                        misc_y += 110
+
+            sys_record = SystemRecord(
+                id="sys_acme",
+                workspace_id=default_ws.id,
+                name="Acme Corp System",
+                description="Acme enterprise agentic system and org hierarchy",
+                spec=spec_dict,
+                layout=layout,
+                created_by="ana",
+                updated_by="ana",
+            )
+            store.put(SYSTEMS, sys_record, parent=default_ws.id, name=sys_record.name)
+    except Exception as exc:
+        print(f"Warning: could not seed designer system: {exc}")
 
     print(f"seeded {store.count('agents')} agents, "
           f"{store.count('catalog')} catalog entries, warehouse at {warehouse}")
