@@ -12,7 +12,7 @@ scope: [targets, security, docs]
 workstreams: [WS-028, WS-029, WS-030]
 supersedes: []
 superseded_by: []
-related: [ADR-0011, ADR-0048, ADR-0049, ADR-0050, ADR-0047, ADR-0059]
+related: [ADR-0011, ADR-0048, ADR-0049, ADR-0050, ADR-0047, ADR-0059, ADR-0061]
 tags: [deployment, tenancy]
 ---
 
@@ -61,6 +61,7 @@ All four build `FROM python:3.11-slim`. One base, one patch cadence.
 | `nats:2.15.0-alpine` | fabric, **per tenant** | The asynchronous message bus with JetStream (ADR-0059). A tenant gets its own instance, volume and subject prefix; the fabric's instance carries control-plane events only | Managed pub/sub: Pub/Sub, SNS+SQS, Service Bus |
 | `redis:7-alpine` | fabric | Scheduler leases and rate limiting. Optional: the SQLite/Postgres path works without it | Memorystore / ElastiCache |
 | `langflowai/langflow:1.12.2` | **per tenant** | The worked out-of-process workflow engine (ADR-0056). A tenant's engine is that tenant's; a shared instance is a cross-tenant channel | A managed flow runner, or the tenant's own instance |
+| `mattermost/mattermost-team-edition:11.11.0` | **per tenant** | The chat surface humans reach agents on (ADR-0061): API-mintable bot accounts so an agent posts as itself, and interactive dialogs so an approval is a click. Its database is the `postgres:16-alpine` above, not a second version | The company's existing Slack or Teams, through an OpenClaw gateway |
 
 ### Sandbox images, by toolchain
 
@@ -184,6 +185,7 @@ image this ADR names. Nothing here is verified against a running daemon.
 | Version | Date | Change |
 |---|---|---|
 | 1.4.0 | 2026-09-20 | Adds `nats:2.15.0-alpine` (tag and digest verified): the per-tenant message bus and the fabric's control-plane instance, chosen in ADR-0059. |
+| 1.4.0 | 2026-09-20 | Added the per-tenant Mattermost Team Edition image (ADR-0061): the chat surface humans reach agents on, on the Postgres this stack already pins rather than a second one. |
 | 1.3.0 | 2026-09-20 | Replaced MinIO with SeaweedFS for the per-tenant artifact store: MinIO's Docker Hub repository serves no tags and its images moved to a registry this environment cannot reach, so it could not be pinned. |
 | 1.2.0 | 2026-09-20 | Resolved 11 of 14 digests against the real registry; corrected `grafana/grafana:11` and flagged the MinIO tag, neither of which exists; added Langflow as the per-tenant workflow engine image. |
 | 1.1.0 | 2026-09-20 | Named images for all eight toolchain classes after `browser` silently resolved to a browserless base; recorded that digest pinning and mirroring are not met in this environment. |

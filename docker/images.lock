@@ -42,6 +42,11 @@ redis:7-alpine                                       sha256:520775a41a63e77e06c7
 
 # --- tenant plane: one instance and one volume per tenant -------------------
 chrislusf/seaweedfs:3.97                             sha256:bb05d66d2963b1cc48073190781c3dd29e2c4c88a2ae2986bf58e38c86d89c6e  tenant
+# The chat surface humans reach agents on (ADR-0061). One per tenant, with the
+# tenant's own bot tokens. Tag and digest verified against the registry
+# 2026-09-20; the image has never been pulled or run here, and no capability
+# claim about Team Edition has been confirmed against a running server.
+mattermost/mattermost-team-edition:11.11.0             sha256:335db2833330323d9a9f43313429f4b16b497067644660acfdfc2424ab04d2de  tenant
 # The message bus (ADR-0059): one instance per tenant, plus the fabric's own
 # control-plane instance. Tag and digest verified against the registry; the
 # image has never been pulled or run here.

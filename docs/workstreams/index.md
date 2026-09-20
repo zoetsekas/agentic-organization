@@ -15,7 +15,7 @@
 | [WS-010](WS-010-observability-and-operations.md) | Observability and operations across targets | Proposed | 1.1.0 | Platform SRE | ADR-0016 | WS-005, WS-006 |
 | [WS-011](WS-011-landscape-and-capability-roadmap.md) | Landscape research and the capability roadmap | Complete | 1.0.0 | Product | ADR-0019 | WS-001 |
 | [WS-012](WS-012-scheduling-and-triggers.md) | Scheduling, event triggers and durable unattended work | Active | 1.0.0 | Platform SRE | ADR-0020, ADR-0025 | WS-005, WS-011 |
-| [WS-013](WS-013-human-channels-and-hitl.md) | Human channels, approval routing and declared interaction flows | Active | 1.1.0 | Product | ADR-0021, ADR-0024, ADR-0059 | WS-005, WS-011 |
+| [WS-013](WS-013-human-channels-and-hitl.md) | Human channels, approval routing and declared interaction flows | Active | 1.2.0 | Product | ADR-0021, ADR-0024, ADR-0059, ADR-0061 | WS-005, WS-011 |
 | [WS-014](WS-014-enterprise-registry-and-lifecycle.md) | Enterprise governance — registry, lifecycle gates, evaluations, budgets, compliance | Active | 1.1.0 | Security Engineering | ADR-0022, ADR-0060 | WS-004, WS-005, WS-011 |
 | [WS-015](WS-015-knowledge-grounding.md) | Knowledge grounding sources and retrieval | Proposed | 1.0.0 | Data Platform | ADR-0023 | WS-005, WS-011 |
 | [WS-016](WS-016-human-pairing.md) | Human pairing and accountability | Active | 1.1.0 | Product | ADR-0026, ADR-0044 | WS-013 |

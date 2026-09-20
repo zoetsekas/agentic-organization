@@ -77,6 +77,21 @@ ARTIFACTS_IMAGE = "chrislusf/seaweedfs:3.97"
 # this service is generated and parsed, never started.
 BUS_IMAGE = "nats:2.15.0-alpine"
 
+# The human channel surface (ADR-0061). One instance per tenant, on the tenant's
+# own network, with the tenant's own volume and bot tokens — a chat server
+# shared across tenants is a cross-tenant channel whatever its own permission
+# model claims. Team Edition because its bot accounts are API-mintable and its
+# interactive dialogs can deliver an authenticated click; the tag and digest
+# were verified against the registry on 2026-09-20 and nothing has been pulled
+# or run here, so no capability claim below is first-hand.
+CHANNEL_SURFACE_IMAGES = {
+    "mattermost": "mattermost/mattermost-team-edition:11.11.0",
+}
+# Its database is the Postgres this stack already pins (ADR-0053): Mattermost
+# supports Postgres and adding a second major version per tenant would be a
+# second patch cadence for no gain.
+CHANNEL_SURFACE_DB_IMAGE = STATE_IMAGE
+
 SERVICE_ENGINE_IMAGES = {
     # Verified against Docker Hub on 2026-09-20: 1.12.2 is a real published
     # release (digest sha256:79c02794…). The tag that was here before was not,
@@ -417,6 +432,63 @@ WORKDIR /workspace
             service["environment"][ref] = f"${{{ref}}}"
         return service
 
+    def _channel_surfaces(self, ir: SystemIR) -> list[str]:
+        """Bound chat products that need a server of their own, deduplicated."""
+        seen: list[str] = []
+        for channel in ir.channels:
+            if not channel.human_facing:
+                continue
+            if channel.provider in CHANNEL_SURFACE_IMAGES and channel.provider not in seen:
+                seen.append(channel.provider)
+        return seen
+
+    def _channel_surface_services(self, ir: SystemIR) -> dict[str, Any]:
+        """The chat server humans actually use, one per tenant (ADR-0061).
+
+        Generated only when a channel is bound to a product we host. A binding
+        that points at somebody else's workspace (Slack, Teams, an OpenClaw
+        gateway) gets no service here — there is nothing for us to run.
+        """
+        out: dict[str, Any] = {}
+        for product in self._channel_surfaces(ir):
+            db = f"{product}-db"
+            out[db] = {
+                "image": CHANNEL_SURFACE_DB_IMAGE,
+                "environment": {
+                    "POSTGRES_USER": "mmuser",
+                    "POSTGRES_PASSWORD": "${CHANNEL_DB_PASSWORD}",
+                    "POSTGRES_DB": product,
+                },
+                "networks": [ir.qualified("control")],
+                "volumes": [f'{ir.qualified(f"{db}-data")}:/var/lib/postgresql/data'],
+                "labels": {"org.agentic.tenant": ir.tenant.id if ir.tenant else ""},
+            }
+            out[product] = {
+                "image": CHANNEL_SURFACE_IMAGES[product],
+                "environment": {
+                    "MM_SQLSETTINGS_DRIVERNAME": "postgres",
+                    "MM_SQLSETTINGS_DATASOURCE": (
+                        "postgres://mmuser:${CHANNEL_DB_PASSWORD}@"
+                        f"{db}:5432/{product}?sslmode=disable"
+                    ),
+                    # Bots are minted through the API by the bridge (rule 2);
+                    # without this the adapter's first call fails at bind time.
+                    "MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION": "true",
+                },
+                # Both networks: humans reach it from outside, and the channel
+                # bridge reaches it from the control network. The agents do not
+                # — they talk to the bridge, which is the only component
+                # holding a bot token.
+                "networks": [ir.qualified("control"), ir.qualified("egress")],
+                "depends_on": [db],
+                "volumes": [f'{ir.qualified(f"{product}-data")}:/mattermost/data'],
+                "labels": {
+                    "org.agentic.tenant": ir.tenant.id if ir.tenant else "",
+                    "org.agentic.channel_surface": product,
+                },
+            }
+        return out
+
     def _sandbox_services(self, ir: SystemIR) -> dict[str, Any]:
         """One build-only service per environment class in use (ADR-0053).
 
@@ -519,6 +591,7 @@ WORKDIR /workspace
             services[f"agent-{agent.id}"] = self._agent_service(ir, agent)
         services.update(self._sandbox_services(ir))
         services.update(self._service_engine_services(ir))
+        services.update(self._channel_surface_services(ir))
 
         # One scheduler for every trigger (ADR-0020). It holds no credentials of
         # its own: it wakes the owning agent, which runs under its own identity.
@@ -625,6 +698,14 @@ WORKDIR /workspace
                         ir.qualified(f"{wb.engine}-data"): {}
                         for wb in self._service_engines(ir)
                     },
+                    **{
+                        vol: {}
+                        for product in self._channel_surfaces(ir)
+                        for vol in (
+                            ir.qualified(f"{product}-data"),
+                            ir.qualified(f"{product}-db-data"),
+                        )
+                    },
                 },
             },
             sort_keys=False,
@@ -675,6 +756,8 @@ validate:      ## re-validate the source spec
             "ARTIFACTS_USER=",
             "ARTIFACTS_PASSWORD=",
         ]
+        if self._channel_surfaces(ir):
+            lines.append("CHANNEL_DB_PASSWORD=")
         lines += [
             f"{self._engine_secret_ref(wb)}=" for wb in self._service_engines(ir)
         ]
