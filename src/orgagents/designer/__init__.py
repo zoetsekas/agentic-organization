@@ -1,3 +1,14 @@
+from .auth import (
+    AuthenticatedPrincipal,
+    Authenticator,
+    AuthConfigurationError,
+    AuthError,
+    GroupRoleMapping,
+    JWKSCache,
+    OIDCConfig,
+    TokenVerifier,
+    verifier_from_settings,
+)
 from .audit import AuditAction, AuditEvent, AuditLog, AuditOutcome
 from .locks import LockConflict, LockManager
 from .merge import apply_resolutions, merge, summarize
@@ -33,6 +44,9 @@ __all__ = [
     "build_repository", "VersionConflict",
     "AuditLog", "AuditEvent", "AuditAction", "AuditOutcome",
     "LockManager", "LockConflict", "merge", "apply_resolutions", "summarize",
+    "Authenticator", "AuthenticatedPrincipal", "AuthError",
+    "AuthConfigurationError", "GroupRoleMapping", "JWKSCache", "OIDCConfig",
+    "TokenVerifier", "verifier_from_settings",
     "Principal", "PermissionDenied", "decide", "require", "permissions_for",
     "SystemRecord", "SystemStatus", "Workspace", "Member", "UserRole",
     "Layout", "CanvasNode", "CanvasEdge", "NodeKind", "Lock", "LockScope",

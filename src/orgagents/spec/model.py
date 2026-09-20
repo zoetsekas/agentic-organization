@@ -594,6 +594,11 @@ class Guardrail(BaseModel):
     max_length: Optional[int] = None
     escalate_channel: Optional[str] = None
     enabled: bool = True
+    # What kind of model should form the verdict for judgement checks — pii,
+    # secrets, prompt_injection. Unset means the deterministic
+    # pattern classifier (ADR-0045). Says a class, never a vendor: the binding decides
+    # which model satisfies it.
+    classifier: Optional[ModelClass] = None
 
 
 class ArtifactStore(BaseModel):
@@ -628,6 +633,9 @@ class ContextPolicy(BaseModel):
     offload_to: Optional[str] = None       # artifact store id
     # Keep each summary as a session memory, so nothing is silently lost.
     retain_summaries: bool = True
+    # What kind of model should write the summary (ADR-0045). Unset means the
+    # structural first/last fallback, which says that is what it did.
+    summarizer: Optional[ModelClass] = None
 
 
 class OutputContract(BaseModel):

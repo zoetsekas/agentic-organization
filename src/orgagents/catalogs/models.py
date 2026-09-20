@@ -12,6 +12,7 @@ is retired stops being selectable rather than being quietly reused.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Literal, Optional
 
@@ -73,6 +74,74 @@ class Entitlement(BaseModel):
         return True
 
 
+# --------------------------------------------------------------------------
+# Where a figure came from, and when it was last true (WS-026 M6)
+# --------------------------------------------------------------------------
+
+
+class FigureMethod(str, Enum):
+    """How a figure got into the catalog."""
+
+    OPERATOR = "operator_entered"   # a person typed it, citing whatever they read
+    IMPORTED = "imported"           # a named source supplied it
+    PLACEHOLDER = "placeholder"     # no figure at all; the row is a to-do
+
+
+# A price or context window that has not been confirmed for half a year is not
+# a fact, it is a memory. Six months is long enough that ordinary catalogues do
+# not nag, short enough that a provider's repricing surfaces before a quarter's
+# spend is committed against it.
+DEFAULT_STALENESS_HORIZON_DAYS = 180
+
+
+class FigureProvenance(BaseModel):
+    """Where an entry's numbers came from, and when they were last confirmed.
+
+    Attached to the entry rather than to each number: a source publishes a
+    model's whole row at once, and per-field provenance would imply an
+    independence the sources do not have.
+    """
+
+    method: FigureMethod = FigureMethod.OPERATOR
+    source: str = ""                 # the named source, or who entered it
+    source_url: str = ""
+    confirmed_at: str = ""           # ISO; empty means never confirmed
+    staleness_horizon_days: int = DEFAULT_STALENESS_HORIZON_DAYS
+    fields: list[str] = Field(default_factory=list)   # what the source covered
+    note: str = ""
+
+    def age_days(self, *, now: Optional[str] = None) -> Optional[float]:
+        """Days since the figures were last confirmed, or None if never."""
+        if not self.confirmed_at:
+            return None
+        try:
+            confirmed = datetime.fromisoformat(self.confirmed_at)
+        except ValueError:
+            return None
+        moment = datetime.fromisoformat(now) if now else datetime.now(timezone.utc)
+        if confirmed.tzinfo is None:
+            confirmed = confirmed.replace(tzinfo=timezone.utc)
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        return (moment - confirmed).total_seconds() / 86400.0
+
+    def is_stale(self, *, now: Optional[str] = None) -> bool:
+        age = self.age_days(now=now)
+        if age is None:
+            # Never confirmed is the worst case, not an exemption: a
+            # placeholder row must never read as fresh.
+            return True
+        return age > self.staleness_horizon_days
+
+    def describe(self, *, now: Optional[str] = None) -> str:
+        age = self.age_days(now=now)
+        if age is None:
+            return f"figures never confirmed ({self.method.value})"
+        return (f"figures from {self.source or 'an unnamed source'} "
+                f"({self.method.value}), last confirmed {int(age)} days ago, "
+                f"horizon {self.staleness_horizon_days} days")
+
+
 class CatalogEntry(BaseModel):
     """One building block, with the governance every block needs."""
 
@@ -99,6 +168,31 @@ class CatalogEntry(BaseModel):
     reviewed_by: str = ""
     reviewed_at: str = ""
     review_note: str = ""
+    # Where the entry's figures came from and when they were last confirmed;
+    # set on import, and defaulted to "an operator typed this" otherwise.
+    provenance: FigureProvenance = Field(default_factory=lambda: FigureProvenance())
+
+    @property
+    def figure_state(self) -> str:
+        """One word for how much this entry's numbers can be trusted."""
+        if self.kind is not CatalogKind.MODEL:
+            return "n/a"
+        if self.provenance.method is FigureMethod.PLACEHOLDER:
+            return "placeholder"
+        return "stale" if self.provenance.is_stale() else "fresh"
+
+    def figures_stale(self, *, now: Optional[str] = None) -> bool:
+        """Whether this entry's governed figures are past their horizon.
+
+        Only models carry figures a policy decides on; a placeholder is
+        excluded because it holds no figure to trust and is already visible as
+        a proposal an operator must complete.
+        """
+        if self.kind is not CatalogKind.MODEL:
+            return False
+        if self.provenance.method is FigureMethod.PLACEHOLDER:
+            return False
+        return self.provenance.is_stale(now=now)
 
     @property
     def selectable(self) -> bool:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import fnmatch
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from .model import (
     ChannelPurpose,
@@ -24,6 +24,9 @@ from .model import (
     Team,
     TriggerKind,
 )
+
+if TYPE_CHECKING:  # a runtime import would close a cycle: directory reads this package
+    from ..directory import Directory
 
 Severity = Literal["error", "warning"]
 
@@ -69,8 +72,15 @@ def _parent_of(root: Team, team_id: str) -> Optional[Team]:
     return None
 
 
-def validate_spec(spec: SystemSpec) -> list[Finding]:
-    """Return every finding; an empty list means the spec is sound."""
+def validate_spec(
+    spec: SystemSpec, directory: Optional["Directory"] = None
+) -> list[Finding]:
+    """Return every finding; an empty list means the spec is sound.
+
+    `directory`, when given, is additionally consulted about the people the
+    spec pairs with agents (ADR-0044). It is optional because most callers have
+    none, and a directory that knows nothing contributes nothing.
+    """
     # Imported here: `scheduling` reads the spec model, so a module-level import
     # would close a cycle through this package's __init__.
     from ..scheduling import CadenceError, parse_cadence
@@ -816,6 +826,62 @@ def validate_spec(spec: SystemSpec) -> list[Finding]:
             warn("unused_capability", f"capability '{cap.id}' is declared but unused",
                  cap.id)
 
+    # -- people who have left (ADR-0044) -----------------------------------
+    out.extend(directory_findings(spec, directory))
+
+    return out
+
+
+def directory_findings(
+    spec: SystemSpec, directory: Optional["Directory"] = None
+) -> list[Finding]:
+    """Findings for pairings the directory disputes (ADR-0044).
+
+    Severity is the governance call, and it is made here rather than in the
+    directory module:
+
+    * a **confirmed departed owner** (or mission sponsor) leaves the agent with
+      nobody accountable, which ADR-0026 does not allow — it is promoted to an
+      error in production, like the other mandatory pairing rules;
+    * any other **confirmed departed** pairing is a warning: an absent reviewer
+      or stakeholder is stale, not unsafe;
+    * a contact **unknown to the directory** is only ever a warning, even for an
+      owner and even in production, because the likeliest explanation is a
+      contractor or an alias the directory does not hold, not a departure;
+    * a directory that knows nothing — `NullDirectory`, an empty one, or one
+      that could not be reached — produces nothing at all.
+    """
+    from ..directory import reconcile   # deferred: `directory` imports this package
+
+    if directory is None:
+        return []
+    report = reconcile(spec, directory)
+    if not report.consulted:
+        return []
+
+    out: list[Finding] = []
+    production = spec.metadata.environment == "production"
+    for issue in report.issues:
+        who = f"{issue.name} <{issue.contact}>" if issue.name else issue.contact
+        roles = ", ".join(issue.roles) or "sponsor"
+        if issue.departed:
+            severity: Severity = (
+                "error" if (issue.is_owner and production) else "warning"
+            )
+            code = "departed_owner" if issue.is_owner else "departed_human"
+            out.append(Finding(
+                severity, code,
+                f"{issue.kind} '{issue.where}' is paired with {who} as {roles}, "
+                f"but directory '{report.directory}' reports them as departed",
+                issue.where,
+            ))
+        else:
+            out.append(Finding(
+                "warning", "human_unknown_to_directory",
+                f"{issue.kind} '{issue.where}' is paired with {who} as {roles}, "
+                f"but directory '{report.directory}' has no record of them",
+                issue.where,
+            ))
     return out
 
 

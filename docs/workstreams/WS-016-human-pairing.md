@@ -2,13 +2,13 @@
 id: WS-016
 title: Human pairing and accountability
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Product
 contributors: [Platform Architecture, Compliance]
 scope: [spec, compiler, runtime, ui]
-decisions: [ADR-0026]
+decisions: [ADR-0026, ADR-0044]
 depends_on: [WS-013]
 tags: [human-in-the-loop]
 ---
@@ -26,6 +26,7 @@ see what they are on the hook for across the fleet.
 - `owner`, `humans_with()` and `approvers_for()` resolution.
 - Validation: exactly one owner, approver coverage for every gated action,
   no duplicate pairing, known channels.
+- Directory reconciliation: departed and unknown pairings, told apart.
 - Phase checks for pairing, ownership, approver coverage and a fallback human.
 - Registry tables: per-agent pairings and a person-centric view.
 
@@ -45,7 +46,7 @@ the organization. Generate the person-centric view, because the question
 | M1 Role-typed pairing model and resolution | Phase 2 | Done |
 | M2 Validation and phase gates | Phase 2 | Done |
 | M3 Registry pairing and person views | Phase 2 | Done |
-| M4 Directory integration to detect departed people | Phase 3 | Not started |
+| M4 Directory integration to detect departed people | Phase 3 | Done |
 | M5 UI pairing editor | Phase 3 | Not started |
 
 ## Dependencies
@@ -57,9 +58,12 @@ WS-013 for the channels these people are reached on.
 - The person-centric registry view answers a real management question.
 
 ## Disadvantages
-- Pairings name individuals and rot as people move; until M4 nothing detects a
-  departed employee still listed as an approver, which is the failure mode most
-  likely to bite.
+- Pairings name individuals and rot as people move. M4 detects this by
+  reconciling against a directory (ADR-0044), but only where one is
+  configured: with no directory, or during an outage, nothing is checked and
+  the pass is silent by design.
+- Contact strings are a weak join key, and a person can be active in the
+  directory yet no longer own the thing they are paired with.
 - More to declare per agent, and the lazy path — one person in every role —
   recreates the single-point-of-failure with extra syntax.
 - Exactly-one-owner will be resisted by teams with genuine co-ownership.
@@ -67,10 +71,11 @@ WS-013 for the channels these people are reached on.
 ## Exit criteria
 - Every agent has exactly one owner and an approver for each gated action. ✔
 - A person's pairings across the fleet are answerable from the registry. ✔
-- Departed people are detected rather than discovered during an incident.
+- Departed people are detected rather than discovered during an incident. ✔
 
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | M4 done: `Directory` protocol with static, null and injected adapters, pairing reconciliation, and departed/unknown findings (ADR-0044). |
 | 1.0.0 | 2026-09-20 | Opened. Model, validation, gates and registry views landed. |

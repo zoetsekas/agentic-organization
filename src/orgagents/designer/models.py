@@ -15,7 +15,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..ids import new_id, now_iso
 
@@ -212,9 +212,29 @@ class DesignerSettings(BaseModel):
     lock_break_requires: UserRole = UserRole.ADMIN
     default_merge_strategy: Literal["reject", "merge"] = "merge"
     max_revisions: int = 100
-    # Access.
-    auth_mode: Literal["header", "oidc", "none"] = "header"
+    # Access (ADR-0032, ADR-0044). The mode is explicit and visible here:
+    # `trusted_proxy` means an authenticating proxy owns identity and we read
+    # its headers; `oidc` means we verify ID tokens ourselves and a bare header
+    # authenticates nothing; `none` is single-user local use.
+    auth_mode: Literal["trusted_proxy", "oidc", "none"] = "trusted_proxy"
+    oidc_issuer: str = ""
+    oidc_audiences: list[str] = Field(default_factory=list)
+    oidc_jwks_uri: str = ""
+    oidc_jwks_ttl_seconds: int = 300
+    oidc_groups_claim: str = "groups"
+    oidc_clock_skew_seconds: int = 60
+    oidc_max_age_seconds: Optional[int] = None
+    oidc_require_nonce: bool = False
+    # Group -> role, or workspace id -> {group -> role}. Anything not named
+    # here grants nothing.
+    oidc_group_roles: dict[str, Any] = Field(default_factory=dict)
     default_role: UserRole = UserRole.VIEWER
+
+    @field_validator("auth_mode", mode="before")
+    @classmethod
+    def _legacy_header_mode(cls, value: Any) -> Any:
+        """`header` was the old name for what is now trusted-proxy mode."""
+        return "trusted_proxy" if value == "header" else value
     require_review_before_publish: bool = True
     # Presentation defaults for new canvases.
     snap_to_grid: int = 10

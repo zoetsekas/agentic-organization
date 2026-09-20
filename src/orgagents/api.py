@@ -459,26 +459,52 @@ def create_app(
         UserRole,
         build_repository,
     )
+    from .designer.auth import AuthError, Authenticator, verifier_from_settings
     from .designer.models import DesignerSettings
 
     designer_settings = DesignerSettings(
         persistence=os.environ.get("ORGAGENTS_DESIGNER_STORE", "relational"),  # type: ignore[arg-type]
         storage_path=os.environ.get("ORGAGENTS_DESIGNER_PATH", "./designer-data"),
+        auth_mode=os.environ.get("ORGAGENTS_DESIGNER_AUTH", "trusted_proxy"),  # type: ignore[arg-type]
+        oidc_issuer=os.environ.get("ORGAGENTS_OIDC_ISSUER", ""),
+        oidc_audiences=[a for a in os.environ.get(
+            "ORGAGENTS_OIDC_AUDIENCE", "").split(",") if a],
+        oidc_jwks_uri=os.environ.get("ORGAGENTS_OIDC_JWKS_URI", ""),
     )
     designer = DesignerService(
         build_repository(designer_settings, platform.store), designer_settings
     )
     app.state.designer = designer
 
+    # One authenticator per app, holding the JWKS cache so keys are fetched
+    # once rather than per request. Tests and air-gapped installs replace its
+    # `verifier` with one over a local key set.
+    designer_auth = Authenticator(
+        designer_settings, verifier=verifier_from_settings(designer_settings),
+        audit=designer.audit,
+    )
+    app.state.designer_auth = designer_auth
+
     def principal(
+        authorization: str = Header(default=""),
         x_user: str = Header(default="anonymous"),
         x_user_name: str = Header(default=""),
         x_user_email: str = Header(default=""),
     ) -> Principal:
-        """Identity comes from a header in dev; an OIDC proxy supplies it in
-        production (ADR-0032). The service never trusts a client-sent role."""
-        return Principal(user_id=x_user, display_name=x_user_name or x_user,
-                         email=x_user_email)
+        """Identity per the configured `auth_mode` (ADR-0044).
+
+        In `oidc` mode this is a verified bearer token and the X-User header is
+        ignored entirely; in `trusted_proxy` mode it is the header, which is
+        only as good as the proxy. Either way the service never trusts a
+        client-sent role. A failure here is a 401 — `_guard` owns the 403.
+        """
+        try:
+            return app.state.designer_auth.authenticate(
+                authorization=authorization, user_header=x_user,
+                name_header=x_user_name, email_header=x_user_email,
+            )
+        except AuthError as e:
+            raise HTTPException(401, str(e)) from e
 
     def _guard(fn, *args, **kwargs):
         try:

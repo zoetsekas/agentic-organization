@@ -9,6 +9,7 @@ It is the document an auditor asks for, so it is generated for every target.
 """
 from __future__ import annotations
 
+from ..catalogs.service import STALE_MARKER
 from .ir import SystemIR
 
 
@@ -169,6 +170,15 @@ def registry_report(ir: SystemIR) -> str:
                                  or a.model_approval.subagent_fallback_applied)
     ]
 
+    # A verdict that turned on a figure past its horizon is flagged here: the
+    # catalog marks it in the reason, and a reviewer should see it next to the
+    # fallbacks rather than by reading every cell (WS-026 M6).
+    stale_figure_models = [
+        a.id for a in ir.agents if a.model_approval and (
+            STALE_MARKER in a.model_approval.approval_reason
+            or STALE_MARKER in a.model_approval.subagent_approval_reason)
+    ]
+
     unapproved_models = [
         a.id for a in ir.agents if a.model_approval
         and (not a.model_approval.approved or not a.model_approval.subagent_approved)
@@ -304,6 +314,7 @@ Beyond the hierarchy: who may consult, notify or escalate to whom.
 - **Agents with no long-term memory:** {", ".join(f"`{a}`" for a in no_memory) or "none"}
 - **Agents on an unapproved model:** {", ".join(f"`{a}`" for a in unapproved_models) or "none"}
 - **Agents moved to a fallback model:** {", ".join(f"`{a}`" for a in fell_back) or "none"}
+- **Agents whose model verdict used a stale catalog figure:** {", ".join(f"`{a}`" for a in stale_figure_models) or "none"}
 - **Missions with no end date:** {", ".join(f"`{m}`" for m in open_missions) or "none"}
 - **Compliance frameworks:** {", ".join(ir.compliance.frameworks) or "none declared"}
 - **Data residency:** {", ".join(ir.compliance.data_residency) or "unrestricted"}

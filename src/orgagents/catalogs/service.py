@@ -17,9 +17,18 @@ from .models import (
     CatalogEntry,
     CatalogKind,
     Entitlement,
+    FigureMethod,
+    FigureProvenance,
     ModelAttributes,
     typed_attributes,
 )
+from .sources import FigureSource
+from .usage import CatalogUsage, UsageIndex, references_in_ir
+
+# The phrase every stale-figure verdict carries, so callers downstream — the
+# IR, the registry — can spot one without re-deriving the arithmetic.
+STALE_MARKER = "stale figure"
+
 
 CATALOG = "platform_catalog"
 
@@ -36,9 +45,30 @@ class ModelDecision:
     reason: str
     entry: Optional[CatalogEntry] = None
     alternatives: list[str] = field(default_factory=list)
+    # True when the figures this verdict turned on are past their horizon.
+    stale_figures: bool = False
 
     def __bool__(self) -> bool:
         return self.allowed
+
+
+@dataclass
+class RefreshReport:
+    """What one refresh did, including what it deliberately did not touch."""
+
+    source: str
+    updated: dict[str, list[str]] = field(default_factory=dict)
+    reconfirmed: list[str] = field(default_factory=list)
+    uncovered: list[str] = field(default_factory=list)
+
+    @property
+    def changed_any(self) -> bool:
+        return bool(self.updated)
+
+    def summary(self) -> str:
+        return (f"{self.source}: {len(self.updated)} updated, "
+                f"{len(self.reconfirmed)} reconfirmed, "
+                f"{len(self.uncovered)} left alone (no figure in source)")
 
 
 class CatalogService:
@@ -46,6 +76,7 @@ class CatalogService:
 
     def __init__(self, store: Store) -> None:
         self.store = store
+        self.usage = UsageIndex(store)
 
     # -- inventory ---------------------------------------------------------
 
@@ -110,7 +141,19 @@ class CatalogService:
         return self.publish(entry)
 
     def retire(self, entry_id: str, *, reviewer: str,
-               superseded_by: Optional[str] = None) -> CatalogEntry:
+               superseded_by: Optional[str] = None,
+               force: bool = False) -> CatalogEntry:
+        """Retire an entry, refusing while designs still reference it.
+
+        Refusing is the point of the usage index: retiring an entry breaks
+        every design bound to it at the next compile, and `force` exists so
+        that is a decision somebody makes rather than one they discover.
+        """
+        users = self.usage.systems_using(entry_id)
+        if users and not force:
+            raise CatalogError(
+                f"'{entry_id}' is used by {', '.join(users)}; "
+                "migrate them or retire with force=True")
         entry = self.review(
             entry_id, ApprovalStatus.RETIRED, reviewer=reviewer,
             note=f"superseded by {superseded_by}" if superseded_by else "retired",
@@ -149,14 +192,18 @@ class CatalogService:
         environment: str = "development",
     ) -> list[CatalogEntry]:
         """Every catalogued model this policy permits, cheapest first."""
-        allowed: list[tuple[float, CatalogEntry]] = []
+        allowed: list[tuple[bool, float, CatalogEntry]] = []
         for entry in self.list(CatalogKind.MODEL):
             decision = self.check_model(entry, policy, groups=groups,
                                         workspace=workspace, environment=environment)
             if decision.allowed:
                 attributes = ModelAttributes.model_validate(entry.attributes)
-                allowed.append((attributes.cost_per_million or 0.0, entry))
-        return [entry for _, entry in sorted(allowed, key=lambda pair: pair[0])]
+                # Sorted by (stale, cost): fallback picks the cheapest model
+                # whose price we still believe, and only reaches a stale row
+                # when no fresh one qualifies.
+                allowed.append((entry.figures_stale(),
+                                attributes.cost_per_million or 0.0, entry))
+        return [entry for _, _, entry in sorted(allowed, key=lambda t: (t[0], t[1]))]
 
     def check_model(
         self, entry: CatalogEntry, policy, *, groups: Optional[list[str]] = None,
@@ -164,6 +211,8 @@ class CatalogService:
     ) -> ModelDecision:
         """Whether one catalogued model satisfies a policy. Deny by default."""
         attributes = ModelAttributes.model_validate(entry.attributes)
+        stale = entry.figures_stale()
+        staleness = f" [{STALE_MARKER}: {entry.provenance.describe()}]" if stale else ""
 
         if entry.status is ApprovalStatus.RETIRED:
             return ModelDecision(False, f"'{entry.name}' is retired" + (
@@ -210,11 +259,14 @@ class CatalogService:
         cost = attributes.cost_per_million
         if policy.max_cost_per_million_tokens is not None and cost is not None:
             if cost > policy.max_cost_per_million_tokens:
+                # A refusal on a stale figure still refuses: the safe side of a
+                # cost ceiling is "too expensive", and the reason says which
+                # number it doubted so an operator can refresh and retry.
                 return ModelDecision(
                     False,
                     f"'{entry.name}' costs {cost} per million tokens, over the "
-                    f"{policy.max_cost_per_million_tokens} ceiling",
-                    entry,
+                    f"{policy.max_cost_per_million_tokens} ceiling" + staleness,
+                    entry, stale_figures=stale,
                 )
         if policy.require_regions:
             if not set(policy.require_regions) & set(attributes.regions):
@@ -224,7 +276,10 @@ class CatalogService:
                     f", outside the required {policy.require_regions}",
                     entry,
                 )
-        return ModelDecision(True, f"'{entry.name}' satisfies the policy", entry)
+        # Permitting on a stale figure is allowed but never silent: the verdict
+        # carries the marker all the way into the IR and the registry.
+        return ModelDecision(True, f"'{entry.name}' satisfies the policy" + staleness,
+                             entry, stale_figures=stale)
 
     def resolve_model(
         self, policy, *, provider: str = "", model_id: str = "",
@@ -255,6 +310,78 @@ class CatalogService:
         decision.alternatives = names
         return decision
 
+    # -- usage (WS-027 M5) -------------------------------------------------
+
+    def record_usage(self, usage: CatalogUsage) -> CatalogUsage:
+        return self.usage.record(usage)
+
+    def record_ir_usage(self, ir: Any) -> list[CatalogUsage]:
+        """Record every catalog reference a compiled design makes."""
+        self.usage.forget_system(getattr(ir, "name", ""))
+        return [self.usage.record(u) for u in references_in_ir(ir)]
+
+    def usage_for(self, entry_id: str) -> list[CatalogUsage]:
+        return self.usage.for_entry(entry_id)
+
+    def usage_report(self) -> dict[str, Any]:
+        """Who uses what, and which entries nobody uses."""
+        rows = self.usage.all()
+        by_entry: dict[str, list[str]] = {}
+        for row in rows:
+            by_entry.setdefault(row.entry_id, [])
+            if row.system and row.system not in by_entry[row.entry_id]:
+                by_entry[row.entry_id].append(row.system)
+        names = {e.id: e.name for e in self.list()}
+        return {
+            "references": len(rows),
+            "by_entry": {names.get(k, k): sorted(v) for k, v in by_entry.items()},
+            "unused": sorted(n for i, n in names.items() if i not in by_entry),
+        }
+
+    # -- refreshing figures (WS-026 M6) ------------------------------------
+
+    def refresh_figures(
+        self, source: FigureSource, *, now: Optional[str] = None,
+        horizon_days: Optional[int] = None,
+        kind: CatalogKind = CatalogKind.MODEL,
+    ) -> "RefreshReport":
+        """Update entries from a source and record where the numbers came from.
+
+        An entry the source has no figure for is left exactly as it was and
+        reported as uncovered, rather than being blanked or marked confirmed —
+        a source's silence says nothing about the figure already held.
+        """
+        report = RefreshReport(source=getattr(source, "name", "unnamed source"))
+        for entry in self.list(kind):
+            quote = source.quote(entry)
+            figures = quote.clean() if quote else {}
+            if not figures:
+                report.uncovered.append(entry.name)
+                continue
+            changed = sorted(k for k, v in figures.items()
+                             if entry.attributes.get(k) != v)
+            entry.attributes = {**entry.attributes, **figures}
+            entry.provenance = FigureProvenance(
+                method=FigureMethod.IMPORTED,
+                source=report.source,
+                source_url=quote.source_url,
+                confirmed_at=quote.observed_at or (now or now_iso()),
+                staleness_horizon_days=(
+                    horizon_days if horizon_days is not None
+                    else entry.provenance.staleness_horizon_days),
+                fields=sorted(figures),
+                note=quote.note,
+            )
+            self.publish(entry)
+            if changed:
+                report.updated[entry.name] = changed
+            else:
+                report.reconfirmed.append(entry.name)
+        return report
+
+    def stale_entries(self, *, now: Optional[str] = None) -> list[CatalogEntry]:
+        return [e for e in self.list() if e.figures_stale(now=now)]
+
     # -- reporting ---------------------------------------------------------
 
     def stats(self) -> dict[str, Any]:
@@ -275,6 +402,14 @@ class CatalogService:
             "deprecated_in_use": [e.name for e in entries
                                   if e.status is ApprovalStatus.DEPRECATED
                                   and e.installs],
+            # Figures a policy may already have decided on, past their horizon.
+            "stale_figures": [e.name for e in entries if e.figures_stale()],
+            "placeholder_figures": [
+                e.name for e in entries
+                if e.provenance.method is FigureMethod.PLACEHOLDER],
+            "figure_sources": sorted({e.provenance.source for e in entries
+                                      if e.provenance.source}),
+            "referenced_entries": len(self.usage_report()["by_entry"]),
         }
 
     def describe(self, entry_id: str) -> dict[str, Any]:

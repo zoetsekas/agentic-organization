@@ -14,7 +14,15 @@ from .models import (
     CatalogEntry,
     CatalogKind,
     Entitlement,
+    FigureMethod,
+    FigureProvenance,
 )
+
+# The day these figures were read off the provider's published pricing and
+# typed in. It is a fixed date, not "today at seed time": a fresh install
+# months from now inherits figures that are genuinely months old, and the
+# staleness horizon should say so rather than restarting the clock.
+SEED_CONFIRMED_AT = "2026-09-20T00:00:00+00:00"
 
 
 def _model(name: str, *, model_id: str, provider: str, classes: list[str],
@@ -36,6 +44,12 @@ def _model(name: str, *, model_id: str, provider: str, classes: list[str],
             "trains_on_data": trains, "supports_tools": True,
             "supports_vision": vision,
         },
+        provenance=FigureProvenance(
+            method=FigureMethod.OPERATOR, source="operator (provider pricing page)",
+            confirmed_at=SEED_CONFIRMED_AT,
+            fields=["context_tokens", "cost_per_million_input",
+                    "cost_per_million_output", "regions"],
+        ),
     )
 
 
@@ -64,6 +78,9 @@ SEED_MODELS = [
         attributes={"provider": "openai", "model_id": "", "classes": [],
                     "context_tokens": 0, "regions": []},
         review_note="Placeholder: figures must be supplied by the operator.",
+        provenance=FigureProvenance(
+            method=FigureMethod.PLACEHOLDER,
+            note="No figures held; an operator or an import must supply them."),
     ),
     CatalogEntry(
         id="cat_model_self_hosted", kind=CatalogKind.MODEL,
@@ -74,6 +91,9 @@ SEED_MODELS = [
         attributes={"provider": "self_hosted", "model_id": "",
                     "classes": ["on_premises"], "context_tokens": 0,
                     "hosting": "on_premises", "regions": []},
+        provenance=FigureProvenance(
+            method=FigureMethod.PLACEHOLDER,
+            note="No figures held; an operator or an import must supply them."),
     ),
 ]
 

@@ -8,14 +8,25 @@ identifiers into a chat channel.
 Every check is named and declared — no regex soup buried in a prompt — and
 every trip produces a record naming the guardrail, the check and what it found,
 so a refusal is explainable to the person who hit it.
+
+*How* a check forms its verdict is pluggable (ADR-0045): the deterministic
+pattern classifier is the default, and a deployment can supply a model-backed
+one. The patterns themselves live in `classifiers` alongside the protocol.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
-from urllib.parse import urlparse
 
+from .classifiers import (  # re-exported: this is where callers look for them
+    INJECTION_PHRASES,
+    PATTERNS,
+    PII_CHECKS,
+    SECRET_CHECKS,
+    Classification,
+    Classifier,
+    PatternClassifier,
+)
 from .spec.model import (
     Guardrail,
     GuardrailAction,
@@ -23,32 +34,7 @@ from .spec.model import (
     GuardrailKind,
 )
 
-# Patterns are deliberately conservative: a guardrail that cries wolf is one
-# people switch off. Each is documented by what it is *meant* to catch.
-PATTERNS: dict[str, re.Pattern[str]] = {
-    # Credentials and keys.
-    "aws_key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    "private_key": re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    "bearer": re.compile(r"\b(?:bearer|token|api[_-]?key)\s*[:=]\s*\S{12,}", re.I),
-    "dsn": re.compile(r"\b\w+://[^\s:@/]+:[^\s@/]+@\S+"),
-    # Identifying data.
-    "email": re.compile(r"\b[\w.%-]+@[\w.-]+\.[A-Za-z]{2,}\b"),
-    "card": re.compile(r"\b(?:\d[ -]?){13,19}\b"),
-    "ssn": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
-    "iban": re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b"),
-    "phone": re.compile(r"\+\d{1,3}[\s-]?\(?\d{2,4}\)?[\s-]?\d{3,4}[\s-]?\d{3,4}\b"),
-}
-SECRET_CHECKS = ("aws_key", "private_key", "bearer", "dsn")
-PII_CHECKS = ("email", "card", "ssn", "iban", "phone")
-
-# Phrases that appear when text is trying to steer the agent rather than inform
-# it. Matching one is a signal to treat the content as data, not a verdict.
-INJECTION_PHRASES = (
-    "ignore previous instructions", "ignore all previous", "disregard the above",
-    "you are now", "system prompt", "reveal your instructions",
-    "act as an unrestricted", "developer mode", "print your system message",
-    "override your guardrails", "bypass the policy",
-)
+DEFAULT_CLASSIFIER = PatternClassifier()
 
 
 @dataclass
@@ -58,6 +44,9 @@ class Violation:
     action: GuardrailAction
     detail: str
     matches: list[str] = field(default_factory=list)
+    # Which classifier decided this, and whether it was working (ADR-0045).
+    source: str = "pattern"
+    degraded: bool = False
 
     def describe(self) -> str:
         return f"{self.guardrail}/{self.check.value}: {self.detail}"
@@ -81,15 +70,13 @@ class GuardrailResult:
         return "; ".join(v.describe() for v in self.violations) or "no violation"
 
 
-def _redact(text: str, pattern: re.Pattern[str], label: str) -> str:
-    return pattern.sub(f"[redacted:{label}]", text)
-
-
 class GuardrailEngine:
     """Runs the declared guardrails over content crossing a boundary."""
 
-    def __init__(self, guardrails: list[Guardrail]) -> None:
+    def __init__(self, guardrails: list[Guardrail],
+                 classifier: Optional[Classifier] = None) -> None:
         self.guardrails = [g for g in guardrails if g.enabled]
+        self.classifier = classifier or DEFAULT_CLASSIFIER
 
     def for_kind(self, kind: GuardrailKind) -> list[Guardrail]:
         return [g for g in self.guardrails if kind in g.applies_to]
@@ -97,69 +84,9 @@ class GuardrailEngine:
     # -- checks ------------------------------------------------------------
 
     def _run_check(self, guardrail: Guardrail, check: GuardrailCheck, text: str,
-                   context: dict[str, Any]) -> tuple[list[str], str, str]:
-        """Return (matches, detail, redacted_text) for one check."""
-        redacted = text
-        matches: list[str] = []
-
-        if check is GuardrailCheck.SECRETS:
-            for name in SECRET_CHECKS:
-                found = PATTERNS[name].findall(text)
-                if found:
-                    matches.append(name)
-                    redacted = _redact(redacted, PATTERNS[name], name)
-            return matches, f"credential-shaped content: {', '.join(matches)}", redacted
-
-        if check is GuardrailCheck.PII:
-            for name in PII_CHECKS:
-                if PATTERNS[name].search(text):
-                    matches.append(name)
-                    redacted = _redact(redacted, PATTERNS[name], name)
-            return matches, f"identifying data: {', '.join(matches)}", redacted
-
-        if check is GuardrailCheck.PROMPT_INJECTION:
-            lowered = text.lower()
-            matches = [p for p in INJECTION_PHRASES if p in lowered]
-            return (matches, f"instruction-like content: {matches[:3]}", redacted)
-
-        if check is GuardrailCheck.DATA_CLASS:
-            carried = set(context.get("data_classes", []))
-            hit = sorted(carried & set(guardrail.data_classes))
-            return hit, f"carries restricted data class(es): {hit}", redacted
-
-        if check is GuardrailCheck.URL_ALLOWLIST:
-            urls = re.findall(r"https?://\S+", text)
-            allowed = guardrail.allowed_urls
-            bad = [
-                u for u in urls
-                if not any(
-                    (urlparse(u).hostname or "").endswith(a.lstrip("*."))
-                    for a in allowed
-                )
-            ]
-            return bad, f"links outside the allowlist: {bad[:3]}", redacted
-
-        if check is GuardrailCheck.PATTERN:
-            for pattern in guardrail.patterns:
-                compiled = re.compile(pattern, re.I)
-                if compiled.search(text):
-                    matches.append(pattern)
-                    redacted = compiled.sub("[redacted]", redacted)
-            return matches, f"matched declared pattern(s): {matches}", redacted
-
-        if check is GuardrailCheck.MAX_LENGTH:
-            limit = guardrail.max_length or 0
-            if limit and len(text) > limit:
-                return ([f"{len(text)}>{limit}"],
-                        f"content is {len(text)} characters, over the {limit} limit",
-                        text[:limit])
-            return [], "", redacted
-
-        if check is GuardrailCheck.SCHEMA:
-            errors = context.get("schema_errors") or []
-            return list(errors), f"does not match the declared shape: {errors[:3]}", text
-
-        return [], "", redacted
+                   context: dict[str, Any]) -> Classification:
+        """Form a verdict on one check, through the configured classifier."""
+        return self.classifier.classify(guardrail, check, text, context)
 
     # -- evaluation --------------------------------------------------------
 
@@ -177,12 +104,14 @@ class GuardrailEngine:
 
         for guardrail in [*self.for_kind(kind), *(extra or [])]:
             for check in guardrail.checks:
-                matches, detail, candidate = self._run_check(guardrail, check,
-                                                             working, context)
-                if not matches:
+                verdict = self._run_check(guardrail, check, working, context)
+                if not verdict.matches:
                     continue
-                violation = Violation(guardrail.id, check, guardrail.on_violation,
-                                      detail, [str(m) for m in matches])
+                candidate = verdict.redacted or working
+                violation = Violation(
+                    guardrail.id, check, guardrail.on_violation, verdict.detail,
+                    [str(m) for m in verdict.matches], source=verdict.source,
+                    degraded=verdict.degraded)
                 violations.append(violation)
                 if guardrail.on_violation is GuardrailAction.BLOCK:
                     blocked = True

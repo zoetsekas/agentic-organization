@@ -18,7 +18,7 @@ from .loader import (
 from .migrations import CURRENT, MIGRATIONS, MigrationStep, migrate
 from .model import SystemSpec
 from .schema import system_spec_schema, system_spec_schema_json
-from .validate import Finding, validate_spec
+from .validate import Finding, directory_findings, validate_spec
 
 __all__ = [
     "SystemSpec",
@@ -42,5 +42,6 @@ __all__ = [
     "load_binding",
     "dump_spec",
     "validate_spec",
+    "directory_findings",
     "Finding",
 ]

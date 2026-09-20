@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
@@ -272,9 +272,7 @@ class ContextManager:
         if not older:
             return CompactionResult(turns, tokens_before=before, tokens_after=before)
 
-        summary = (
-            summarizer(older) if summarizer else _fallback_summary(older)
-        )
+        summary = _summarize_with(summarizer, older)
         compacted = [Turn("system", f"Summary of {len(older)} earlier turns:\n{summary}")]
         compacted += recent
         after = sum(t.tokens for t in compacted)
@@ -285,6 +283,90 @@ class ContextManager:
             return CompactionResult(turns, tokens_before=before, tokens_after=before)
         return CompactionResult(compacted, summary=summary, tokens_before=before,
                                 tokens_after=after, compacted=True)
+
+
+@runtime_checkable
+class Summarizer(Protocol):
+    """What compaction needs from anything that condenses older turns.
+
+    A plain callable satisfies it too, and `_summarize_with` accepts either —
+    the runtime has always taken a function here and there is no reason to
+    break that to gain an interface.
+    """
+
+    name: str
+
+    def summarize(self, turns: list[Turn]) -> str:
+        ...
+
+
+def _summarize_with(summarizer: Optional[Any], turns: list[Turn]) -> str:
+    if summarizer is None:
+        return FirstLastSummarizer().summarize(turns)
+    if hasattr(summarizer, "summarize"):
+        return summarizer.summarize(turns)
+    return summarizer(turns)
+
+
+class FirstLastSummarizer:
+    """The honest fallback used when no model summarizer is supplied.
+
+    It keeps the first and last exchange verbatim and counts the rest, and
+    says so in the text it produces. That is honest about what was dropped,
+    which a fabricated prose summary would not be — so this stays the default
+    and stays truthful about being structural rather than a real summary.
+    """
+
+    name = "first_last"
+
+    def summarize(self, turns: list[Turn]) -> str:
+        return _fallback_summary(turns)
+
+
+class ModelSummarizer:
+    """Real summarization, behind the same protocol (ADR-0045).
+
+    `complete` is any callable taking a prompt and returning text, supplied by
+    the deployment; nothing here imports a provider SDK or names a model.
+    `model_class` records what the context policy asked for — a `ModelClass`
+    value from the spec — and the binding decides what satisfies it.
+
+    When the call fails or comes back empty, compaction falls back to the
+    structural summary rather than dropping the older turns: losing a thread
+    because a summarizer was unreachable is worse than a coarse summary, and
+    the fallback text still says what it did.
+    """
+
+    name = "model"
+
+    PROMPT = (
+        "Summarize the conversation below for an agent that must continue it.\n"
+        "Keep decisions, commitments, open questions, identifiers and numbers.\n"
+        "Drop pleasantries and repetition. Be shorter than the original.\n"
+        "Write prose, no preamble.\n\n{thread}"
+    )
+
+    def __init__(self, complete: Callable[[str], str], *,
+                 model_class: str = "",
+                 fallback: Optional[Any] = None) -> None:
+        self.complete = complete
+        self.model_class = model_class
+        self.fallback = fallback or FirstLastSummarizer()
+
+    def summarize(self, turns: list[Turn]) -> str:
+        thread = "\n".join(f"{t.role}: {t.content}" for t in turns)
+        try:
+            summary = self.complete(self.PROMPT.format(thread=thread))
+        except Exception as e:  # any provider failure, not just one shape
+            return (f"{_summarize_with(self.fallback, turns)}\n"
+                    f"- summarizer unavailable ({type(e).__name__}); "
+                    "this is a structural summary, not a written one")
+        summary = (summary or "").strip()
+        if not summary:
+            return (f"{_summarize_with(self.fallback, turns)}\n"
+                    "- summarizer returned nothing; this is a structural "
+                    "summary, not a written one")
+        return summary
 
 
 def _fallback_summary(turns: list[Turn]) -> str:

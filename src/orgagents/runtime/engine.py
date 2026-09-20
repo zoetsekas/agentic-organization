@@ -20,7 +20,8 @@ from ..catalog import Catalog
 from ..data.planes import AccessDenied, DataPlanes
 from ..harness.builder import HarnessBuilder
 from ..messaging import ChannelKind, DeliveryError, MessageBus
-from ..context import ArtifactWorkspace, ContextManager, ResolvedContext
+from ..context import ArtifactWorkspace, ContextManager, ResolvedContext, Turn
+from ..classifiers import Classifier
 from ..guardrails import GuardrailEngine, GuardrailResult, validate_shape
 from ..memory import MemoryError, MemoryManager, ResolvedMemory
 from ..models import Agent, AgentKind, SessionState, Severity, WorkflowRef
@@ -32,6 +33,8 @@ from ..spec.model import (
     MemoryNamespace,
     MemoryPolicy,
     MemoryTier,
+    OutputContract,
+    OutputViolationAction,
     RecallMode,
     SharingScope,
 )
@@ -62,6 +65,9 @@ class AgentRuntime:
         *,
         base_url: str = "http://localhost:8000",
         harness: Optional[HarnessBuilder] = None,
+        classifier: Optional[Classifier] = None,
+        summarizer: Optional[Any] = None,
+        max_contract_retries: Optional[int] = None,
     ) -> None:
         self.store = store
         self.org = OrgChart(store)
@@ -74,6 +80,12 @@ class AgentRuntime:
         self.memory = MemoryManager(store)
         self.workspace = ArtifactWorkspace(store)
         self.context = ContextManager(self.workspace)
+        # Supplied by the deployment (ADR-0045); unset means the deterministic
+        # pattern classifier and the structural summarizer, both of which need
+        # no model call and no network.
+        self.classifier = classifier
+        self.summarizer = summarizer
+        self.max_contract_retries = max_contract_retries
         self._depth = 0
 
     # -- public API --------------------------------------------------------
@@ -155,10 +167,10 @@ class AgentRuntime:
                 )
             elif outbound.redacted:
                 out.text = outbound.content
-            contract_errors = self.check_output_contract(agent, out.text)
-            if contract_errors:
-                self.sessions.log(session.id, "output_contract", actor=agent.id,
-                                  payload={"errors": contract_errors[:5]})
+            out, contract_errors = self._enforce_contract(
+                agent, adapter, session.id, prompt, out,
+                screened=outbound.blocked,
+            )
             result.output = out.text
             result.tool_calls = out.tool_calls
             self.sessions.record_usage(session.id, tokens=out.tokens, turns=1)
@@ -203,7 +215,8 @@ class AgentRuntime:
 
     def guardrail_engine(self, agent: Agent) -> GuardrailEngine:
         return GuardrailEngine(
-            [Guardrail.model_validate(g) for g in agent.guardrails]
+            [Guardrail.model_validate(g) for g in agent.guardrails],
+            classifier=self.classifier,
         )
 
     def context_for(self, agent: Agent) -> ResolvedContext:
@@ -261,6 +274,85 @@ class AgentRuntime:
                         "got unparseable text"]
         return validate_shape(value, schema)
 
+    # -- contract retry (ADR-0037, WS-024 M6) ------------------------------
+
+    def _contract_policy(self, agent: Agent) -> tuple[str, int]:
+        """The declared action and attempt budget for this agent's contract."""
+        contract = agent.output_contract or {}
+        action = str(contract.get("on_violation") or OutputViolationAction.RETRY.value)
+        retries = contract.get("max_retries")
+        retries = OutputContract.model_fields["max_retries"].default \
+            if retries is None else int(retries)
+        if self.max_contract_retries is not None:
+            retries = min(retries, self.max_contract_retries)
+        return action, max(retries, 0)
+
+    def _enforce_contract(self, agent: Agent, adapter: RuntimeAdapter,
+                          session_id: str, prompt: str, out: TurnOutput, *,
+                          screened: bool = False) -> tuple[TurnOutput, list[str]]:
+        """Check the contract and, where the policy says so, re-prompt.
+
+        Every attempt is recorded, and an attempt budget that runs out is not
+        an acceptance: the last violation is logged exactly as a single
+        unretried one always has been, so a caller still sees it fail.
+        """
+        errors = self.check_output_contract(agent, out.text)
+        if not errors:
+            return out, errors
+        action, budget = self._contract_policy(agent)
+        # A withheld response is a guardrail decision, not a shape the agent
+        # can be asked to fix, so it is never retried.
+        if action != OutputViolationAction.RETRY.value or screened:
+            budget = 0
+
+        attempt = 0
+        while True:
+            last = attempt >= budget
+            self.sessions.log(
+                session_id, "output_contract", actor=agent.id,
+                payload={"errors": errors[:5], "attempt": attempt + 1,
+                         "max_attempts": budget + 1, "resolved": False,
+                         "action": action, "final": last},
+            )
+            if last:
+                return out, errors
+            attempt += 1
+            try:
+                retried = adapter.run(self._contract_retry_prompt(
+                    agent, prompt, out.text, errors))
+            except Exception as e:
+                self.sessions.log(
+                    session_id, "output_contract", actor=agent.id,
+                    payload={"errors": errors[:5], "attempt": attempt + 1,
+                             "max_attempts": budget + 1, "resolved": False,
+                             "error": f"{type(e).__name__}: {e}", "final": True},
+                )
+                return out, errors
+            out = retried
+            errors = self.check_output_contract(agent, out.text)
+            if not errors:
+                self.sessions.log(
+                    session_id, "output_contract", actor=agent.id,
+                    payload={"errors": [], "attempt": attempt + 1,
+                             "max_attempts": budget + 1, "resolved": True,
+                             "action": action, "final": True},
+                )
+                return out, errors
+
+    def _contract_retry_prompt(self, agent: Agent, prompt: str, answer: str,
+                               errors: list[str]) -> str:
+        """Hand the agent its own answer and what is wrong with it."""
+        contract = agent.output_contract or {}
+        named = contract.get("id") or "the declared output contract"
+        listed = "\n".join(f"- {e}" for e in errors[:10])
+        return (
+            f"{prompt}\n\n"
+            f"Your previous answer did not satisfy {named}:\n{listed}\n\n"
+            "Previous answer:\n"
+            f"{answer[:4000]}\n\n"
+            "Return only a corrected answer that matches the contract."
+        )
+
     def _artifact_tools(self, agent: Agent, session_id: str) -> dict[str, Any]:
         resolved = self.context_for(agent)
         if resolved.store is None:
@@ -298,6 +390,16 @@ class AgentRuntime:
 
         return {"artifact_write": artifact_write, "artifact_read": artifact_read,
                 "artifact_list": artifact_list}
+
+    def compact_thread(self, agent: Agent, turns: list[Turn]):
+        """Compact a thread with whatever summarizer the deployment supplied.
+
+        Still refuses when the result would not be smaller (ADR-0036): that
+        rule belongs to compaction, not to the summarizer, so a model-backed
+        summarizer cannot talk it out of it.
+        """
+        return self.context.compact(self.context_for(agent), turns,
+                                    summarizer=self.summarizer)
 
     def offload_if_large(self, agent: Agent, session_id: str, label: str,
                          content: str) -> str:

@@ -267,7 +267,31 @@ def _catalogs_command(args: argparse.Namespace) -> int:
             print(f"{entry.name:34} {entry.status.value:11} "
                   f"{', '.join(attributes.get('classes', [])) or '—':44} "
                   f"{('$' + str(cost)) if cost else '—':>8}/M in  "
-                  f"{attributes.get('context_tokens', 0):>8} ctx")
+                  f"{attributes.get('context_tokens', 0):>8} ctx  "
+                  f"{entry.figure_state:11} "
+                  f"{entry.provenance.describe()}")
+        return 0
+    if args.action == "refresh":
+        if not args.args:
+            print("usage: orgagents catalogs refresh <figures.json>")
+            return 2
+        from .catalogs import FileFigureSource
+
+        report = service.refresh_figures(FileFigureSource(args.args[0]))
+        print(report.summary())
+        for name, fields in sorted(report.updated.items()):
+            print(f"  updated {name}: {', '.join(fields)}")
+        for name in report.uncovered:
+            # Naming them is the point: the source said nothing, so these
+            # figures are still whatever somebody typed.
+            print(f"  left alone {name}")
+        return 0
+    if args.action == "usage":
+        print(json.dumps(service.usage_report(), indent=2))
+        return 0
+    if args.action == "stale":
+        for entry in service.stale_entries():
+            print(f"{entry.name:34} {entry.provenance.describe()}")
         return 0
     kind = CatalogKind(args.kind) if args.kind else None
     for entry in service.search(" ".join(args.args), kind=kind):
@@ -375,7 +399,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p_cat2 = sub.add_parser("catalogs", help="the platform catalog of building blocks")
     p_cat2.add_argument("action", choices=["list", "seed", "approve", "stats",
-                                           "models"])
+                                           "models", "refresh", "stale",
+                                           "usage"])
     p_cat2.add_argument("args", nargs="*")
     p_cat2.add_argument("--kind")
 

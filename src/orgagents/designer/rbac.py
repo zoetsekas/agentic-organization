@@ -11,8 +11,8 @@ way to obtain a permission, and every decision names the reason.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Mapping, Optional
 
 from .models import UserRole, Workspace
 
@@ -60,10 +60,24 @@ class Principal:
     user_id: str
     display_name: str = ""
     email: str = ""
+    # Roles vouched for by the identity provider (ADR-0044), keyed by workspace
+    # id with "*" for installation-wide. Empty for a header identity, and
+    # empty is the whole point: no grant, no access.
+    granted_roles: Mapping[str, UserRole] = field(default_factory=dict)
 
     @property
     def label(self) -> str:
         return self.display_name or self.user_id
+
+    def granted_role(self, workspace_id: str) -> Optional[UserRole]:
+        """The strongest role the provider granted for this workspace."""
+        candidates = [r for r in (self.granted_roles.get(workspace_id),
+                                  self.granted_roles.get("*")) if r is not None]
+        if not candidates:
+            return None
+        order = [UserRole.VIEWER, UserRole.REVIEWER, UserRole.EDITOR,
+                 UserRole.ADMIN, UserRole.OWNER]
+        return max(candidates, key=order.index)
 
 
 @dataclass(frozen=True)
@@ -82,7 +96,11 @@ def role_of(workspace: Optional[Workspace], principal: Principal,
     if workspace is None:
         return default
     member = workspace.member(principal.user_id)
-    return member.role if member else None
+    if member:
+        # An explicit membership wins over the directory: a role an admin
+        # chose is not quietly rewritten by a group change (ADR-0044).
+        return member.role
+    return principal.granted_role(workspace.id)
 
 
 def decide(workspace: Optional[Workspace], principal: Principal, permission: str,
