@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union, get_args, get_origin
 
 from pydantic import BaseModel, Field
 
@@ -142,6 +142,33 @@ class FigureProvenance(BaseModel):
                 f"horizon {self.staleness_horizon_days} days")
 
 
+# --------------------------------------------------------------------------
+# What may be edited, and what must be versioned (ADR-0062)
+# --------------------------------------------------------------------------
+
+
+# Editorial fields describe the entry to people. They decide nothing, so they
+# may be corrected in place at any status.
+EDITORIAL_FIELDS = (
+    "name", "summary", "description", "owner", "tags", "documentation_url",
+)
+
+# Substantive fields decide what a design bound to this entry resolves to.
+# Changing one after review changes what was reviewed, so on an approved or
+# restricted entry they make a new version instead.
+SUBSTANTIVE_FIELDS = ("kind", "version", "attributes")
+
+
+class CatalogEvent(BaseModel):
+    """One recorded mutation of an entry: who, when, and what changed."""
+
+    action: str                      # created | updated | amended | reviewed | ...
+    actor: str = ""
+    at: str = Field(default_factory=now_iso)
+    changes: list[str] = Field(default_factory=list)
+    note: str = ""
+
+
 class CatalogEntry(BaseModel):
     """One building block, with the governance every block needs."""
 
@@ -171,6 +198,8 @@ class CatalogEntry(BaseModel):
     # Where the entry's figures came from and when they were last confirmed;
     # set on import, and defaulted to "an operator typed this" otherwise.
     provenance: FigureProvenance = Field(default_factory=lambda: FigureProvenance())
+    # Every mutation, in order, so a correction is as traceable as a review.
+    history: list[CatalogEvent] = Field(default_factory=list)
 
     @property
     def figure_state(self) -> str:
@@ -193,6 +222,11 @@ class CatalogEntry(BaseModel):
         if self.provenance.method is FigureMethod.PLACEHOLDER:
             return False
         return self.provenance.is_stale(now=now)
+
+    @property
+    def substantively_locked(self) -> bool:
+        """Whether substantive edits are refused on this entry (ADR-0062 r2)."""
+        return self.status in (ApprovalStatus.APPROVED, ApprovalStatus.RESTRICTED)
 
     @property
     def selectable(self) -> bool:
@@ -274,12 +308,122 @@ class PermissionSetAttributes(BaseModel):
     requires_approval: bool = False
 
 
+class PluginAttributes(BaseModel):
+    package: str = ""
+    entrypoint: str = ""
+    capabilities: list[str] = Field(default_factory=list)
+    sandboxed: bool = True
+
+
+class ToolAttributes(BaseModel):
+    interface: Literal["function", "http", "cli"] = "function"
+    endpoint: str = ""
+    parameters: list[str] = Field(default_factory=list)
+    side_effects: Literal["none", "read", "write"] = "read"
+
+
+class SkillAttributes(BaseModel):
+    instructions_url: str = ""
+    applies_to: list[str] = Field(default_factory=list)
+    level: Literal["basic", "advanced"] = "basic"
+
+
+class GuardrailAttributes(BaseModel):
+    checks: list[str] = Field(default_factory=list)
+    on_violation: Literal["block", "redact", "warn", "escalate"] = "block"
+    applies_to: list[str] = Field(default_factory=list)
+
+
+class KnowledgeSourceAttributes(BaseModel):
+    uri: str = ""
+    format: str = ""
+    classification: Literal["public", "internal", "confidential", "restricted"] = (
+        "internal")
+    refresh_interval_hours: int = 24
+
+
+class WorkflowAttributes(BaseModel):
+    engine: str = ""
+    definition_url: str = ""
+    steps: list[str] = Field(default_factory=list)
+    idempotent: bool = True
+
+
+class AgentTemplateAttributes(BaseModel):
+    role: str = ""
+    model_class: str = ""
+    capabilities: list[str] = Field(default_factory=list)
+    autonomy: Literal["suggest", "act_with_approval", "act"] = "act_with_approval"
+
+
+class EndpointAttributes(BaseModel):
+    url: str = ""
+    protocol: Literal["http", "grpc", "a2a", "websocket"] = "http"
+    auth: str = ""
+    scopes: list[str] = Field(default_factory=list)
+
+
+# Every kind has a declared attribute shape, so a form can be generated for all
+# twelve rather than hand-written twelve times (ADR-0062).
 ATTRIBUTE_MODELS: dict[CatalogKind, type[BaseModel]] = {
     CatalogKind.MODEL: ModelAttributes,
     CatalogKind.MCP_SERVER: MCPServerAttributes,
     CatalogKind.ENVIRONMENT_TEMPLATE: EnvironmentTemplateAttributes,
     CatalogKind.PERMISSION_SET: PermissionSetAttributes,
+    CatalogKind.PLUGIN: PluginAttributes,
+    CatalogKind.TOOL: ToolAttributes,
+    CatalogKind.SKILL: SkillAttributes,
+    CatalogKind.GUARDRAIL: GuardrailAttributes,
+    CatalogKind.KNOWLEDGE_SOURCE: KnowledgeSourceAttributes,
+    CatalogKind.WORKFLOW: WorkflowAttributes,
+    CatalogKind.AGENT_TEMPLATE: AgentTemplateAttributes,
+    CatalogKind.ENDPOINT: EndpointAttributes,
 }
+
+
+def _field_descriptor(name: str, field: Any) -> dict[str, Any]:
+    """One attribute described well enough for a UI to render an input for it."""
+    annotation = field.annotation
+    origin = get_origin(annotation)
+    descriptor: dict[str, Any] = {
+        "name": name,
+        "label": name.replace("_", " ").capitalize(),
+        "type": "string",
+        "choices": [],
+    }
+    if origin is Union:      # Optional[X]
+        args = [a for a in get_args(annotation) if a is not type(None)]
+        annotation = args[0] if args else str
+        origin = get_origin(annotation)
+        descriptor["optional"] = True
+    if origin is Literal:
+        descriptor["type"] = "choice"
+        descriptor["choices"] = [str(a) for a in get_args(annotation)]
+    elif origin in (list, set, tuple):
+        item = (get_args(annotation) or (str,))[0]
+        descriptor["type"] = "objects" if item is not str else "list"
+    elif annotation is bool:
+        descriptor["type"] = "boolean"
+    elif annotation is int:
+        descriptor["type"] = "integer"
+    elif annotation is float:
+        descriptor["type"] = "number"
+    elif annotation is dict or origin is dict:
+        descriptor["type"] = "objects"
+    return descriptor
+
+
+def attribute_schema(kind: CatalogKind) -> list[dict[str, Any]]:
+    """The declared attributes of a kind, as form field descriptors.
+
+    Derived from the pydantic shape rather than restated, so a field added to
+    an attribute model appears in the UI without anyone editing the UI.
+    """
+    model = ATTRIBUTE_MODELS.get(kind)
+    if model is None:
+        return []
+    return [_field_descriptor(name, field)
+            for name, field in model.model_fields.items()]
 
 
 def typed_attributes(entry: CatalogEntry) -> BaseModel | dict[str, Any]:

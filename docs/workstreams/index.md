@@ -29,7 +29,7 @@
 | [WS-024](WS-024-framework-parity.md) | Framework parity — guardrails, context, contracts and shared instructions | Active | 1.1.0 | Platform Architecture | ADR-0035, ADR-0036, ADR-0037, ADR-0038, ADR-0045 | WS-011, WS-005 |
 | [WS-025](WS-025-missions.md) | Missions — short-lived teams | Active | 1.1.0 | Product | ADR-0039 | WS-003 |
 | [WS-026](WS-026-model-governance.md) | Model governance — approved models per agent | Active | 1.2.0 | Security Engineering | ADR-0040, ADR-0046 | WS-027, WS-005 |
-| [WS-027](WS-027-platform-catalog.md) | Platform catalog of building blocks | Active | 1.1.0 | Platform Architecture | ADR-0041, ADR-0046 | WS-020 |
+| [WS-027](WS-027-platform-catalog.md) | Platform catalog of building blocks | Active | 1.2.0 | Platform Architecture | ADR-0041, ADR-0046, ADR-0062 | WS-020 |
 | [WS-028](WS-028-tenancy-and-isolation.md) | Tenancy and isolation | Active | 1.2.0 | Platform Architecture | ADR-0049, ADR-0050 | WS-004, WS-005, WS-007 |
 | [WS-029](WS-029-command-centre.md) | The command centre | Active | 1.2.0 | Product | ADR-0049, ADR-0051 | WS-021, WS-028, WS-030 |
 | [WS-030](WS-030-fabric-common-services-and-operations.md) | Fabric common services and operations | Active | 1.2.0 | Platform Architecture | ADR-0049, ADR-0052 | WS-010, WS-014, WS-027, WS-028 |

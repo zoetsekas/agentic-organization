@@ -1,12 +1,16 @@
 # The Agentic Designer UI
 
-`http://localhost:8000/ui/` after `orgagents serve`. One System Spec, several
-views of it, plus two runtime views that observe what is running.
+`http://localhost:8000/ui/` after `orgagents serve`. One saved design holds
+exactly one org chart (`SystemSpec.organization`), so **one design is one
+organisation**: the UI says organisation throughout, while the wire keeps the
+word it has always used — `/api/designer/systems`, `workspace_id`, `system_id`
+— because the protocol is not the vocabulary a user reads. Several views of
+that one organisation, plus two runtime views that observe what is running.
 
 ## The context bar
 
 Above every view: who you are (`GET /api/designer/whoami`), the role you hold
-in the current workspace, the workspace and system you have open, the version
+in the current workspace, the workspace and organisation you have open, the version
 and lock badges, and Save, Lock, History, People and Settings. A refusal is
 only understandable if the role behind it is on screen, so identity is
 persistent rather than a dialog.
@@ -16,13 +20,35 @@ persistent rather than a dialog.
 The org chart, the canvas and the agent editor read and write the *same*
 `record.spec`: one document in the browser, owned by `canvas.js` and reached
 through `window.designer`. Editing an agent in the agent editor and moving its
-box on the canvas are the same edit. When no system is open they say so; none
-of them falls back to runtime data.
+box on the canvas are the same edit. When no organisation is open they say so
+and offer to create one; none of them falls back to runtime data.
 
 ### Org chart
-The organization as the spec defines it: teams, their leaders and mandates,
+The organisation as the spec defines it: teams, their leaders and mandates,
 their agents, each agent's roles, capabilities, human counterparts and
 sub-agents. **Edit this agent** opens it in the agent editor.
+
+#### Managing the organisation
+A toolbar above the chart carries the whole life of one organisation:
+
+| Affordance | What it does | API |
+|---|---|---|
+| The selector | Lists the organisations in the open workspace and switches the open one | `GET /systems?workspace_id=` |
+| **New…** | Name, description, owner, environment and labels — the fields `SystemSpec.metadata` actually holds, and no others | `POST /systems`, then the ordinary save |
+| **Edit definition…** | The same form over the open organisation: rename and change its metadata | `PUT /systems/{id}` |
+| **Duplicate** | Client-side: read the organisation, post a copy of its spec named `… (copy)`, then carry its layout over with one save. There is no server-side copy route and none was added | `GET` + `POST /systems` + `PUT` |
+| **Delete…** | Confirms by name, and on refusal shows the API's own `detail` | `DELETE /systems/{id}` |
+
+The selector here and the one in the context bar are the *same* state: both
+carry `data-org-select`, and `canvas.js` fills every one of them from the one
+open id and wires them to the one handler, so neither can show something the
+other does not. The context bar's **New organisation** opens the same form on
+the org chart tab rather than a second creation path.
+
+Edit, duplicate and delete are offered only when the open record reports
+`system.edit`, and edit and delete also stand down while someone else holds the
+lock. The version and the lock are repeated beside the toolbar, so the reason a
+control is unavailable is on the same screen as the control.
 
 ### Canvas
 Drag-and-drop over the same document, with locks, revisions, restore and
@@ -36,13 +62,13 @@ capabilities each may approve, and the bindings — roles, capabilities,
 knowledge, workflows, external agents, skills, plugins, channels, environment
 class, artifact store and output contract. Every binding is chosen from what
 *this spec* declares, so an agent cannot reach something the document does not
-define. Save writes the system; validation from the last open is shown beside
-it.
+define. Save writes the organisation; validation from the last open is shown
+beside it.
 
 ### Workspace
 Membership — add, change and remove — offered only to a role that holds
 `workspace.members`, and the audit log (`GET /api/designer/audit`) filtered by
-system, actor and action, with refusals marked. Where the API refuses, its own
+organisation, actor and action, with refusals marked. Where the API refuses, its own
 message is shown: it knows which role refused and why.
 
 ## Runtime views — they observe the running system
@@ -105,7 +131,10 @@ a design view has no spec equivalent it shows nothing rather than a runtime
 value wearing a design label. Sessions and operations stay on `/sessions` and
 `/ops` on purpose: they are observations of a running system, and moving them
 onto the spec would make them lie. `tests/test_designer_ui.py` holds this line
-from outside the bundle.
+from outside the bundle, and `tests/test_designer_org_crud.py` holds the
+organisation affordances the same way: the routes they call, the one state
+behind the two selectors, the `canEdit` gate, and that refusal text is quoted
+from the API rather than written in the bundle.
 
 ## Backend capability with no UI in front of it
 
@@ -116,6 +145,7 @@ from outside the bundle.
 | Audit log — including refusals | `GET /api/designer/audit` | Yes — filtered, with denials marked |
 | Lock heartbeat and break | `.../lock/heartbeat`, `.../lock/break` | Break yes; **no heartbeat is sent**, so a long edit can lose its lock |
 | Revisions and restore | `.../revisions`, `.../restore/{v}` | Yes, but through a `prompt()` rather than a history panel |
+| Create, rename, duplicate, delete an organisation | `POST/PUT/DELETE /systems` | Yes — the org chart toolbar, gated on `system.edit` |
 
 Two caveats worth keeping honest. An unscoped audit read that is refused is
 *not* itself recorded — the service raises before it logs — so the log shows
@@ -137,6 +167,15 @@ a request to the fabric — the UI cannot make that request. Nor can it show:
 
 All three exist as libraries with CLI surfaces. The reviewer who most needs
 them is looking at a screen.
+
+## Organisation management: what it does not do
+
+Duplicate copies the spec and the layout, and nothing else: the copy starts at
+v1 with no revision history, and the source's locks and audit trail stay with
+the source, which is what a copy should mean but is worth saying. There is no
+per-organisation access within a workspace (WS-021 M4), so the gate on the
+destructive controls is the workspace role. Deleting is permanent and the UI
+says so; there is no archive or restore-after-delete route to offer.
 
 ## Smaller gaps, already tracked
 
@@ -164,7 +203,8 @@ round-trip stability tests (WS-009 M4); per-system access within a workspace
 
 Nothing here was exercised in a browser: there is no daemon in this
 environment, so the UI has not been loaded since the SPA landed, and that
-includes the changes described above. The tests assert which routes the bundle
+includes the changes described above — organisation management among them,
+which is asserted from outside the bundle and has never been clicked. The tests assert which routes the bundle
 calls and which it must not; they say nothing about whether a single pixel
 renders. Accessibility, keyboard navigation, undo/redo and behaviour on a large
 organization remain unassessed.

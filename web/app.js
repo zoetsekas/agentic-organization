@@ -44,7 +44,10 @@ const state = { whoami: null, selected: null, agentId: null };
 
 const design = () => window.designer;
 const openSpec = () => (design() ? design().spec() : null);
-const NO_SYSTEM = "No system open. Choose or create one in the bar above.";
+/* One saved design holds exactly one organisation, so the empty state is about
+   the organisation rather than about a "system"; the wire keeps the older word
+   ("No system open" was this copy, and /api/designer/systems is the route). */
+const NO_SYSTEM = "No organisation open. Choose or create one above.";
 
 /* ---------------------------------------------------------------- tabs */
 $("#tabs").addEventListener("click", (e) => {
@@ -121,12 +124,221 @@ function renderIdentity() {
 
 const may = (permission) => (membership()?.permissions || []).includes(permission);
 
+/* ------------------------------------- the organisation being designed */
+/* One design = one organisation (`SystemSpec.organization`). The selector here
+   and the one in the context bar are filled by canvas.js from the same open
+   id, so switching in either switches both. Everything destructive is gated on
+   the permission the API reports, and every refusal is shown in the API's own
+   words. */
+
+function orgMetadata() {
+  const s = openSpec();
+  return s ? (s.metadata = s.metadata || {}) : null;
+}
+
+function renderOrgToolbar() {
+  const d = design();
+  const record = d?.state.record;
+  const canEdit = !!d && d.canEdit();
+  const blocked = d ? d.lockedByOther() : null;
+  $("#org-version").textContent = record ? `v${record.version}` : "v—";
+  const lock = $("#org-lock");
+  lock.textContent = blocked
+    ? `locked by ${blocked.holder_name || blocked.holder}` : "";
+  lock.className = `badge ${blocked ? "warn" : ""}`;
+  // A viewer, or someone else's lock, is not offered a control that would be
+  // refused: the gate is the permission the API reported when it opened.
+  $("#btn-org-new").disabled = !d;
+  $("#btn-org-edit").disabled = !record || !canEdit || !!blocked;
+  $("#btn-org-duplicate").disabled = !record || !canEdit;
+  $("#btn-org-delete").disabled = !record || !canEdit || !!blocked;
+}
+
+function labelsToText(labels) {
+  return Object.entries(labels || {}).map(([k, v]) => `${k}=${v}`).join("\n");
+}
+
+function labelsFromText(text) {
+  const out = {};
+  for (const line of (text || "").split("\n")) {
+    const [key, ...rest] = line.split("=");
+    if (key.trim()) out[key.trim()] = rest.join("=").trim();
+  }
+  return out;
+}
+
+function showOrgForm(mode) {
+  const form = $("#orgform");
+  form.dataset.mode = mode;
+  $("#orgform-error").textContent = "";
+  $("#org-error").textContent = "";
+  const record = design()?.state.record;
+  const metadata = mode === "edit" ? (orgMetadata() || {}) : {};
+  $("#orgform-title").textContent = mode === "edit"
+    ? `Edit ${record?.name || "this organisation"}` : "New organisation";
+  $("#btn-orgform-save").textContent = mode === "edit" ? "Save changes" : "Create";
+  form.elements.name.value = mode === "edit"
+    ? (record?.name || metadata.name || "") : "";
+  form.elements.description.value = mode === "edit"
+    ? (record?.description || metadata.description || "") : "";
+  form.elements.owner.value = metadata.owner || "";
+  form.elements.environment.value = metadata.environment || "development";
+  form.elements.labels.value = labelsToText(metadata.labels);
+  form.hidden = false;
+  form.elements.name.focus();
+}
+
+function hideOrgForm() {
+  $("#orgform").hidden = true;
+}
+
+function orgFormValues() {
+  const form = $("#orgform");
+  return {
+    name: form.elements.name.value.trim(),
+    description: form.elements.description.value.trim(),
+    owner: form.elements.owner.value.trim(),
+    environment: form.elements.environment.value,
+    labels: labelsFromText(form.elements.labels.value),
+  };
+}
+
+/* Create: the API makes the record and its starter spec; the rest of the
+   metadata the user gave is written straight after, through the same PUT that
+   every other edit uses. */
+async function createOrganisation(values) {
+  const d = design();
+  const created = await d.dapi("/systems", {
+    method: "POST",
+    body: JSON.stringify({
+      workspace_id: d.state.workspaceId,
+      name: values.name,
+      description: values.description,
+    }),
+  });
+  d.state.systemId = created.id;
+  await d.reloadSystems();
+  applyOrgMetadata(values);
+  await d.save();
+}
+
+function applyOrgMetadata(values) {
+  const metadata = orgMetadata();
+  if (!metadata) return;
+  metadata.name = values.name;
+  metadata.description = values.description;
+  metadata.owner = values.owner;
+  metadata.environment = values.environment;
+  metadata.labels = values.labels;
+  const record = design().state.record;
+  record.name = values.name;
+  record.description = values.description;
+  // The organisation node carries the name people read on the chart.
+  if (record.spec.organization && !record.spec.organization.name)
+    record.spec.organization.name = values.name;
+  design().markDirty("organisation");
+}
+
+/* Duplicate: there is no server-side copy route, and none is needed — the open
+   record's spec and layout are everything a new one needs. */
+async function duplicateOrganisation() {
+  const d = design();
+  const systemId = d.state.systemId;
+  const source = await d.dapi(`/systems/${systemId}`);
+  const record = source.record;
+  const copyName = `${record.name} (copy)`;
+  const spec = JSON.parse(JSON.stringify(record.spec));
+  spec.metadata = spec.metadata || {};
+  spec.metadata.name = copyName;
+  const created = await d.dapi("/systems", {
+    method: "POST",
+    body: JSON.stringify({
+      workspace_id: record.workspace_id,
+      name: copyName,
+      description: record.description,
+      spec,
+    }),
+  });
+  // Create takes no layout, so the copy's boxes are placed by the save that
+  // follows it; otherwise the duplicate would open on an empty canvas.
+  await d.dapi(`/systems/${created.id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      layout: JSON.parse(JSON.stringify(record.layout)),
+      base_version: created.version,
+      strategy: "merge",
+      message: `duplicated from ${record.name}`,
+    }),
+  });
+  d.state.systemId = created.id;
+  await d.reloadSystems();
+}
+
+async function deleteOrganisation() {
+  const d = design();
+  const record = d.state.record;
+  if (!record) return;
+  if (!window.confirm(
+    `Delete the organisation "${record.name}"?\n\n`
+    + "Its spec, layout and revision history go with it. This cannot be undone."))
+    return;
+  try {
+    await d.dapi(`/systems/${d.state.systemId}`, { method: "DELETE" });
+    d.state.systemId = null;
+    await d.reloadSystems();
+    $("#org-error").textContent = "";
+  } catch (err) {
+    // Whatever refused — a lock, a role — says so better than we could.
+    $("#org-error").textContent = err.message;
+  }
+}
+
+function wireOrgView() {
+  $("#btn-org-new").addEventListener("click", () => showOrgForm("create"));
+  // The context bar's create button is the same affordance, not a second one.
+  $("#btn-new-system").addEventListener("click", () => {
+    showView("org");
+    showOrgForm("create");
+  });
+  $("#btn-org-edit").addEventListener("click", () => showOrgForm("edit"));
+  $("#btn-org-duplicate").addEventListener("click", async () => {
+    $("#org-error").textContent = "";
+    try {
+      await duplicateOrganisation();
+    } catch (err) {
+      $("#org-error").textContent = err.message;
+    }
+  });
+  $("#btn-org-delete").addEventListener("click", deleteOrganisation);
+  $("#btn-orgform-cancel").addEventListener("click", hideOrgForm);
+  $("#orgform").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const values = orgFormValues();
+    if (!values.name) return;
+    try {
+      if (e.target.dataset.mode === "edit") {
+        applyOrgMetadata(values);
+        await design().save();
+      } else {
+        await createOrganisation(values);
+      }
+      hideOrgForm();
+    } catch (err) {
+      $("#orgform-error").textContent = err.message;
+    }
+  });
+}
+
 /* --------------------------------------------- org chart, from the spec */
 function renderOrg() {
   const root = $("#orgtree");
   const s = openSpec();
+  renderOrgToolbar();
   if (!s) {
-    root.replaceChildren(el("div", { class: "empty" }, NO_SYSTEM));
+    root.replaceChildren(el("div", { class: "empty" }, NO_SYSTEM,
+      el("div", { class: "actions" },
+        el("button", { class: "primary", onclick: () => showOrgForm("create") },
+          "Create an organisation"))));
     showDetail(el("div", {}, NO_SYSTEM), true);
     return;
   }
@@ -440,7 +652,7 @@ function wireAgentEditor() {
   $("#btn-agent-save").addEventListener("click", () => design().save());
   $("#btn-agent-remove").addEventListener("click", () => {
     const agent = currentAgent();
-    if (!agent || !window.confirm(`Remove ${agent.id} from this system?`)) return;
+    if (!agent || !window.confirm(`Remove ${agent.id} from this organisation?`)) return;
     design().remove("agent", agent.id);
     design().markDirty();
     state.agentId = null;
@@ -518,7 +730,7 @@ async function loadAudit() {
   const systems = d.state.systems || [];
   const select = $("#audit-system");
   const chosen = select.value;
-  fillSelect(select, [["", "All systems"], ...systems.map((s) => [s.id, s.name])]);
+  fillSelect(select, [["", "All organisations"], ...systems.map((s) => [s.id, s.name])]);
   select.value = chosen;
   const query = new URLSearchParams({ limit: "100" });
   if (chosen) query.set("system_id", chosen);
@@ -618,8 +830,11 @@ function debounce(fn, ms) {
 }
 
 /* ------------------------------------------------- platform catalog */
+let pcKinds = [];
+
 async function loadPlatformCatalog() {
   const kinds = await api("/catalogs/kinds");
+  pcKinds = kinds;
   const select = $("#pc-kind");
   if (select.options.length <= 1) {
     fillSelect(select, [["", "All kinds"],
@@ -657,6 +872,7 @@ function platformCard(entry) {
   } else if (entry.kind === "permission_set") {
     detail.push(`${(a.permissions || []).length} permissions`, `risk: ${a.risk}`);
   }
+  const approvedish = entry.status === "approved" || entry.status === "restricted";
   const statusClass = { approved: "ok", restricted: "warn", retired: "err",
     rejected: "err", deprecated: "warn" }[entry.status] || "";
   return el("div", { class: "card" },
@@ -674,7 +890,15 @@ function platformCard(entry) {
     el("div", { class: "actions" },
       el("button", { onclick: () => reviewEntry(entry.id, "approved") }, "Approve"),
       el("button", { onclick: () => reviewEntry(entry.id, "restricted") }, "Restrict"),
-      el("button", { onclick: () => reviewEntry(entry.id, "retired") }, "Retire")));
+      el("button", { onclick: () => openEntryForm(entry.id) }, "Edit"),
+      approvedish
+        ? el("button", { onclick: () => sendBackEntry(entry.id) }, "Send back")
+        : null,
+      el("button", { onclick: () => retireEntry(entry.id) }, "Retire"),
+      entry.status === "proposed" && !entry.reviewed_at
+        ? el("button", { onclick: () => deleteEntry(entry.id, entry.name) },
+            "Delete draft")
+        : null));
 }
 
 async function reviewEntry(entryId, status) {
@@ -682,6 +906,191 @@ async function reviewEntry(entryId, status) {
   setStatus(`marked ${status}`);
   loadPlatformCatalog();
 }
+
+async function retireEntry(entryId) {
+  /* Retirement is refused while designs reference the entry; the service says
+     who, and forcing it is a second, explicit answer. */
+  try {
+    await api(`/catalogs/${entryId}/retire`, { method: "POST" });
+  } catch (e) {
+    if (!confirm(`${e.message}\n\nRetire anyway and break them?`)) return;
+    await api(`/catalogs/${entryId}/retire?force=true`, { method: "POST" });
+  }
+  setStatus("retired");
+  loadPlatformCatalog();
+}
+
+async function sendBackEntry(entryId) {
+  const note = prompt(
+    "Send back for review. The entry stops being selectable immediately, and "
+    + "any design bound to it fails at the next compile. Why?", "");
+  if (note === null) return;
+  await api(`/catalogs/${entryId}/send_back`, {
+    method: "POST", body: JSON.stringify({ note }),
+  });
+  setStatus("sent back for review — now unselectable");
+  loadPlatformCatalog();
+}
+
+async function deleteEntry(entryId, name) {
+  if (!confirm(`Delete the draft '${name}'? Only a never-approved, unused `
+    + "entry can be deleted; anything else retires.")) return;
+  try {
+    await api(`/catalogs/${entryId}`, { method: "DELETE" });
+    setStatus("draft deleted");
+  } catch (e) {
+    setStatus(e.message);
+  }
+  loadPlatformCatalog();
+}
+
+/* -------------------------------------------- one generated entry form
+
+   The form is built from the kind's declared attributes (`/catalogs/kinds`
+   carries them), so all twelve kinds share one form and a field added to an
+   attribute model appears here without this file changing. */
+
+const PC_EDITORIAL = [
+  ["name", "Name"], ["summary", "Summary"], ["description", "Description"],
+  ["owner", "Owner"], ["tags", "Tags (comma separated)"],
+  ["documentation_url", "Documentation URL"],
+];
+
+function attributeInput(field, value) {
+  if (field.type === "choice") {
+    const sel = el("select", { id: `pc-a-${field.name}` });
+    fillSelect(sel, field.choices.map((c) => [c, c]));
+    sel.value = value ?? field.choices[0];
+    return sel;
+  }
+  if (field.type === "boolean") {
+    const box = el("input", { id: `pc-a-${field.name}`, type: "checkbox" });
+    box.checked = !!value;
+    return box;
+  }
+  const type = (field.type === "integer" || field.type === "number")
+    ? "number" : "text";
+  const text = field.type === "list" ? (value || []).join(", ")
+    : field.type === "objects" ? JSON.stringify(value ?? [])
+    : (value ?? "");
+  return el("input", { id: `pc-a-${field.name}`, type, value: text });
+}
+
+function readAttributes(fields) {
+  const out = {};
+  for (const field of fields) {
+    const node = $(`#pc-a-${field.name}`);
+    if (!node) continue;
+    if (field.type === "boolean") out[field.name] = node.checked;
+    else if (field.type === "list") {
+      out[field.name] = node.value.split(",").map((v) => v.trim()).filter(Boolean);
+    } else if (field.type === "objects") {
+      try { out[field.name] = JSON.parse(node.value || "[]"); }
+      catch { out[field.name] = []; }
+    } else if (field.type === "integer" || field.type === "number") {
+      out[field.name] = node.value === "" ? null : Number(node.value);
+    } else out[field.name] = node.value;
+  }
+  return out;
+}
+
+async function openEntryForm(entryId = null, preset = null) {
+  const box = $("#pc-form");
+  const detail = entryId ? await api(`/catalogs/${entryId}`) : null;
+  const entry = detail ? detail.entry : (preset || { kind: pcKinds[0]?.id,
+    version: "1.0.0", tags: [], attributes: {} });
+  const locked = detail ? detail.substantively_locked : false;
+  const kindSelect = el("select", { id: "pc-f-kind" });
+  fillSelect(kindSelect, pcKinds.map((k) => [k.id, k.label]));
+  kindSelect.value = entry.kind;
+  if (entryId) kindSelect.disabled = true;
+
+  const fieldsFor = (kindId) =>
+    (pcKinds.find((k) => k.id === kindId) || {}).attributes || [];
+
+  const attrBox = el("div", { class: "form" });
+  const drawAttributes = () => {
+    const fields = fieldsFor(kindSelect.value);
+    attrBox.replaceChildren(...fields.map((f) =>
+      el("label", {}, f.label,
+        Object.assign(attributeInput(f, entry.attributes?.[f.name]),
+          locked ? { disabled: true } : {}))));
+  };
+  kindSelect.addEventListener("change", drawAttributes);
+
+  const banner = locked
+    ? el("div", { class: "validation" },
+        el("p", { class: "v-err" }, detail.amend_refusal),
+        el("div", { class: "actions" },
+          el("button", { onclick: () => openEntryForm(null, {
+            ...entry, id: undefined, version: "", status: "proposed",
+          }) }, "Publish the next version as a new entry"),
+          el("button", { onclick: () => sendBackEntry(entry.id) },
+            "Send this one back for review")))
+    : el("p", { class: "hint" }, entryId
+        ? "This entry is not approved, so its kind, version and attributes may still be edited."
+        : "It will be saved as proposed: recorded, and not selectable by any design until approved.");
+
+  const editorial = PC_EDITORIAL.map(([key, label]) =>
+    el("label", {}, label,
+      el("input", { id: `pc-f-${key}`,
+        value: key === "tags" ? (entry.tags || []).join(", ") : (entry[key] || "") })));
+
+  box.hidden = false;
+  box.replaceChildren(
+    el("h3", {}, entryId ? `Edit ${entry.name}` : "New catalog entry"),
+    banner,
+    el("div", { class: "form" },
+      el("label", {}, "Kind", kindSelect),
+      el("label", {}, "Version",
+        el("input", { id: "pc-f-version", value: entry.version || "1.0.0",
+          ...(locked ? { disabled: true } : {}) })),
+      ...editorial),
+    el("h4", {}, "Attributes"),
+    attrBox,
+    el("div", { class: "actions" },
+      el("button", { onclick: () => saveEntryForm(entryId, locked, kindSelect.value) },
+        "Save"),
+      el("button", { onclick: () => { box.hidden = true; } }, "Cancel")));
+  drawAttributes();
+}
+
+async function saveEntryForm(entryId, locked, kindId) {
+  const fields = (pcKinds.find((k) => k.id === kindId) || {}).attributes || [];
+  const editorial = Object.fromEntries(PC_EDITORIAL.map(([key]) =>
+    [key, key === "tags"
+      ? $(`#pc-f-${key}`).value.split(",").map((v) => v.trim()).filter(Boolean)
+      : $(`#pc-f-${key}`).value]));
+  try {
+    if (!entryId) {
+      await api("/catalogs", {
+        method: "POST",
+        body: JSON.stringify({ ...editorial, kind: kindId,
+          version: $("#pc-f-version").value || "1.0.0",
+          attributes: readAttributes(fields) }),
+      });
+      setStatus("published as proposed — approve it before a design can pick it");
+    } else {
+      await api(`/catalogs/${entryId}`, {
+        method: "PATCH", body: JSON.stringify(editorial),
+      });
+      if (!locked) {
+        await api(`/catalogs/${entryId}/amend`, {
+          method: "POST",
+          body: JSON.stringify({ version: $("#pc-f-version").value,
+            attributes: readAttributes(fields) }),
+        });
+      }
+      setStatus("saved");
+    }
+    $("#pc-form").hidden = true;
+    loadPlatformCatalog();
+  } catch (e) {
+    setStatus(e.message);
+  }
+}
+
+$("#pc-add").addEventListener("click", () => openEntryForm(null));
 
 ["#pc-q", "#pc-kind", "#pc-status"].forEach((sel) =>
   $(sel).addEventListener("input", debounce(loadPlatformCatalog, 250)));
@@ -747,6 +1156,7 @@ function setStatus(text) { $("#status").textContent = text; }
 window.addEventListener("DOMContentLoaded", async () => {
   try {
     wireAgentEditor();
+    wireOrgView();
     wireWorkspaceView();
     await window.initCanvas();
     await loadWhoami();
