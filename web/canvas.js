@@ -243,20 +243,54 @@ function lockOn(id) {
 function renderNode(node) {
   const component = findComponent(node.kind, node.id) || {};
   const blocked = lockOn(node.id);
+  const readOnly = !canvas.permissions.includes("system.edit") || !!blocked;
+
+  /* × delete button — top-right corner */
+  const delBtn = el("button", {
+    class: "node-delete-btn", title: "Delete", tabindex: "-1",
+    disabled: readOnly ? "" : null,
+  }, "×");
+  delBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    deleteNode(node.kind, node.id);
+  });
+
+  /* inline-editable title */
+  const titleEl = el("div", { class: "n-title" }, component.name || component.id || node.id);
+  if (!readOnly) {
+    titleEl.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      startInlineRename(node, component, titleEl);
+    });
+  }
+
   const box = el("div", {
     class: `node${canvas.selected?.id === node.id ? " selected" : ""}${blocked ? " locked" : ""}`,
     "data-kind": node.kind, "data-id": node.id,
     style: `left:${node.x}px; top:${node.y}px; min-width:${node.width}px`,
     title: blocked ? `locked by ${blocked.holder_name || blocked.holder}` : "",
   },
+    delBtn,
     el("span", { class: "n-icon" }, kindSpec(node.kind).icon || "▫"),
     el("div", { class: "n-kind" }, kindSpec(node.kind).label),
-    el("div", { class: "n-title" }, component.name || component.id || node.id),
+    titleEl,
     el("div", { class: "n-sub" }, nodeSubtitle(node.kind, component, node)));
-  box.addEventListener("mousedown", (e) => startDrag(e, node, box));
-  box.addEventListener("click", () => selectNode(node));
+  box.addEventListener("mousedown", (e) => {
+    if (e.target === delBtn) return;
+    startDrag(e, node, box);
+  });
+  box.addEventListener("click", (e) => {
+    if (e.target === delBtn) return;
+    selectNode(node);
+  });
+  box.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    selectNode(node);
+    showContextMenu(e.clientX, e.clientY, node, readOnly);
+  });
   return box;
 }
+
 
 function nodeSubtitle(kind, component, node) {
   if (kind === "team") return `leader: ${component.leader || "—"}`;
@@ -333,12 +367,12 @@ function startDrag(event, node, box) {
     renderEdges();
   }
   function end() {
-    surface.removeEventListener("mousemove", move);
-    surface.removeEventListener("mouseup", end);
+    window.removeEventListener("mousemove", move);
+    window.removeEventListener("mouseup", end);
     markDirty();
   }
-  surface.addEventListener("mousemove", move);
-  surface.addEventListener("mouseup", end);
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", end);
 }
 
 /* dropping a new component from the palette */
@@ -354,12 +388,153 @@ function wireDropTarget() {
     e.preventDefault();
     surface.classList.remove("drag-over");
     const kind = e.dataTransfer.getData("text/kind");
-    if (!kind || !canvas.record) return;
+    if (!kind) return;
+    if (!canvas.record) { setStatus("Open or create a system first, then drop components onto the canvas."); return; }
     const rect = surface.getBoundingClientRect();
     const x = Math.round((e.clientX - rect.left + surface.scrollLeft) / 10) * 10;
     const y = Math.round((e.clientY - rect.top + surface.scrollTop) / 10) * 10;
     placeComponent(kind, x, y);
   });
+}
+
+/* --------------------------------------------------------- delete / rename */
+function deleteNode(kind, id) {
+  if (!canvas.record) return;
+  if (!window.confirm(`Remove "${id}"?`)) return;
+  removeComponent(kind, id);
+  if (canvas.selected?.id === id) canvas.selected = null;
+  markDirty();
+  renderCanvas();
+  renderInspector();
+}
+
+function duplicateNode(node) {
+  const src = findComponent(node.kind, node.id);
+  const id = nextId(node.kind);
+  try {
+    addComponent(node.kind, id, { x: node.x + 30, y: node.y + 30 });
+  } catch (err) {
+    setStatus(err.message);
+    return;
+  }
+  /* copy simple string/number fields from the source component */
+  const dest = findComponent(node.kind, id);
+  if (src && dest) {
+    for (const [k, v] of Object.entries(src)) {
+      if (k === "id") continue;
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean")
+        dest[k] = v;
+    }
+  }
+  canvas.record.layout.nodes[id] = {
+    id, kind: node.kind,
+    x: node.x + 30, y: node.y + 30,
+    width: node.width, height: node.height,
+    collapsed: false, note: node.note || "",
+  };
+  markDirty();
+  renderCanvas();
+  selectNode(canvas.record.layout.nodes[id]);
+}
+
+function startInlineRename(node, component, titleEl) {
+  const current = component.name || component.id || node.id;
+  const input = document.createElement("input");
+  input.className = "node-rename-input";
+  input.value = current;
+  input.style.width = `${Math.max(90, titleEl.offsetWidth)}px`;
+  titleEl.replaceChildren(input);
+  input.focus();
+  input.select();
+  function commit() {
+    const val = input.value.trim() || current;
+    if (component && "name" in component) component.name = val;
+    else if (node.kind === "note") node.note = val;
+    markDirty();
+    renderCanvas();
+  }
+  input.addEventListener("blur", commit);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); input.blur(); }
+    if (e.key === "Escape") { input.value = current; input.blur(); }
+    e.stopPropagation();   // don't let Escape/Delete bubble to the canvas handler
+  });
+}
+
+/* ------------------------------------------------------ context menu */
+let _ctxCleanup = null;
+function hideContextMenu() {
+  const m = document.getElementById("ctx-menu");
+  if (m) m.hidden = true;
+  if (_ctxCleanup) { document.removeEventListener("click", _ctxCleanup); _ctxCleanup = null; }
+}
+
+function showContextMenu(clientX, clientY, node, readOnly) {
+  const menu = document.getElementById("ctx-menu");
+  if (!menu) return;
+  menu.replaceChildren(
+    ctxItem("✏️ Rename", () => {
+      /* find the rendered title el and trigger inline rename */
+      const box = document.querySelector(`[data-id="${node.id}"] .n-title`);
+      const component = findComponent(node.kind, node.id) || {};
+      if (box) startInlineRename(node, component, box);
+    }, readOnly),
+    ctxItem("⧉ Duplicate", () => duplicateNode(node), readOnly),
+    el("hr", {}),
+    ctxItem("🗑 Delete", () => deleteNode(node.kind, node.id), readOnly),
+  );
+  /* position relative to viewport */
+  menu.style.left = `${clientX}px`;
+  menu.style.top  = `${clientY}px`;
+  menu.hidden = false;
+  /* auto-close on next click anywhere */
+  setTimeout(() => {
+    _ctxCleanup = () => hideContextMenu();
+    document.addEventListener("click", _ctxCleanup, { once: true });
+  }, 0);
+}
+
+function ctxItem(label, fn, disabled = false) {
+  const btn = el("button", { class: "ctx-item", disabled: disabled ? "" : null }, label);
+  btn.addEventListener("click", (e) => { e.stopPropagation(); hideContextMenu(); fn(); });
+  return btn;
+}
+
+/* ---------------------------------------------- keyboard shortcuts */
+function handleCanvasKey(e) {
+  /* ignore when typing in an input/textarea/select */
+  const tag = document.activeElement?.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+  if (e.key === "Escape") {
+    hideContextMenu();
+    canvas.selected = null;
+    renderCanvas();
+    renderInspector();
+    return;
+  }
+
+  if (!canvas.selected || !canvas.record) return;
+  const { kind, id } = canvas.selected;
+  const node = canvas.record.layout.nodes[id];
+  if (!node) return;
+
+  if (e.key === "Delete" || e.key === "Backspace") {
+    e.preventDefault();
+    deleteNode(kind, id);
+    return;
+  }
+
+  const snap = 10;
+  const dirs = { ArrowLeft: [-snap, 0], ArrowRight: [snap, 0], ArrowUp: [0, -snap], ArrowDown: [0, snap] };
+  if (dirs[e.key]) {
+    e.preventDefault();
+    const [dx, dy] = dirs[e.key];
+    node.x = Math.max(0, node.x + dx);
+    node.y = Math.max(0, node.y + dy);
+    markDirty();
+    renderCanvas();
+  }
 }
 
 function nextId(kind) {
@@ -416,7 +591,7 @@ function renderInspector() {
       else if (component) component[field.name] = v;
       markDirty();
       renderCanvas();
-    }));
+    }, kind));
   }
   const actions = el("div", { class: "actions" },
     el("button", {
@@ -436,9 +611,172 @@ function renderInspector() {
     el("pre", { class: "code" }, JSON.stringify(component ?? node, null, 2)));
 }
 
-function fieldControl(field, value, readOnly, onChange) {
+/* -------------------------------------------------- reference field helpers
+   fieldContext returns { mode:"ref"|"reflist", options:string[] } when a
+   field on a given component kind should be rendered as a live-spec picker,
+   or null to fall through to the generic field renderers.                  */
+function fieldContext(componentKind, fieldName) {
+  const s = spec();
+  if (!s) return null;
+
+  const ids = (col) => (s[col] || []).map((x) => x.id).filter(Boolean);
+  const agentIds = () => allAgents().map((a) => a.agent.id);
+
+  const REF_MAP = {
+    agent: {
+      roles:        { mode: "reflist", col: "roles" },
+      capabilities: { mode: "reflist", col: "capabilities" },
+      knowledge:    { mode: "reflist", col: "knowledge" },
+      endpoints:    { mode: "reflist", col: "endpoints" },
+      environment:  { mode: "ref",     col: "environments" },
+    },
+    subagent: {
+      capabilities: { mode: "reflist", col: "capabilities" },
+      parent:       { mode: "ref",     fn: agentIds },
+    },
+    role: {
+      capabilities: { mode: "reflist", col: "capabilities" },
+    },
+    team: {
+      leader: {
+        mode: "ref",
+        fn: (nodeId) => {
+          /* only agents that are already members of this team */
+          const t = allTeams().find((t) => t.id === nodeId);
+          return (t?.members || []).map((m) => m.id);
+        },
+      },
+    },
+    trigger: {
+      agent: { mode: "ref", fn: agentIds },
+    },
+    capability: {
+      data_classes: { mode: "reflist", col: "data_classes" },
+    },
+    knowledge: {
+      data_classes: { mode: "reflist", col: "data_classes" },
+    },
+    memory_namespace: {
+      data_classes: { mode: "reflist", col: "data_classes" },
+    },
+    endpoint: {
+      send_data_classes: { mode: "reflist", col: "data_classes" },
+    },
+  };
+
+  const entry = REF_MAP[componentKind]?.[fieldName];
+  if (!entry) return null;
+
+  /* resolve options */
+  let options;
+  if (entry.fn) {
+    /* fn may accept the currently-selected node id for context (team.leader) */
+    options = entry.fn(canvas.selected?.id);
+  } else {
+    options = ids(entry.col);
+  }
+  /* only activate picker when there are options; otherwise fall through */
+  if (!options.length) return null;
+  return { mode: entry.mode, options };
+}
+
+/* Single-reference <select> — value is a string id */
+function renderRef(field, value, readOnly, onChange, options) {
+  const attrs = readOnly ? { disabled: "" } : {};
+  const blank = el("option", { value: "" }, "— none —");
+  const sel = el("select", attrs, blank,
+    ...options.map((o) => el("option", { value: o }, o)));
+  sel.value = value ?? "";
+  sel.addEventListener("change", () => onChange(sel.value || null));
+  return sel;
+}
+
+/* Multi-reference pill picker — value is string[] of ids */
+function renderReflist(field, value, readOnly, onChange, options) {
+  let selected = Array.isArray(value) ? [...value] : [];
+
+  const wrap = el("div", { class: "reflist-wrap" });
+
+  function redraw() {
+    const pills = selected.map((id) => {
+      const pill = el("span", { class: "ref-pill" }, id);
+      if (!readOnly) {
+        const x = el("button", { type: "button", "aria-label": `remove ${id}` }, "×");
+        x.addEventListener("click", () => {
+          selected = selected.filter((v) => v !== id);
+          onChange([...selected]);
+          redraw();
+        });
+        pill.appendChild(x);
+      }
+      return pill;
+    });
+
+    const remaining = options.filter((o) => !selected.includes(o));
+    const adder = remaining.length && !readOnly
+      ? (() => {
+          const sel = el("select", {},
+            el("option", { value: "" }, "+ add…"),
+            ...remaining.map((o) => el("option", { value: o }, o)));
+          sel.addEventListener("change", () => {
+            if (!sel.value) return;
+            if (!selected.includes(sel.value)) {
+              selected = [...selected, sel.value];
+              onChange([...selected]);
+              redraw();
+            }
+          });
+          return sel;
+        })()
+      : null;
+
+    /* free-text fallback for IDs not in the spec yet */
+    const freeText = !readOnly
+      ? (() => {
+          const inp = el("input", {
+            class: "reflist-free", placeholder: "type id + Enter",
+            title: "Add an id not yet in the spec",
+          });
+          inp.addEventListener("keydown", (e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            const v = inp.value.trim();
+            if (v && !selected.includes(v)) {
+              selected = [...selected, v];
+              onChange([...selected]);
+              inp.value = "";
+              redraw();
+            }
+          });
+          return inp;
+        })()
+      : null;
+
+    wrap.replaceChildren(...pills, ...(adder ? [adder] : []), ...(freeText ? [freeText] : []));
+  }
+
+  redraw();
+  return wrap;
+}
+
+function fieldControl(field, value, readOnly, onChange, componentKind = null) {
   const attrs = readOnly ? { disabled: "" } : {};
   let input;
+
+  /* ---- smart reference pickers (live-spec aware) ---- */
+  if (componentKind) {
+    const ctx = fieldContext(componentKind, field.name);
+    if (ctx) {
+      input = ctx.mode === "ref"
+        ? renderRef(field, value, readOnly, onChange, ctx.options)
+        : renderReflist(field, value, readOnly, onChange, ctx.options);
+      const label = el("label", {}, `${field.name}${field.required ? " *" : ""}`, input);
+      if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
+      return label;
+    }
+  }
+
+  /* ---- generic field renderers (unchanged) ---- */
   if (field.type === "text") {
     input = el("textarea", { rows: "3", ...attrs });
     input.value = value ?? "";
@@ -482,6 +820,8 @@ function fieldControl(field, value, readOnly, onChange) {
   if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
   return label;
 }
+
+
 
 /* ------------------------------------------------------- load and persist */
 async function loadWorkspaces() {
@@ -730,6 +1070,16 @@ function wireCanvas() {
     $("#conflict-bar").hidden = true;
   });
   wireDropTarget();
+  document.addEventListener("keydown", handleCanvasKey);
+  /* clicking the empty canvas surface hides the context menu and deselects */
+  $( "#canvas").addEventListener("click", (e) => {
+    hideContextMenu();
+    if (e.target.id === "canvas" || e.target.id === "canvas-nodes") {
+      canvas.selected = null;
+      renderCanvas();
+      renderInspector();
+    }
+  });
 }
 
 async function initCanvas() {
