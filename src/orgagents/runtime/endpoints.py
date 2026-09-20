@@ -115,6 +115,7 @@ def call_endpoint(
     payload: Any,
     *,
     caller: CallerBoundary,
+    discovery: bool = False,
     transport: Optional[Transport] = None,
     guardrails: Optional[GuardrailEngine] = None,
     payload_data_classes: Sequence[str] = (),
@@ -164,14 +165,22 @@ def call_endpoint(
         )
 
     # 4. Credentials. The callee authenticates as itself.
+    #
+    # Discovery is the one exception, and it is narrow (ADR-0058 v1.1.0): a
+    # public agent card is meant to be fetched unauthenticated, so requiring a
+    # credential made every public peer undiscoverable. The waiver applies only
+    # to a body-less read, it waives *only* this check — tenant, allowlist and
+    # the guardrail still run — and the card remains untrusted data.
     checks.append("credential")
     secret_ref = getattr(endpoint, "secret_ref", None)
-    if not secret_ref:
+    if not secret_ref and discovery and payload is None:
+        checks[-1] = "credential_waived_for_discovery"
+    elif not secret_ref:
         return EndpointCallResult(
             False, refusal="no_credential", checks=checks,
             detail="the endpoint declares no secret_ref of its own",
         )
-    if secret_ref in caller.secret_refs:
+    if secret_ref and secret_ref in caller.secret_refs:
         return EndpointCallResult(
             False, refusal="credential_inherited", checks=checks,
             detail=f"'{secret_ref}' is the calling agent's credential",

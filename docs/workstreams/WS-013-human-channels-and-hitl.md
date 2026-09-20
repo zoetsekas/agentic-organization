@@ -2,13 +2,13 @@
 id: WS-013
 title: Human channels, approval routing and declared interaction flows
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Product
 contributors: [Platform Architecture, Security Engineering]
 scope: [spec, compiler, targets, runtime]
-decisions: [ADR-0021, ADR-0024]
+decisions: [ADR-0021, ADR-0024, ADR-0059]
 depends_on: [WS-005, WS-011]
 tags: [human-in-the-loop, channels]
 ---
@@ -31,6 +31,12 @@ lateral agent-to-agent contact that is declared rather than assumed.
 - `channel_transport` for Slack, Teams, mail, webhook and the internal bus,
   recording delivery when no client is bound.
 - Typed directional `InteractionFlow`s, resolved per agent in the IR.
+- `bus.py`: a NATS/JetStream backend behind the same `MessageBus` transport
+  seam (ADR-0059). Subjects are tenant-prefixed, `requires_response` maps onto
+  request/reply rather than a new concept, durability is declared per channel,
+  and an addressed message is refused when the org chart refuses it — the bus
+  is a transport, not an authorization boundary. The client is injected, so
+  `nats-py` is not a dependency.
 
 ## Scope
 In: agent-to-human contact and declared agent-to-agent lateral contact. Out:
@@ -77,9 +83,12 @@ humans must answer.
   visible as a breach when unmet. ✔ (routing; delivery pending M4)
 - No agent service holds a workspace credential. ✔
 - Consult flows never confer delegation. ✔
+- Subscribing to a subject is not permission to be reached. ✔ (tested against a
+  fake client; no broker has been run here)
 
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Added the NATS/JetStream bus backend behind the existing transport seam: tenant-prefixed subjects, request/reply from `requires_response`, per-channel durability, and delegation checks that the wire does not bypass (ADR-0059). |
 | 1.0.0 | 2026-09-20 | Opened. Contract, routing, bindings, flows landed; real bridges pending. |

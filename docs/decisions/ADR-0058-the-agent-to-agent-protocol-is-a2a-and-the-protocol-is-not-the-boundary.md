@@ -2,7 +2,7 @@
 id: ADR-0058
 title: The agent-to-agent protocol is A2A, and the protocol is not the boundary
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 deciders: [Platform Architecture, Security Engineering]
@@ -59,7 +59,18 @@ control in force around it.**
    classification, credential, approval, then transport, then the tool-output
    guardrail. A `network: none` sandbox cannot reach an A2A peer, and that is
    correct.
-3. **An Agent Card is untrusted data, and fetching one is an egress event.**
+3. **An Agent Card is untrusted data, and fetching one is an egress event** —
+   with one narrow waiver, added in v1.1.0 after the first implementation
+   showed the rule as written was unworkable. Routing the card fetch through
+   the full endpoint path meant an endpoint with no `secret_ref` could not
+   fetch even a *public* card, and A2A public cards are unauthenticated by
+   design — so no public peer could be discovered at all. The waiver covers
+   **one check, on one body-less read**: the credential requirement is waived
+   for discovery when the endpoint declares no credential of its own. Tenant
+   scoping, the egress allowlist, approval and the tool-output guardrail all
+   still run, the card is still untrusted data, a declared credential is still
+   used, and the caller's own credential is still never borrowed. A call with a
+   body is not discovery however it is labelled.
    The card is served by the remote party and describes itself: its skills,
    its security schemes, its extensions. Those are **claims**, not instructions
    and not permissions. Fetching a card goes through the allowlist like any
@@ -110,6 +121,9 @@ Phase 5, WS-019 M4.
   chance of the wire changing under us for commercial reasons.
 
 ## Disadvantages
+- **A waiver is a waiver.** v1.1.0 carves an exception into a check, and an
+  exception that grows is worse than the flaw it fixed. It is held narrow by
+  tests rather than by good intentions, and that is the only thing holding it.
 - **A standard is a large surface.** Streaming, push notifications, extended
   cards, extensions and three functionally-equivalent bindings are a lot of
   protocol, and we will implement a subset — so "we support A2A" will be truer
@@ -157,4 +171,5 @@ that a card fetch is itself subject to the allowlist. All against a fake peer.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Waived the credential check for body-less agent-card discovery: as written, the rule made every public peer undiscoverable. All other checks still run. |
 | 1.0.0 | 2026-09-20 | Accepted. A2A bound as the agent-to-agent protocol, entering as a transport beneath the existing endpoint governance. |

@@ -386,12 +386,14 @@ class A2AClient:
         *,
         data_classes: Sequence[str] = (),
         approval_granted: bool = False,
+        discovery: bool = False,
     ) -> EndpointCallResult:
         return call_endpoint(
             self.endpoint,
             url,
             payload,
             caller=self.caller,
+            discovery=discovery,
             transport=self.transport,
             guardrails=self.guardrails,
             payload_data_classes=data_classes,
@@ -408,7 +410,8 @@ class A2AClient:
         changes nothing about trust, data classes or credentials.
         """
         result = self._call(
-            self.binding.card_url, None, approval_granted=approval_granted
+            self.binding.card_url, None, approval_granted=approval_granted,
+            discovery=True,
         )
         if result.refused:
             return A2AResult(False, result)

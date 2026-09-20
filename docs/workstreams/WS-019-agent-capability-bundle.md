@@ -2,13 +2,13 @@
 id: WS-019
 title: Agent capability bundle — skills, plugins, tools and external endpoints
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
 contributors: [Security Engineering, Developer Experience]
 scope: [spec, compiler, targets, runtime, security]
-decisions: [ADR-0029, ADR-0030]
+decisions: [ADR-0029, ADR-0030, ADR-0058]
 depends_on: [WS-005, WS-004]
 tags: [capability, integration]
 ---
@@ -48,7 +48,7 @@ prompt say plainly that external answers are data to check.
 | M1 Skills, plugins, tools in the spec and IR | Phase 2 | Done |
 | M2 Endpoints with trust rules and identity secrets | Phase 2 | Done |
 | M3 Registry and target resources | Phase 2 | Done |
-| M4 Agent-to-agent protocol binding | Phase 3 | Not started |
+| M4 Agent-to-agent protocol binding | Phase 3 | Done |
 | M5 Inbound endpoints — exposing our agents | Phase 3 | Not started |
 
 ## Dependencies
@@ -60,8 +60,10 @@ WS-005 for the IR; WS-004 for the identities endpoint secrets attach to.
 - Outbound data is classified and gated; inbound is marked as untrusted.
 
 ## Disadvantages
-- **No protocol binding yet**: an endpoint is a governed declaration that
-  nothing actually calls until M4, which could read as more than it is.
+- **The bound protocol is a subset**: A2A's JSON-RPC binding with
+  `SendMessage`, `GetTask`, `CancelTask` and Agent Card discovery only —
+  streaming, push notifications, `ListTasks`, `SubscribeToTask` and extended
+  cards are not implemented, and nothing is verified against a real peer.
 - "Treat output as data" is an instruction to a model, and models are
   imperfectly obedient — necessary, not sufficient.
 - Public-only outbound will be too strict for real partner integrations, and
@@ -73,11 +75,12 @@ WS-005 for the IR; WS-004 for the identities endpoint secrets attach to.
 
 ## Exit criteria
 - Every line that widens access is a capability or an endpoint, never a tool. ✔
-- An external endpoint is actually callable over a bound protocol (M4).
+- An external endpoint is actually callable over a bound protocol (M4). ✔
 - A decision exists for inbound endpoints (M5).
 
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | M4 done: A2A bound as a transport beneath `runtime/endpoints`, JSON-RPC subset with card discovery, cards treated as untrusted claims, `input-required`/`auth-required` routed to humans (ADR-0058). |
 | 1.0.0 | 2026-09-20 | Opened. Skills, plugins, tools and outbound endpoints landed. |

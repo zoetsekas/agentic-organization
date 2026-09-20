@@ -18,6 +18,7 @@ from typing import Any
 
 import yaml
 
+from ...bus import SubjectNamespace
 from ...runtime.engines import InvocationMode, UnknownEngine, engine
 from ..base import GeneratedFile
 from ..ir import SystemIR
@@ -68,6 +69,14 @@ ARTIFACTS_IMAGE = "chrislusf/seaweedfs:3.97"
 # the registry and exists; no daemon exists here, so the image has never been
 # pulled or run. Override it in the binding (`options.image`) if your registry
 # mirrors a different build.
+# The asynchronous message bus (ADR-0059). One instance per tenant, on the
+# tenant's network, with the tenant's own volume — the same rule ADR-0053 rule 3
+# applies to Postgres and the artifact store, for the same reason: a broker
+# shared across tenants is one ACL mistake from a cross-tenant leak. Tag and
+# digest verified against the registry 2026-09-20; no daemon exists here, so
+# this service is generated and parsed, never started.
+BUS_IMAGE = "nats:2.15.0-alpine"
+
 SERVICE_ENGINE_IMAGES = {
     # Verified against Docker Hub on 2026-09-20: 1.12.2 is a real published
     # release (digest sha256:79c02794…). The tag that was here before was not,
@@ -357,6 +366,9 @@ WORKDIR /workspace
 {body}
 '''
 
+    def _subjects(self, ir: SystemIR) -> SubjectNamespace:
+        return SubjectNamespace(tenant=ir.tenant.id if ir.tenant else "local")
+
     def _agent_service(self, ir: SystemIR, agent) -> dict[str, Any]:
         env = agent.environment
         tier = env.tier.value if env else "minimal"
@@ -381,10 +393,16 @@ WORKDIR /workspace
                 "ORGAGENTS_MANIFEST": f"/app/agents/{agent.id}.json",
                 "ORGAGENTS_ADAPTER": agent.runtime_adapter,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": "http://telemetry:4317",
+                # Where the bus is and which subjects are ours. The runtime
+                # reads these only if it is configured onto the NATS backend;
+                # the in-process bus remains the default (ADR-0059).
+                "ORGAGENTS_BUS": "${ORGAGENTS_BUS:-in_process}",
+                "ORGAGENTS_BUS_URL": "nats://nats:4222",
+                "ORGAGENTS_BUS_SUBJECT_PREFIX": self._subjects(ir).prefix,
             },
             "volumes": ["./agents:/app/agents:ro"],
             "networks": networks,
-            "depends_on": ["state"],
+            "depends_on": ["state", "nats"],
             "deploy": {"resources": {"limits": limits}},
             "labels": {
                 # The tenant is on the object itself, so an operator reading a
@@ -441,6 +459,7 @@ WORKDIR /workspace
         )
 
     def _compose(self, ir: SystemIR) -> str:
+        subjects = self._subjects(ir)
         services: dict[str, Any] = {
             "state": {
                 "image": STATE_IMAGE,
@@ -468,6 +487,24 @@ WORKDIR /workspace
                 },
                 "networks": [ir.qualified("control")],
                 "volumes": [f'{ir.qualified("artifacts-data")}:/data'],
+            },
+            # The asynchronous transport between agent containers (ADR-0059).
+            # JetStream is on so a channel that declares durability has
+            # somewhere to persist; channels that do not declare it stay on
+            # core NATS and pay nothing for it.
+            "nats": {
+                "image": BUS_IMAGE,
+                "command": ["--jetstream", "--store_dir", "/data",
+                            "--name", ir.qualified("bus")],
+                "networks": [ir.qualified("control")],
+                "volumes": [f'{ir.qualified("bus-data")}:/data'],
+                "labels": {
+                    # Subjects are tenant-prefixed as well as per-instance, so
+                    # two tenants wrongly pointed at one broker still would not
+                    # collide (ADR-0059 rule 1).
+                    "org.agentic.subject_prefix": subjects.prefix,
+                    "org.agentic.tenant": ir.tenant.id if ir.tenant else "",
+                },
             },
             "designer": {
                 "build": {"context": ".", "dockerfile": "Dockerfile"},
@@ -583,6 +620,7 @@ WORKDIR /workspace
                 "volumes": {
                     ir.qualified("state-data"): {},
                     ir.qualified("artifacts-data"): {},
+                    ir.qualified("bus-data"): {},
                     **{
                         ir.qualified(f"{wb.engine}-data"): {}
                         for wb in self._service_engines(ir)

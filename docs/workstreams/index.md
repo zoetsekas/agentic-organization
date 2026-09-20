@@ -8,20 +8,20 @@
 | [WS-003](WS-003-organization-and-roles.md) | Organization modelling — recursive teams, leaders, roles and responsibilities | Active | 1.1.0 | Platform Architecture | ADR-0006, ADR-0007 | WS-002 |
 | [WS-004](WS-004-security-model.md) | Security model — RBAC, policies, least privilege, sandboxing and identity | Active | 1.2.0 | Security Engineering | ADR-0008, ADR-0009, ADR-0010, ADR-0015, ADR-0017, ADR-0007, ADR-0054 | WS-002, WS-003 |
 | [WS-005](WS-005-compiler-core.md) | Compiler core — IR, target plugin API and generation engine | Active | 1.1.0 | Platform Architecture | ADR-0005, ADR-0014, ADR-0004, ADR-0003 | WS-002, WS-004 |
-| [WS-006](WS-006-local-deployment-target.md) | Local deployment target — Compose stack and single-process dev loop | Active | 1.2.0 | Developer Experience | ADR-0011, ADR-0005, ADR-0009, ADR-0014, ADR-0053, ADR-0056 | WS-005 |
+| [WS-006](WS-006-local-deployment-target.md) | Local deployment target — Compose stack and single-process dev loop | Active | 1.3.0 | Developer Experience | ADR-0011, ADR-0005, ADR-0009, ADR-0014, ADR-0053, ADR-0056, ADR-0059 | WS-005 |
 | [WS-007](WS-007-cloud-terraform-targets.md) | Cloud deployment targets — Terraform for GCP, AWS and Azure | Proposed | 1.1.0 | Platform SRE | ADR-0012, ADR-0015, ADR-0009, ADR-0016 | WS-005, WS-004 |
 | [WS-008](WS-008-runtime-adapters-and-harness.md) | Runtime adapters and harness binding | Active | 1.2.0 | Platform Architecture | ADR-0013, ADR-0010, ADR-0030, ADR-0035, ADR-0056 | WS-005 |
 | [WS-009](WS-009-designer-ui-and-sdk.md) | Designer UI and SDK as peer clients of the spec | Active | 1.0.0 | Product | ADR-0018, ADR-0003 | WS-002 |
 | [WS-010](WS-010-observability-and-operations.md) | Observability and operations across targets | Proposed | 1.1.0 | Platform SRE | ADR-0016 | WS-005, WS-006 |
 | [WS-011](WS-011-landscape-and-capability-roadmap.md) | Landscape research and the capability roadmap | Complete | 1.0.0 | Product | ADR-0019 | WS-001 |
 | [WS-012](WS-012-scheduling-and-triggers.md) | Scheduling, event triggers and durable unattended work | Active | 1.0.0 | Platform SRE | ADR-0020, ADR-0025 | WS-005, WS-011 |
-| [WS-013](WS-013-human-channels-and-hitl.md) | Human channels, approval routing and declared interaction flows | Active | 1.0.0 | Product | ADR-0021, ADR-0024 | WS-005, WS-011 |
+| [WS-013](WS-013-human-channels-and-hitl.md) | Human channels, approval routing and declared interaction flows | Active | 1.1.0 | Product | ADR-0021, ADR-0024, ADR-0059 | WS-005, WS-011 |
 | [WS-014](WS-014-enterprise-registry-and-lifecycle.md) | Enterprise governance — registry, lifecycle gates, evaluations, budgets, compliance | Active | 1.0.0 | Security Engineering | ADR-0022 | WS-004, WS-005, WS-011 |
 | [WS-015](WS-015-knowledge-grounding.md) | Knowledge grounding sources and retrieval | Proposed | 1.0.0 | Data Platform | ADR-0023 | WS-005, WS-011 |
 | [WS-016](WS-016-human-pairing.md) | Human pairing and accountability | Active | 1.1.0 | Product | ADR-0026, ADR-0044 | WS-013 |
 | [WS-017](WS-017-subagents-as-tools.md) | Sub-agents as tools | Active | 1.0.0 | Platform Architecture | ADR-0027 | WS-005 |
 | [WS-018](WS-018-memory-management.md) | Memory management — session and long term | Active | 1.0.0 | Platform Architecture | ADR-0028 | WS-004, WS-005 |
-| [WS-019](WS-019-agent-capability-bundle.md) | Agent capability bundle — skills, plugins, tools and external endpoints | Active | 1.0.0 | Platform Architecture | ADR-0029, ADR-0030 | WS-005, WS-004 |
+| [WS-019](WS-019-agent-capability-bundle.md) | Agent capability bundle — skills, plugins, tools and external endpoints | Active | 1.1.0 | Platform Architecture | ADR-0029, ADR-0030, ADR-0058 | WS-005, WS-004 |
 | [WS-020](WS-020-designer-backend.md) | Designer backend and pluggable persistence | Active | 1.0.0 | Platform Architecture | ADR-0031 | WS-009 |
 | [WS-021](WS-021-designer-access-control.md) | Designer access control for people | Active | 1.2.0 | Security Engineering | ADR-0032, ADR-0043, ADR-0047 | WS-020 |
 | [WS-022](WS-022-concurrent-editing.md) | Concurrent editing — locks, versions and merge | Active | 1.0.0 | Platform Architecture | ADR-0033 | WS-020 |

@@ -42,6 +42,10 @@ redis:7-alpine                                       sha256:520775a41a63e77e06c7
 
 # --- tenant plane: one instance and one volume per tenant -------------------
 chrislusf/seaweedfs:3.97                             sha256:bb05d66d2963b1cc48073190781c3dd29e2c4c88a2ae2986bf58e38c86d89c6e  tenant
+# The message bus (ADR-0059): one instance per tenant, plus the fabric's own
+# control-plane instance. Tag and digest verified against the registry; the
+# image has never been pulled or run here.
+nats:2.15.0-alpine                                   sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4  fabric,tenant
 
 # --- sandbox toolchain images (ADR-0053, "Sandbox images, by toolchain") -----
 # `python` and `data` share python:3.11-slim; `data` adds pinned analysis

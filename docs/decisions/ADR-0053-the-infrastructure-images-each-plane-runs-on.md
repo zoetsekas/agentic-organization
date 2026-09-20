@@ -2,7 +2,7 @@
 id: ADR-0053
 title: The infrastructure images each plane runs on
 status: Accepted
-version: 1.3.0
+version: 1.4.0
 date: 2026-09-20
 updated: 2026-09-20
 deciders: [Platform Architecture]
@@ -12,7 +12,7 @@ scope: [targets, security, docs]
 workstreams: [WS-028, WS-029, WS-030]
 supersedes: []
 superseded_by: []
-related: [ADR-0011, ADR-0048, ADR-0049, ADR-0050, ADR-0047]
+related: [ADR-0011, ADR-0048, ADR-0049, ADR-0050, ADR-0047, ADR-0059]
 tags: [deployment, tenancy]
 ---
 
@@ -58,6 +58,7 @@ All four build `FROM python:3.11-slim`. One base, one patch cadence.
 | `prom/prometheus:v2.54.1` + `grafana/grafana:13.2.2` | fabric | Metrics and the operator dashboards behind the command centre | Cloud Monitoring / CloudWatch / Azure Monitor |
 | `jaegertracing/all-in-one:1.60` | fabric | Session traces, which is how anyone debugs an agent run | Cloud Trace / X-Ray / App Insights |
 | `chrislusf/seaweedfs:3.97` | **per tenant** | S3-compatible artifact workspace — the offload target for large tool output (ADR-0036). Apache-2.0 | GCS / S3 / Blob Storage |
+| `nats:2.15.0-alpine` | fabric, **per tenant** | The asynchronous message bus with JetStream (ADR-0059). A tenant gets its own instance, volume and subject prefix; the fabric's instance carries control-plane events only | Managed pub/sub: Pub/Sub, SNS+SQS, Service Bus |
 | `redis:7-alpine` | fabric | Scheduler leases and rate limiting. Optional: the SQLite/Postgres path works without it | Memorystore / ElastiCache |
 | `langflowai/langflow:1.12.2` | **per tenant** | The worked out-of-process workflow engine (ADR-0056). A tenant's engine is that tenant's; a shared instance is a cross-tenant channel | A managed flow runner, or the tenant's own instance |
 
@@ -182,6 +183,7 @@ image this ADR names. Nothing here is verified against a running daemon.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.4.0 | 2026-09-20 | Adds `nats:2.15.0-alpine` (tag and digest verified): the per-tenant message bus and the fabric's control-plane instance, chosen in ADR-0059. |
 | 1.3.0 | 2026-09-20 | Replaced MinIO with SeaweedFS for the per-tenant artifact store: MinIO's Docker Hub repository serves no tags and its images moved to a registry this environment cannot reach, so it could not be pinned. |
 | 1.2.0 | 2026-09-20 | Resolved 11 of 14 digests against the real registry; corrected `grafana/grafana:11` and flagged the MinIO tag, neither of which exists; added Langflow as the per-tenant workflow engine image. |
 | 1.1.0 | 2026-09-20 | Named images for all eight toolchain classes after `browser` silently resolved to a browserless base; recorded that digest pinning and mirroring are not met in this environment. |

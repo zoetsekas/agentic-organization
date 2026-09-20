@@ -145,3 +145,34 @@ providers, three runtime adapters, three workflow engines. Each is honest in
 isolation. Together they mean the proportion of this system that has met its
 real counterpart is smaller than the test count suggests, and an alpha is where
 that gets corrected rather than compounded.
+
+---
+
+## 5. Running it (added after the bring-up path was written)
+
+```bash
+make check        # records, spec and phase gate — no daemon needed
+make config       # docker parses every generated Compose file — no daemon needed
+make alpha        # build, start, run one agent, report          — needs a daemon
+```
+
+`make alpha` is `check → config → build → up → smoke`. `scripts/smoke.py` is
+the honest part: it runs the nine steps below and says which one failed, on the
+grounds that the useful information on a first run is not "it broke" but "it
+got this far".
+
+1. docker is available
+2. the spec validates
+3. the system compiles for the local target
+4. docker parses every generated Compose file
+5. the designer image builds
+6. the designer starts and answers `/healthz`
+7. the designer UI is served
+8. the demo organization seeds and **an agent runs**
+9. the tenant stack starts
+
+Useful flags: `--keep` leaves the stacks up for poking at, `--skip-tenant`
+stops after the designer. `make down` stops everything this repository starts.
+
+**Expect step 5 or 6 to fail the first time.** No image in this repository has
+ever been built. That is what these steps are for.

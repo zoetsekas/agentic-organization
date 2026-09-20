@@ -204,6 +204,23 @@ services:
     networks: [fabric]
     restart: unless-stopped
 
+  # The fabric's own message bus (ADR-0059 rule 5): deployment, quota and
+  # health events between control-plane services. It is NOT the tenants' bus
+  # and carries no tenant payloads — each tenant's stack generates its own
+  # instance, on its own network, with its own volume. Generated and parsed
+  # only: no daemon here has started it.
+  nats:
+    image: nats:2.15.0-alpine
+    container_name: orgagents-fabric-nats
+    command:
+      - --jetstream
+      - --store_dir=/data
+      - --name=orgagents-fabric
+    volumes:
+      - fabric-nats:/data
+    networks: [fabric]
+    restart: unless-stopped
+
   # Optional: scheduler leases and rate limiting. The Postgres path works
   # without it, so it is a profile rather than a dependency (ADR-0053).
   redis:
@@ -224,3 +241,4 @@ volumes:
   fabric-keycloak:
   fabric-prometheus:
   fabric-grafana:
+  fabric-nats:
