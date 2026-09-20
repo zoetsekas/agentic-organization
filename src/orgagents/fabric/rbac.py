@@ -45,6 +45,12 @@ QUOTA_READ = "fabric.quota.read"
 SERVICE_READ = "fabric.service.read"
 AUDIT_READ = "fabric.audit.read"
 
+#: Creating a tenant mints an isolation domain and spends a namespace prefix
+#: for good, so it sits with the administrative permissions rather than the
+#: operational ones. Moving one along its lifecycle is operational.
+TENANT_REGISTER = "fabric.tenant.register"
+TENANT_LIFECYCLE = "fabric.tenant.lifecycle"
+
 DEPLOY = "fabric.deployment.deploy"
 STOP = "fabric.deployment.stop"
 QUARANTINE = "fabric.deployment.quarantine"
@@ -60,7 +66,8 @@ READ_PERMISSIONS = frozenset(
 #: what an organization *is* stays with the tenant's own designers (ADR-0051).
 ALL_PERMISSIONS = frozenset(
     READ_PERMISSIONS
-    | {AUDIT_READ, DEPLOY, STOP, QUARANTINE, REDEPLOY, REQUOTA, GRANT}
+    | {AUDIT_READ, DEPLOY, STOP, QUARANTINE, REDEPLOY, REQUOTA, GRANT,
+       TENANT_REGISTER, TENANT_LIFECYCLE}
 )
 
 ROLE_PERMISSIONS: dict[OperatorRole, frozenset[str]] = {
@@ -69,14 +76,16 @@ ROLE_PERMISSIONS: dict[OperatorRole, frozenset[str]] = {
     # because an automated re-quota is how a runaway bill is made invisible.
     OperatorRole.AUTOMATION: frozenset(READ_PERMISSIONS | {QUARANTINE}),
     OperatorRole.OPERATOR: frozenset(
-        READ_PERMISSIONS | {DEPLOY, STOP, QUARANTINE, REDEPLOY, REQUOTA}
+        READ_PERMISSIONS
+        | {DEPLOY, STOP, QUARANTINE, REDEPLOY, REQUOTA, TENANT_LIFECYCLE}
     ),
     # Admin is not "operator plus": it adds the administrative permissions
     # (reading the operator log, granting roles) and the lifecycle table keeps
     # its own opinion about which of the two may make a given move.
     OperatorRole.ADMIN: frozenset(
         READ_PERMISSIONS
-        | {AUDIT_READ, DEPLOY, STOP, QUARANTINE, REDEPLOY, REQUOTA, GRANT}
+        | {AUDIT_READ, DEPLOY, STOP, QUARANTINE, REDEPLOY, REQUOTA, GRANT,
+           TENANT_REGISTER, TENANT_LIFECYCLE}
     ),
 }
 

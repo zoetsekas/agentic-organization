@@ -2,7 +2,7 @@
 id: WS-028
 title: Tenancy and isolation
 status: Active
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
@@ -51,6 +51,7 @@ explicit fabric offering.
 | M4 Cloud target isolation and mapping reports | Phase 5 | Done |
 | M5 Cross-tenant denial proven by generation tests | Phase 5 | Done |
 | M6 Breach attempt against a running deployment | Phase 6 | Not started |
+| M7 Tenant registration and lifecycle in the CLI and the API | Phase 6 | Done |
 
 ## Dependencies
 WS-004 for the within-tenant security model, WS-005 for the compiler, WS-007
@@ -84,5 +85,6 @@ for the cloud targets whose IAM enforces the boundary.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-20 | M7: tenants can be created without writing Python. `orgagents tenants list\|show\|register\|suspend\|resume\|retire`, and `POST /api/fabric/tenants` plus `POST /api/fabric/tenants/{tenant_id}/actions/{action}` in the operator namespace, gated by two new fabric permissions (`fabric.tenant.register`, admin-only; `fabric.tenant.lifecycle`) and audited on success, refusal and conflict alike. A tenant status table mirrors the deployment one: illegal moves are refused, not coerced; retired is terminal; retirement is refused while any deployment is live; a retired prefix is never reusable. `docs/COMMAND_CENTRE_API.md` documents both routes. |
 | 1.1.0 | 2026-09-20 | M1–M5 done: `fabric.tenants` (Tenant, isolation domain, Store-backed registry, validated namespace prefixes), tenant-scoped `build_ir`/`compile_system` that refuses an unqualified artifact, per-tenant Compose project/networks/volumes, per-tenant cloud boundary with the coarseness named in each `MAPPING.md`, and cross-tenant reference validation. M6 still needs infrastructure this environment does not have. |
 | 1.0.0 | 2026-09-20 | Opened alongside ADR-0049 and ADR-0050. |

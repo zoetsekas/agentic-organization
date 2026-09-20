@@ -19,7 +19,9 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from ..compiler.ir import TenantIR
+from ..ids import now_iso
 from ..store import Store
+from .deployments import Deployment, DeploymentState, OperatorRole
 
 TENANTS = "fabric_tenants"
 
@@ -54,6 +56,107 @@ class TenantStatus(str, Enum):
 
 class PrefixError(ValueError):
     """A namespace prefix that is unsafe, reserved or already taken."""
+
+
+#: Legal status moves, and the role sufficient for each. Same discipline as
+#: `deployments.py`: an illegal move is refused, never coerced into the
+#: nearest legal status, because a registry that repairs its own inputs stops
+#: being a record of what happened. Retiring is admin-only — it is the one
+#: move that burns a namespace prefix forever.
+TENANT_TRANSITIONS: dict[tuple[TenantStatus, TenantStatus], frozenset[OperatorRole]] = {
+    (TenantStatus.PENDING, TenantStatus.ACTIVE): frozenset(
+        {OperatorRole.OPERATOR, OperatorRole.ADMIN}
+    ),
+    (TenantStatus.PENDING, TenantStatus.SUSPENDED): frozenset(
+        {OperatorRole.OPERATOR, OperatorRole.ADMIN}
+    ),
+    (TenantStatus.PENDING, TenantStatus.RETIRED): frozenset({OperatorRole.ADMIN}),
+    (TenantStatus.ACTIVE, TenantStatus.SUSPENDED): frozenset(
+        {OperatorRole.OPERATOR, OperatorRole.ADMIN}
+    ),
+    (TenantStatus.ACTIVE, TenantStatus.RETIRED): frozenset({OperatorRole.ADMIN}),
+    (TenantStatus.SUSPENDED, TenantStatus.ACTIVE): frozenset(
+        {OperatorRole.OPERATOR, OperatorRole.ADMIN}
+    ),
+    (TenantStatus.SUSPENDED, TenantStatus.RETIRED): frozenset({OperatorRole.ADMIN}),
+}
+
+#: Retired is terminal, and the prefix stays spent: `register` validates
+#: against every prefix in the fabric, retired ones included, so a new tenant
+#: can never inherit what an old one left behind.
+TERMINAL_TENANT_STATUSES = frozenset({TenantStatus.RETIRED})
+
+
+class TenantIllegalTransition(ValueError):
+    """A status move that is not on the machine."""
+
+    def __init__(self, source: "TenantStatus", target: "TenantStatus") -> None:
+        super().__init__(
+            f"'{source.value}' -> '{target.value}' is not a legal tenant transition"
+        )
+        self.source = source
+        self.target = target
+
+
+class TenantTransitionDenied(PermissionError):
+    """A legal move attempted by a role that may not make it."""
+
+    def __init__(self, source: "TenantStatus", target: "TenantStatus",
+                 role: OperatorRole, allowed: frozenset[OperatorRole]) -> None:
+        names = ", ".join(sorted(r.value for r in allowed))
+        super().__init__(
+            f"role '{role.value}' may not move a tenant from '{source.value}' "
+            f"to '{target.value}'; allowed: {names}"
+        )
+        self.source = source
+        self.target = target
+        self.role = role
+        self.allowed = allowed
+
+
+class TenantRetirementBlocked(ValueError):
+    """Retirement refused because the tenant still has live deployments.
+
+    Retiring a tenant whose workloads are still up would strand them: the
+    fabric would stop believing in the tenant while the containers, networks
+    and secrets carrying its prefix keep running. Stop them first.
+    """
+
+    def __init__(self, tenant_id: str, deployments: list[str]) -> None:
+        super().__init__(
+            f"tenant '{tenant_id}' still has {len(deployments)} live "
+            f"deployment(s): {', '.join(sorted(deployments))}; stop or retire "
+            "them before retiring the tenant"
+        )
+        self.tenant_id = tenant_id
+        self.deployments = sorted(deployments)
+
+
+#: A deployment in one of these states is still occupying the tenant's
+#: isolation domain, whatever the fabric's last observation said.
+LIVE_DEPLOYMENT_STATES = frozenset({
+    DeploymentState.REQUESTED,
+    DeploymentState.GENERATED,
+    DeploymentState.DEPLOYED,
+    DeploymentState.RUNNING,
+    DeploymentState.QUARANTINED,
+})
+
+
+def live_deployments(deployments: "list[Deployment]") -> list[str]:
+    """The deployment ids that block retirement."""
+    return [d.id for d in deployments if d.state in LIVE_DEPLOYMENT_STATES]
+
+
+class TenantTransitionEvent(BaseModel):
+    """One recorded status move. Append-only, like a deployment's history."""
+
+    at: str = Field(default_factory=now_iso)
+    source: TenantStatus
+    target: TenantStatus
+    actor: str = ""
+    role: OperatorRole = OperatorRole.ADMIN
+    reason: str = ""
 
 
 class IsolationDomain(BaseModel):
@@ -92,6 +195,7 @@ class Tenant(BaseModel):
     isolation_domain: IsolationDomain
     entitlements: list[str] = Field(default_factory=list)
     status: TenantStatus = TenantStatus.PENDING
+    history: list[TenantTransitionEvent] = Field(default_factory=list)
     created_at: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="seconds")
     )
@@ -108,6 +212,10 @@ class Tenant(BaseModel):
 
     def may_deploy(self) -> bool:
         return self.status is TenantStatus.ACTIVE
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in TERMINAL_TENANT_STATUSES
 
     def to_ir(self) -> TenantIR:
         """The slice of a tenant that compilation needs."""
@@ -224,5 +332,60 @@ class TenantRegistry:
         self.store.put(TENANTS, tenant, name=tenant.name)
         return tenant
 
-    def retire(self, tenant_id: str) -> Tenant:
-        return self.set_status(tenant_id, TenantStatus.RETIRED)
+    def transition(
+        self,
+        tenant_id: str,
+        target: TenantStatus,
+        *,
+        actor: str = "",
+        role: OperatorRole = OperatorRole.ADMIN,
+        reason: str = "",
+        deployments: Optional[list[Deployment]] = None,
+    ) -> Tenant:
+        """Move a tenant along the machine, or refuse without touching it.
+
+        Every refusal below happens before the first mutation, so a refused
+        move leaves the stored tenant byte-identical: `set_status` is the
+        unguarded primitive, this is the one operators reach through.
+
+        `deployments` is the tenant's deployments as the caller can see them.
+        Retirement is refused while any of them is live; passing nothing
+        asserts "this tenant has no deployments", which only a caller with
+        the deployment service in hand can honestly say.
+        """
+        tenant = self.require(tenant_id)
+        source = tenant.status
+        allowed = TENANT_TRANSITIONS.get((source, target))
+        if allowed is None:
+            raise TenantIllegalTransition(source, target)
+        if role not in allowed:
+            raise TenantTransitionDenied(source, target, role, allowed)
+        if target is TenantStatus.RETIRED:
+            blocking = live_deployments(list(deployments or []))
+            if blocking:
+                raise TenantRetirementBlocked(tenant_id, blocking)
+        tenant.history.append(
+            TenantTransitionEvent(source=source, target=target, actor=actor,
+                                  role=role, reason=reason)
+        )
+        tenant.status = target
+        self.store.put(TENANTS, tenant, name=tenant.name)
+        return tenant
+
+    def retire(
+        self,
+        tenant_id: str,
+        *,
+        actor: str = "",
+        role: OperatorRole = OperatorRole.ADMIN,
+        reason: str = "",
+        deployments: Optional[list[Deployment]] = None,
+    ) -> Tenant:
+        return self.transition(tenant_id, TenantStatus.RETIRED, actor=actor,
+                               role=role, reason=reason, deployments=deployments)
+
+
+def allowed_tenant_transitions(
+    status: TenantStatus,
+) -> dict[TenantStatus, frozenset[OperatorRole]]:
+    return {t: roles for (s, t), roles in TENANT_TRANSITIONS.items() if s is status}

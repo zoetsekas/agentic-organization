@@ -2,7 +2,7 @@
 id: WS-030
 title: Fabric common services and operations
 status: Active
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
@@ -52,6 +52,7 @@ view of a deployment is a contract that a real backend fills in later.
 | M4 Health and drift contract with a stub backend | Phase 5 | Done |
 | M5 Real backend adapters against a running target | Phase 6 | Not started |
 | M6 Incident capture and escalation | Phase 6 | Not started |
+| M7 Tenant lifecycle alongside the deployment lifecycle | Phase 6 | Done |
 
 ## Dependencies
 WS-028 for tenants, WS-027 for the catalog being shared, WS-010 for
@@ -103,5 +104,6 @@ exists here — M5 is where that stops being true.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-20 | M7: the tenant lifecycle joins the deployment one under the same discipline (WS-028 M7). Tenant status moves run through their own transition table with roles attached, illegal moves are refused rather than coerced, and retiring is admin-only. Retirement is refused while the tenant still holds a live deployment — the check the registry cannot make alone, so the caller (API or CLI) supplies what `DeploymentService.list` sees. |
 | 1.1.0 | 2026-09-20 | M1-M4 done: common-service registry, deployment lifecycle, quotas and entitlements, health and drift against a stub backend (ADR-0052). Adapters remain unproven against a real target. |
 | 1.0.0 | 2026-09-20 | Opened alongside ADR-0049. |
