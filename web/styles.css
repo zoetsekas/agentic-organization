@@ -1,180 +1,315 @@
+/* The instrument panel.
+
+   One token layer, then components built only from it. Nothing below this
+   block invents a colour: a literal in a component rule is a bug, because the
+   palette is the design's contract and the JS must never carry a hex at all.
+
+   Two rules the palette encodes:
+   - Shape carries the *kind* of a thing; colour carries its *state*. The
+     accent (teal-ink) is therefore never a state — it only marks selection and
+     the primary action, so a reader never has to ask whether teal means "good".
+   - The semantic four (moss / amber / clay / slate) are separate hues from the
+     accent for that reason, and each has a matching ground and border so a
+     chip, a card and a strip can all say the same state.
+*/
 :root {
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --border: #d9dee6;
-  --text: #16202c;
-  --muted: #5d6b7d;
-  --accent: #2f6fd0;
-  --accent-soft: #e5eefb;
-  --ok: #1d7a52;
-  --warn: #9a6400;
-  --err: #b32424;
-  --radius: 10px;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  /* ground and ink */
+  --ground: #0E1114;
+  --panel: #12161B;
+  --raised: #171C22;
+  --raised-2: #1C2128;
+  --line: #262C34;
+  --line-strong: #333B45;
+  --line-dashed: #3B4652;
+
+  --ink: #E6E9EC;
+  --ink-muted: #9BA5B0;
+  /* The design names #6B7681 for small labels; at 10-12px that measures
+     4.09:1 on the ground, so label text uses the next step up and #6B7681 is
+     kept for rules, icons and 24px-plus display only. */
+  --ink-dim: #7C8894;
+  --ink-faint: #6B7681;
+
+  /* accent — selection and the primary action, never a state */
+  --accent: #4FB3A3;
+  --accent-deep: #1F5E57;
+  --accent-bright: #7FE3D2;
+  --accent-on: #DFFAF4;
+  --accent-wash: rgba(79, 179, 163, .12);
+  --accent-ground: #182228;
+
+  /* semantic state: approved · built · fresh */
+  --moss: #6FBF73;
+  --moss-ink: #8FD293;
+  --moss-ink-2: #6E9A73;
+  --moss-line: #27412C;
+  --moss-ground: #141D17;
+  --moss-ground-2: #14231A;
+
+  /* semantic state: proposed · stale · locked · not evaluated */
+  --amber: #E0A857;
+  --amber-ink: #E8C583;
+  --amber-ink-2: #A98B57;
+  --amber-line: #5A4622;
+  --amber-ground: #1E1A14;
+  --amber-ground-2: #241D12;
+
+  /* semantic state: refused · widened · failed */
+  --clay: #E0705F;
+  --clay-ink: #E9998B;
+  --clay-ink-2: #B08B85;
+  --clay-line: #4A2E2A;
+  --clay-line-2: #6B3B34;
+  --clay-ground: #1C1517;
+  --clay-ground-2: #2A1C1D;
+
+  /* semantic state: retired · unobserved — no hue, because we cannot see it */
+  --slate: #9BA5B0;
+  --slate-ink: #9BA5B0;
+  --slate-line: #262C34;
+  --slate-ground: #12161B;
+
+  /* edges: solid reporting line, dashed mission peer, dotted amber egress */
+  --edge-report: #333B45;
+  --edge-peer: #2F4A55;
+  --edge-egress: #5A4622;
+
+  /* type */
+  --font-ui: Archivo, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --t-micro: 10px;
+  --t-tiny: 11px;
+  --t-small: 12px;
+  --t-body: 13px;
+  --t-mid: 15px;
+  --t-head: 20px;
+  --t-display: 26px;
+
+  /* spacing and shape */
+  --s1: 4px; --s2: 6px; --s3: 8px; --s4: 10px; --s5: 13px;
+  --s6: 16px; --s7: 20px; --s8: 26px;
+  --r-sm: 4px; --r: 5px; --r-md: 7px; --r-lg: 9px; --r-pill: 999px;
+  --ctl-h: 32px;
+
+  /* legacy aliases: older rules and a few generic helpers still name these */
+  --bg: var(--ground);
+  --surface: var(--panel);
+  --surface-2: var(--raised);
+  --border: var(--line);
+  --text: var(--ink);
+  --muted: var(--ink-muted);
+  --accent-soft: var(--accent-wash);
+  --ok: var(--moss-ink);
+  --warn: var(--amber-ink);
+  --err: var(--clay-ink);
+  --radius: var(--r-md);
+  --mono: var(--font-mono);
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #11151b; --surface: #171d25; --surface-2: #1f2731; --border: #2c3644;
-    --text: #e6ebf2; --muted: #9aa8bb; --accent: #78aaf0; --accent-soft: #1d2b3f;
-    --ok: #5fcf9c; --warn: #e0b055; --err: #f08b8b;
-  }
-}
+
 * { box-sizing: border-box; }
+
 body {
-  margin: 0; background: var(--bg); color: var(--text);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: var(--t-body)/1.5 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
 }
-h1 { font-size: 18px; margin: 0; }
-h2 { font-size: 15px; margin: 0 0 12px; letter-spacing: .01em; }
-h3 { font-size: 14px; margin: 20px 0 8px; }
-h4 { font-size: 12px; margin: 0 0 6px; text-transform: uppercase; color: var(--muted); letter-spacing: .06em; }
-code { font-family: var(--mono); font-size: .92em; }
 
+/* Anything a machine decided — ids, versions, permission keys, state, ADR
+   references — is set in mono, so a value reads differently from a label. */
+code, .mono, .badge, .chip, .kv, .n-sub, .code { font-family: var(--font-mono); }
+
+h1 { font-size: var(--t-head); font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+h2 { font-size: var(--t-mid); font-weight: 600; margin: 0 0 var(--s5); }
+h3 { font-size: var(--t-body); font-weight: 600; margin: var(--s7) 0 var(--s3); }
+h4, .eyebrow {
+  font-family: var(--font-mono); font-size: var(--t-micro); font-weight: 500;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--ink-dim);
+  margin: 0 0 var(--s2);
+}
+a { color: var(--accent); }
+a:hover { color: var(--accent-bright); }
+
+/* Focus must be visible on every interactive thing, on this dark ground. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------ app shell */
 .topbar {
-  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
-  padding: 12px 16px; background: var(--surface);
-  border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: var(--s5); flex-wrap: wrap;
+  padding: 0 var(--s6); min-height: 52px;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 10;
 }
-.brand { display: flex; align-items: center; gap: 10px; }
+.brand { display: flex; align-items: center; gap: var(--s3); }
+.brand h1 { font-size: 14px; }
 .logo {
-  width: 26px; height: 26px; border-radius: 7px;
-  background: linear-gradient(135deg, var(--accent), #8a5cf0);
+  width: 22px; height: 22px; border-radius: var(--r-sm);
+  background: var(--accent-deep); border: 1px solid var(--accent);
+  display: inline-block;
 }
-.sub { margin: 0; font-size: 12px; color: var(--muted); }
-.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
-.tabs button {
-  border: 1px solid transparent; background: transparent; color: var(--muted);
-  padding: 7px 13px; border-radius: 999px; cursor: pointer; font-size: 14px;
-}
-.tabs button:hover { background: var(--surface-2); color: var(--text); }
-.tabs button.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
-.status { margin-left: auto; font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.sub { display: none; }
 
-main { padding: 16px; max-width: 1500px; margin: 0 auto; }
+.tabs { display: flex; gap: 2px; flex-wrap: wrap; }
+.tabs button {
+  border: 1px solid transparent; background: transparent; color: var(--ink-muted);
+  padding: var(--s2) var(--s4); border-radius: var(--r);
+  cursor: pointer; font: var(--t-body)/1.4 var(--font-ui);
+}
+.tabs button:hover { background: var(--raised); color: var(--ink); }
+.tabs button.active {
+  background: var(--raised-2); color: var(--ink);
+  border-color: var(--line-strong); font-weight: 500;
+}
+.status {
+  margin-left: auto; font-family: var(--font-mono);
+  font-size: var(--t-tiny); color: var(--ink-dim);
+}
+
+main { padding: var(--s6); max-width: 1500px; margin: 0 auto; }
 .view { display: none; }
 .view.active { display: block; }
-.panel {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 16px; margin-bottom: 16px;
-}
-.split { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
-.designer { display: grid; grid-template-columns: 220px minmax(0,1fr) 300px; gap: 16px; }
-@media (max-width: 1100px) { .split, .designer { grid-template-columns: 1fr; } }
-.hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
-.empty { color: var(--muted); font-size: 13px; }
 
-/* org tree */
-.orgtree ul { list-style: none; margin: 0; padding-left: 18px; border-left: 1px dashed var(--border); }
-.orgtree > ul { padding-left: 0; border-left: none; }
-.node {
-  display: flex; align-items: center; gap: 8px; padding: 7px 10px; margin: 4px 0;
-  border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
-  cursor: pointer; width: fit-content; min-width: 260px;
-}
-.node:hover { border-color: var(--accent); }
-.node.sel { border-color: var(--accent); background: var(--accent-soft); }
-.node .nm { font-weight: 600; }
-.node .ti { color: var(--muted); font-size: 12px; }
-.badge {
-  font-size: 11px; padding: 1px 7px; border-radius: 999px;
-  background: var(--accent-soft); color: var(--accent); border: 1px solid var(--border);
-}
-.badge.ok { color: var(--ok); } .badge.warn { color: var(--warn); } .badge.err { color: var(--err); }
-
-/* forms */
-.form { display: flex; flex-direction: column; gap: 12px; }
-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); flex: 1; }
-input, select, textarea, button {
-  font: inherit; color: var(--text); background: var(--surface);
-  border: 1px solid var(--border); border-radius: 7px; padding: 7px 9px;
-}
-textarea { resize: vertical; font-family: inherit; }
-.row { display: flex; gap: 10px; flex-wrap: wrap; }
-.row > label { min-width: 170px; }
-fieldset { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
-legend { font-size: 12px; color: var(--muted); padding: 0 6px; text-transform: uppercase; letter-spacing: .06em; }
-.grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 14px; }
-.checks { display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow: auto; }
-.checks label { flex-direction: row; align-items: flex-start; gap: 6px; color: var(--text); font-size: 13px; }
-.checks input { margin-top: 4px; }
-.checks input[type=checkbox] { width: auto; flex: none; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-button { cursor: pointer; }
-button:hover { border-color: var(--accent); }
-button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-
-.code {
-  font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word;
-  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
-  padding: 10px; max-height: 620px; overflow: auto; margin: 0;
-}
-.palette .item {
-  border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; margin-bottom: 6px;
-  background: var(--surface-2); font-size: 13px;
-}
-.palette .item small { color: var(--muted); display: block; font-size: 11px; }
-
-/* cards, lists, stats */
-.toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.toolbar input { flex: 1; min-width: 200px; }
-/* The organisation toolbar is a row of affordances, not a search bar: its
-   inputs must not stretch, and a disabled control must read as unavailable. */
-.org-toolbar { align-items: center; }
-.org-toolbar input, .org-toolbar select { flex: 0 0 auto; min-width: 0; }
-.org-toolbar button[disabled] { opacity: 0.45; cursor: not-allowed; }
-#orgform { margin-bottom: 12px; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap: 12px; }
-.card { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; background: var(--surface-2); }
-.card h3 { margin: 0 0 4px; font-size: 14px; }
-.card p { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
-.card .meta { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-.list > div {
-  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
-  border-bottom: 1px solid var(--border); padding: 8px 0; font-size: 13px;
-}
-.list > div:last-child { border-bottom: none; }
-.list .grow { flex: 1; min-width: 180px; }
-.statrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px,1fr)); gap: 10px; margin-bottom: 14px; }
-.stat { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; background: var(--surface-2); }
-.stat .v { font-size: 22px; font-weight: 600; }
-.stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-.infra { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px,1fr)); gap: 12px; }
-.infra .group { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px; background: var(--surface-2); }
-.infra li { font-size: 13px; margin-bottom: 4px; }
-.infra ul { margin: 0; padding-left: 18px; }
-a { color: var(--accent); }
-.trace-node { border-left: 2px solid var(--border); padding-left: 10px; margin: 6px 0; }
-.trace-node .t { font-family: var(--mono); font-size: 11px; color: var(--muted); }
-
-
-/* --------------------------------------------------- shared design context */
+/* ---------------------------------------------------- shared design context */
 .contextbar {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 10px 12px;
-  margin: 16px auto 0; max-width: 1500px; width: calc(100% - 32px);
-  box-sizing: border-box;
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: var(--s4) var(--s6); width: 100%; max-width: none; margin: 0;
 }
-.contextbar .sep { width: 1px; height: 22px; background: var(--border); }
+.contextbar .sep { width: 1px; height: 22px; background: var(--line); }
 .contextbar .grow { flex: 1; }
 .contextbar select { min-width: 150px; }
-.contextbar .who { font-size: 12px; color: var(--muted); }
+.contextbar .who { font-size: var(--t-small); color: var(--ink-muted); }
+.contextbar .eyebrow { margin: 0; }
 
-/* ---------------------------------------------------------------- canvas */
-label.inline { flex-direction: row; align-items: center; gap: 6px; flex: none; }
+/* ------------------------------------------------------------- surfaces */
+.panel {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: var(--s6); margin-bottom: var(--s6);
+}
+.split { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--s6); }
+.designer { display: grid; grid-template-columns: 248px minmax(0,1fr) 330px; gap: var(--s6); }
+@media (max-width: 1100px) { .split, .designer { grid-template-columns: 1fr; } }
+.hint { color: var(--ink-muted); font-size: var(--t-small); margin: 0 0 var(--s5); }
+.empty { color: var(--ink-dim); font-size: var(--t-small); }
+
+/* ------------------------------------------------------ chips and badges */
+.badge, .chip {
+  font-size: var(--t-micro); padding: 1px 6px; border-radius: 3px;
+  background: var(--raised-2); color: var(--ink-muted);
+  border: 1px solid var(--line-strong);
+}
+.badge.ok, .chip.ok {
+  color: var(--moss-ink); background: var(--moss-ground-2); border-color: var(--moss-line);
+}
+.badge.warn, .chip.warn {
+  color: var(--amber-ink); background: var(--amber-ground-2); border-color: var(--amber-line);
+}
+.badge.err, .chip.err {
+  color: var(--clay-ink); background: var(--clay-ground-2); border-color: var(--clay-line-2);
+}
+.badge.slate, .chip.slate {
+  color: var(--slate-ink); background: var(--slate-ground); border-color: var(--slate-line);
+}
+.badge.accent {
+  color: var(--accent-bright); background: var(--accent-deep); border-color: var(--accent);
+}
+.dot {
+  width: 6px; height: 6px; border-radius: var(--r-pill);
+  background: var(--slate); display: inline-block; flex: none;
+}
+.dot.ok { background: var(--moss); }
+.dot.warn { background: var(--amber); }
+.dot.err { background: var(--clay); }
+
+/* ------------------------------------------------------------- controls */
+input, select, textarea, button {
+  font: var(--t-body)/1.4 var(--font-ui); color: var(--ink);
+  background: var(--raised); border: 1px solid var(--line-strong);
+  border-radius: var(--r); padding: var(--s2) var(--s4);
+}
+input, select { height: var(--ctl-h); }
+textarea { resize: vertical; height: auto; }
+input::placeholder, textarea::placeholder { color: var(--ink-dim); }
+button { cursor: pointer; background: var(--raised-2); }
+button:hover { border-color: var(--accent); }
+button.primary {
+  background: var(--accent-deep); color: var(--accent-on);
+  border-color: var(--accent); font-weight: 500;
+}
+button.danger {
+  background: var(--clay-ground); color: var(--clay-ink); border-color: var(--clay-line);
+}
+button.quiet { background: transparent; color: var(--ink-muted); border-color: var(--line); }
+/* Never offer a control that then declines: unavailable reads as unavailable. */
+button[disabled], input[disabled], select[disabled], textarea[disabled] {
+  opacity: .45; cursor: not-allowed;
+}
+
+.form { display: flex; flex-direction: column; gap: var(--s5); }
+label {
+  display: flex; flex-direction: column; gap: var(--s1);
+  font-size: var(--t-tiny); color: var(--ink-muted); flex: 1;
+}
+label.inline { flex-direction: row; align-items: center; gap: var(--s2); flex: none; }
 label.inline input { width: 80px; }
+.row { display: flex; gap: var(--s4); flex-wrap: wrap; }
+.row > label { min-width: 170px; }
+fieldset { border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s5); }
+legend {
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-dim);
+  padding: 0 var(--s2); text-transform: uppercase; letter-spacing: .12em;
+}
+.grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: var(--s5); }
+.checks { display: flex; flex-direction: column; gap: var(--s1); max-height: 160px; overflow: auto; }
+.checks label { flex-direction: row; align-items: flex-start; gap: var(--s2); color: var(--ink); font-size: var(--t-small); }
+.checks input { margin-top: var(--s1); }
+.checks input[type=checkbox] { width: auto; height: auto; flex: none; }
+.actions { display: flex; gap: var(--s3); flex-wrap: wrap; align-items: center; }
 
-.canvas-layout { display: grid; grid-template-columns: 210px minmax(0,1fr) 320px; gap: 12px; }
+.code {
+  font-family: var(--font-mono); font-size: var(--t-small);
+  white-space: pre-wrap; word-break: break-word;
+  background: var(--raised); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: var(--s4);
+  max-height: 620px; overflow: auto; margin: 0; color: var(--ink-muted);
+}
+
+/* ------------------------------------------------------------- org tree */
+.orgtree ul { list-style: none; margin: 0; padding-left: 18px; border-left: 1px solid var(--line); }
+.orgtree > ul { padding-left: 0; border-left: none; }
+.orgtree .node {
+  display: flex; align-items: center; gap: var(--s4);
+  padding: var(--s4) var(--s5); margin: var(--s1) 0;
+  border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  background: var(--raised); cursor: pointer; width: fit-content; min-width: 396px;
+}
+.orgtree .node:hover { border-color: var(--accent); }
+.orgtree .node.sel {
+  border: 1.5px solid var(--accent); background: var(--accent-ground);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+.orgtree .node .nm { font-weight: 600; }
+.orgtree .node .ti { font-family: var(--font-mono); color: var(--ink-dim); font-size: var(--t-micro); }
+.orgtree .node .badge { margin-left: auto; }
+.orgtree .mark {
+  width: 8px; height: 8px; border-radius: 2px; background: var(--slate); flex: none;
+}
+
+/* --------------------------------------------------------------- canvas */
+.canvas-layout { display: grid; grid-template-columns: 210px minmax(0,1fr) 340px; gap: var(--s5); }
 @media (max-width: 1200px) { .canvas-layout { grid-template-columns: 1fr; } }
 
 .canvas-wrap { padding: 0; overflow: hidden; }
 .canvas-surface {
   position: relative; height: 640px; overflow: auto;
-  background-color: var(--surface);
+  background-color: var(--ground);
   background-image:
-    linear-gradient(var(--border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
   background-size: 40px 40px, 40px 40px;
   background-position: -1px -1px;
 }
@@ -183,79 +318,279 @@ label.inline input { width: 80px; }
 .canvas-empty[hidden] { display: none; }
 .canvas-empty {
   position: absolute; inset: 0; display: flex; align-items: center;
-  justify-content: center; color: var(--muted); font-size: 14px; text-align: center;
-  pointer-events: none; padding: 20px;
+  justify-content: center; color: var(--ink-dim); font-size: var(--t-body);
+  text-align: center; pointer-events: none; padding: var(--s7);
 }
-.node {
-  position: absolute; background: var(--surface); border: 1px solid var(--border);
-  border-left: 4px solid var(--accent); border-radius: 9px; padding: 8px 10px;
-  cursor: grab; user-select: none; box-shadow: 0 1px 3px rgba(0,0,0,.08);
+
+/* The live validation strip: it names the rule, so a warning is actionable. */
+.validation-strip {
+  display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  padding: var(--s2) var(--s5); border-bottom: 1px solid var(--line);
+  background: var(--panel); font-size: var(--t-small);
+}
+.validation-strip .rules {
+  font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--ink-dim);
+  margin-left: auto;
+}
+.validation-strip .count { display: flex; align-items: center; gap: var(--s2); }
+.validation-strip .count.warn { color: var(--amber-ink); }
+.validation-strip .count.err { color: var(--clay-ink); }
+.validation-strip .count.ok { color: var(--moss-ink); }
+
+/* Node vocabulary: the shape says what a thing is.
+   team = dashed container · agent = solid card with a classification stripe ·
+   mission = capsule carrying its end date · sandbox = rounded card showing
+   network posture · endpoint = chevron leaving the boundary. */
+.canvas-surface .node {
+  position: absolute; background: var(--raised);
+  border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  padding: var(--s3) var(--s4); cursor: grab; user-select: none;
   min-width: 170px; max-width: 260px;
 }
-.node .n-title, .node .n-sub {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.canvas-surface .node .n-title, .canvas-surface .node .n-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-surface .node:active { cursor: grabbing; }
+.canvas-surface .node.selected {
+  border: 1.5px solid var(--accent); background: var(--accent-ground);
+  box-shadow: 0 0 0 3px var(--accent-wash);
 }
-.node:active { cursor: grabbing; }
-.node.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.node.locked { opacity: .65; border-style: dashed; cursor: not-allowed; }
-.node .n-kind { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
-.node .n-title { font-weight: 600; font-size: 13px; margin: 2px 0; }
-.node .n-sub { font-size: 11px; color: var(--muted); }
-.node .n-icon { float: right; font-size: 15px; color: var(--accent); }
-.node[data-kind="team"] { border-left-color: #8a5cf0; }
-.node[data-kind="agent"] { border-left-color: var(--accent); }
-.node[data-kind="subagent"] { border-left-color: #00a6a6; border-style: dashed; }
-.node[data-kind="capability"], .node[data-kind="endpoint"] { border-left-color: var(--warn); }
-.node[data-kind="data_class"], .node[data-kind="memory_namespace"] { border-left-color: var(--ok); }
-.node[data-kind="channel"], .node[data-kind="trigger"] { border-left-color: #d3618a; }
-.node[data-kind="note"] { border-left-color: var(--muted); background: var(--surface-2); }
+.canvas-surface .node.locked { opacity: .65; cursor: not-allowed; }
+.canvas-surface .node .n-kind {
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  text-transform: uppercase; letter-spacing: .1em; color: var(--ink-dim);
+}
+.canvas-surface .node .n-title { font-weight: 600; font-size: var(--t-body); margin: 2px 0; }
+.canvas-surface .node .n-sub { font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-dim); }
+.canvas-surface .node .n-icon { float: right; font-size: var(--t-mid); color: var(--ink-dim); }
 
+/* team: a dashed container. It holds; it does not act. */
+.canvas-surface .node[data-shape="container"] {
+  border: 1.5px dashed var(--line-dashed); border-radius: var(--r-lg);
+  background: rgba(22, 26, 31, .72);
+}
+/* agent: a solid card whose left stripe is its highest data classification —
+   the one thing that must be legible without opening it. */
+.canvas-surface .node[data-shape="card"] { border-left: 3px solid var(--slate); border-radius: var(--r-md); }
+.canvas-surface .node[data-classification="public"] { border-left-color: var(--moss); }
+.canvas-surface .node[data-classification="protected"] { border-left-color: var(--amber); }
+.canvas-surface .node[data-classification="private"] { border-left-color: var(--clay); }
+.canvas-surface .node[data-classification="unclassified"] { border-left-color: var(--slate); }
+/* mission: a capsule, because it is temporary. */
+.canvas-surface .node[data-shape="capsule"] {
+  border-radius: var(--r-pill); border: 1.5px solid var(--amber-line);
+  background: var(--amber-ground); padding: var(--s3) var(--s5);
+}
+.canvas-surface .node[data-shape="capsule"] .n-kind { color: var(--amber-ink-2); }
+/* sandbox: network posture on the face. */
+.canvas-surface .node[data-shape="sandbox"] { border-radius: var(--r); }
+.canvas-surface .node[data-shape="sandbox"] .n-net {
+  float: right; font-family: var(--font-mono); font-size: var(--t-micro);
+  color: var(--ink-dim);
+}
+/* endpoint: a chevron, because anything leaving the boundary is drawn leaving. */
+.canvas-surface .node[data-shape="chevron"] {
+  border-radius: var(--r);
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%);
+  padding-right: 24px; border-color: var(--edge-egress);
+}
+
+.palette .group { margin-bottom: var(--s5); }
 .palette .drag-item {
-  border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px;
-  margin-bottom: 6px; background: var(--surface-2); font-size: 13px; cursor: grab;
-  display: flex; align-items: center; gap: 8px;
+  border: 1px solid var(--line); border-radius: var(--r);
+  padding: var(--s2) var(--s4); margin-bottom: var(--s2);
+  background: var(--raised); font-size: var(--t-small); cursor: grab;
+  display: flex; align-items: center; gap: var(--s3);
 }
 .palette .drag-item:hover { border-color: var(--accent); }
-.palette .drag-item .ic { color: var(--accent); }
+.palette .drag-item .ic { color: var(--ink-dim); }
+.palette .item {
+  border: 1px solid var(--line); border-radius: var(--r);
+  padding: var(--s2) var(--s4); margin-bottom: var(--s2);
+  background: var(--raised); font-size: var(--t-small);
+}
+.palette .item small { color: var(--ink-dim); display: block; font-size: var(--t-tiny); }
+.palette .note {
+  font-size: var(--t-tiny); color: var(--ink-dim); line-height: 1.45;
+  border-top: 1px solid var(--line); padding-top: var(--s3);
+}
 
-.inspector .form { gap: 10px; }
+.inspector .form { gap: var(--s4); }
 .inspector .code { max-height: 220px; }
-.validation { margin-top: 12px; font-size: 12px; }
-.validation .v-err { color: var(--err); }
-.validation .v-warn { color: var(--warn); }
-.validation ul { margin: 4px 0 0; padding-left: 16px; }
+
+/* "Resolves to": what the edit actually grants. No other view answers it. */
+.resolves {
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--raised); padding: var(--s4); margin-top: var(--s5);
+}
+.resolves header {
+  display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s3);
+}
+.resolves .perm {
+  display: flex; gap: var(--s3); align-items: baseline;
+  font-family: var(--font-mono); font-size: var(--t-tiny);
+  color: var(--ink-muted); padding: 2px 0;
+}
+.resolves .perm .act { color: var(--accent); min-width: 56px; }
+.resolves .from { font-size: var(--t-tiny); color: var(--ink-dim); margin-top: var(--s2); }
+
+.validation { margin-top: var(--s5); font-size: var(--t-small); }
+.validation .v-err { color: var(--clay-ink); }
+.validation .v-warn { color: var(--amber-ink); }
+.validation ul { margin: var(--s1) 0 0; padding-left: var(--s6); }
+
+/* ------------------------------------------------------ consequence rail */
+.rail { display: flex; flex-direction: column; gap: var(--s6); }
+.rail .finding { border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+.rail .finding > .head {
+  display: flex; align-items: center; gap: var(--s3); padding: var(--s4) var(--s5);
+  background: var(--raised);
+}
+.rail .finding > .body {
+  padding: var(--s4) var(--s5); background: var(--panel);
+  display: flex; flex-direction: column; gap: var(--s2);
+}
+.rail .finding .path { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--ink); }
+.rail .finding .why { font-size: var(--t-tiny); color: var(--ink-muted); line-height: 1.45; }
+.rail .finding .ref { font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-dim); }
+/* Security-relevant findings lead, and a widening is the reviewable event. */
+.rail .finding.sev-critical, .rail .finding.sev-high { border-color: var(--clay-line); }
+.rail .finding.sev-critical > .head, .rail .finding.sev-high > .head { background: var(--clay-ground); }
+.rail .finding.sev-medium { border-color: var(--amber-line); }
+.rail .finding.sev-medium > .head { background: var(--amber-ground); }
+
+/* The gate. `not_evaluated` is amber and says so in words: it is not a
+   failure, and drawing it as one would teach people to ignore real ones. */
+.gate {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s4) var(--s5); border-radius: var(--r-md);
+  border: 1px solid var(--line); background: var(--raised);
+}
+.gate .who { font-family: var(--font-mono); font-size: var(--t-tiny); }
+.gate .lede { font-size: var(--t-small); }
+.gate .why { font-size: var(--t-tiny); color: var(--ink-dim); }
+.gate[data-state="passed"] { border-color: var(--moss-line); background: var(--moss-ground); }
+.gate[data-state="passed"] .lede { color: var(--moss-ink); }
+.gate[data-state="passed"] .why { color: var(--moss-ink-2); }
+.gate[data-state="failed"] { border-color: var(--clay-line); background: var(--clay-ground); }
+.gate[data-state="failed"] .lede { color: var(--clay-ink); }
+.gate[data-state="failed"] .why { color: var(--clay-ink-2); }
+.gate[data-state="not_evaluated"], .gate[data-state="stale"] {
+  border-color: var(--amber-line); background: var(--amber-ground);
+}
+.gate[data-state="not_evaluated"] .lede, .gate[data-state="stale"] .lede { color: var(--amber-ink); }
+.gate[data-state="not_evaluated"] .why, .gate[data-state="stale"] .why { color: var(--amber-ink-2); }
+
+/* -------------------------------------------------- cards, lists, stats */
+.toolbar { display: flex; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s5); align-items: center; }
+.toolbar input { flex: 1; min-width: 200px; }
+/* The organisation toolbar is a row of affordances, not a search bar: its
+   inputs must not stretch, and a disabled control must read as unavailable. */
+.org-toolbar { align-items: center; }
+.org-toolbar input, .org-toolbar select { flex: 0 0 auto; min-width: 0; }
+.org-toolbar select { border-color: var(--accent); }
+.org-toolbar button[disabled] { opacity: 0.45; cursor: not-allowed; }
+#orgform { margin-bottom: var(--s5); }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px,1fr)); gap: var(--s4); }
+.card {
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: var(--s5); background: var(--panel);
+  display: flex; flex-direction: column; gap: var(--s2);
+}
+.card h3 { margin: 0; font-size: 14px; }
+.card p { margin: 0; color: var(--ink-muted); font-size: var(--t-small); line-height: 1.45; }
+.card .meta { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+/* An entry's status is its state, so the card's own ground carries it. */
+.card.st-approved { border-color: var(--moss-line); }
+.card.st-proposed { border-color: var(--amber-line); background: var(--amber-ground); }
+.card.st-restricted { border-color: var(--amber-line); }
+.card.st-retired, .card.st-rejected, .card.st-deprecated { border-color: var(--line); opacity: .8; }
+.card .refusal {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2) var(--s3); border-radius: var(--r);
+  background: var(--amber-ground-2); border: 1px solid var(--amber-line);
+  color: var(--amber-ink); font-size: var(--t-tiny); line-height: 1.4;
+}
+
+.list > div {
+  display: flex; gap: var(--s4); align-items: center; flex-wrap: wrap;
+  border-bottom: 1px solid var(--line); padding: var(--s3) 0; font-size: var(--t-small);
+}
+.list > div:last-child { border-bottom: none; }
+.list .grow { flex: 1; min-width: 180px; }
+.list > div.sel { background: var(--accent-ground); }
+/* A refusal is the entry the reviewer came for; it does not look like a save. */
+.list > div.denied { border-left: 3px solid var(--clay); padding-left: var(--s3); }
+
+.statrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px,1fr)); gap: var(--s4); margin-bottom: var(--s5); }
+.stat {
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: var(--s4) var(--s5); background: var(--panel);
+}
+.stat .v { font-family: var(--font-mono); font-size: 21px; font-weight: 600; }
+.stat .k { font-size: var(--t-tiny); color: var(--ink-dim); text-transform: uppercase; letter-spacing: .04em; }
+.stat.ok { border-color: var(--moss-line); background: var(--moss-ground); }
+.stat.ok .v { color: var(--moss-ink); }
+.stat.ok .k { color: var(--moss-ink-2); }
+.stat.warn { border-color: var(--amber-line); background: var(--amber-ground); }
+.stat.warn .v { color: var(--amber-ink); }
+.stat.warn .k { color: var(--amber-ink-2); }
+
+.infra { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px,1fr)); gap: var(--s5); }
+.infra .group { border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s4); background: var(--raised); }
+.infra li { font-size: var(--t-small); margin-bottom: var(--s1); }
+.infra ul { margin: 0; padding-left: 18px; }
+
+.trace-node { border-left: 2px solid var(--line); padding-left: var(--s4); margin: var(--s2) 0; }
+.trace-node .t { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--ink-dim); }
 
 .conflict-bar {
-  border: 1px solid var(--warn); background: var(--surface-2);
-  border-radius: var(--radius); padding: 12px; margin-bottom: 12px;
+  border: 1px solid var(--amber-line); background: var(--amber-ground);
+  border-radius: var(--r-md); padding: var(--s5); margin-bottom: var(--s5);
 }
-.conflict-list { max-height: 200px; overflow: auto; margin: 8px 0; }
+.conflict-list { max-height: 200px; overflow: auto; margin: var(--s3) 0; }
 .conflict-row {
-  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-  border-bottom: 1px solid var(--border); padding: 6px 0; font-size: 13px;
+  display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap;
+  border-bottom: 1px solid var(--line); padding: var(--s2) 0; font-size: var(--t-small);
 }
-.conflict-row code { font-size: 12px; }
-.conflict-row .choice { display: flex; gap: 4px; }
-.conflict-row .choice button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
-dialog {
-  border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--surface); color: var(--text); padding: 16px; min-width: 420px;
-  max-width: 90vw;
+.conflict-row code { font-size: var(--t-small); }
+.conflict-row .choice { display: flex; gap: var(--s1); }
+.conflict-row .choice button.on {
+  background: var(--accent-deep); color: var(--accent-on); border-color: var(--accent);
 }
-dialog::backdrop { background: rgba(0,0,0,.4); }
 
-/* ------------------------------------------- workspace, audit, inventory */
-.inventory > div {
-  display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 3px 0;
+dialog {
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--panel); color: var(--ink); padding: var(--s6);
+  min-width: 420px; max-width: 90vw;
 }
-.list > div.sel { background: var(--surface-2); }
-/* A refusal is the entry the reviewer came for; it does not look like a save. */
-.list > div.denied { border-left: 3px solid var(--err); padding-left: 8px; }
-.v-err { color: var(--err); font-size: 12px; }
-.checks { max-height: 160px; overflow: auto; }
+dialog::backdrop { background: rgba(0,0,0,.55); }
+
+.inventory > div {
+  display: flex; gap: var(--s3); align-items: center;
+  font-size: var(--t-small); padding: 3px 0;
+}
+.v-err { color: var(--clay-ink); font-size: var(--t-small); }
 
 /* The catalog's entry form: a substantive edit is visibly unavailable on an
    approved entry, so the refusal is read before the form is filled in. */
-#pc-form { margin-bottom: 16px; }
-#pc-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+#pc-form { margin-bottom: var(--s6); }
+#pc-form label { display: flex; flex-direction: column; gap: var(--s1); font-size: var(--t-tiny); }
 #pc-form input[disabled], #pc-form select[disabled] { opacity: 0.55; }
+/* Editorial is live; substantive is locked by review. The two are separated
+   on the face of the drawer, not discovered by trying. */
+#pc-form .editorial > .eyebrow { color: var(--moss); }
+#pc-form .substantive { opacity: .55; }
+#pc-form .substantive > .eyebrow { color: var(--ink-dim); }
+#pc-form .amend-refusal {
+  border: 1px solid var(--amber-line); background: var(--amber-ground);
+  border-radius: var(--r-md); padding: var(--s5); margin-bottom: var(--s5);
+  display: flex; flex-direction: column; gap: var(--s3);
+}
+#pc-form .amend-refusal p { margin: 0; color: var(--amber-ink); font-size: var(--t-small); line-height: 1.5; }
+
+/* The org tree repeats the canvas's classification stripe as a mark, so the
+   same fact is read the same way in both views. */
+.orgtree .mark[data-classification="public"] { background: var(--moss); }
+.orgtree .mark[data-classification="protected"] { background: var(--amber); }
+.orgtree .mark[data-classification="private"] { background: var(--clay); }
+.orgtree .mark[data-classification="unclassified"] { background: var(--slate); }

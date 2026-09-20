@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Agentic Designer</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f6fd0'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" />
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -38,7 +40,9 @@
   <span id="whoami" class="who">identifying…</span>
   <span id="role-badge" class="badge"></span>
   <span class="sep"></span>
+  <label class="inline" for="ws-select"><span class="eyebrow">Workspace</span></label>
   <select id="ws-select" title="Workspace"></select>
+  <label class="inline" for="sys-select"><span class="eyebrow">Org</span></label>
   <select id="sys-select" data-org-select title="Organisation"></select>
   <button id="btn-new-system">New organisation</button>
   <span id="version-badge" class="badge">v—</span>
@@ -130,6 +134,9 @@
       </aside>
 
       <div class="panel canvas-wrap">
+        <!-- Live, and it names the rule that fired: a warning nobody can act
+             on is noise. -->
+        <div id="validation-strip" class="validation-strip" role="status"></div>
         <div id="canvas" class="canvas-surface">
           <svg id="canvas-edges" class="canvas-edges"></svg>
           <div id="canvas-nodes"></div>
@@ -215,7 +222,12 @@
       </div>
 
       <aside class="panel preview">
-        <h2>This agent in the spec</h2>
+        <h2>What this change does</h2>
+        <!-- Design facts and runtime facts never share a panel: the rail is
+             fed only by the gate and diff routes, and shows nothing at all
+             when they are absent. -->
+        <div id="consequence-rail" class="rail"></div>
+        <h3>This agent in the spec</h3>
         <pre id="preview" class="code">Select an agent.</pre>
         <h3>Validation</h3>
         <div id="agent-validation" class="validation"></div>
@@ -233,9 +245,9 @@
         Only approved entries are selectable; retired ones stop being usable.
       </p>
       <div class="toolbar">
-        <input id="pc-q" placeholder="Search the catalog…" />
-        <select id="pc-kind"><option value="">All kinds</option></select>
-        <select id="pc-status">
+        <input id="pc-q" aria-label="Search the platform catalog" placeholder="Search the catalog…" />
+        <select id="pc-kind" aria-label="Kind"><option value="">All kinds</option></select>
+        <select id="pc-status" aria-label="Status">
           <option value="">Any status</option>
           <option value="approved">Approved</option>
           <option value="restricted">Restricted</option>
@@ -263,8 +275,8 @@
     <div class="panel">
       <h2>Marketplace</h2>
       <div class="toolbar">
-        <input id="cat-q" placeholder="Search agents, skills, plugins, workflows, sandboxes…" />
-        <select id="cat-kind">
+        <input id="cat-q" aria-label="Search the marketplace" placeholder="Search agents, skills, plugins, workflows, sandboxes…" />
+        <select id="cat-kind" aria-label="Kind">
           <option value="">All kinds</option>
           <option value="agent">Agents</option>
           <option value="skill">Skills</option>
@@ -273,13 +285,13 @@
           <option value="sandbox_template">Sandbox templates</option>
           <option value="session">Sessions</option>
         </select>
-        <select id="cat-sort">
+        <select id="cat-sort" aria-label="Sort by">
           <option value="recent">Newest</option>
           <option value="installs">Most installed</option>
           <option value="rating">Top rated</option>
           <option value="name">Name</option>
         </select>
-        <input id="cat-groups" placeholder="viewer groups (e.g. finance)" />
+        <input id="cat-groups" aria-label="Viewer groups" placeholder="viewer groups (e.g. finance)" />
       </div>
       <div id="catstats" class="statrow"></div>
       <div id="catalog" class="cards"></div>
@@ -317,9 +329,9 @@
         <p class="hint">Every change and every refusal, as the designer recorded
           it. Refusals are marked.</p>
         <div class="toolbar">
-          <select id="audit-system"><option value="">All organisations</option></select>
-          <input id="audit-actor" placeholder="actor" size="10" />
-          <input id="audit-action" placeholder="action (e.g. system.save)" />
+          <select id="audit-system" aria-label="Organisation"><option value="">All organisations</option></select>
+          <input id="audit-actor" aria-label="Actor" placeholder="actor" size="10" />
+          <input id="audit-action" aria-label="Action" placeholder="action (e.g. system.save)" />
           <button id="btn-audit-reload">Reload</button>
         </div>
         <div id="audit" class="list"></div>

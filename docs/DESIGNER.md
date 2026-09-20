@@ -71,6 +71,47 @@ Membership — add, change and remove — offered only to a role that holds
 organisation, actor and action, with refusals marked. Where the API refuses, its own
 message is shown: it knows which role refused and why.
 
+## Review surfaces — they report on the open design
+
+Two read-only routes put the review libraries in front of the designer. Neither
+writes anything: the gate answers *what does the evidence say today*, and a
+route that quietly ran evaluations in order to report on them would defeat the
+gate.
+
+- `GET /api/designer/systems/{system_id}/gate` — the evaluation gate per agent:
+
+  ```json
+  {"agents": {"analyst": {"state": "not_evaluated", "reason": "no evaluation run has judged this agent", "required": true}}}
+  ```
+
+  `state` is one of `passed`, `failed`, `not_evaluated`, `stale`.
+  `not_evaluated` is deliberately not `failed`: nobody has run the cases, which
+  is an open question rather than a verdict. `required` is false when the stage
+  gate does not ask for evaluations at all. `?stage=` selects the lifecycle
+  stage (default `production`).
+
+- `GET /api/designer/systems/{system_id}/diff?from=<version>&to=<version>` —
+  what moved between two stored revisions of this design, as resolved IR rather
+  than as text:
+
+  ```json
+  {"changes": [{"severity": "high", "direction": "widened", "path": "agent:analyst.permissions", "summary": "permission granted: read:data_class:customer_pii", "rationale": "…", "security_relevant": true}],
+   "summary": {"total": 2, "security_findings": 1, "worst_severity": "high"}}
+  ```
+
+  Omitting both versions means the previous version against the current one; a
+  design with only one version compares against itself and reports an empty
+  diff. Changes come back worst first, and only a widening is a security
+  finding.
+
+Both follow the designer's own RBAC and workspace scoping: each request takes
+the `system.view` check, so a user who may not read the system may not read its
+gate or its diff. Their refusals are distinct on purpose — `404` for an unknown
+system or version, `409` for an `IncomparableIRError` (two revisions that are
+not two versions of one thing, carrying the refusal's own reasoning), and `422`
+for a spec that does not compile yet, which is the normal state of a design
+mid-edit and is reported with the loader's own message.
+
 ## Runtime views — they observe the running system
 
 Deliberately *not* unified on the spec, because they are observations rather
@@ -87,10 +128,51 @@ The **Catalog** is the approved building blocks a design may choose from, and
 the **Marketplace** is search, install and rating across shared items. Both are
 platform facts, not per-design ones, and are unchanged.
 
+## The visual system — "instrument panel"
+
+One token layer at the top of `web/styles.css` declares the whole palette, the
+type scale and the spacing step; every component rule below it is built from
+those tokens, and neither `app.js` nor `canvas.js` contains a colour at all.
+`tests/test_designer_visual_system.py` holds that from outside: a hex below
+`:root`, or one anywhere in the JS, fails.
+
+Two rules the tokens encode:
+
+- **Shape says what a thing is; colour says what state it is in.** A team is a
+  dashed container, an agent a solid card whose left stripe is its highest data
+  classification, a mission a capsule that always carries its end date, a
+  sandbox a rounded card with its network posture on its face, an endpoint a
+  chevron. Edges: solid is a reporting line, dashed a mission peer, dotted
+  amber an egress. The accent (teal-ink `#4FB3A3`) marks selection and the
+  primary action and is therefore *never* a state, which is why the semantic
+  four — moss approved/built/fresh, amber proposed/stale/locked, clay
+  refused/widened/failed, slate retired/unobserved — are separate hues.
+- **Where the platform refuses, the refusal's own words and the way forward.**
+  The catalog drawer is the worked example: editorial fields stay live,
+  substantive ones are rendered `disabled` before anything is typed, and the
+  API's `amend_refusal` sits above both remedies as buttons.
+
+Interface type is Archivo; anything a machine decided — ids, versions,
+permission keys, state chips, ADR references — is JetBrains Mono, so a value
+reads differently from a label. Both are linked from `fonts.googleapis.com`,
+the only external host the bundle uses.
+
+The design names `#6B7681` for the smallest labels. On the graphite ground that
+measures 4.09:1, so label text uses `--ink-dim` (`#7C8894`, 5.2:1) and
+`--ink-faint` is kept for rules, icons and display sizes.
+
+### The consequence rail
+
+Beside the agent editor: what this change does, before it is saved. It reads
+the two review routes below, leads with security-relevant findings, and renders
+`not_evaluated` as its own amber state — a case nobody could verify is not a
+case that failed. Both routes are treated as optional: a 404 or an absent
+payload renders nothing rather than a broken panel.
+
 ## Notes
 Dependency-free vanilla JS against the documented REST API, so it can be
-replaced wholesale without touching the platform. It follows the system colour
-scheme in both light and dark mode. The operator's command centre is a separate
+replaced wholesale without touching the platform. The bundle is dark-only: the
+instrument panel is one ground, not a theme pair. The operator's command centre is a separate
 application at `/command/` (ADR-0051); nothing here imports from it or links
 into it.
 
@@ -146,6 +228,7 @@ from the API rather than written in the bundle.
 | Lock heartbeat and break | `.../lock/heartbeat`, `.../lock/break` | Break yes; **no heartbeat is sent**, so a long edit can lose its lock |
 | Revisions and restore | `.../revisions`, `.../restore/{v}` | Yes, but through a `prompt()` rather than a history panel |
 | Create, rename, duplicate, delete an organisation | `POST/PUT/DELETE /systems` | Yes — the org chart toolbar, gated on `system.edit` |
+| Evaluation gate and IR diff for the open design | `.../gate`, `.../diff` | Yes — the consequence rail beside the agent editor |
 
 Two caveats worth keeping honest. An unscoped audit read that is refused is
 *not* itself recorded — the service raises before it logs — so the log shows
@@ -160,9 +243,12 @@ There is no **compile**, **publish** or **deploy** action anywhere in the
 designer, and no mention of a tenant or a binding. ADR-0049 says publishing is
 a request to the fabric — the UI cannot make that request. Nor can it show:
 
-- the **evaluation gate** per agent (`orgagents gate`), now a real verdict;
+- the **evaluation gate** per agent (`orgagents gate`), now a real verdict —
+  served at `GET /api/designer/systems/{id}/gate`, with no view in front of it
+  yet;
 - an **IR diff** against the previous version (`orgagents spec diff`), which is
-  where a widened permission becomes visible;
+  where a widened permission becomes visible — served at
+  `GET /api/designer/systems/{id}/diff`, likewise unrendered;
 - the **record graph** of ADRs and workstreams (WS-009 M5).
 
 All three exist as libraries with CLI surfaces. The reviewer who most needs

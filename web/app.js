@@ -359,9 +359,10 @@ function renderTeam(team) {
     class: `node${state.selected?.id === team.id ? " sel" : ""}`,
     onclick: () => selectOrgNode("team", team.id),
   },
+    el("span", { class: "mark", "aria-hidden": "true" }),
     el("span", { class: "nm" }, team.name || team.id),
     el("span", { class: "ti" }, "team"),
-    el("span", { class: "badge" }, `leader: ${team.leader || "none"}`));
+    el("span", { class: "badge accent" }, `leader · ${team.leader || "none"}`));
   const children = el("ul", {},
     ...(team.members || []).map((agent) => el("li", {}, agentNode(agent))),
     ...(team.teams || []).map((child) => el("li", {}, renderTeam(child))));
@@ -374,9 +375,16 @@ function agentNode(agent) {
     class: `node${state.selected?.id === agent.id ? " sel" : ""}`,
     onclick: () => selectOrgNode("agent", agent.id),
   },
+    /* The stripe on the canvas and this mark say the same thing: the highest
+       data classification this agent touches. */
+    el("span", { class: "mark", "aria-hidden": "true",
+      "data-classification": design().classificationOf(agent) }),
     el("span", { class: "nm" }, agent.name || agent.id),
     el("span", { class: "ti" }, roleIds(agent.roles).join(", ") || "agent"),
-    el("span", { class: "badge" }, owner ? owner.name : "unassigned"));
+    /* Every agent needs exactly one accountable owner; an agent without one
+       is a state worth seeing from the tree, not from a detail panel. */
+    el("span", { class: `badge ${owner ? "" : "err"}` },
+      owner ? owner.name : "no accountable owner"));
 }
 
 /* A role may be written as an id or as an assignment object; both are valid. */
@@ -553,6 +561,108 @@ function renderAgentSide() {
         el("span", { class: "badge" }, String((items || []).length))))
     : []));
   renderValidationInto($("#agent-validation"), design()?.state.validation);
+  loadConsequenceRail();
+}
+
+/* --------------------------------------------------- the consequence rail
+
+   Two routes answer "what does this change do": the evaluation gate for the
+   open agent, and the diff between the previous saved version and this one.
+   Both are owned elsewhere and may not be deployed yet, so the rail fetches
+   them directly rather than through `dapi`, treats any non-200 as absence,
+   and renders nothing at all rather than a broken panel. Neither is a runtime
+   observation: the gate is a review fact about this design, the diff is a
+   comparison of two saved versions of it. */
+const DESIGNER_API = "/api/designer";
+
+async function consequence(path) {
+  try {
+    const res = await fetch(DESIGNER_API + path,
+      { headers: { "Content-Type": "application/json" } });
+    if (!res.ok) return null;       // 404 while the route is not yet there
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+const gateUrl = (systemId) => `/systems/${systemId}/gate`;
+const diffUrl = (systemId, from, to) =>
+  `/systems/${systemId}/diff?from=${from}&to=${to}`;
+
+/* `not_evaluated` is its own state: a case nobody could verify is not a case
+   that failed, and drawing it red teaches people to ignore red. */
+const GATE_WORDS = {
+  passed: ["Passed", "every required case was checked"],
+  failed: ["Failed", "a required case did not hold"],
+  stale: ["Stale", "checked against an older version"],
+  not_evaluated: ["Not evaluated", "unverifiable — not a failure"],
+};
+
+const SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"];
+
+function renderConsequenceRail(gate, diff) {
+  const host = $("#consequence-rail");
+  if (!host) return;
+  const agentId = state.agentId;
+  const verdict = agentId ? gate?.agents?.[agentId] : null;
+  const changes = [...(diff?.changes || [])].sort((a, b) =>
+    (b.security_relevant === true) - (a.security_relevant === true)
+    || SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
+
+  // Absent data is absence, not an error: show nothing.
+  if (!verdict && !changes.length) return host.replaceChildren();
+
+  const lead = changes[0];
+  host.replaceChildren(
+    ...(lead ? [el("div", { class: `finding sev-${lead.severity}` },
+      el("div", { class: "head" },
+        el("span", { class: `badge ${lead.severity === "critical"
+          || lead.severity === "high" ? "err" : "warn"}` },
+        String(lead.severity).toUpperCase()),
+        el("span", {}, lead.direction || "changed")),
+      el("div", { class: "body" },
+        el("span", { class: "path" }, lead.path || ""),
+        el("span", { class: "why" }, lead.summary || ""),
+        ...(lead.rationale ? [el("span", { class: "ref" }, lead.rationale)] : [])))]
+      : []),
+    ...(changes.length > 1
+      ? [el("h4", {}, "Other changes"),
+        ...changes.slice(1, 5).map((c) => el("div", { class: "list" },
+          el("div", {},
+            el("span", { class: "badge" }, String(c.severity).toUpperCase()),
+            el("span", { class: "grow" }, c.summary || c.path || ""))))]
+      : []),
+    ...(verdict ? [
+      el("h4", {}, "Evaluation gate"),
+      (() => {
+        const [lede, why] = GATE_WORDS[verdict.state] || [verdict.state, ""];
+        return el("div", { class: "gate", "data-state": verdict.state },
+          el("span", { class: `dot ${verdict.state === "passed" ? "ok"
+            : verdict.state === "failed" ? "err" : "warn"}` }),
+          el("div", {},
+            el("div", { class: "lede" }, lede),
+            el("div", { class: "why" }, verdict.reason || why)),
+          verdict.required
+            ? el("span", { class: "who", style: "margin-left:auto" }, "required")
+            : null);
+      })(),
+    ] : []));
+}
+
+async function loadConsequenceRail() {
+  const host = $("#consequence-rail");
+  if (!host) return;
+  const record = design()?.state.record;
+  const systemId = design()?.state.systemId;
+  if (!record || !systemId) return host.replaceChildren();
+  const [gate, diff] = await Promise.all([
+    consequence(gateUrl(systemId)),
+    record.version > 1
+      ? consequence(diffUrl(systemId, record.version - 1, record.version))
+      : Promise.resolve(null),
+  ]);
+  renderConsequenceRail(gate, diff);
 }
 
 function renderValidationInto(host, validation) {
@@ -847,10 +957,15 @@ async function loadPlatformCatalog() {
     api(`/catalogs?q=${encodeURIComponent(q)}&kind=${kind}&status=${status}`),
     api("/catalogs/stats"),
   ]);
+  const tone = { approved: "ok", restricted: "warn", proposed: "warn",
+    in_review: "warn" };
   $("#pc-stats").replaceChildren(
     stat("Entries", stats.total),
-    ...Object.entries(stats.by_status).map(([k, v]) => stat(k, v)),
-    stat("Unreviewed", stats.unreviewed.length));
+    ...Object.entries(stats.by_status).map(([k, v]) =>
+      stat(k === "approved" ? "approved · selectable"
+        : k === "proposed" ? "proposed · not selectable" : k, v, tone[k] || "")),
+    stat("Unreviewed", stats.unreviewed.length,
+      stats.unreviewed.length ? "warn" : ""));
   $("#pc-entries").replaceChildren(...entries.map(platformCard));
 }
 
@@ -875,7 +990,7 @@ function platformCard(entry) {
   const approvedish = entry.status === "approved" || entry.status === "restricted";
   const statusClass = { approved: "ok", restricted: "warn", retired: "err",
     rejected: "err", deprecated: "warn" }[entry.status] || "";
-  return el("div", { class: "card" },
+  return el("div", { class: `card st-${entry.status}` },
     el("h3", {}, entry.name),
     el("div", { class: "meta" },
       el("span", { class: "badge" }, entry.kind),
@@ -887,6 +1002,12 @@ function platformCard(entry) {
     el("p", { class: "hint" }, detail.filter(Boolean).join(" · ") || "—"),
     el("p", { class: "hint" },
       `${entry.owner || "unowned"}${entry.installs ? ` · ${entry.installs} uses` : ""}`),
+    /* Honest about not being selectable, on the face of the card. */
+    entry.status === "proposed"
+      ? el("div", { class: "refusal" },
+          el("span", { class: "dot warn" }),
+          "No design can pick this until it is approved.")
+      : null,
     el("div", { class: "actions" },
       el("button", { onclick: () => reviewEntry(entry.id, "approved") }, "Approve"),
       el("button", { onclick: () => reviewEntry(entry.id, "restricted") }, "Restrict"),
@@ -1018,9 +1139,11 @@ async function openEntryForm(entryId = null, preset = null) {
   };
   kindSelect.addEventListener("change", drawAttributes);
 
+  /* The refusal is the platform's own sentence, not a paraphrase, and both
+     ways forward are offered as controls beside it. */
   const banner = locked
-    ? el("div", { class: "validation" },
-        el("p", { class: "v-err" }, detail.amend_refusal),
+    ? el("div", { class: "amend-refusal" },
+        el("p", {}, detail.amend_refusal),
         el("div", { class: "actions" },
           el("button", { onclick: () => openEntryForm(null, {
             ...entry, id: undefined, version: "", status: "proposed",
@@ -1040,14 +1163,23 @@ async function openEntryForm(entryId = null, preset = null) {
   box.replaceChildren(
     el("h3", {}, entryId ? `Edit ${entry.name}` : "New catalog entry"),
     banner,
-    el("div", { class: "form" },
-      el("label", {}, "Kind", kindSelect),
-      el("label", {}, "Version",
-        el("input", { id: "pc-f-version", value: entry.version || "1.0.0",
-          ...(locked ? { disabled: true } : {}) })),
-      ...editorial),
-    el("h4", {}, "Attributes"),
-    attrBox,
+    /* Editorial is housekeeping and stays live at any status; kind, version
+       and attributes decide what a bound design resolves to, so on a reviewed
+       entry they are rendered disabled rather than refused after typing. */
+    el("div", { class: "editorial" },
+      el("p", { class: "eyebrow" }, locked
+        ? "Editorial — you may change these" : "Editorial"),
+      el("div", { class: "form" }, ...editorial)),
+    el("div", { class: locked ? "substantive" : "" },
+      el("p", { class: "eyebrow" }, locked
+        ? "Substantive — locked by review" : "Substantive"),
+      el("div", { class: "form" },
+        el("label", {}, "Kind", kindSelect),
+        el("label", {}, "Version",
+          el("input", { id: "pc-f-version", value: entry.version || "1.0.0",
+            ...(locked ? { disabled: true } : {}) }))),
+      el("h4", {}, "Attributes"),
+      attrBox),
     el("div", { class: "actions" },
       el("button", { onclick: () => saveEntryForm(entryId, locked, kindSelect.value) },
         "Save"),
@@ -1143,8 +1275,11 @@ async function loadOps() {
 }
 
 /* ------------------------------------------------------------ helpers */
-function stat(k, v) {
-  return el("div", { class: "stat" }, el("div", { class: "v" }, String(v)),
+/* A count is a state, not decoration: `tone` colours the tile with the same
+   semantic the chips use. */
+function stat(k, v, tone = "") {
+  return el("div", { class: `stat ${tone}`.trim() },
+    el("div", { class: "v" }, String(v)),
     el("div", { class: "k" }, k));
 }
 function setStatus(text) { $("#status").textContent = text; }

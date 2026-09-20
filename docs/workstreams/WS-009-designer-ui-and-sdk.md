@@ -2,7 +2,7 @@
 id: WS-009
 title: Designer UI and SDK as peer clients of the spec
 status: Active
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Product
@@ -70,4 +70,5 @@ WS-002 for the spec both clients edit.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Designer review surfaces exposed over HTTP: read-only `GET /systems/{id}/gate` (evaluation gate per agent) and `GET /systems/{id}/diff` (IR diff between two revisions), behind the designer's own RBAC. Neither runs evaluations. |
 | 1.0.0 | 2026-09-20 | Opened. UI shipped over the runtime model; spec-backed editing next. |

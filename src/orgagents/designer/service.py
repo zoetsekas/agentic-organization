@@ -540,6 +540,62 @@ class DesignerService:
                           detail={"restored": version})
         return saved
 
+    # -- review surfaces (read-only) ---------------------------------------
+    #
+    # The gate and the IR diff report on evidence and on revisions that already
+    # exist. Nothing here writes: a gate that produced evidence in order to
+    # report on it would not be a gate, and a diff is a reading of history.
+
+    def spec_at(self, principal: Principal, system_id: str,
+                version: Optional[int] = None) -> tuple[dict[str, Any],
+                                                        Optional[dict[str, Any]], int]:
+        """The stored spec and binding of one version, behind the view check."""
+        record = self._system(system_id)
+        self._require(self.repository.get_workspace(record.workspace_id), principal,
+                      VIEW, AuditAction.SYSTEM_VIEW, system_id=system_id)
+        if version is None or version == record.version:
+            return record.spec, record.binding, record.version
+        revision = self.repository.revision(system_id, version)
+        if revision is None:
+            raise DesignerError(f"no revision {version} of '{system_id}'")
+        return revision.spec, revision.binding, revision.version
+
+    def review_pair(
+        self, principal: Principal, system_id: str, *,
+        left: Optional[int] = None, right: Optional[int] = None,
+    ) -> tuple[tuple[dict[str, Any], Optional[dict[str, Any]], int],
+               tuple[dict[str, Any], Optional[dict[str, Any]], int]]:
+        """Two versions of one design to compare, resolved behind one check.
+
+        The defaults are the pair a reviewer means by "what changed": the
+        current version against the one before it. A design with only one
+        version compares against itself, which is an empty diff rather than a
+        refusal — nothing has changed yet is a true answer.
+        """
+        record = self._system(system_id)
+        self._require(self.repository.get_workspace(record.workspace_id), principal,
+                      VIEW, AuditAction.SYSTEM_VIEW, system_id=system_id)
+        history = {r.version: r for r in self.repository.revisions(system_id,
+                                                                   limit=5000)}
+
+        def at(version: int) -> tuple[dict[str, Any], Optional[dict[str, Any]], int]:
+            if version == record.version:
+                return record.spec, record.binding, record.version
+            revision = history.get(version)
+            if revision is None:
+                raise DesignerError(f"no revision {version} of '{system_id}'")
+            return revision.spec, revision.binding, revision.version
+
+        to_version = record.version if right is None else right
+        if to_version != record.version and to_version not in history:
+            raise DesignerError(f"no revision {to_version} of '{system_id}'")
+        if left is None:
+            earlier = [v for v in history if v < to_version]
+            from_version = max(earlier) if earlier else to_version
+        else:
+            from_version = left
+        return at(from_version), at(to_version)
+
     # -- validation --------------------------------------------------------
 
     def validate(self, record: SystemRecord) -> dict[str, Any]:

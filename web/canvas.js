@@ -206,7 +206,7 @@ async function loadPalette() {
   canvas.palette = await dapi("/palette");
   const root = $("#palette-groups");
   root.replaceChildren(
-    ...canvas.palette.groups.flatMap((group) => [
+    ...canvas.palette.groups.map((group) => el("div", { class: "group" },
       el("h4", {}, group.label),
       ...group.kinds.map((kind) =>
         el("div", {
@@ -215,9 +215,55 @@ async function loadPalette() {
             e.dataTransfer.setData("text/kind", kind.kind);
             e.dataTransfer.effectAllowed = "copy";
           },
-        }, el("span", { class: "ic" }, kind.icon || "▫"), kind.label)),
-    ]));
+        }, el("span", { class: "ic" }, kind.icon || "▫"), kind.label)))),
+    el("p", { class: "note" },
+      "Dropping near a team joins it. Edges are derived from the spec, "
+      + "never drawn by hand."));
 }
+
+/* The node vocabulary the design fixes: shape carries the kind, so a reader
+   never has to consult the legend twice.
+     team     dashed container — it holds, it does not act
+     agent    solid card, left stripe = its highest data classification
+     mission  capsule, because it is temporary; it always shows its end date
+     sandbox  rounded card with the network posture on its face
+     endpoint chevron, because what leaves the boundary is drawn leaving */
+const SHAPES = {
+  team: "container",
+  agent: "card", subagent: "card",
+  mission: "capsule",
+  environment: "sandbox",
+  endpoint: "chevron",
+};
+const shapeOf = (kind) => SHAPES[kind] || "plain";
+
+/* An agent has no classification of its own: it inherits the widest scope of
+   any data class its capabilities touch. `private` is the tightest and is
+   drawn clay, `public` the widest and drawn moss — the stripe is a warning
+   about reach, not a score. */
+const SCOPE_RANK = { public: 3, protected: 2, private: 1 };
+
+function classificationOf(agent) {
+  const s = spec();
+  if (!s || !agent) return "unclassified";
+  const byId = Object.fromEntries((s.data_classes || []).map((d) => [d.id, d]));
+  const touched = new Set();
+  for (const capabilityId of agent.capabilities || []) {
+    const capability = (s.capabilities || []).find((c) => c.id === capabilityId);
+    for (const id of capability?.data_classes || []) touched.add(id);
+  }
+  let worst = null;
+  for (const id of touched) {
+    const scope = byId[id]?.scope;
+    if (!scope) continue;
+    if (!worst || SCOPE_RANK[scope] < SCOPE_RANK[worst]) worst = scope;
+  }
+  return worst || "unclassified";
+}
+
+/* The network posture a sandbox runs under, shown on its face rather than
+   one dialog away: `none · allowlist · internal · open`. */
+const postureOf = (environment) => environment?.network || "none";
 
 function kindSpec(kind) {
   for (const group of canvas.palette?.groups || [])
@@ -246,10 +292,15 @@ function renderNode(node) {
   const box = el("div", {
     class: `node${canvas.selected?.id === node.id ? " selected" : ""}${blocked ? " locked" : ""}`,
     "data-kind": node.kind, "data-id": node.id,
+    "data-shape": shapeOf(node.kind),
+    "data-classification": node.kind === "agent"
+      ? classificationOf(component) : null,
     style: `left:${node.x}px; top:${node.y}px; min-width:${node.width}px`,
     title: blocked ? `locked by ${blocked.holder_name || blocked.holder}` : "",
   },
-    el("span", { class: "n-icon" }, kindSpec(node.kind).icon || "▫"),
+    node.kind === "environment"
+      ? el("span", { class: "n-net" }, postureOf(component))
+      : el("span", { class: "n-icon" }, kindSpec(node.kind).icon || "▫"),
     el("div", { class: "n-kind" }, kindSpec(node.kind).label),
     el("div", { class: "n-title" }, component.name || component.id || node.id),
     el("div", { class: "n-sub" }, nodeSubtitle(node.kind, component, node)));
@@ -262,8 +313,11 @@ function nodeSubtitle(kind, component, node) {
   if (kind === "team") return `leader: ${component.leader || "—"}`;
   if (kind === "agent") {
     const owner = (component.humans || []).find((h) => (h.roles || []).includes("owner"));
-    return `${(component.humans || []).length} human(s)${owner ? ` · ${owner.name}` : ""}`;
+    return `${classificationOf(component)}${owner ? ` · ${owner.name}` : ""}`;
   }
+  /* A mission always carries its end date: that is what makes it a mission. */
+  if (kind === "mission") return `ends ${component.ends_on || "— undated"}`;
+  if (kind === "environment") return `${component.tier || "minimal"} · network ${postureOf(component)}`;
   if (kind === "subagent") return `${component.kind || "custom"} · tool`;
   if (kind === "note") return node.note || "note";
   if (kind === "capability") return component.action || "";
@@ -287,15 +341,27 @@ function renderEdges() {
     const mid = (y1 + y2) / 2;
     line.setAttribute("d", `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`);
     line.setAttribute("fill", "none");
-    line.setAttribute("stroke", "currentColor");
     line.setAttribute("stroke-width", "1.5");
-    line.setAttribute("opacity", edge.kind === "member_of" ? "0.35" : "0.6");
-    if (edge.kind !== "member_of") line.setAttribute("stroke-dasharray", "4 3");
+    /* An edge says which kind of relation it is by how it is drawn: a solid
+       reporting line, a dashed mission peer that expires with the mission, a
+       dotted amber egress that leaves the boundary. */
+    const style = EDGE_STYLES[edge.kind] || EDGE_STYLES.member_of;
+    line.setAttribute("stroke", `var(${style.stroke})`);
+    if (style.dash) line.setAttribute("stroke-dasharray", style.dash);
     parts.push(line);
   }
   svg.replaceChildren(...parts);
-  svg.style.color = "var(--muted)";
 }
+
+const EDGE_STYLES = {
+  member_of: { stroke: "--edge-report" },
+  reports_to: { stroke: "--edge-report" },
+  mission_peer: { stroke: "--edge-peer", dash: "5 4" },
+  peer: { stroke: "--edge-peer", dash: "5 4" },
+  uses: { stroke: "--edge-peer", dash: "5 4" },
+  triggers: { stroke: "--edge-peer", dash: "5 4" },
+  egress: { stroke: "--edge-egress", dash: "2 5" },
+};
 
 function derivedEdges() {
   /* Edges come from the spec, not from the layout: the picture always matches
@@ -432,8 +498,59 @@ function renderInspector() {
     }, "Remove"));
   form.appendChild(actions);
   host.replaceChildren(form,
+    ...(kind === "agent" ? [resolvesTo(component)] : []),
     el("h3", {}, "Raw"),
     el("pre", { class: "code" }, JSON.stringify(component ?? node, null, 2)));
+}
+
+/* "Resolves to" — the question no other view answers: given these bindings,
+   what may this agent actually reach? It is resolved here from the open spec,
+   because it is a design fact; nothing runtime is consulted. */
+function effectivePermissions(agent) {
+  const s = spec();
+  if (!s || !agent) return [];
+  const capabilities = Object.fromEntries((s.capabilities || []).map((c) => [c.id, c]));
+  const out = [];
+  const seen = new Set();
+  const add = (capabilityId, via) => {
+    const capability = capabilities[capabilityId];
+    if (!capability) return;
+    const key = `${capability.action}:${capability.resource_class}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ action: capability.action || "invoke",
+      resource: capability.resource_class || capability.id, via });
+  };
+  (agent.capabilities || []).forEach((c) => add(c, "bound directly"));
+  for (const assignment of agent.roles || []) {
+    const roleId = typeof assignment === "string" ? assignment : assignment.role;
+    const role = (s.roles || []).find((r) => r.id === roleId);
+    (role?.capabilities || []).forEach((c) => add(c, roleId));
+  }
+  return out;
+}
+
+function resolvesTo(agent) {
+  const permissions = effectivePermissions(agent);
+  const shown = permissions.slice(0, 6);
+  const rest = permissions.length - shown.length;
+  return el("div", { class: "resolves" },
+    el("header", {},
+      el("span", { class: "eyebrow" }, "Resolves to"),
+      el("span", { class: "badge" },
+        `${permissions.length} permission${permissions.length === 1 ? "" : "s"}`)),
+    ...shown.map((p) => el("div", { class: "perm" },
+      el("span", { class: "act" }, p.action), el("span", {}, p.resource))),
+    ...(rest > 0
+      ? [el("div", { class: "perm" }, el("span", { class: "act" }, "…"),
+          el("span", {}, `${rest} more`))]
+      : []),
+    ...(permissions.length ? [] : [el("div", { class: "from" },
+      "Nothing yet: this agent binds no capability, directly or through a role.")]),
+    el("div", { class: "from" },
+      shown.length
+        ? `via ${[...new Set(shown.map((p) => p.via))].join(", ")}`
+        : ""));
 }
 
 function fieldControl(field, value, readOnly, onChange) {
@@ -565,8 +682,33 @@ function markDirty(reason = "edited") {
   announce(reason);
 }
 
+/* The strip above the surface: counts, and the rules that actually fired.
+   A validation message names its rule in the backend, so the strip repeats
+   those names rather than inventing a summary. */
+function renderValidationStrip(validation) {
+  const strip = $("#validation-strip");
+  if (!strip) return;
+  if (!validation) return strip.replaceChildren();
+  const errors = validation.errors || [];
+  const warnings = validation.warnings || [];
+  const rules = [...errors, ...warnings]
+    .map((m) => String(m).match(/^([a-z0-9_]+)\b/)?.[1])
+    .filter(Boolean);
+  strip.replaceChildren(
+    el("span", { class: `count ${errors.length ? "err" : "ok"}` },
+      el("span", { class: `dot ${errors.length ? "err" : "ok"}` }),
+      `${errors.length} error${errors.length === 1 ? "" : "s"}`),
+    el("span", { class: `count ${warnings.length ? "warn" : "ok"}` },
+      el("span", { class: `dot ${warnings.length ? "warn" : "ok"}` }),
+      `${warnings.length} warning${warnings.length === 1 ? "" : "s"}`),
+    el("span", { class: "rules" },
+      [...new Set(rules)].slice(0, 4).join(" · ")
+        || (validation.ok ? "nothing to answer" : "")));
+}
+
 function renderValidation(validation) {
   const host = $("#validation");
+  renderValidationStrip(validation);
   if (!validation) return host.replaceChildren();
   host.replaceChildren(
     el("h3", {}, validation.ok ? "Valid" : "Not yet valid"),
@@ -765,4 +907,6 @@ window.designer = {
   renderSelectors: renderOrgSelectors,
   lockedByOther: () => canvas.locks.find((l) => l.holder !== canvas.user) || null,
   canEdit: () => canvas.permissions.includes("system.edit"),
+  classificationOf,
+  effectivePermissions,
 };

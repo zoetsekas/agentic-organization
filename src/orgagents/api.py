@@ -761,6 +761,101 @@ def create_app(
                             limit=limit)
         ]
 
+    # -- designer: review surfaces (WS-009) --------------------------------
+    #
+    # Both routes are read-only. The gate answers "what does the evidence say
+    # today" and must never run evaluations on the way: a route that quietly
+    # produced the evidence it then reported on would defeat the gate. The diff
+    # only reads revisions that are already stored.
+
+    from .compiler import build_ir as _build_ir
+    from .compiler.diff import IncomparableIRError as _IncomparableIRError
+    from .compiler.diff import diff_ir as _diff_ir
+    from .evaluations import EvaluationService as _EvaluationService
+    from .spec.binding import TargetBinding as _TargetBinding
+    from .spec.loader import load_spec_text as _load_spec_text
+
+    designer_evaluations = _EvaluationService(platform.store)
+
+    def _designer_spec(raw: dict[str, Any]):
+        """Parse a stored spec, or refuse in the UI's own terms.
+
+        A design mid-edit is routinely incomplete, so "this does not compile
+        yet" is the normal answer here, not a failure: 422 with the loader's
+        own message, which the UI shows in place of the review panel.
+        """
+        import yaml
+
+        try:
+            return _load_spec_text(yaml.safe_dump(raw))
+        except Exception as e:
+            raise HTTPException(
+                422, f"this design does not compile yet: {type(e).__name__}: {e}"
+            ) from e
+
+    def _designer_ir(raw: dict[str, Any], binding: Optional[dict[str, Any]]):
+        spec = _designer_spec(raw)
+        # The binding a revision was saved with decides its target, so a
+        # re-target shows up as the incomparability it is rather than silently
+        # diffing two different compilations.
+        bound = None
+        if binding and binding.get("target"):
+            try:
+                bound = _TargetBinding.model_validate(binding)
+            except Exception as e:
+                raise HTTPException(422, f"stored binding is unusable: {e}") from e
+        try:
+            return _build_ir(spec, target=bound.target if bound else "local",
+                             binding=bound)
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(
+                422, f"this design does not compile yet: {type(e).__name__}: {e}"
+            ) from e
+
+    @app.get("/api/designer/systems/{system_id}/gate")
+    def designer_gate(system_id: str, stage: str = "production",
+                      user: Principal = Depends(principal)) -> dict:
+        """The evaluation gate for every agent in a design. Reads only."""
+        from .spec.model import LifecycleStage
+
+        raw, _binding, _version = _guard(designer.spec_at, user, system_id)
+        spec = _designer_spec(raw)
+        try:
+            to_stage = LifecycleStage(stage)
+        except ValueError as e:
+            raise HTTPException(422, f"unknown lifecycle stage '{stage}'") from e
+        verdicts = designer_evaluations.gate_states(spec, to_stage=to_stage)
+        return {
+            "agents": {
+                agent_id: {
+                    "state": v.state.value,
+                    "reason": v.reason,
+                    "required": v.required,
+                }
+                for agent_id, v in verdicts.items()
+            }
+        }
+
+    @app.get("/api/designer/systems/{system_id}/diff")
+    def designer_diff(system_id: str,
+                      from_version: Optional[int] = Query(default=None, alias="from"),
+                      to_version: Optional[int] = Query(default=None, alias="to"),
+                      user: Principal = Depends(principal)) -> dict:
+        """What moved between two revisions of one design, ranked by consequence."""
+        left, right = _guard(designer.review_pair, user, system_id,
+                             left=from_version, right=to_version)
+        try:
+            result = _diff_ir(_designer_ir(left[0], left[1]),
+                              _designer_ir(right[0], right[1]))
+        except _IncomparableIRError as e:
+            # A refusal, not a failure to find the pair: 409 carries the
+            # refusal's own reasoning so the UI can show it verbatim.
+            raise HTTPException(409, str(e)) from e
+        payload = result.to_dict()
+        return {"changes": payload["changes"], "summary": payload["summary"]}
+
     @app.get("/api/designer/palette")
     def designer_palette() -> dict:
         """What the canvas can place, and the fields each kind needs."""
