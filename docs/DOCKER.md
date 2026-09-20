@@ -1,52 +1,53 @@
-# Running the designer in Docker
+# Running the platform in Docker, plane by plane
 
-This is the **designer application** — the thing you build agentic systems
-in. It is not the Compose stack the compiler *generates* for a system you
-design (`orgagents compile --target local`, ADR-0011). The two are separate
-artifacts and are not meant to be merged: one runs the workshop, the other
-runs somebody's agents.
+The platform is three planes (ADR-0049), and each one is **its own Compose
+project** (ADR-0053). That is deliberate: `docker compose down` on one plane
+must not take another with it, and an operator should be able to say which
+plane a container belongs to by looking at it.
 
-## Quick start
+| Plane | File | What it runs |
+|---|---|---|
+| Designer | `docker-compose.yml` (repository root) | The workshop: canvas, API, CLI (ADR-0048) |
+| Fabric | `docker/compose/fabric.yml` | The control plane, the command centre, and the shared infrastructure every tenant draws on |
+| Tenant | *generated* — `orgagents compile --target local` | One designed organization, one project per tenant, with its own data stores |
+
+None of these are meant to be merged. The designer authors specs; the fabric
+decides whether, where and for whom they run; a tenant project is somebody's
+agents actually running.
+
+## The designer plane
 
 ```bash
 docker compose up --build
 # UI  → http://localhost:8000/ui/
 # API → http://localhost:8000/api/...
 # health → http://localhost:8000/healthz
-```
 
-With the demo organization already populated:
-
-```bash
-ORGAGENTS_SEED=1 docker compose up --build
+ORGAGENTS_SEED=1 docker compose up --build   # with the demo organization
 ```
 
 Seeding is opt-in and only ever runs when the database file does not exist, so
 a restart never overwrites or duplicates what is in the volume.
 
-## What the image contains
-
 | Choice | Why |
 |---|---|
 | `python:3.11-slim`, two stages | Dependencies resolve from `pyproject.toml` alone, so that layer rebuilds only when the metadata changes. |
 | Non-root `designer` user (uid 10001), no login shell | The app writes to one directory; nothing needs an identity that can log in. |
-| `PYTHONPATH=/app/src` with the source tree kept | `api.py` resolves the web assets relative to its own file (`parents[2]/web`), so the UI is only found when the on-disk layout matches the repo. Changing that resolution belongs in the application, not in a Dockerfile workaround. |
-| `/data` volume | The SQLite database is the only mutable state. Declared as a volume so even a bare `docker run` keeps it off the image layer. |
+| `PYTHONPATH=/app/src` with the source tree kept | `api.py` resolves the web assets relative to its own file (`parents[2]/web`), so the UI is only found when the on-disk layout matches the repo. |
+| `/data` volume | The SQLite database is the only mutable state. |
 | Healthcheck calls `/healthz` | A port check would call a process that is up but broken "healthy". |
-| `scheduler` service behind a profile | It runs declared triggers unattended. That should be something you asked for, not a side effect of `up`. |
+| `scheduler` service behind a profile | It runs declared triggers unattended. That should be something you asked for. |
 
-## Configuration
+Configuration:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `ORGAGENTS_DB` | `/data/designer.db` | Keep it under `/data` or it lands on the container layer and is lost on recreate. |
-| `ORGAGENTS_BASE_URL` | `http://localhost:8000` | Session URLs are handed to humans, so this must be the address *they* can reach, not the container's. |
+| `ORGAGENTS_DB` | `/data/designer.db` | Keep it under `/data` or it lands on the container layer. |
+| `ORGAGENTS_BASE_URL` | `http://localhost:8000` | Session URLs are handed to humans, so this must be the address *they* can reach. |
 | `ORGAGENTS_PORT` / `ORGAGENTS_HOST` | `8000` / `0.0.0.0` | |
 | `ORGAGENTS_SEED` | `0` | `1` seeds the demo org on first start only. |
 | `ORGAGENTS_DESIGNER_AUTH` | `trusted_proxy` | `oidc`, `trusted_proxy` or `none` (ADR-0047). |
 | `ORGAGENTS_OIDC_ISSUER` / `_AUDIENCE` / `_JWKS_URI` | — | Required when auth mode is `oidc`. |
-
-## Other commands from the same image
 
 Anything that is not `serve` is passed to the CLI unchanged, so there is no
 second image to keep in step:
@@ -57,23 +58,134 @@ docker compose run --rm designer compile examples/acme.system.yaml --target loca
 docker compose run --rm designer records validate
 ```
 
+## The fabric plane
+
+```bash
+cp docker/compose/fabric.env.example .env   # fill in the passwords first
+docker compose -f docker/compose/fabric.yml up -d
+docker compose -f docker/compose/fabric.yml --profile leases up -d   # + Redis
+```
+
+The file refuses to start without `FABRIC_DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`
+and `GRAFANA_ADMIN_PASSWORD` (`${VAR:?}`), because a default password on an
+identity provider is worse than no identity provider.
+
+| Service | Image | What it is for |
+|---|---|---|
+| `fabric` | `orgagents-fabric` (built here) | Control plane API: tenants, deployments, quotas, health |
+| `command` | `orgagents-command` (built here) | The command centre, a separate application over the same backend (ADR-0051) |
+| `postgres` | `postgres:16-alpine` | The fabric's *own* store. No tenant data lives here. |
+| `traefik` | `traefik:v3` | The only ingress. Routes `/ui/`, `/command/` and the API, strips client-supplied identity headers, and is therefore what makes `trusted_proxy` mode trustworthy (ADR-0047). |
+| `keycloak` | `quay.io/keycloak/keycloak:26` | An OIDC issuer to develop against. `start-dev`: no TLS. |
+| `vault` | `hashicorp/vault:1.17` | Dev mode. Resolves `secret_ref`s locally. **Not a secret store** — see below. |
+| `otel-collector` | `otel/opentelemetry-collector-contrib:0.110.0` | One collector; every plane exports to it |
+| `prometheus` + `grafana` | `prom/prometheus:v2.54.1`, `grafana/grafana:11` | Metrics and the operator dashboards |
+| `jaeger` | `jaegertracing/all-in-one:1.60` | Session traces, which is how anyone debugs an agent run |
+| `redis` | `redis:7-alpine`, profile `leases` | Scheduler leases and rate limiting. Optional: the Postgres path works without it. |
+
+`orgagents-fabric` and `orgagents-command` are separate images although they
+run the same process over the same backend today. The reason is rollback: an
+operator UI you cannot roll back without rolling back the control plane is not
+a separate application, whatever ADR-0051 says.
+
+## The tenant plane
+
+A tenant plane is not in this repository as a file; it is *generated*:
+
+```bash
+orgagents compile examples/acme.system.yaml --target local --tenant northwind --out build
+cd build/northwind/local && cp .env.example .env && make up
+```
+
+Each tenant gets its own Compose project name, its own networks, its own named
+volumes, its own `postgres:16-alpine` and its own
+`minio/minio:RELEASE...` artifact workspace. A shared database with a tenant
+column is rejected (ADR-0053 rule 3, ADR-0050): it is one missing `WHERE` from
+a cross-tenant breach.
+
+Sandbox images are per environment class, and every one of them is an image
+ADR-0053 names (ADR-0055 explains the mapping and what it costs). They appear
+in the generated Compose file as `sandbox-<class>` services behind the
+`sandboxes` profile: they are built, not run, because a sandbox is something
+code is executed *in* on demand, not a long-running process.
+
+```bash
+docker compose --profile sandboxes build
+```
+
+A class with `network: none` gets `network_mode: none` — no network at all,
+not an internal one.
+
+## Shared, per-tenant, and the line between them
+
+| Shared, fabric-owned | Per tenant |
+|---|---|
+| Traefik (ingress and TLS) | Postgres instance and volume |
+| Keycloak (identity) | MinIO instance and volume |
+| Vault (secret resolution) | Compose project, networks, named volumes |
+| The OTel collector, Prometheus, Grafana, Jaeger | Agent containers and sandbox images |
+| The fabric's own Postgres | Identities and secret scope |
+
+Everything in the left column is a **cross-tenant channel by construction**.
+Tenant spans are tagged and routed in the collector rather than merged, and a
+misconfigured collector merges them. That is the risk ADR-0053 accepts in
+exchange for one observability stack instead of one per tenant.
+
+## Pinning and the lock file
+
+`docker/images.lock` holds a tag-to-digest pin for every third-party image
+ADR-0053 names. A tag moves; a digest is the thing that was reviewed.
+
+Right now **every digest in it is the literal token `UNRESOLVED`**. Nothing has
+been pulled here, so writing digest-shaped strings would have produced a file
+that reads as a supply-chain claim and is fiction. On a machine with a daemon
+(or with `crane` or `skopeo`):
+
+```bash
+docker/resolve-images.sh                                      # fill in the lock
+docker/resolve-images.sh --apply docker/compose/fabric.yml    # tag -> tag@digest
+```
+
+Review that diff like the security change it is.
+
 ## What this does not do yet
 
-- **It has not been built or run here.** There is no Docker daemon in the
-  development environment this was written in, so the Dockerfile, Compose file
-  and entrypoint are unbuilt. `tests/test_docker_assets.py` checks that they do
-  not drift from the application — that the entrypoint only passes flags the
-  CLI defines, that the healthcheck hits a route that exists, that the image
-  layout keeps the UI resolvable — but none of that is a substitute for
-  `docker compose up` on a machine with a daemon. Expect to fix something the
-  first time.
-- **No TLS.** Run it behind a reverse proxy. In `trusted_proxy` auth mode that
-  proxy is also what makes the identity header trustworthy at all.
-- **SQLite, single container.** Fine for a workshop and for a team sharing one
-  instance; it is not a horizontally scaled deployment. The designer's
-  repository layer already abstracts persistence (ADR-0020), so a relational
-  backend is a configuration change rather than a rewrite — but nobody has run
-  it that way.
-- **No image publishing, no pinned base digest, no SBOM.** The base image is
-  pinned by tag, not by digest, so a rebuild can pick up a different
-  `python:3.11-slim`.
+- **None of it has been built or run.** There is no Docker daemon in the
+  environment these files were written in. `tests/test_docker_assets.py` and
+  `tests/test_plane_compose.py` check that the assets do not drift from the
+  application and from ADR-0053 — the services each plane names, no floating
+  tags, per-tenant volumes, a zero-network sandbox with no network, entrypoints
+  that only pass flags the CLI defines — and none of that is a substitute for
+  `docker compose up`. Expect to fix something the first time.
+- **No digests are resolved, so rule 1 of ADR-0053 is not yet met.** The
+  Compose files reference tags. Some of those tags move by design (`traefik:v3`,
+  `grafana/grafana:11`), which is exactly why the lock exists and exactly why
+  an unresolved lock is not good enough for a deployment.
+- **Nothing is mirrored.** Rule 2 says the fabric deploys from a registry it
+  controls. These files reference upstream registries directly, so a deleted or
+  re-pushed upstream tag can still change what runs.
+- **Vault runs in dev mode.** In-memory storage, a fixed root token, no TLS,
+  everything lost on restart. It looks like a secret store and is not one; that
+  is worse than nothing if anyone forgets.
+- **Keycloak runs `start-dev`.** No TLS, development realm defaults.
+- **No TLS anywhere.** Traefik terminates plain HTTP on `:80`. In
+  `trusted_proxy` auth mode that proxy is also what makes the identity header
+  trustworthy at all, so putting real TLS on it is not cosmetic.
+- **Traefik reads the Docker socket** read-only, which is still the strongest
+  privilege in the fabric file: anything that can read it can reach every
+  container on the host, including every tenant's.
+- **Prometheus scrapes only the collector.** The control plane's
+  `/api/ops/metrics` is JSON, not the Prometheus text format, so there is no
+  scrape job for it and the Grafana dashboards ADR-0053 mentions do not exist.
+- **The command centre's asset bundle is not built yet.** `web/command/` does
+  not exist (WS-029), so `orgagents-command` currently ships the same `web/`
+  tree as the designer and is routed at `/command/` by Traefik. The image and
+  the routing are real; the application behind them is not finished.
+- **`browser`, `document` and `model_training` sandboxes are degraded.** They
+  resolve to `python:3.11-slim`, which has no browser, no LibreOffice and no
+  GPU runtime (ADR-0055 records why and what it costs).
+- **No SBOM, no image scanning, no digest refresh.** A stale pin is an
+  unpatched CVE, and nothing here updates one.
+- **No per-tenant lifecycle.** Standing up, tearing down and upgrading a
+  tenant's project is a `make` target in generated output, not something the
+  fabric performs.

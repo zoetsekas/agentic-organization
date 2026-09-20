@@ -33,7 +33,7 @@ TIER_RESOURCES = {
 }
 # Toolchain class -> sandbox image. ADR-0053 names four toolchain images and
 # this vocabulary has eight classes, so the classes it does not name are mapped
-# onto the nearest one it does rather than to an image nobody reviewed; ADR-0054
+# onto the nearest one it does rather than to an image nobody reviewed; ADR-0055
 # records what that costs (a `browser` sandbox has no browser).
 TOOLCHAIN_IMAGES = {
     "none": "gcr.io/distroless/static-debian12:nonroot",
