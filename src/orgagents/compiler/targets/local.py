@@ -212,22 +212,48 @@ CMD ["orgagents", "serve", "--host", "0.0.0.0"]
     def _environment_dockerfile(self, ir: SystemIR, env) -> str:
         """One image per environment class — the isolation boundary, built."""
         binding = ir.binding.environment_binding(env.id)
-        image = binding.image if binding else TOOLCHAIN_IMAGES.get(
-            env.toolchains[0].value if env.toolchains else "none", "python:3.11-slim")
+        image = self._sandbox_image(ir, env)
         packages = " ".join(binding.packages) if binding and binding.packages else ""
         toolchains = ", ".join(t.value for t in env.toolchains) or "none"
+        # A distroless base has no shell and no package manager, which is what
+        # makes it the right image for an environment that executes nothing.
+        # So this Dockerfile installs nothing and copies nothing runnable.
+        runnable = not image.startswith(NO_RUNTIME_IMAGES)
         install = (
-            f"RUN pip install --no-cache-dir {packages}" if packages
+            f"RUN pip install --no-cache-dir {packages}" if packages and runnable
             else "# no additional packages for this environment class"
         )
+        if packages and not runnable:
+            install = (
+                "# packages declared in the binding are ignored here: this base\n"
+                "# image has no package manager, by design."
+            )
         network_note = {
-            "none": "This environment has NO network. Compose attaches it to an "
-                    "internal network with no gateway.",
+            "none": "This environment has NO network: the sandbox service is "
+                    "given none at all, and the agent process that uses it sits "
+                    "on an internal network with no gateway.",
             "allowlist": f"Egress is limited to: "
                          f"{', '.join(env.egress_allowlist) or 'nothing declared'}.",
             "internal": "Egress is limited to internal services.",
             "open": "Egress is unrestricted — review whether this is intended.",
         }[env.network.value]
+        if runnable:
+            body = """COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+COPY agents/ /app/agents/
+COPY system.ir.json /app/system.ir.json
+
+RUN useradd --create-home --uid 10001 agent 2>/dev/null || true \\
+ && mkdir -p /workspace && chown -R agent /workspace /app
+USER agent
+
+CMD ["orgagents", "worker"]"""
+        else:
+            body = """COPY system.ir.json /system.ir.json
+
+# distroless ships a non-root user; there is no shell here to create one with.
+USER nonroot"""
         return f'''# Execution environment '{env.id}' for '{ir.name}'.
 # tier={env.tier.value} · network={env.network.value} · timeout={env.timeout_seconds}s
 # toolchains: {toolchains}
@@ -243,17 +269,7 @@ WORKDIR /workspace
 
 {install}
 
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
-
-COPY agents/ /app/agents/
-COPY system.ir.json /app/system.ir.json
-
-RUN useradd --create-home --uid 10001 agent 2>/dev/null || true \\
- && mkdir -p /workspace && chown -R agent /workspace /app
-USER agent
-
-CMD ["orgagents", "worker"]
+{body}
 '''
 
     def _agent_service(self, ir: SystemIR, agent) -> dict[str, Any]:
@@ -299,6 +315,47 @@ CMD ["orgagents", "worker"]
             service["environment"][ref] = f"${{{ref}}}"
         return service
 
+    def _sandbox_services(self, ir: SystemIR) -> dict[str, Any]:
+        """One build-only service per environment class in use (ADR-0053).
+
+        These are not started by `up`: a sandbox is a thing code is executed
+        *in*, on demand, not a long-running process. They are here so the image
+        an environment class resolves to, and the network it is allowed, are
+        visible and buildable in the same file as everything else rather than
+        living only in the platform's head.
+        """
+        out: dict[str, Any] = {}
+        for env in self._used_environments(ir):
+            posture = env.network.value
+            service: dict[str, Any] = {
+                "profiles": ["sandboxes"],
+                "build": {"context": ".", "dockerfile": f"docker/Dockerfile.{env.id}"},
+                "image": f"{ir.name}/sandbox-{env.id}:{ir.spec_version}",
+                "labels": {
+                    "org.agentic.tenant": ir.tenant.id if ir.tenant else "",
+                    "org.agentic.environment": env.id,
+                    "org.agentic.network_posture": posture,
+                    "org.agentic.sandbox_image": self._sandbox_image(ir, env),
+                },
+            }
+            if posture == "none":
+                # No networks at all, not an internal one: a zero-network
+                # sandbox that can still resolve its neighbours is not one.
+                service["network_mode"] = "none"
+            else:
+                service["networks"] = [ir.qualified("egress")]
+            out[f"sandbox-{env.id}"] = service
+        return out
+
+    def _sandbox_image(self, ir: SystemIR, env) -> str:
+        binding = ir.binding.environment_binding(env.id)
+        if binding and binding.image:
+            return binding.image
+        return TOOLCHAIN_IMAGES.get(
+            env.toolchains[0].value if env.toolchains else "none",
+            TOOLCHAIN_IMAGES["none"],
+        )
+
     def _compose(self, ir: SystemIR) -> str:
         services: dict[str, Any] = {
             "state": {
@@ -315,6 +372,19 @@ CMD ["orgagents", "worker"]
                 "networks": [ir.qualified("control")],
                 "ports": ["4317:4317"],
             },
+            # The artifact workspace large tool output is offloaded to
+            # (ADR-0036). This tenant's own instance on this tenant's own
+            # volume; ADR-0053 rejects a shared bucket with a prefix per tenant.
+            "artifacts": {
+                "image": ARTIFACTS_IMAGE,
+                "command": ["server", "/data", "--console-address", ":9001"],
+                "environment": {
+                    "MINIO_ROOT_USER": "${ARTIFACTS_USER}",
+                    "MINIO_ROOT_PASSWORD": "${ARTIFACTS_PASSWORD}",
+                },
+                "networks": [ir.qualified("control")],
+                "volumes": [f'{ir.qualified("artifacts-data")}:/data'],
+            },
             "designer": {
                 "build": {"context": ".", "dockerfile": "Dockerfile"},
                 "image": f"{ir.name}/platform:{ir.spec_version}",
@@ -326,6 +396,7 @@ CMD ["orgagents", "worker"]
         }
         for agent in ir.agents:
             services[f"agent-{agent.id}"] = self._agent_service(ir, agent)
+        services.update(self._sandbox_services(ir))
 
         # One scheduler for every trigger (ADR-0020). It holds no credentials of
         # its own: it wakes the owning agent, which runs under its own identity.
@@ -424,7 +495,10 @@ CMD ["orgagents", "worker"]
                 "name": ir.name.lower().replace(" ", "-"),
                 "services": services,
                 "networks": self._networks(ir),
-                "volumes": {ir.qualified("state-data"): {}},
+                "volumes": {
+                    ir.qualified("state-data"): {},
+                    ir.qualified("artifacts-data"): {},
+                },
             },
             sort_keys=False,
             width=100,
@@ -471,6 +545,8 @@ validate:      ## re-validate the source spec
             "# Secret NAMES only — never commit values (ADR-0015).",
             "# Populate from your secret manager before `make up`.",
             "STATE_PASSWORD=",
+            "ARTIFACTS_USER=",
+            "ARTIFACTS_PASSWORD=",
         ]
         lines += [f"{ref}=" for ref in refs]
         return "\n".join(lines) + "\n"

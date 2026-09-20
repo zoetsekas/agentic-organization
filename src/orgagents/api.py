@@ -1005,6 +1005,10 @@ def create_app(
     #: table in `fabric/deployments.py` decides whether it is legal and who
     #: may make it; nothing here re-implements that judgement.
     OPERATOR_ACTIONS: dict[str, tuple[str, DeploymentState, FabricAuditAction]] = {
+        # Compiling a requested deployment is the step before deploying it;
+        # exposed so an operator can drive the whole path, audited as a deploy.
+        "generate": (fabric_rbac.DEPLOY, DeploymentState.GENERATED,
+                     FabricAuditAction.DEPLOY),
         "deploy": (fabric_rbac.DEPLOY, DeploymentState.DEPLOYED,
                    FabricAuditAction.DEPLOY),
         "stop": (fabric_rbac.STOP, DeploymentState.STOPPED,

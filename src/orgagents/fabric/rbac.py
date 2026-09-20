@@ -204,7 +204,8 @@ def parse_bootstrap(config: str) -> dict[str, list[OperatorRole]]:
         if not user or not role:
             continue
         try:
-            grants.setdefault(user, []).append(OperatorRole(role.strip()))
+            parsed = OperatorRole(role.strip())
         except ValueError:
             continue
+        grants.setdefault(user, []).append(parsed)
     return grants
