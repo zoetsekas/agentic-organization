@@ -11,12 +11,15 @@ from dataclasses import dataclass
 from typing import Literal, Optional
 
 from .model import (
+    ChannelPurpose,
+    LifecycleStage,
     NetworkPosture,
     Permission,
     RoleAssignment,
     SharingScope,
     SystemSpec,
     Team,
+    TriggerKind,
 )
 
 Severity = Literal["error", "warning"]
@@ -65,6 +68,10 @@ def _parent_of(root: Team, team_id: str) -> Optional[Team]:
 
 def validate_spec(spec: SystemSpec) -> list[Finding]:
     """Return every finding; an empty list means the spec is sound."""
+    # Imported here: `scheduling` reads the spec model, so a module-level import
+    # would close a cycle through this package's __init__.
+    from ..scheduling import CadenceError, parse_cadence
+
     out: list[Finding] = []
     production = spec.metadata.environment == "production"
 
@@ -260,6 +267,144 @@ def validate_spec(spec: SystemSpec) -> list[Finding]:
                     member.id,
                     strict=True,
                 )
+
+    # -- triggers (ADR-0020) ----------------------------------------------
+    channel_ids = {c.id for c in spec.channels}
+    for trigger in spec.triggers:
+        if trigger.agent not in agent_ids:
+            err("unknown_trigger_agent", f"trigger '{trigger.id}' runs unknown agent "
+                f"'{trigger.agent}'", trigger.id)
+        if trigger.workflow and not any(w.id == trigger.workflow for w in spec.workflows):
+            err("unknown_trigger_workflow", f"trigger '{trigger.id}' references unknown "
+                f"workflow '{trigger.workflow}'", trigger.id)
+        if trigger.kind is TriggerKind.SCHEDULE:
+            if trigger.cadence is None:
+                err("schedule_without_cadence", f"trigger '{trigger.id}' is scheduled "
+                    "but states no cadence", trigger.id)
+            else:
+                try:
+                    parse_cadence(trigger.cadence)
+                except CadenceError as e:
+                    err("invalid_cadence", f"trigger '{trigger.id}': {e}", trigger.id)
+        if trigger.kind is TriggerKind.EVENT and not trigger.event_class:
+            err("event_without_class", f"trigger '{trigger.id}' is event-driven but "
+                "names no event class", trigger.id)
+        if trigger.kind is TriggerKind.MESSAGE and trigger.channel not in channel_ids:
+            err("unknown_trigger_channel", f"trigger '{trigger.id}' listens on unknown "
+                f"channel '{trigger.channel}'", trigger.id)
+        for cid in trigger.deliver_to:
+            if cid not in channel_ids:
+                err("unknown_delivery_channel", f"trigger '{trigger.id}' delivers to "
+                    f"unknown channel '{cid}'", trigger.id)
+        if trigger.failure.notify_channel and trigger.failure.notify_channel not in channel_ids:
+            err("unknown_failure_channel", f"trigger '{trigger.id}' notifies unknown "
+                f"channel '{trigger.failure.notify_channel}'", trigger.id)
+        if trigger.max_runtime_seconds > spec.resilience.max_run_seconds:
+            err("trigger_exceeds_run_budget", f"trigger '{trigger.id}' allows "
+                f"{trigger.max_runtime_seconds}s but resilience caps runs at "
+                f"{spec.resilience.max_run_seconds}s", trigger.id)
+        agent = spec.agent(trigger.agent)
+        if agent and trigger.workflow and trigger.workflow not in agent.workflows:
+            err("trigger_workflow_not_granted", f"trigger '{trigger.id}' runs workflow "
+                f"'{trigger.workflow}' that agent '{trigger.agent}' may not invoke",
+                trigger.id)
+        if not trigger.deliver_to and not trigger.failure.notify_channel:
+            warn("silent_trigger", f"trigger '{trigger.id}' reports to nobody",
+                 trigger.id, strict=True)
+
+    # -- channels (ADR-0021) ----------------------------------------------
+    for channel in spec.channels:
+        for dc_id in channel.forbid_data_classes:
+            if spec.data_class(dc_id) is None:
+                err("unknown_data_class", f"channel '{channel.id}' forbids unknown data "
+                    f"class '{dc_id}'", channel.id)
+        for member in channel.members:
+            if member not in agent_ids and member not in team_ids:
+                err("unknown_channel_member", f"channel '{channel.id}' lists unknown "
+                    f"member '{member}'", channel.id)
+        for step in channel.escalation:
+            if step.channel and step.channel not in channel_ids:
+                err("unknown_escalation_channel", f"channel '{channel.id}' escalates to "
+                    f"unknown channel '{step.channel}'", channel.id)
+        if channel.escalation:
+            offsets = [s.after_minutes for s in channel.escalation]
+            if offsets != sorted(offsets):
+                err("escalation_out_of_order", f"channel '{channel.id}' escalation steps "
+                    "are not in increasing time order", channel.id)
+        if channel.human_facing and not channel.purposes:
+            warn("channel_without_purpose", f"human-facing channel '{channel.id}' states "
+                 "no purpose", channel.id)
+        if (channel.human_facing and channel.response_sla_minutes
+                and not channel.escalation):
+            warn("sla_without_escalation", f"channel '{channel.id}' promises a reply in "
+                 f"{channel.response_sla_minutes} minutes but nobody is escalated to",
+                 channel.id, strict=True)
+        # A channel that people only watch in office hours cannot carry an
+        # incident SLA shorter than the time until they are back.
+        if (channel.working_hours and channel.out_of_hours == "queue"
+                and (channel.response_sla_minutes or 0) and channel.response_sla_minutes < 60
+                and ChannelPurpose.NOTIFY in (channel.purposes or [])):
+            warn("sla_unreachable_out_of_hours", f"channel '{channel.id}' queues out of "
+                 "hours but promises a sub-hour reply", channel.id)
+
+    # -- interaction flows (ADR-0024) -------------------------------------
+    for flow in spec.interaction_flows:
+        for end, label in ((flow.source, "source"), (flow.target, "target")):
+            if end not in agent_ids and end not in team_ids:
+                err("unknown_flow_endpoint", f"flow {flow.source}->{flow.target} has "
+                    f"unknown {label} '{end}'")
+        if flow.source == flow.target:
+            err("self_flow", f"flow from '{flow.source}' to itself")
+
+    # -- knowledge (ADR-0023) ---------------------------------------------
+    for source in spec.knowledge:
+        for dc_id in source.data_classes:
+            if spec.data_class(dc_id) is None:
+                err("unknown_data_class", f"knowledge source '{source.id}' references "
+                    f"unknown data class '{dc_id}'", source.id)
+    for agent in agents:
+        for source_id in agent.knowledge:
+            source = spec.knowledge_source(source_id)
+            if source is None:
+                err("unknown_knowledge", f"agent '{agent.id}' references unknown "
+                    f"knowledge source '{source_id}'", agent.id)
+
+    # -- budgets, lifecycle, compliance (ADR-0022) ------------------------
+    for budget in spec.budgets:
+        if budget.limit_usd <= 0:
+            err("budget_without_limit", f"budget '{budget.id}' has no positive limit",
+                budget.id)
+        if budget.scope_kind == "team" and budget.scope not in team_ids:
+            err("unknown_budget_scope", f"budget '{budget.id}' scopes unknown team "
+                f"'{budget.scope}'", budget.id)
+        if budget.scope_kind == "agent" and budget.scope not in agent_ids:
+            err("unknown_budget_scope", f"budget '{budget.id}' scopes unknown agent "
+                f"'{budget.scope}'", budget.id)
+        if budget.notify_channel and budget.notify_channel not in channel_ids:
+            err("unknown_budget_channel", f"budget '{budget.id}' notifies unknown "
+                f"channel '{budget.notify_channel}'", budget.id)
+
+    covered = {e for case in spec.lifecycle.evaluations for e in case.applies_to}
+    if spec.lifecycle.evaluations:
+        for agent in agents:
+            if agent.id not in covered and not any(
+                not c.applies_to for c in spec.lifecycle.evaluations
+            ):
+                warn("agent_without_evaluation", f"agent '{agent.id}' has no evaluation "
+                     "case", agent.id, strict=True)
+    if spec.lifecycle.stage is LifecycleStage.PRODUCTION:
+        if not any(g.to_stage is LifecycleStage.PRODUCTION for g in spec.lifecycle.gates):
+            err("production_without_gate", "the system is in production with no "
+                "promotion gate defining how it got there")
+
+    residency = spec.compliance.data_residency
+    for dc in spec.data_classes:
+        if not dc.may_leave_region and not residency:
+            warn("residency_undeclared", f"data class '{dc.id}' may not leave a region "
+                 "but no residency is declared", dc.id, strict=True)
+        if not dc.may_appear_in_traces and dc.id not in spec.observability.redact_data_classes:
+            err("trace_leak", f"data class '{dc.id}' may not appear in traces but is not "
+                "redacted in the observability contract", dc.id)
 
     # -- capability coverage ----------------------------------------------
     used = {c for a in agents for c in a.capabilities}

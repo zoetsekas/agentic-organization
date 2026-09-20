@@ -18,18 +18,28 @@ from ..spec.binding import TargetBinding, default_binding
 from ..spec.model import (
     Action,
     AgentSpec,
+    Budget,
     Capability,
     ChannelClass,
+    ChannelSpec,
+    Compliance,
     DataClass,
     EnvironmentClass,
+    FlowKind,
     HumanCounterpart,
+    InteractionFlow,
+    KnowledgeSource,
+    Lifecycle,
     Observability,
     Permission,
     PolicyRule,
+    Resilience,
     ResourceKind,
     SharingScope,
     SystemSpec,
     Team,
+    TriggerKind,
+    TriggerSpec,
     WorkflowSpec,
 )
 
@@ -47,6 +57,10 @@ NEUTRAL_RESOURCES = (
     "policy_binding",
     "network_boundary",
     "observability_sink",
+    "scheduler",          # fires triggers (ADR-0020)
+    "event_subscription", # delivers events to triggers
+    "channel_bridge",     # connects a channel to a human surface (ADR-0021)
+    "knowledge_index",    # a grounding source's index (ADR-0023)
 )
 
 
@@ -80,6 +94,66 @@ class ResourceIR(BaseModel):
     attributes: dict[str, Any] = Field(default_factory=dict)
 
 
+class TriggerIR(BaseModel):
+    """A resolved trigger, with the next fire times already computed."""
+
+    id: str
+    description: str = ""
+    kind: TriggerKind
+    agent_id: str
+    workflow: Optional[str] = None
+    schedule: str = ""              # human-readable cadence or event description
+    cron: Optional[str] = None      # normalized cron, when the cadence is one
+    timezone: str = "UTC"
+    interval_seconds: Optional[int] = None
+    event_class: str = ""
+    channel: Optional[str] = None
+    filters: dict[str, Any] = Field(default_factory=dict)
+    input: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+    overlap: str = "skip"
+    catch_up: str = "skip_missed"
+    max_runtime_seconds: int = 900
+    requires_approval: bool = False
+    deliver_to: list[str] = Field(default_factory=list)
+    notify_on_failure: Optional[str] = None
+    retries: int = 0
+    next_runs: list[str] = Field(default_factory=list)
+
+
+class ChannelIR(BaseModel):
+    """A resolved channel, with its human contract and its binding."""
+
+    id: str
+    channel_class: ChannelClass
+    description: str = ""
+    human_facing: bool = False
+    purposes: list[str] = Field(default_factory=list)
+    address: str = ""
+    provider: str = "internal"
+    workspace: str = ""
+    bot_identity_ref: Optional[str] = None
+    members: list[str] = Field(default_factory=list)
+    response_sla_minutes: Optional[int] = None
+    out_of_hours: str = "queue"
+    working_hours: Optional[dict[str, Any]] = None
+    escalation: list[dict[str, Any]] = Field(default_factory=list)
+    forbid_data_classes: list[str] = Field(default_factory=list)
+
+
+class KnowledgeIR(BaseModel):
+    id: str
+    kind: str
+    description: str = ""
+    data_classes: list[str] = Field(default_factory=list)
+    require_citation: bool = True
+    freshness_seconds: Optional[int] = None
+    provider: str = "internal"
+    location: str = ""
+    index: str = ""
+    secret_ref: Optional[str] = None
+
+
 class AgentIR(BaseModel):
     id: str
     name: str
@@ -106,6 +180,17 @@ class AgentIR(BaseModel):
     requires_approval_for: list[str] = Field(default_factory=list)
     runtime_adapter: str = "echo"
     model: dict[str, Any] = Field(default_factory=dict)
+    knowledge: list[str] = Field(default_factory=list)
+    triggers: list[str] = Field(default_factory=list)
+    human_channels: list[str] = Field(default_factory=list)
+    approval_channel: Optional[str] = None
+    consults: list[str] = Field(default_factory=list)
+    notifies: list[str] = Field(default_factory=list)
+    escalation_flows: list[str] = Field(default_factory=list)
+    budget_usd: Optional[float] = None
+    budget_period: Optional[str] = None
+    on_budget_breach: Optional[str] = None
+    lifecycle_stage: str = "draft"
 
     def system_prompt(self) -> str:
         """Operating instructions composed from the org and the role contracts."""
@@ -167,6 +252,14 @@ class SystemIR(BaseModel):
     observability: Observability = Field(default_factory=Observability)
     identities: list[IdentityIR] = Field(default_factory=list)
     resources: list[ResourceIR] = Field(default_factory=list)
+    triggers: list[TriggerIR] = Field(default_factory=list)
+    channels: list[ChannelIR] = Field(default_factory=list)
+    knowledge: list[KnowledgeIR] = Field(default_factory=list)
+    flows: list[InteractionFlow] = Field(default_factory=list)
+    budgets: list[Budget] = Field(default_factory=list)
+    compliance: Compliance = Field(default_factory=Compliance)
+    lifecycle: Lifecycle = Field(default_factory=Lifecycle)
+    resilience: Resilience = Field(default_factory=Resilience)
     binding: TargetBinding = Field(default_factory=lambda: default_binding("local"))
 
     def agent(self, agent_id: str) -> Optional[AgentIR]:
@@ -174,6 +267,12 @@ class SystemIR(BaseModel):
 
     def permission_map(self) -> dict[str, list[Permission]]:
         return {a.id: a.permissions for a in self.agents}
+
+    def channel(self, channel_id: str) -> Optional[ChannelIR]:
+        return next((c for c in self.channels if c.id == channel_id), None)
+
+    def triggers_for(self, agent_id: str) -> list[TriggerIR]:
+        return [t for t in self.triggers if t.agent_id == agent_id]
 
 
 # --------------------------------------------------------------------------
@@ -259,6 +358,124 @@ def _delegation_targets(
     return sorted(dict.fromkeys(targets))
 
 
+def _resolve_triggers(spec: SystemSpec, bound: TargetBinding) -> list[TriggerIR]:
+    """Normalize triggers and precompute fire times for review (ADR-0020)."""
+    from datetime import datetime, timezone as _tz
+
+    from ..scheduling import describe, next_fire_times, parse_cadence
+
+    now = datetime.now(_tz.utc)
+    out: list[TriggerIR] = []
+    for trigger in spec.triggers:
+        cron = interval = None
+        tz = "UTC"
+        if trigger.cadence is not None:
+            parsed = parse_cadence(trigger.cadence)
+            tz = trigger.cadence.timezone
+            if parsed.kind == "cron":
+                cron = parsed.source
+            else:
+                interval = parsed.interval_seconds
+        next_runs = (
+            [t.isoformat() for t in next_fire_times(trigger.cadence, now, 3)]
+            if trigger.cadence
+            else []
+        )
+        out.append(
+            TriggerIR(
+                id=trigger.id,
+                description=trigger.description,
+                kind=trigger.kind,
+                agent_id=trigger.agent,
+                workflow=trigger.workflow,
+                schedule=describe(trigger),
+                cron=cron,
+                timezone=tz,
+                interval_seconds=interval,
+                event_class=trigger.event_class,
+                channel=trigger.channel,
+                filters=trigger.filters,
+                input=trigger.input,
+                enabled=trigger.enabled,
+                overlap=trigger.overlap.value,
+                catch_up=trigger.catch_up.value,
+                # Never longer than the system's durability budget.
+                max_runtime_seconds=min(
+                    trigger.max_runtime_seconds, spec.resilience.max_run_seconds
+                ),
+                requires_approval=trigger.requires_approval,
+                deliver_to=list(trigger.deliver_to),
+                notify_on_failure=trigger.failure.notify_channel,
+                retries=trigger.failure.retries,
+                next_runs=next_runs,
+            )
+        )
+    return out
+
+
+def _resolve_channels(spec: SystemSpec, bound: TargetBinding) -> list[ChannelIR]:
+    """Merge each channel's human contract with its target binding (ADR-0021)."""
+    out: list[ChannelIR] = []
+    for channel in spec.channels:
+        cb = bound.channel_binding(channel.id)
+        out.append(
+            ChannelIR(
+                id=channel.id,
+                channel_class=channel.channel_class,
+                description=channel.description,
+                human_facing=channel.human_facing,
+                purposes=[p.value for p in channel.purposes],
+                address=(cb.address if cb and cb.address else channel.address),
+                provider=cb.provider if cb else "internal",
+                workspace=cb.workspace if cb else "",
+                bot_identity_ref=cb.bot_identity_ref if cb else None,
+                members=list(channel.members),
+                response_sla_minutes=channel.response_sla_minutes,
+                out_of_hours=channel.out_of_hours,
+                working_hours=(
+                    channel.working_hours.model_dump() if channel.working_hours else None
+                ),
+                escalation=[step.model_dump() for step in channel.escalation],
+                forbid_data_classes=list(channel.forbid_data_classes),
+            )
+        )
+    return out
+
+
+def _resolve_knowledge(spec: SystemSpec, bound: TargetBinding) -> list[KnowledgeIR]:
+    out: list[KnowledgeIR] = []
+    for source in spec.knowledge:
+        kb = bound.knowledge_binding(source.id)
+        out.append(
+            KnowledgeIR(
+                id=source.id,
+                kind=source.kind.value,
+                description=source.description,
+                data_classes=list(source.data_classes),
+                require_citation=source.require_citation,
+                freshness_seconds=source.freshness_seconds,
+                provider=kb.provider if kb else "internal",
+                location=kb.location if kb else "",
+                index=kb.index if kb else "",
+                secret_ref=(kb.secret_ref if kb and kb.secret_ref else source.secret_ref),
+            )
+        )
+    return out
+
+
+def _budget_for(spec: SystemSpec, agent_id: str, team_id: str) -> Optional[Budget]:
+    """The tightest budget that applies to an agent: agent, then team, then system."""
+    candidates = [
+        b for b in spec.budgets
+        if (b.scope_kind == "agent" and b.scope == agent_id)
+        or (b.scope_kind == "team" and b.scope == team_id)
+        or b.scope_kind == "system"
+    ]
+    order = {"agent": 0, "team": 1, "system": 2}
+    candidates.sort(key=lambda b: (order[b.scope_kind], b.limit_usd))
+    return candidates[0] if candidates else None
+
+
 def build_ir(
     spec: SystemSpec,
     *,
@@ -267,6 +484,10 @@ def build_ir(
 ) -> SystemIR:
     """Resolve a validated spec into the IR every target consumes."""
     bound = binding or default_binding(target)
+    # Knowledge is resolved up front: a binding may supply the secret a source
+    # needs, and that secret belongs to the identity of the agent that reads it.
+    knowledge = _resolve_knowledge(spec, bound)
+    knowledge_by_id = {k.id: k for k in knowledge}
     teams, index = _build_teams(spec)
     team_by_agent: dict[str, Team] = {
         m.id: t for t in spec.teams() for m in t.members
@@ -319,6 +540,29 @@ def build_ir(
             parent = next((t for t in spec.teams() if t.id == team_ir.parent_id), None)
             reports_to = parent.leader if parent else None
 
+        # Flows the agent may initiate (ADR-0024) widen delegation only where
+        # the flow kind actually permits handing work over.
+        flows = [f for f in spec.interaction_flows if f.source == agent.id]
+        consults = [f.target for f in flows if f.kind is FlowKind.CONSULT]
+        notifies = [f.target for f in flows if f.kind is FlowKind.NOTIFY]
+        escalation_flows = [f.target for f in flows if f.kind is FlowKind.ESCALATE]
+        flow_delegates = [f.target for f in flows if f.kind is FlowKind.DELEGATE]
+
+        # Channels this agent is on, and where its approvals land.
+        human_channels = [
+            c.id for c in spec.channels
+            if c.human_facing and (agent.id in c.members or team.id in c.members)
+        ]
+        approval_channel = next(
+            (
+                c.id for c in spec.channels
+                if c.id in human_channels
+                and any(p.value == "approve" for p in c.purposes)
+            ),
+            None,
+        )
+        budget = _budget_for(spec, agent.id, team.id)
+
         overrides = bound.agent_overrides.get(agent.id, {})
         identity = IdentityIR(
             id=f"id-{agent.id}",
@@ -328,6 +572,11 @@ def build_ir(
             secret_refs=sorted(
                 {c.secret_ref for c in capabilities if c.secret_ref}
                 | set(environment.secret_refs if environment else [])
+                | {
+                    k.secret_ref
+                    for k in (knowledge_by_id.get(i) for i in agent.knowledge)
+                    if k and k.secret_ref
+                }
             ),
         )
         identities.append(identity)
@@ -342,7 +591,11 @@ def build_ir(
                 leader_of=leader_of.get(agent.id),
                 reports_to=reports_to,
                 escalates_to=reports_to,
-                delegates_to=_delegation_targets(spec, agent, team, index),
+                delegates_to=sorted(
+                    dict.fromkeys(
+                        _delegation_targets(spec, agent, team, index) + flow_delegates
+                    )
+                ),
                 shared_service=agent.shared_service,
                 human=agent.human,
                 responsibilities=responsibilities,
@@ -362,6 +615,17 @@ def build_ir(
                 ),
                 runtime_adapter=overrides.get("adapter", bound.runtime.adapter),
                 model={**bound.model.model_dump(), **overrides.get("model", {})},
+                knowledge=list(agent.knowledge),
+                triggers=[t.id for t in spec.triggers_for(agent.id)],
+                human_channels=human_channels,
+                approval_channel=approval_channel,
+                consults=consults,
+                notifies=notifies,
+                escalation_flows=escalation_flows,
+                budget_usd=budget.limit_usd if budget else None,
+                budget_period=budget.period if budget else None,
+                on_budget_breach=budget.on_breach.value if budget else None,
+                lifecycle_stage=spec.lifecycle.stage.value,
             )
         )
 
@@ -379,6 +643,14 @@ def build_ir(
         workflows=spec.workflows,
         observability=spec.observability,
         identities=identities,
+        triggers=_resolve_triggers(spec, bound),
+        channels=_resolve_channels(spec, bound),
+        knowledge=knowledge,
+        flows=list(spec.interaction_flows),
+        budgets=list(spec.budgets),
+        compliance=spec.compliance,
+        lifecycle=spec.lifecycle,
+        resilience=spec.resilience,
         binding=bound,
     )
     ir.resources = build_resources(ir)
@@ -432,6 +704,44 @@ def build_resources(ir: SystemIR) -> list[ResourceIR]:
                            attributes={"posture": agent.environment.network.value,
                                        "allowlist": agent.environment.egress_allowlist})
             )
+    for trigger in ir.triggers:
+        kind = "scheduler" if trigger.cron or trigger.interval_seconds else "event_subscription"
+        resources.append(
+            ResourceIR(kind=kind, id=f"trigger-{trigger.id}", owner=trigger.agent_id,
+                       attributes={"schedule": trigger.schedule, "cron": trigger.cron,
+                                   "interval_seconds": trigger.interval_seconds,
+                                   "timezone": trigger.timezone,
+                                   "event_class": trigger.event_class,
+                                   "enabled": trigger.enabled,
+                                   "max_runtime_seconds": trigger.max_runtime_seconds})
+        )
+    for channel in ir.channels:
+        if not channel.human_facing:
+            continue
+        resources.append(
+            ResourceIR(kind="channel_bridge", id=f"channel-{channel.id}",
+                       attributes={"provider": channel.provider,
+                                   "address": channel.address,
+                                   "purposes": channel.purposes,
+                                   "sla_minutes": channel.response_sla_minutes})
+        )
+        if channel.bot_identity_ref:
+            resources.append(
+                ResourceIR(kind="secret", id=channel.bot_identity_ref,
+                           attributes={"purpose": f"channel {channel.id}"})
+            )
+    for source in ir.knowledge:
+        resources.append(
+            ResourceIR(kind="knowledge_index", id=f"knowledge-{source.id}",
+                       attributes={"provider": source.provider, "index": source.index,
+                                   "data_classes": source.data_classes})
+        )
+        if source.secret_ref:
+            resources.append(
+                ResourceIR(kind="secret", id=source.secret_ref,
+                           attributes={"purpose": f"knowledge {source.id}"})
+            )
+
     # Deduplicate shared secrets.
     seen: set[tuple[str, str]] = set()
     unique: list[ResourceIR] = []

@@ -36,8 +36,27 @@ targets:
       - {capability: incident_signal, server_name: telemetry, transport: http,
          url: "http://telemetry.internal/mcp"}
     channels:
-      - {channel: incidents, provider: slack, address: "#incidents"}
+      - {channel: incidents, provider: slack, workspace: acme, address: "#incidents",
+         bot_identity_ref: SLACK_BOT_TOKEN}
+      - {channel: finance_approvals, provider: msteams, workspace: acme.onmicrosoft.com,
+         address: "Finance / Approvals", bot_identity_ref: TEAMS_BOT_ID}
+      - {channel: change_review, provider: slack, workspace: acme,
+         address: "#platform-change-review", bot_identity_ref: SLACK_BOT_TOKEN}
+      - {channel: exec_briefing, provider: smtp, address: exec-briefing@acme.example,
+         bot_identity_ref: SMTP_CREDENTIAL}
       - {channel: close_calendar, provider: internal, address: close-calendar}
+    knowledge:
+      - {knowledge: finance_handbook, provider: wiki, location: "https://wiki.acme.internal/finance",
+         index: finance-handbook-v3, secret_ref: WIKI_TOKEN}
+      - {knowledge: engineering_runbooks, provider: document_store,
+         location: "https://docs.acme.internal/runbooks", index: runbooks-v7}
+      - {knowledge: company_glossary, provider: wiki,
+         location: "https://wiki.acme.internal/glossary", index: glossary-v1}
+    scheduler:
+      provider: internal
+      queue: acme-triggers
+      dead_letter: acme-triggers-dlq
+      max_concurrency: 4
     secrets_backend: environment
     observability_sink: otel_collector
     agent_overrides:
@@ -62,8 +81,48 @@ targets:
          cpu: "2", memory: "8Gi"}
       - {environment: build, image: "europe-docker.pkg.dev/acme/agents/build:1",
          cpu: "4", memory: "16Gi"}
+      - {environment: documents, image: "europe-docker.pkg.dev/acme/agents/documents:1",
+         cpu: "1", memory: "4Gi"}
+      - {environment: isolated_review,
+         image: "europe-docker.pkg.dev/acme/agents/cleanroom:1", cpu: "1",
+         memory: "4Gi", node_selector: {"confidential-computing": "true"}}
+      - {environment: integration,
+         image: "europe-docker.pkg.dev/acme/agents/integration:1", cpu: "1",
+         memory: "2Gi"}
     capabilities:
       - {capability: warehouse_query, server_name: warehouse, transport: http,
          url: "https://mcp.acme.internal/warehouse", dsn_secret_ref: WAREHOUSE_DSN}
+      - {capability: pii_reconciliation, server_name: customer_master, transport: http,
+         url: "https://mcp.acme.internal/customer-master",
+         dsn_secret_ref: CUSTOMER_MASTER_DSN}
+      - {capability: knowledge_contribute, server_name: knowledge, transport: http,
+         url: "https://mcp.acme.internal/knowledge"}
+      - {capability: code_change, server_name: repo, transport: http,
+         url: "https://mcp.acme.internal/repo", dsn_secret_ref: REPO_TOKEN}
+      - {capability: incident_signal, server_name: telemetry, transport: http,
+         url: "https://mcp.acme.internal/telemetry"}
+    channels:
+      - {channel: incidents, provider: slack, workspace: acme, address: "#incidents",
+         bot_identity_ref: SLACK_BOT_TOKEN}
+      - {channel: finance_approvals, provider: msteams,
+         workspace: acme.onmicrosoft.com, address: "Finance / Approvals",
+         bot_identity_ref: TEAMS_BOT_ID}
+      - {channel: change_review, provider: slack, workspace: acme,
+         address: "#platform-change-review", bot_identity_ref: SLACK_BOT_TOKEN}
+      - {channel: exec_briefing, provider: smtp,
+         address: exec-briefing@acme.example, bot_identity_ref: SMTP_CREDENTIAL}
+    knowledge:
+      - {knowledge: finance_handbook, provider: wiki,
+         location: "https://wiki.acme.internal/finance", index: finance-handbook-v3,
+         secret_ref: WIKI_TOKEN}
+      - {knowledge: engineering_runbooks, provider: document_store,
+         location: "https://docs.acme.internal/runbooks", index: runbooks-v7}
+      - {knowledge: company_glossary, provider: wiki,
+         location: "https://wiki.acme.internal/glossary", index: glossary-v1}
+    scheduler:
+      provider: cloud_scheduler
+      queue: acme-triggers
+      dead_letter: acme-triggers-dlq
+      max_concurrency: 8
     secrets_backend: secret_manager
     observability_sink: cloud_trace

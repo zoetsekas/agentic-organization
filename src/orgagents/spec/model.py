@@ -117,6 +117,90 @@ class ChannelClass(str, Enum):
     WEBHOOK = "webhook"
 
 
+class TriggerKind(str, Enum):
+    """What starts a run (ADR-0020)."""
+
+    SCHEDULE = "schedule"      # a cadence
+    EVENT = "event"            # an abstract event class from a source system
+    WEBHOOK = "webhook"        # an inbound call
+    MESSAGE = "message"        # a human message on a channel
+    MANUAL = "manual"          # a person or agent starts it
+
+
+class OverlapPolicy(str, Enum):
+    """What to do when a run is still going and the next one is due."""
+
+    SKIP = "skip"
+    QUEUE = "queue"
+    CANCEL_PREVIOUS = "cancel_previous"
+    ALLOW = "allow"
+
+
+class CatchUpPolicy(str, Enum):
+    """What to do about runs missed while the system was down."""
+
+    SKIP_MISSED = "skip_missed"
+    RUN_ONCE = "run_once"
+    RUN_ALL = "run_all"
+
+
+class ChannelPurpose(str, Enum):
+    """Why an agent contacts a human on a channel (ADR-0021)."""
+
+    NOTIFY = "notify"
+    APPROVE = "approve"
+    HANDOFF = "handoff"
+    REPORT = "report"
+    ASK = "ask"
+
+
+class FlowKind(str, Enum):
+    """A declared directional interaction between agents (ADR-0024)."""
+
+    DELEGATE = "delegate"      # may hand work over and expect completion
+    CONSULT = "consult"        # may ask, may not instruct
+    NOTIFY = "notify"          # may inform, expects no reply
+    ESCALATE = "escalate"      # may raise for decision
+
+
+class KnowledgeKind(str, Enum):
+    """Classes of grounding source, not products (ADR-0023)."""
+
+    DOCUMENT_STORE = "document_store"
+    WIKI = "wiki"
+    TICKETING = "ticketing"
+    CRM = "crm"
+    MAILBOX = "mailbox"
+    CODE_REPOSITORY = "code_repository"
+    DATA_WAREHOUSE = "data_warehouse"
+    WEB = "web"
+
+
+class LifecycleStage(str, Enum):
+    DRAFT = "draft"
+    DEVELOPMENT = "development"
+    STAGING = "staging"
+    PRODUCTION = "production"
+    RETIRED = "retired"
+
+
+class GateRequirement(str, Enum):
+    """What must be true before an agent advances a stage (ADR-0022)."""
+
+    EVALUATIONS_PASSED = "evaluations_passed"
+    HUMAN_APPROVAL = "human_approval"
+    SECURITY_REVIEW = "security_review"
+    COST_WITHIN_BUDGET = "cost_within_budget"
+    OWNER_ASSIGNED = "owner_assigned"
+    PERMISSIONS_REVIEWED = "permissions_reviewed"
+
+
+class BreachAction(str, Enum):
+    WARN = "warn"
+    THROTTLE = "throttle"
+    HALT = "halt"
+
+
 class RuntimeRequirement(str, Enum):
     """What the agent loop must support — not which framework provides it."""
 
@@ -310,6 +394,7 @@ class AgentSpec(BaseModel):
     human: Optional[HumanCounterpart] = None
     environment: Optional[EnvironmentOverride] = None
     capabilities: list[str] = Field(default_factory=list)
+    knowledge: list[str] = Field(default_factory=list)
     workflows: list[str] = Field(default_factory=list)
     channels: list[ChannelClass] = Field(
         default_factory=lambda: [ChannelClass.DIRECT, ChannelClass.ASYNC_BUS]
@@ -363,6 +448,54 @@ class Team(BaseModel):
 Team.model_rebuild()
 
 
+class Cadence(BaseModel):
+    """When a schedule fires, in a form both humans and targets can read.
+
+    `expression` is a five-field cron expression or a plain-English interval
+    ("every 15 minutes", "every 2 hours"). Neither names a scheduler product.
+    """
+
+    expression: str
+    timezone: str = "UTC"
+
+
+class FailurePolicy(BaseModel):
+    """What happens when a triggered run fails (ADR-0020)."""
+
+    retries: int = 2
+    backoff_seconds: int = 60
+    escalate_after_failures: int = 2
+    notify_channel: Optional[str] = None
+    halt_after_consecutive_failures: int = 5
+
+
+class TriggerSpec(BaseModel):
+    """Something that starts a run without a person asking (ADR-0020).
+
+    A triggered run carries exactly the same permission envelope as interactive
+    work: it is the agent's own capabilities and identity, never a separate
+    service account with broader reach.
+    """
+
+    id: str
+    description: str = ""
+    kind: TriggerKind = TriggerKind.SCHEDULE
+    agent: str = ""                       # the agent that runs
+    workflow: Optional[str] = None        # optionally a specific workflow
+    cadence: Optional[Cadence] = None     # required for kind=schedule
+    event_class: str = ""                 # abstract event, for kind=event
+    filters: dict[str, Any] = Field(default_factory=dict)
+    channel: Optional[str] = None         # for kind=message
+    input: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+    overlap: OverlapPolicy = OverlapPolicy.SKIP
+    catch_up: CatchUpPolicy = CatchUpPolicy.SKIP_MISSED
+    max_runtime_seconds: int = 900
+    requires_approval: bool = False
+    deliver_to: list[str] = Field(default_factory=list)   # channel ids
+    failure: FailurePolicy = Field(default_factory=FailurePolicy)
+
+
 class WorkflowSpec(BaseModel):
     """A declarative process graph (see `orgagents.workflows`)."""
 
@@ -374,12 +507,46 @@ class WorkflowSpec(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
 
 
+class WorkingHours(BaseModel):
+    """When the humans on a channel are actually available."""
+
+    timezone: str = "UTC"
+    days: list[int] = Field(default_factory=lambda: [1, 2, 3, 4, 5])  # 1=Monday
+    start_hour: int = 9
+    end_hour: int = 17
+    holidays: list[str] = Field(default_factory=list)   # ISO dates
+
+
+class EscalationStep(BaseModel):
+    """Who to try next when nobody answers, and when."""
+
+    after_minutes: int
+    notify: str                    # a human contact, agent id or team id
+    channel: Optional[str] = None  # channel id; defaults to the originating one
+    note: str = ""
+
+
 class ChannelSpec(BaseModel):
+    """A communication surface, abstract in the spec and bound per target.
+
+    Human-facing channels carry a contract (ADR-0021): what they are for, when
+    the people on them are available, how fast a reply is expected, and who is
+    tried next when it does not come.
+    """
+
     id: str
     channel_class: ChannelClass = ChannelClass.ASYNC_BUS
     description: str = ""
     address: str = ""
     members: list[str] = Field(default_factory=list)   # agent or team ids
+    human_facing: bool = False
+    purposes: list[ChannelPurpose] = Field(default_factory=list)
+    working_hours: Optional[WorkingHours] = None
+    response_sla_minutes: Optional[int] = None
+    escalation: list[EscalationStep] = Field(default_factory=list)
+    # Data classes that must never be written to this channel.
+    forbid_data_classes: list[str] = Field(default_factory=list)
+    out_of_hours: Literal["queue", "escalate", "notify_anyway"] = "queue"
 
 
 class AlertCondition(BaseModel):
@@ -389,6 +556,103 @@ class AlertCondition(BaseModel):
     # "sessions.failed / sessions.total > 0.2".
     expression: str = ""
     severity: Literal["info", "warning", "error", "critical"] = "warning"
+
+
+class InteractionFlow(BaseModel):
+    """A declared directional edge between agents (ADR-0024).
+
+    The org tree already implies delegation down a hierarchy. Flows express
+    what the tree cannot: that an analyst may *consult* compliance without
+    being able to instruct it, and that the reverse does not hold.
+    """
+
+    source: str
+    target: str
+    kind: FlowKind = FlowKind.CONSULT
+    description: str = ""
+    requires_approval: bool = False
+
+
+class KnowledgeSource(BaseModel):
+    """Grounding material an agent may consult (ADR-0023)."""
+
+    id: str
+    description: str = ""
+    kind: KnowledgeKind = KnowledgeKind.DOCUMENT_STORE
+    data_classes: list[str] = Field(default_factory=list)
+    # How stale an answer may be before it must be re-fetched.
+    freshness_seconds: Optional[int] = None
+    # Whether retrieved passages must be cited back to the reader.
+    require_citation: bool = True
+    secret_ref: Optional[str] = None
+
+
+class EvaluationCase(BaseModel):
+    """One check an agent must pass before it may be promoted (ADR-0022)."""
+
+    id: str
+    description: str = ""
+    given: str = ""                 # the situation or prompt
+    expect: str = ""                # what a correct response must contain or do
+    must_not: list[str] = Field(default_factory=list)
+    applies_to: list[str] = Field(default_factory=list)   # agent ids; empty = all
+    weight: float = 1.0
+
+
+class PromotionGate(BaseModel):
+    """What must hold before an agent enters a stage (ADR-0022)."""
+
+    to_stage: LifecycleStage
+    requires: list[GateRequirement] = Field(default_factory=list)
+    min_pass_rate: float = 1.0
+    approvers: list[str] = Field(default_factory=list)
+
+
+class Budget(BaseModel):
+    """A spend ceiling with a mandatory action on breach (ADR-0022)."""
+
+    id: str
+    scope_kind: Literal["system", "team", "agent"] = "system"
+    scope: str = "*"
+    period: Literal["daily", "weekly", "monthly"] = "monthly"
+    limit_usd: float = 0.0
+    on_breach: BreachAction = BreachAction.WARN
+    notify_channel: Optional[str] = None
+
+
+class Compliance(BaseModel):
+    """Obligations that constrain placement, retention and disclosure."""
+
+    frameworks: list[str] = Field(default_factory=list)   # e.g. SOC2, GDPR
+    data_residency: list[str] = Field(default_factory=list)
+    audit_retention_days: int = 365
+    redact_data_classes: list[str] = Field(default_factory=list)
+    require_approval_for: list[Action] = Field(default_factory=list)
+    # Review the permissions every agent holds at least this often.
+    permission_review_days: int = 90
+
+
+class Lifecycle(BaseModel):
+    """Stages, gates and the review cadence for the whole system (ADR-0022)."""
+
+    stage: LifecycleStage = LifecycleStage.DRAFT
+    owner: str = ""
+    gates: list[PromotionGate] = Field(default_factory=list)
+    evaluations: list[EvaluationCase] = Field(default_factory=list)
+    review_cadence_days: int = 90
+    # Agents idle for longer than this are flagged for de-provisioning, which
+    # is how fleets avoid accumulating stale identities and permissions.
+    retire_after_idle_days: Optional[int] = 180
+
+
+class Resilience(BaseModel):
+    """Durability properties a target must provide (ADR-0025)."""
+
+    checkpoint_each_step: bool = True
+    resume_on_failure: bool = True
+    idempotent_triggers: bool = True
+    max_run_seconds: int = 3600
+    dead_letter_channel: Optional[str] = None
 
 
 class Observability(BaseModel):
@@ -425,6 +689,13 @@ class SystemSpec(BaseModel):
     organization: Team = Field(default_factory=lambda: Team(id="root", name="root"))
     workflows: list[WorkflowSpec] = Field(default_factory=list)
     channels: list[ChannelSpec] = Field(default_factory=list)
+    triggers: list[TriggerSpec] = Field(default_factory=list)
+    interaction_flows: list[InteractionFlow] = Field(default_factory=list)
+    knowledge: list[KnowledgeSource] = Field(default_factory=list)
+    budgets: list[Budget] = Field(default_factory=list)
+    compliance: Compliance = Field(default_factory=Compliance)
+    lifecycle: Lifecycle = Field(default_factory=Lifecycle)
+    resilience: Resilience = Field(default_factory=Resilience)
     observability: Observability = Field(default_factory=Observability)
     deployment: DeploymentSpec = Field(default_factory=DeploymentSpec)
 
@@ -455,3 +726,15 @@ class SystemSpec(BaseModel):
 
     def data_class(self, dc_id: str) -> Optional[DataClass]:
         return next((d for d in self.data_classes if d.id == dc_id), None)
+
+    def channel(self, channel_id: str) -> Optional[ChannelSpec]:
+        return next((c for c in self.channels if c.id == channel_id), None)
+
+    def knowledge_source(self, source_id: str) -> Optional[KnowledgeSource]:
+        return next((k for k in self.knowledge if k.id == source_id), None)
+
+    def triggers_for(self, agent_id: str) -> list[TriggerSpec]:
+        return [t for t in self.triggers if t.agent == agent_id]
+
+    def flows_from(self, agent_id: str) -> list[InteractionFlow]:
+        return [f for f in self.interaction_flows if f.source == agent_id]

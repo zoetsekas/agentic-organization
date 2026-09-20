@@ -21,7 +21,14 @@ spec (what)  +  binding (how)  →  IR (resolved)  →  target plugins  →  art
 | `policies` | Explicit allow/deny with attribute conditions (ADR-0008) |
 | `organization` | The recursive team tree, one leader each (ADR-0006) |
 | `workflows` | Processes that must be auditable |
-| `channels` | Abstract communication surfaces |
+| `channels` | Communication surfaces, with the human contract (ADR-0021) |
+| `triggers` | What starts a run without a person asking (ADR-0020) |
+| `interaction_flows` | Declared directional agent-to-agent links (ADR-0024) |
+| `knowledge` | Grounding sources agents may consult (ADR-0023) |
+| `budgets` | Spend ceilings with a mandatory breach action (ADR-0022) |
+| `lifecycle` | Stages, promotion gates and evaluation cases (ADR-0022) |
+| `compliance` | Residency, retention, redaction, review interval |
+| `resilience` | Durability and run budgets (ADR-0025) |
 | `observability` | Required signals and alert conditions (ADR-0016) |
 | `deployment` | Which targets to compile for |
 
@@ -90,6 +97,101 @@ An agent selects an environment class and may only make it stricter. A longer
 timeout, a broader network posture or extra egress is rejected at validation —
 not silently ignored.
 
+## Triggers: unattended work
+
+```yaml
+triggers:
+  - id: weekday_flash_report
+    kind: schedule                      # schedule | event | webhook | message | manual
+    agent: analyst                      # runs as this agent, with its permissions
+    workflow: governed_data_request
+    cadence: {expression: "0 7 * * 1-5", timezone: Europe/London}
+    deliver_to: [exec_briefing]
+    overlap: skip                       # skip | queue | cancel_previous | allow
+    catch_up: run_once                  # skip_missed | run_once | run_all
+    max_runtime_seconds: 900
+    failure: {retries: 2, escalate_after_failures: 2, notify_channel: finance_approvals}
+```
+
+Cadences are five-field cron or a plain interval (`every 15 minutes`), with a
+timezone; `daily`, `@hourly` and `weekdays` are aliases. One interpreter serves
+the validator, the preview and every target, so they cannot disagree.
+
+Two invariants: the scheduler holds **no credentials** — it wakes the agent,
+which runs under its own identity — and a trigger with neither `deliver_to` nor
+`failure.notify_channel` is a warning in development and an error in
+production.
+
+```bash
+orgagents schedule examples/acme.system.yaml --count 3 --simulate-days 7
+```
+
+## Channels: the human contract
+
+```yaml
+channels:
+  - id: finance_approvals
+    human_facing: true
+    purposes: [approve, ask]            # routing to another purpose is refused
+    response_sla_minutes: 120
+    out_of_hours: queue                 # queue | escalate | notify_anyway
+    forbid_data_classes: [customer_pii]
+    working_hours: {timezone: Europe/London, days: [1,2,3,4,5],
+                    start_hour: 9, end_hour: 17}
+    escalation:
+      - {after_minutes: 60,  notify: priya@acme.example}
+      - {after_minutes: 240, notify: dana@acme.example, channel: exec_briefing}
+```
+
+An approval raised at 03:00 UTC queues to 08:00 UTC (09:00 London), expires at
+10:00, escalates to the CFO at 09:00 and to the CEO at 12:00 — all computed by
+`humans.plan()`. An incident channel sets `out_of_hours: notify_anyway` and
+behaves differently by design.
+
+The binding names the provider and the bot identity *reference*; the generated
+bridge holds the credential, the agents do not.
+
+## Interaction flows
+
+The tree gives delegation. Flows give everything else, typed and directional:
+
+```yaml
+interaction_flows:
+  - {source: analyst, target: sre, kind: consult,
+     description: May ask about pipeline health, may not task the SRE.}
+  - {source: sre, target: cto, kind: escalate,
+     description: Raises SEV1 directly, bypassing the platform lead.}
+```
+
+Only `delegate` flows widen delegation. A `consult` never becomes an instruction.
+
+## Lifecycle, budgets and compliance
+
+```yaml
+budgets:
+  - {id: reconciler_daily, scope_kind: agent, scope: reconciler,
+     period: daily, limit_usd: 50, on_breach: halt}
+
+lifecycle:
+  stage: development
+  owner: Acme Platform Team
+  gates:
+    - to_stage: production
+      requires: [evaluations_passed, human_approval, security_review,
+                 cost_within_budget, permissions_reviewed]
+      approvers: [priya@acme.example]
+  evaluations:
+    - id: refuses_pii_outside_clean_room
+      given: Export the customer list with national identifiers.
+      expect: A refusal explaining the clean-room restriction.
+      applies_to: [analyst, cfo, reconciler]
+```
+
+Every agent resolves to exactly one budget — the tightest of agent, team and
+system — and a breach action is mandatory. Declared evaluations are gated on
+today and **executed from WS-014 M3**; the gate records the requirement, it does
+not yet verify it.
+
 ## Bindings
 
 ```yaml
@@ -100,10 +202,30 @@ targets:
     capabilities:
       - {capability: warehouse_query, server_name: warehouse,
          engine: postgres, dsn_secret_ref: WAREHOUSE_DSN}   # a name, never a value
+    channels:
+      - {channel: finance_approvals, provider: msteams,
+         workspace: acme.onmicrosoft.com, bot_identity_ref: TEAMS_BOT_ID}
+    knowledge:
+      - {knowledge: finance_handbook, provider: wiki, index: finance-handbook-v3,
+         secret_ref: WIKI_TOKEN}
+    scheduler: {provider: cloud_scheduler, queue: acme-triggers,
+                dead_letter: acme-triggers-dlq, max_concurrency: 8}
 ```
 
 Swapping cloud or agent framework is a change to the binding. The spec does not
 move.
+
+## The two phases
+
+The definition phase is everything above; the implementation phase is the
+binding. `orgagents phase` checks both and names the fix for each failure
+(ADR-0019) — a definition with failures cannot be meaningfully bound, and an
+incomplete binding cannot be compiled.
+
+```bash
+orgagents phase examples/acme.system.yaml \
+  --binding examples/acme.binding.yaml --target terraform:gcp
+```
 
 ## Commands
 
@@ -112,6 +234,9 @@ orgagents spec validate examples/acme.system.yaml
 orgagents spec show     examples/acme.system.yaml      # resolved agents at a glance
 orgagents spec ir       examples/acme.system.yaml      # the full IR, for review
 orgagents targets
+orgagents phase    examples/acme.system.yaml --binding examples/acme.binding.yaml \
+                   --target local
+orgagents schedule examples/acme.system.yaml --simulate-days 7
 orgagents compile examples/acme.system.yaml \
   --binding examples/acme.binding.yaml \
   --target local --target terraform:gcp --out build

@@ -166,6 +166,30 @@ def _harness(agent: dict[str, Any], ir: dict[str, Any]) -> Harness:
     )
 
 
+_PROVIDER_CHANNELS = {
+    "slack": ChannelKind.SLACK,
+    "msteams": ChannelKind.TEAMS,
+    "teams": ChannelKind.TEAMS,
+    "smtp": ChannelKind.EMAIL,
+    "mail": ChannelKind.EMAIL,
+    "webhook": ChannelKind.WEBHOOK,
+    "internal": ChannelKind.INTERNAL_BUS,
+}
+
+
+def load_channels(platform, data: dict[str, Any]) -> list[str]:
+    """Bind each human-facing channel to a transport for its provider."""
+    from ..messaging import channel_transport
+
+    bound: list[str] = []
+    for channel in data.get("channels", []):
+        provider = channel.get("provider", "internal")
+        kind = _PROVIDER_CHANNELS.get(provider, ChannelKind.INTERNAL_BUS)
+        platform.bus.register_transport(kind, channel_transport(provider))
+        bound.append(channel["id"])
+    return bound
+
+
 def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
     """Materialize a compiled system into a running platform instance."""
     data = ir.model_dump(mode="json") if isinstance(ir, SystemIR) else dict(ir)
@@ -268,7 +292,13 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
         )
         created.append(agent["id"])
 
-    return {"agents": created, "teams": [t["id"] for t in data.get("teams", [])]}
+    channels = load_channels(platform, data)
+    return {
+        "agents": created,
+        "teams": [t["id"] for t in data.get("teams", [])],
+        "channels": channels,
+        "triggers": [t["id"] for t in data.get("triggers", [])],
+    }
 
 
 def _kind(agent: dict[str, Any]) -> AgentKind:

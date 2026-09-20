@@ -138,6 +138,36 @@ def logging_transport(channel: ChannelKind) -> Transport:
     return send
 
 
+def channel_transport(provider: str, *, sender: Optional[Callable[[str, Message], Any]] = None
+                      ) -> Transport:
+    """A transport for one bound provider (ADR-0021).
+
+    The provider string comes from the binding — `slack`, `msteams`, `smtp`,
+    `internal` — and is the only place a product name appears in the delivery
+    path. Without a `sender`, delivery is *recorded* rather than performed, so
+    the whole system is exercisable end to end with no workspace credentials;
+    pass a real client to actually post.
+    """
+
+    def send(msg: Message) -> dict[str, Any]:
+        if sender is not None:
+            return {
+                "provider": provider,
+                "status": "sent",
+                "address": msg.channel_address,
+                "response": sender(msg.channel_address, msg),
+            }
+        return {
+            "provider": provider,
+            "status": "recorded",
+            "address": msg.channel_address,
+            "message_id": msg.id,
+            "note": "no client bound; delivery recorded only",
+        }
+
+    return send
+
+
 def webhook_transport(post: Callable[[str, dict], Any]) -> Transport:
     """Deliver messages by POSTing them to the channel address."""
 

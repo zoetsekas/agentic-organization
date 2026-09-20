@@ -13,12 +13,17 @@
 | [WS-008](WS-008-runtime-adapters-and-harness.md) | Runtime adapters and harness binding | Active | 1.0.0 | Platform Architecture | ADR-0013, ADR-0010 | WS-005 |
 | [WS-009](WS-009-designer-ui-and-sdk.md) | Designer UI and SDK as peer clients of the spec | Active | 1.0.0 | Product | ADR-0018, ADR-0003 | WS-002 |
 | [WS-010](WS-010-observability-and-operations.md) | Observability and operations across targets | Proposed | 1.0.0 | Platform SRE | ADR-0016 | WS-005, WS-006 |
+| [WS-011](WS-011-landscape-and-capability-roadmap.md) | Landscape research and the capability roadmap | Complete | 1.0.0 | Product | ADR-0019 | WS-001 |
+| [WS-012](WS-012-scheduling-and-triggers.md) | Scheduling, event triggers and durable unattended work | Active | 1.0.0 | Platform SRE | ADR-0020, ADR-0025 | WS-005, WS-011 |
+| [WS-013](WS-013-human-channels-and-hitl.md) | Human channels, approval routing and declared interaction flows | Active | 1.0.0 | Product | ADR-0021, ADR-0024 | WS-005, WS-011 |
+| [WS-014](WS-014-enterprise-registry-and-lifecycle.md) | Enterprise governance — registry, lifecycle gates, evaluations, budgets, compliance | Active | 1.0.0 | Security Engineering | ADR-0022 | WS-004, WS-005, WS-011 |
+| [WS-015](WS-015-knowledge-grounding.md) | Knowledge grounding sources and retrieval | Proposed | 1.0.0 | Data Platform | ADR-0023 | WS-005, WS-011 |
 
 ## By status
 
-- **Active** — [WS-002](WS-002-system-spec-language.md), [WS-003](WS-003-organization-and-roles.md), [WS-004](WS-004-security-model.md), [WS-005](WS-005-compiler-core.md), [WS-006](WS-006-local-deployment-target.md), [WS-008](WS-008-runtime-adapters-and-harness.md), [WS-009](WS-009-designer-ui-and-sdk.md)
-- **Complete** — [WS-001](WS-001-records-and-governance.md)
-- **Proposed** — [WS-007](WS-007-cloud-terraform-targets.md), [WS-010](WS-010-observability-and-operations.md)
+- **Active** — [WS-002](WS-002-system-spec-language.md), [WS-003](WS-003-organization-and-roles.md), [WS-004](WS-004-security-model.md), [WS-005](WS-005-compiler-core.md), [WS-006](WS-006-local-deployment-target.md), [WS-008](WS-008-runtime-adapters-and-harness.md), [WS-009](WS-009-designer-ui-and-sdk.md), [WS-012](WS-012-scheduling-and-triggers.md), [WS-013](WS-013-human-channels-and-hitl.md), [WS-014](WS-014-enterprise-registry-and-lifecycle.md)
+- **Complete** — [WS-001](WS-001-records-and-governance.md), [WS-011](WS-011-landscape-and-capability-roadmap.md)
+- **Proposed** — [WS-007](WS-007-cloud-terraform-targets.md), [WS-010](WS-010-observability-and-operations.md), [WS-015](WS-015-knowledge-grounding.md)
 
 See [README.md](README.md) for the process and lifecycle.
 

@@ -61,9 +61,40 @@ class CapabilityBinding(BaseModel):
 
 
 class ChannelBinding(BaseModel):
+    """How an abstract channel becomes a real surface people watch.
+
+    `provider` is where implementation names are allowed: slack, msteams, smtp,
+    a ticketing system. `bot_identity_ref` is a reference to the workspace
+    identity the agent posts as — a name, never a token (ADR-0015).
+    """
+
     channel: str                          # ChannelSpec id or ChannelClass value
     provider: str = "internal"
     address: str = ""
+    workspace: str = ""
+    bot_identity_ref: Optional[str] = None
+    thread_replies: bool = True
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
+class ScheduleBinding(BaseModel):
+    """Which scheduler actually fires the triggers (ADR-0020)."""
+
+    provider: str = "internal"     # internal | cloud_scheduler | eventbridge | ...
+    queue: str = ""
+    dead_letter: str = ""
+    max_concurrency: int = 4
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
+class KnowledgeBinding(BaseModel):
+    """Which concrete system backs a declared grounding source (ADR-0023)."""
+
+    knowledge: str                        # KnowledgeSource id
+    provider: str = "internal"
+    location: str = ""
+    index: str = ""
+    secret_ref: Optional[str] = None
     options: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -89,6 +120,8 @@ class TargetBinding(BaseModel):
     environments: list[EnvironmentBinding] = Field(default_factory=list)
     capabilities: list[CapabilityBinding] = Field(default_factory=list)
     channels: list[ChannelBinding] = Field(default_factory=list)
+    knowledge: list[KnowledgeBinding] = Field(default_factory=list)
+    scheduler: Optional[ScheduleBinding] = None
     secrets_backend: str = "environment"
     observability_sink: str = "otel_collector"
     # Per-agent overrides of the runtime/model binding.
@@ -99,6 +132,12 @@ class TargetBinding(BaseModel):
 
     def capability_binding(self, cap_id: str) -> Optional[CapabilityBinding]:
         return next((c for c in self.capabilities if c.capability == cap_id), None)
+
+    def channel_binding(self, channel_id: str) -> Optional[ChannelBinding]:
+        return next((c for c in self.channels if c.channel == channel_id), None)
+
+    def knowledge_binding(self, source_id: str) -> Optional[KnowledgeBinding]:
+        return next((k for k in self.knowledge if k.knowledge == source_id), None)
 
 
 class Binding(BaseModel):

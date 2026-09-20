@@ -17,6 +17,7 @@ from typing import Any
 
 from ..base import GeneratedFile
 from ..ir import NEUTRAL_RESOURCES, SystemIR
+from ..registry import registry_report
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,9 @@ class ProviderProfile:
     binding_resource: str
     secret_resource: str
     region_variable: str
+    # How this provider's scheduler expresses a cadence.
+    schedule_field: str = "schedule"
+    timezone_field: str = "time_zone"
     # Neutral permission verbs that this provider's IAM cannot express at the
     # requested granularity. Declared, not discovered, and surfaced in MAPPING.md.
     coarse_actions: tuple[str, ...] = ()
@@ -53,7 +57,13 @@ PROFILES: dict[str, ProviderProfile] = {
             "message_bus": "google_pubsub_topic",
             "observability_sink": "google_logging_project_sink",
             "network_boundary": "google_compute_network",
+            "scheduler": "google_cloud_scheduler_job",
+            "event_subscription": "google_eventarc_trigger",
+            "channel_bridge": "google_cloud_run_v2_service",
+            "knowledge_index": "google_discovery_engine_data_store",
         },
+        schedule_field="schedule",
+        timezone_field="time_zone",
         identity_resource="google_service_account",
         binding_resource="google_project_iam_member",
         secret_resource="google_secret_manager_secret",
@@ -74,7 +84,13 @@ PROFILES: dict[str, ProviderProfile] = {
             "message_bus": "aws_sns_topic",
             "observability_sink": "aws_cloudwatch_log_group",
             "network_boundary": "aws_security_group",
+            "scheduler": "aws_scheduler_schedule",
+            "event_subscription": "aws_cloudwatch_event_rule",
+            "channel_bridge": "aws_ecs_service",
+            "knowledge_index": "aws_kendra_index",
         },
+        schedule_field="schedule_expression",
+        timezone_field="schedule_expression_timezone",
         identity_resource="aws_iam_role",
         binding_resource="aws_iam_role_policy",
         secret_resource="aws_secretsmanager_secret",
@@ -95,7 +111,13 @@ PROFILES: dict[str, ProviderProfile] = {
             "message_bus": "azurerm_servicebus_topic",
             "observability_sink": "azurerm_log_analytics_workspace",
             "network_boundary": "azurerm_network_security_group",
+            "scheduler": "azurerm_logic_app_workflow",
+            "event_subscription": "azurerm_eventgrid_event_subscription",
+            "channel_bridge": "azurerm_container_app",
+            "knowledge_index": "azurerm_search_service",
         },
+        schedule_field="schedule",
+        timezone_field="time_zone",
         identity_resource="azurerm_user_assigned_identity",
         binding_resource="azurerm_role_assignment",
         secret_resource="azurerm_key_vault_secret",
@@ -156,7 +178,8 @@ class TerraformTarget:
             "summary": "Generates reviewable HCL the customer plans and applies in "
                        "their own pipeline; the platform never holds credentials.",
             "produces": ["main.tf", "variables.tf", "iam.tf", "agents.tf",
-                         "backend.tf.example", "MAPPING.md"],
+                         "triggers.tf", "channels.tf", "backend.tf.example",
+                         "REGISTRY.md", "MAPPING.md"],
             "caveats": [
                 "IAM mapping is lossy; MAPPING.md names every coarsened grant.",
                 f"Actions mapped coarsely on this provider: "
@@ -172,6 +195,9 @@ class TerraformTarget:
             GeneratedFile("variables.tf", self._variables(ir)).with_header(ir),
             GeneratedFile("iam.tf", self._iam(ir)).with_header(ir),
             GeneratedFile("agents.tf", self._agents(ir)).with_header(ir),
+            GeneratedFile("triggers.tf", self._triggers(ir)).with_header(ir),
+            GeneratedFile("channels.tf", self._channels(ir)).with_header(ir),
+            GeneratedFile("REGISTRY.md", registry_report(ir)),
             GeneratedFile("backend.tf.example", self._backend(ir),
                           preserve_if_exists=True).with_header(ir),
             GeneratedFile("system.ir.json",
@@ -343,6 +369,104 @@ locals {{
 }}'''
                 )
         return "\n\n".join(blocks) + "\n" if blocks else "# no agents\n"
+
+    def _triggers(self, ir: SystemIR) -> str:
+        """Schedulers and event subscriptions (ADR-0020).
+
+        A trigger wakes the owning agent's service; it never carries its own
+        identity, so a scheduled run has exactly the agent's permissions.
+        """
+        p = self.profile
+        blocks = []
+        for trigger in ir.triggers:
+            if not trigger.enabled:
+                blocks.append(f"# trigger '{trigger.id}' is disabled in the spec")
+                continue
+            name = _tf_name(trigger.id)
+            agent = _tf_name(trigger.agent_id)
+            if trigger.cron or trigger.interval_seconds:
+                expression = (
+                    trigger.cron
+                    if trigger.cron
+                    else f"rate({trigger.interval_seconds // 60} minutes)"
+                )
+                blocks.append(
+                    f'''resource "{p.resources["scheduler"]}" "{name}" {{
+  # {trigger.description or trigger.id}
+  # {trigger.schedule}
+  # overlap={trigger.overlap} catch_up={trigger.catch_up} retries={trigger.retries}
+  name             = "trigger-{trigger.id}"
+  {p.region_variable} = var.{p.region_variable}
+  {p.schedule_field} = "{expression}"
+  {p.timezone_field} = "{trigger.timezone}"
+  attempt_deadline = "{trigger.max_runtime_seconds}s"
+
+  # Runs as the agent, not as the scheduler (ADR-0015).
+  service_account = {p.identity_resource}.{agent}.email
+}}'''
+                )
+            else:
+                blocks.append(
+                    f'''resource "{p.resources["event_subscription"]}" "{name}" {{
+  # {trigger.description or trigger.id}
+  # fires on event class '{trigger.event_class}' filtered by {trigger.filters or "{}"}
+  name             = "trigger-{trigger.id}"
+  {p.region_variable} = var.{p.region_variable}
+  service_account = {p.identity_resource}.{agent}.email
+}}'''
+                )
+        if ir.binding.scheduler and ir.binding.scheduler.dead_letter:
+            blocks.append(
+                f'''resource "{p.resources["message_bus"]}" "dead_letter" {{
+  # Runs that exhaust their retries land here (ADR-0025).
+  name = "{ir.binding.scheduler.dead_letter}"
+}}'''
+            )
+        return "\n\n".join(blocks) + "\n" if blocks else "# no triggers\n"
+
+    def _channels(self, ir: SystemIR) -> str:
+        """Channel bridges and their credentials (ADR-0021).
+
+        The bridge is the only component holding a workspace credential, so a
+        compromised agent cannot post as the organization.
+        """
+        p = self.profile
+        blocks = []
+        for channel in ir.channels:
+            if not channel.human_facing:
+                continue
+            name = _tf_name(channel.id)
+            escalation = " → ".join(
+                f"{step['notify']} after {step['after_minutes']}m"
+                for step in channel.escalation
+            ) or "none"
+            blocks.append(
+                f'''resource "{p.resources["channel_bridge"]}" "{name}" {{
+  # {channel.description or channel.id}
+  # provider={channel.provider} purposes={", ".join(channel.purposes) or "-"}
+  # sla={channel.response_sla_minutes or "none"} out_of_hours={channel.out_of_hours}
+  # escalation: {escalation}
+  name             = "channel-{channel.id}"
+  {p.region_variable} = var.{p.region_variable}
+}}'''
+            )
+            if channel.bot_identity_ref:
+                blocks.append(
+                    f'''resource "{p.secret_resource}" "{name}_credential" {{
+  # Workspace credential for '{channel.id}', referenced by name only.
+  secret_id = "{channel.bot_identity_ref}"
+}}'''
+                )
+        for source in ir.knowledge:
+            blocks.append(
+                f'''resource "{p.resources["knowledge_index"]}" "{_tf_name(source.id)}" {{
+  # Grounding source '{source.id}' ({source.kind}); citation required: {source.require_citation}
+  # data classes: {", ".join(source.data_classes) or "none"}
+  name             = "knowledge-{source.id}"
+  {p.region_variable} = var.{p.region_variable}
+}}'''
+            )
+        return "\n\n".join(blocks) + "\n" if blocks else "# no human channels\n"
 
     def _backend(self, ir: SystemIR) -> str:
         backend = ir.binding.infrastructure.state_backend or "REPLACE_ME"

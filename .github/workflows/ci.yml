@@ -29,6 +29,14 @@ jobs:
       - name: Validate the example system spec
         run: orgagents spec validate examples/acme.system.yaml
 
+      # ADR-0019: both phases must be complete before anything compiles.
+      - name: Check definition and implementation phases
+        run: |
+          for target in local terraform:gcp terraform:aws terraform:azure; do
+            orgagents phase examples/acme.system.yaml \
+              --binding examples/acme.binding.yaml --target "$target"
+          done
+
       - name: Compile every target
         run: |
           orgagents compile examples/acme.system.yaml \

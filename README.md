@@ -10,13 +10,36 @@ encoded workflows, and reaches systems of record through an MCP harness — all
 under RBAC, data classification, sandbox and approval policy that is **declared
 in the spec and compiled into every target**, never improvised per deployment.
 
+The designer has two explicit phases with a **checkable gate** between them
+(ADR-0019): you describe the organization abstractly, and only then choose how
+it is built.
+
 ```
- spec (what)  +  binding (how)  →  IR (resolved once)  →  targets  →  artifacts
- ─────────────   ──────────────    ──────────────────     ───────    ─────────
- teams, roles,   framework,        permissions,           local      compose,
- capabilities,   images, cloud,    identities,            tf:gcp     Terraform,
- environments,   MCP servers       environments,          tf:aws     IAM, agent
- policies                          delegation edges       tf:azure   manifests
+  DEFINITION PHASE                 gate            IMPLEMENTATION PHASE
+  ────────────────            ─────────────        ────────────────────
+  teams · leaders · roles     orgagents            framework · images · cloud
+  responsibilities            phase                MCP servers · workspaces
+  capabilities · data classes  ✓ 21 checks         scheduler · secret backend
+  environments · policies      ✗ with fixes        region · state backend
+  triggers · channels                                      │
+  knowledge · lifecycle                                    ▼
+  budgets · compliance   ──────────────────────►  IR (resolved once)  ──► targets
+      (names no vendor)                            permissions,           local
+                                                   identities,            tf:gcp
+                                                   fire times,            tf:aws
+                                                   routing plans          tf:azure
+```
+
+```bash
+$ orgagents phase examples/acme.system.yaml --binding examples/acme.binding.yaml \
+    --target terraform:gcp
+── definition phase ───────────────────────────
+  ✓ [def] Every agent has a human counterpart
+  ✓ [def] Approvals have a channel to land on
+  ✓ [def] Spend is bounded
+  …
+definition: 21 pass, 0 warn, 0 fail | implementation: 14 pass, 0 warn, 0 fail
+ready to compile for 'terraform:gcp': yes
 ```
 
 Teams nest, and each has exactly one leader agent who is also a member of it —
@@ -52,19 +75,32 @@ cd build/local && make up                               # or `make single`
 # Or explore the runtime directly
 orgagents seed && orgagents serve                       # UI on localhost:8000
 
-# Governance
-orgagents records validate      # ADR/WS graph integrity
-orgagents records index         # regenerate the record indexes
-pytest                          # 91 tests, no network or API keys needed
+# Phase gate, scheduling and governance
+orgagents phase    examples/acme.system.yaml --binding examples/acme.binding.yaml \
+                   --target terraform:gcp    # definition + implementation readiness
+orgagents schedule examples/acme.system.yaml --simulate-days 7
+orgagents records  validate                  # ADR/WS graph integrity
+pytest                                       # 147 tests, no network or API keys
 ```
 
 Open <http://localhost:8000/ui/> for the **Agentic Designer**: org chart,
 agent/harness designer, marketplace, session traces and the operations console.
 
+## Landscape
+
+[docs/LANDSCAPE.md](docs/LANDSCAPE.md) analyses what comparable systems do well
+— OpenClaw's channel gateway, Microsoft's Agent 365 registry and per-agent
+identity lifecycle, Claude Cowork's scheduled tasks, Agency Swarm's directional
+flows, LangGraph's durable execution, and 2026 human-in-the-loop practice —
+with a capability matrix, the gaps it exposed, and an explicit list of what we
+**decline** (consumer messengers, mesh topology, one identity provider, a
+hosted-only control plane, unbounded spend). Seven decisions came out of it:
+ADR-0019 through ADR-0025.
+
 ## Decisions and delivery
 
-Architecture is recorded, not remembered (ADR-0001). Eighteen decision records
-and ten workstream records, machine-validated in CI:
+Architecture is recorded, not remembered (ADR-0001). Twenty-five decision
+records and fifteen workstream records, machine-validated in CI:
 
 - [docs/decisions/index.md](docs/decisions/index.md) — **ADRs**: why, who, what,
   where, how, when, advantages *and* disadvantages, with statuses, semver,
@@ -85,6 +121,12 @@ implementation: [ADR-0006 v1.1.0](docs/decisions/ADR-0006-recursive-teams-with-l
 | Capability | Where |
 |---|---|
 | Implementation-neutral System Spec + bindings | `spec/`, [docs](docs/SPEC.md) |
+| Two-phase designer with a mechanical gate | `phases.py` |
+| Scheduling, event, webhook and message triggers | `scheduling.py`, `runtime/scheduler.py` |
+| Human channels: Teams, Slack, mail, SLA, escalation | `humans.py` |
+| Generated agent registry for the whole fleet | `compiler/registry.py` |
+| Lifecycle stages, promotion gates, evaluations, budgets | `spec/model.py` |
+| Knowledge grounding sources | `spec/model.py`, `compiler/ir.py` |
 | Spec validation incl. least-privilege rules | `spec/validate.py` |
 | Two-phase compiler: spec → IR → target plugins | `compiler/` |
 | Local target: Compose stack + single-process mode | `compiler/targets/local.py` |
@@ -135,6 +177,24 @@ overridden; inheritance only narrows, leaders included; wildcards are errors in
 production; every decision names the rule that produced it. Cloud IAM is derived
 from the same resolved set, and where a provider's IAM is coarser, the target
 says so in `MAPPING.md` rather than hiding it (ADR-0008, ADR-0012).
+
+**Unattended work is designed, not bolted on.** A trigger — cadence, event,
+webhook or inbound message — is a spec object carrying its own overlap,
+catch-up, retry, escalation and delivery policy. Two invariants: a triggered
+run has exactly the owning agent's identity and permissions (the scheduler
+holds no credentials), and unattended work must report somewhere a human looks
+(ADR-0020).
+
+**Human contact is a contract, not a boolean.** A channel declares what it is
+for, when its people are available, how long they have, who is tried next, and
+what data it may never carry. An approval requested at 03:00 queues to 09:00,
+escalates to the CFO at 10:00 and to the CEO at 13:00 — computed, not hoped
+for. One bridge per channel holds the workspace credential, so a compromised
+agent cannot post as the company (ADR-0021).
+
+**The fleet has a registry.** Every target generates `REGISTRY.md`: each agent
+with its owner, identity, permissions, environment, triggers, channels and
+budget, plus review flags naming unowned agents and unbounded spend (ADR-0022).
 
 **Agents are org-shaped at runtime too.** `OrgChart.can_delegate` enforces the
 same routing rule the spec declares: delegate down your own subtree, call
@@ -203,6 +263,15 @@ network or API keys).
 
 Known gaps, tracked in the workstreams rather than glossed:
 
+- **Declared evaluations are not executed.** `evaluations_passed` is a gate
+  requirement the registry records and nothing verifies until WS-014 M3. It is
+  the most misleading gap in the current build.
+- **Channel delivery is recorded, not performed.** Routing, SLA and escalation
+  are computed and tested; no message actually reaches Slack or Teams until
+  WS-013 M4 ships real bridge clients.
+- **`freshness_seconds` on knowledge sources is declared but unenforced**
+  (WS-015 M4), and step-level checkpointing is honoured only by the LangGraph
+  adapter (ADR-0025).
 - **Terraform is generated but not applied or `terraform validate`-ed here** —
   the binary is not installed in this environment, so the tests check
   identifier validity and block balance instead. Real `plan`/`apply` against a

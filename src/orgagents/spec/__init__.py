@@ -1,4 +1,10 @@
-from .binding import Binding, TargetBinding
+from .binding import (
+    Binding,
+    ChannelBinding,
+    KnowledgeBinding,
+    ScheduleBinding,
+    TargetBinding,
+)
 from .loader import dump_spec, load_binding, load_spec, load_spec_text
 from .model import SystemSpec
 from .validate import Finding, validate_spec
@@ -7,6 +13,9 @@ __all__ = [
     "SystemSpec",
     "Binding",
     "TargetBinding",
+    "ChannelBinding",
+    "ScheduleBinding",
+    "KnowledgeBinding",
     "load_spec",
     "load_spec_text",
     "load_binding",

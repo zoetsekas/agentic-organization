@@ -7,6 +7,8 @@ its targets, not the centre.
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
+│  Phase gate (phases.py)        — definition ✓ / implementation ✓  │
+├───────────────────────────────────────────────────────────────────┤
 │  System Spec (spec/)           — implementation-neutral source    │
 │    + Binding                     of truth; vendors live here only │
 ├───────────────────────────────────────────────────────────────────┤
@@ -15,6 +17,11 @@ its targets, not the centre.
 │    targets/local · terraform     phase 2: IR → artifacts          │
 ├───────────────────────────────────────────────────────────────────┤
 │  Security (security/rbac.py)   — deny-by-default policy engine    │
+├───────────────────────────────────────────────────────────────────┤
+│  Scheduling (scheduling.py,    — cadences, fire times, overlap,   │
+│   runtime/scheduler.py)          catch-up, retry, halt            │
+├───────────────────────────────────────────────────────────────────┤
+│  Human routing (humans.py)     — availability, SLA, escalation    │
 ├───────────────────────────────────────────────────────────────────┤
 │  Records (records.py, docs/)   — ADR + workstream governance      │
 ├═══════════════════════════════════════════════════════════════════┤
@@ -43,6 +50,14 @@ units and its `AgentIR`s into runtime agents — so the runtime consumes the sam
 artifact the Terraform targets do, and cannot disagree with them about who may
 do what.
 
+## The two phases
+
+The designer's workflow has a definition phase (abstract, vendor-free) and an
+implementation phase (the binding), with a mechanical gate between them
+(ADR-0019). `phases.py` holds the checks as data — each with a phase, a
+verdict and a **fix** — and `orgagents phase` returns non-zero on any failure.
+Some checks are warnings in development and errors in production.
+
 ## Compilation path
 
 1. **Load and validate** the spec (`spec/loader.py`, `spec/validate.py`):
@@ -50,13 +65,39 @@ do what.
    the build before any target runs.
 2. **Resolve to IR** (`compiler/ir.py`): team inheritance, role expansion,
    effective permissions, per-agent environment narrowing, delegation edges, one
-   workload identity per agent, and the provider-neutral resource set.
+   workload identity per agent, the tightest budget per agent, normalized
+   cadences with precomputed fire times, channel contracts merged with their
+   bindings, grounding sources with their secrets attached to the reading
+   agent's identity, and the provider-neutral resource set.
 3. **Generate** (`compiler/engine.py` → targets): each target renders the IR.
    Output is compiler-owned, hashed into `manifest.json`, and never clobbers a
    hand-edited file without `--force`; `overlays/` is user-owned (ADR-0014).
 
 The boundary between 2 and 3 is enforced by a test: no target module may import
 `orgagents.spec`.
+
+## Unattended work and human contact
+
+A **trigger** (ADR-0020) starts a run on a cadence, an event, a webhook or an
+inbound message. `scheduling.py` is the single interpreter of cadence
+vocabulary; `runtime/scheduler.py` applies overlap, catch-up, retry, escalation
+and halt policy with an injectable clock. The scheduler holds no credentials:
+it wakes the owning agent, which runs under its own identity, so unattended
+work cannot be the privileged path.
+
+A **channel** (ADR-0021) declares what it is for, when its people are
+available, the response SLA, the escalation chain and the data it may never
+carry. `humans.py` turns that into a routing plan: when to deliver, when the
+SLA expires, and who is notified at what time. One generated bridge per channel
+holds the workspace credential.
+
+## Governance artifacts
+
+`compiler/registry.py` renders `REGISTRY.md` for every target — the fleet
+inventory with owners, identities, permissions, triggers, channels, budgets,
+declared flows, grounding sources, promotion gates and review flags. It is
+generated from the same IR as the IAM, so the auditor's document and the
+deployment cannot disagree.
 
 ## The request path
 

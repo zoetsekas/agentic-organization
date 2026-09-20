@@ -261,3 +261,103 @@ def test_capability_constraints_reach_the_harness(tmp_path, spec, binding):
     assert "tax_id" in grant.masked_columns
     # An approval-gated capability arrives as an interrupt, not a free tool.
     assert "pii_reconciliation" in platform.org.agent("reconciler").harness.interrupt_on
+
+
+# -- triggers, channels, registry (ADR-0020, 0021, 0022) ------------------
+
+
+def test_triggers_resolve_with_fire_times(spec, binding):
+    ir = build_ir(spec, binding=binding.for_target("local"))
+    flash = next(t for t in ir.triggers if t.id == "weekday_flash_report")
+    assert flash.cron == "0 7 * * 1-5" and flash.timezone == "Europe/London"
+    assert len(flash.next_runs) == 3
+    # A trigger may not outlive the system's durability budget.
+    assert all(t.max_runtime_seconds <= spec.resilience.max_run_seconds
+               for t in ir.triggers)
+
+
+def test_channels_merge_contract_and_binding(spec, binding):
+    ir = build_ir(spec, binding=binding.for_target("local"))
+    approvals = ir.channel("finance_approvals")
+    assert approvals.provider == "msteams"           # from the binding
+    assert approvals.response_sla_minutes == 120     # from the spec
+    assert len(approvals.escalation) == 2
+    assert "customer_pii" in approvals.forbid_data_classes
+
+
+def test_agents_carry_channels_budget_and_flows(spec, binding):
+    ir = build_ir(spec, binding=binding.for_target("local"))
+    analyst = ir.agent("analyst")
+    assert analyst.approval_channel == "finance_approvals"
+    assert analyst.consults == ["sre"]                 # declared flow, not hierarchy
+    assert analyst.budget_usd == 1200 and analyst.on_budget_breach == "warn"
+    # The tightest budget wins: the reconciler has its own daily halt budget.
+    assert ir.agent("reconciler").on_budget_breach == "halt"
+
+
+def test_declared_flows_widen_delegation_only_when_they_delegate(spec, binding):
+    ir = build_ir(spec, binding=binding.for_target("local"))
+    # consult/notify/escalate flows must not become delegation edges
+    assert "sre" in ir.agent("analyst").consults
+    assert "cfo" not in ir.agent("reconciler").delegates_to
+
+
+def test_local_target_emits_scheduler_and_channel_bridges(tmp_path, spec, binding):
+    result = compile_system(spec, targets=["local"], out_dir=tmp_path,
+                            binding=binding)[0]
+    compose = yaml.safe_load((result.out_dir / "docker-compose.yaml").read_text())
+    services = compose["services"]
+    assert "scheduler" in services
+    assert "channel-finance_approvals" in services
+    bridge = services["channel-finance_approvals"]
+    assert bridge["labels"]["org.agentic.provider"] == "msteams"
+    # The bridge holds the workspace credential; the agents do not.
+    assert "TEAMS_BOT_ID" in bridge["environment"]
+    assert not any(
+        "TEAMS_BOT_ID" in services[f"agent-{a.id}"]["environment"]
+        for a in result.ir.agents
+    )
+    assert (result.out_dir / "triggers.json").exists()
+
+
+def test_registry_report_inventories_the_fleet(tmp_path, spec, binding):
+    result = compile_system(spec, targets=["local"], out_dir=tmp_path,
+                            binding=binding)[0]
+    registry = (result.out_dir / "REGISTRY.md").read_text()
+    for agent in result.ir.agents:
+        assert f"`{agent.id}`" in registry
+        if agent.human:
+            assert agent.human.name in registry
+    assert "weekday_flash_report" in registry
+    assert "Promotion gates" in registry and "production" in registry
+    assert "Agents without a human owner:** none" in registry
+
+
+def test_terraform_targets_emit_triggers_and_channels(tmp_path, spec, binding):
+    for target in ("terraform:gcp", "terraform:aws", "terraform:azure"):
+        result = compile_system(spec, targets=[target], out_dir=tmp_path / target[-3:],
+                                binding=binding)[0]
+        triggers = (result.out_dir / "triggers.tf").read_text()
+        channels = (result.out_dir / "channels.tf").read_text()
+        assert "trigger-weekday_flash_report" in triggers
+        # A scheduled run uses the agent's identity, not the scheduler's.
+        assert "service_account" in triggers
+        assert "channel-finance_approvals" in channels
+        assert (result.out_dir / "REGISTRY.md").exists()
+
+
+def test_scheduler_holds_no_credentials_of_its_own(tmp_path, spec, binding):
+    result = compile_system(spec, targets=["local"], out_dir=tmp_path,
+                            binding=binding)[0]
+    compose = yaml.safe_load((result.out_dir / "docker-compose.yaml").read_text())
+    env = compose["services"]["scheduler"]["environment"]
+    assert not any(key.endswith("_DSN") or key.endswith("_TOKEN") for key in env)
+
+
+def test_knowledge_sources_reach_the_ir_and_identity(spec, binding):
+    ir = build_ir(spec, binding=binding.for_target("local"))
+    handbook = next(k for k in ir.knowledge if k.id == "finance_handbook")
+    assert handbook.provider == "wiki" and handbook.index == "finance-handbook-v3"
+    # Its secret is attached to the identity of the agent that reads it.
+    assert "WIKI_TOKEN" in ir.agent("analyst").identity.secret_refs
+    assert "WIKI_TOKEN" not in ir.agent("sre").identity.secret_refs

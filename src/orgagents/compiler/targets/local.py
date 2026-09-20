@@ -13,6 +13,7 @@ import yaml
 
 from ..base import GeneratedFile
 from ..ir import SystemIR
+from ..registry import registry_report
 
 # Abstract environment vocabulary → local container settings. This table is the
 # binding; nothing above it knows about images or CPU shares.
@@ -45,7 +46,8 @@ class LocalTarget:
             "summary": "Runs the whole system on one machine, with a single-process "
                        "fallback for hosts without a container runtime.",
             "produces": ["docker-compose.yaml", "Makefile", ".env.example",
-                         "system.ir.json", "agents/*.json", "run_local.py", "README.md"],
+                         "system.ir.json", "agents/*.json", "triggers.json",
+                         "channels.json", "REGISTRY.md", "run_local.py", "README.md"],
             "caveats": ["Compose approximates network policy and cannot represent "
                         "cloud IAM; local runs do not verify those controls."],
         }
@@ -62,6 +64,11 @@ class LocalTarget:
                                                        indent=2) + "\n"),
             GeneratedFile("run_local.py", self._single_process(ir)).with_header(ir),
             GeneratedFile("README.md", self._readme(ir)),
+            GeneratedFile("REGISTRY.md", registry_report(ir)),
+            GeneratedFile("triggers.json", json.dumps(
+                [t.model_dump(mode="json") for t in ir.triggers], indent=2) + "\n"),
+            GeneratedFile("channels.json", json.dumps(
+                [c.model_dump(mode="json") for c in ir.channels], indent=2) + "\n"),
         ]
         for agent in ir.agents:
             files.append(
@@ -83,7 +90,8 @@ class LocalTarget:
 
     def _networks(self, ir: SystemIR) -> dict[str, Any]:
         networks: dict[str, Any] = {"control": {}}
-        if any(
+        # Channel bridges always need egress to reach the chat provider.
+        if any(c.human_facing for c in ir.channels) or any(
             a.environment and a.environment.network.value != "none" for a in ir.agents
         ):
             networks["egress"] = {}
@@ -151,6 +159,56 @@ class LocalTarget:
         }
         for agent in ir.agents:
             services[f"agent-{agent.id}"] = self._agent_service(ir, agent)
+
+        # One scheduler for every trigger (ADR-0020). It holds no credentials of
+        # its own: it wakes the owning agent, which runs under its own identity.
+        if ir.triggers:
+            scheduler = ir.binding.scheduler
+            services["scheduler"] = {
+                "image": "orgagents/platform:latest",
+                "command": ["orgagents", "scheduler", "--manifest", "/app/triggers.json"],
+                "environment": {
+                    "ORGAGENTS_SCHEDULER": scheduler.provider if scheduler else "internal",
+                    "ORGAGENTS_MAX_CONCURRENCY": str(
+                        scheduler.max_concurrency if scheduler else 4
+                    ),
+                    "ORGAGENTS_DEAD_LETTER": (
+                        scheduler.dead_letter if scheduler else ""
+                    ),
+                },
+                "volumes": ["./triggers.json:/app/triggers.json:ro"],
+                "networks": ["control"],
+                "depends_on": ["state"],
+                "labels": {"org.agentic.triggers": str(len(ir.triggers))},
+            }
+
+        # One bridge per human-facing channel (ADR-0021). The bridge is the only
+        # component holding a workspace credential; agents talk to it, not to
+        # Slack or Teams.
+        for channel in ir.channels:
+            if not channel.human_facing:
+                continue
+            env = {
+                "ORGAGENTS_CHANNEL": channel.id,
+                "ORGAGENTS_PROVIDER": channel.provider,
+                "ORGAGENTS_ADDRESS": channel.address,
+                "ORGAGENTS_SLA_MINUTES": str(channel.response_sla_minutes or 0),
+                "ORGAGENTS_OUT_OF_HOURS": channel.out_of_hours,
+            }
+            if channel.bot_identity_ref:
+                env[channel.bot_identity_ref] = f"${{{channel.bot_identity_ref}}}"
+            services[f"channel-{channel.id}"] = {
+                "image": "orgagents/channel-bridge:latest",
+                "command": ["serve", "--channel", channel.id],
+                "environment": env,
+                "volumes": ["./channels.json:/app/channels.json:ro"],
+                "networks": ["control", "egress"],
+                "labels": {
+                    "org.agentic.channel": channel.id,
+                    "org.agentic.provider": channel.provider,
+                    "org.agentic.purposes": ",".join(channel.purposes),
+                },
+            }
         for cap in ir.capabilities:
             binding = ir.binding.capability_binding(cap.id)
             if binding is None:
@@ -178,6 +236,7 @@ class LocalTarget:
         )
 
     def _makefile(self, ir: SystemIR) -> str:
+        spec_file = f"{ir.name}.system.yaml"
         return f"""\
 # {ir.name} — local development loop
 
@@ -206,7 +265,10 @@ validate:      ## re-validate the source spec
 """
 
     def _env(self, ir: SystemIR) -> str:
-        refs = sorted({r for a in ir.agents for r in (a.identity.secret_refs if a.identity else [])})
+        refs = sorted(
+            {r for a in ir.agents for r in (a.identity.secret_refs if a.identity else [])}
+            | {c.bot_identity_ref for c in ir.channels if c.bot_identity_ref}
+        )
         lines = [
             "# Secret NAMES only — never commit values (ADR-0015).",
             "# Populate from your secret manager before `make up`.",
@@ -246,6 +308,17 @@ if __name__ == "__main__":
 '''
 
     def _readme(self, ir: SystemIR) -> str:
+        triggers = "\n".join(
+            f"| `{t.id}` | {t.schedule} | `{t.agent_id}` | "
+            f"{', '.join(t.deliver_to) or '—'} |"
+            for t in ir.triggers
+        ) or "| — | — | — | — |"
+        channels = "\n".join(
+            f"| `{c.id}` | {c.provider} | {', '.join(c.purposes) or '—'} | "
+            f"{str(c.response_sla_minutes) + ' min' if c.response_sla_minutes else '—'} | "
+            f"{c.out_of_hours} |"
+            for c in ir.channels if c.human_facing
+        ) or "| — | — | — | — | — |"
         agents = "\n".join(
             f"| `{a.id}` | {' / '.join(a.team_path)} | "
             f"{a.environment.id if a.environment else '—'} | "
@@ -274,6 +347,22 @@ No container runtime? `make single` runs everything in one process over SQLite.
 | Agent | Team | Environment | Network | Permissions |
 |---|---|---|---|---|
 {agents}
+
+## Scheduled and event-driven work
+
+| Trigger | When | Runs | Delivers to |
+|---|---|---|---|
+{triggers}
+
+The scheduler holds no credentials of its own: it wakes the owning agent, which
+runs under its own identity and its own permission set, exactly as it would for
+interactive work.
+
+## Human channels
+
+| Channel | Provider | Purposes | SLA | Out of hours |
+|---|---|---|---|---|
+{channels}
 
 ## Caveats
 
