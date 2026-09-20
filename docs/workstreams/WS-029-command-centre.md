@@ -2,7 +2,7 @@
 id: WS-029
 title: The command centre
 status: Active
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Product
@@ -41,9 +41,9 @@ roles, different routes. Read across tenants freely, author inside none.
 | Milestone | Target | Status |
 |---|---|---|
 | M1 Operator roles and route separation | Phase 5 | Done |
-| M2 Tenant list and detail views | Phase 5 | Not started |
+| M2 Tenant list and detail views | Phase 5 | Done |
 | M3 Operator actions with audit | Phase 5 | Done |
-| M4 Health, quota and drift surfacing | Phase 5 | Not started |
+| M4 Health, quota and drift surfacing | Phase 5 | Done |
 | M5 Incident view and acknowledgement | Phase 6 | Not started |
 
 ## Interfaces
@@ -80,5 +80,6 @@ the identity the operator roles hang from.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-20 | M2 and M4 done: the operator front end ships as its own bundle in `web/command/`, mounted at `/command/`. Tenant list and detail, deployment state and history with buttons driven by the API's `allowed_transitions`, operator actions and re-quota surfacing the backend's own 403/409 text, health with `fresh`/`stale`/`unobserved` confidence rendered as its own state, quota soft-limit breaches shown apart from refusals, and an offline fallback to the generated fixture that says on screen it is not live. Covered by `tests/test_command_centre_ui.py`. |
 | 1.1.0 | 2026-09-20 | M1 and M3 done: platform-operator roles in `fabric/rbac.py`, the `fabric` API namespace, operator actions routed through the lifecycle table, and an append-only operator log recording actions and cross-tenant reads. Contract written down in `docs/COMMAND_CENTRE_API.md`. |
 | 1.0.0 | 2026-09-20 | Opened alongside ADR-0051. |

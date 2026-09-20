@@ -18,6 +18,7 @@ from typing import Any
 
 import yaml
 
+from ...runtime.engines import InvocationMode, UnknownEngine, engine
 from ..base import GeneratedFile
 from ..ir import SystemIR
 from ..registry import registry_report
@@ -56,6 +57,14 @@ STATE_IMAGE = "postgres:16-alpine"
 # The artifact workspace (ADR-0036) is per tenant, with the tenant's own
 # volume: a shared bucket is a cross-tenant read away from being one.
 ARTIFACTS_IMAGE = "minio/minio:RELEASE.2024-09-13T20-26-02Z"
+# Out-of-process workflow engines (ADR-0056). Pinned per ADR-0053 rule 2 — a
+# floating tag on an engine that executes somebody's flows is an unreviewed
+# upgrade of a component outside our sandbox. No daemon exists here, so this
+# tag has never been pulled and no digest has been resolved; override it in the
+# binding (`options.image`) if your registry mirrors a different build.
+SERVICE_ENGINE_IMAGES = {
+    "langflow": "langflowai/langflow:1.1.1",
+}
 
 
 class LocalTarget:
@@ -107,6 +116,8 @@ class LocalTarget:
                           self._environment_dockerfile(ir, env)).with_header(ir)
             for env in self._used_environments(ir)
         ]
+        if self._service_engines(ir):
+            files.append(GeneratedFile("flows/README.md", self._flows_readme(ir)))
         for agent in ir.agents:
             files.append(
                 GeneratedFile(
@@ -125,11 +136,75 @@ class LocalTarget:
 
     # -- pieces ------------------------------------------------------------
 
+    def _service_engines(self, ir: SystemIR) -> list[Any]:
+        """Workflow bindings whose engine runs in another process.
+
+        The registry decides the mode, not the binding document, so a binding
+        that claims `in_process` for a service engine still lands here.
+        """
+        out: dict[str, Any] = {}
+        for wb in ir.binding.workflows:
+            try:
+                descriptor = engine(wb.engine)
+            except UnknownEngine:
+                continue
+            if descriptor.mode is InvocationMode.OUT_OF_PROCESS:
+                out.setdefault(wb.engine, wb)
+        return [out[k] for k in sorted(out)]
+
+    def _engine_secret_ref(self, binding: Any) -> str:
+        return binding.secret_ref or f"{binding.engine.upper()}_SECRET_KEY"
+
+    def _service_engine_services(self, ir: SystemIR) -> dict[str, Any]:
+        """One container per out-of-process workflow engine (ADR-0056).
+
+        It sits on the tenant's **egress** network and not on `control`, which
+        is what makes the ADR's rule concrete in Compose: an agent whose
+        environment is `network: none` is on `control` + `isolated` and so
+        cannot reach this service at all. That is the environment class
+        working, not a wiring bug.
+        """
+        out: dict[str, Any] = {}
+        for wb in self._service_engines(ir):
+            secret_ref = self._engine_secret_ref(wb)
+            image = wb.options.get("image") or SERVICE_ENGINE_IMAGES.get(wb.engine)
+            if not image:
+                continue
+            data_dir = f"/var/lib/{wb.engine}"
+            environment = {
+                # The engine authenticates as itself. No agent credential is
+                # mounted here, by design (ADR-0056).
+                secret_ref: f"${{{secret_ref}}}",
+                f"{wb.engine.upper()}_CONFIG_DIR": data_dir,
+            }
+            environment.update(wb.options.get("environment") or {})
+            out[wb.engine] = {
+                "image": image,
+                "environment": environment,
+                "networks": [ir.qualified("egress")],
+                "volumes": [
+                    # Flows are authored outside the spec: mounted read-only so
+                    # the engine cannot rewrite what was reviewed.
+                    "./flows:/app/flows:ro",
+                    f'{ir.qualified(wb.engine + "-data")}:{data_dir}',
+                ],
+                "labels": {
+                    "org.agentic.tenant": ir.tenant.id if ir.tenant else "",
+                    "org.agentic.workflow_engine": wb.engine,
+                    "org.agentic.invocation": "out_of_process",
+                    "org.agentic.outside_agent_sandbox": "true",
+                },
+            }
+        return out
+
     def _networks(self, ir: SystemIR) -> dict[str, Any]:
         networks: dict[str, Any] = {ir.qualified("control"): {}}
         # Channel bridges always need egress to reach the chat provider.
-        if any(c.human_facing for c in ir.channels) or any(
-            a.environment and a.environment.network.value != "none" for a in ir.agents
+        if (
+            any(c.human_facing for c in ir.channels)
+            or any(a.environment and a.environment.network.value != "none"
+                   for a in ir.agents)
+            or self._service_engines(ir)
         ):
             networks[ir.qualified("egress")] = {}
         if any(
@@ -396,6 +471,7 @@ WORKDIR /workspace
         for agent in ir.agents:
             services[f"agent-{agent.id}"] = self._agent_service(ir, agent)
         services.update(self._sandbox_services(ir))
+        services.update(self._service_engine_services(ir))
 
         # One scheduler for every trigger (ADR-0020). It holds no credentials of
         # its own: it wakes the owning agent, which runs under its own identity.
@@ -497,6 +573,10 @@ WORKDIR /workspace
                 "volumes": {
                     ir.qualified("state-data"): {},
                     ir.qualified("artifacts-data"): {},
+                    **{
+                        ir.qualified(f"{wb.engine}-data"): {}
+                        for wb in self._service_engines(ir)
+                    },
                 },
             },
             sort_keys=False,
@@ -547,6 +627,9 @@ validate:      ## re-validate the source spec
             "ARTIFACTS_USER=",
             "ARTIFACTS_PASSWORD=",
         ]
+        lines += [
+            f"{self._engine_secret_ref(wb)}=" for wb in self._service_engines(ir)
+        ]
         lines += [f"{ref}=" for ref in refs]
         return "\n".join(lines) + "\n"
 
@@ -579,6 +662,54 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 '''
+
+    def _flows_readme(self, ir: SystemIR) -> str:
+        engines = ", ".join(f"`{wb.engine}`" for wb in self._service_engines(ir))
+        return f"""# Flows for {ir.name}
+
+Put the flow exports this system's out-of-process engines ({engines}) run in
+this directory. They are mounted **read-only** into the engine container.
+
+These flows are outside the system spec: nothing here is validated, diffed or
+version-gated by `orgagents spec validate`, and a flow can change under a
+system that was reviewed and approved. A flow also runs outside the calling
+agent's sandbox — the engine's limits, network and filesystem apply, not the
+agent environment class's (ADR-0056).
+"""
+
+    def _engine_section(self, ir: SystemIR) -> str:
+        service_engines = self._service_engines(ir)
+        if not service_engines:
+            return (
+                "Every workflow here runs **in this process**, under the calling "
+                "agent's identity, permissions and sandbox. No workflow engine "
+                "service is generated, so nothing about a workflow run leaves "
+                "the agent's boundary."
+            )
+        rows = "\n".join(
+            f"| `{wb.engine}` | `{self._service_engine_services(ir)[wb.engine]['image']}` "
+            f"| `{self._engine_secret_ref(wb)}` | "
+            f"{', '.join(wb.send_data_classes) or 'nothing'} |"
+            for wb in service_engines
+        )
+        return f"""| Engine | Image | Credential | May be sent |
+|---|---|---|---|
+{rows}
+
+**A flow that runs in one of these services runs outside the agent's
+sandbox.** Its CPU and memory limits, its network posture and its filesystem
+are the engine's, not the ones the agent's environment class declares. What
+this platform governs is the **call**: the agent's egress allowlist decides
+whether the engine is reachable at all (an agent whose environment is
+`network: none` is on the isolated network and cannot reach it), what may be
+sent is checked against the caller's data classification before anything
+leaves, the engine authenticates with its own `secret_ref` and never with the
+agent's, and the reply comes back as untrusted input through the tool-output
+guardrail (ADR-0035, ADR-0056).
+
+Flows are authored in the engine, not in the spec, and are mounted read-only
+from `./flows`. That means a flow is a dependency the system spec cannot see
+or version: it can change under a system that was already reviewed."""
 
     def _readme(self, ir: SystemIR) -> str:
         triggers = "\n".join(
@@ -615,6 +746,7 @@ it. Locally, the enforcement is **coarser than the model** ADR-0050 describes.""
             else """This system was compiled without a tenant, so nothing here is
 namespaced: it is safe on a host that runs one system and nothing else."""
         )
+        engine_section = self._engine_section(ir)
         return f"""# {ir.name} — local deployment
 
 Generated from the system spec (spec_version {ir.spec_version}).
@@ -656,6 +788,10 @@ interactive work.
 ## Tenant isolation
 
 {tenant_section}
+
+## Workflow engines
+
+{engine_section}
 
 ## Caveats
 

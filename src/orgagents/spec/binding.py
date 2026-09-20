@@ -46,6 +46,35 @@ class EnvironmentBinding(BaseModel):
     node_selector: dict[str, str] = Field(default_factory=dict)
 
 
+class WorkflowBinding(BaseModel):
+    """Which engine runs a declared workflow, and how it is reached (ADR-0056).
+
+    The spec says what a workflow is for; this says what executes it. Engine
+    names are deliberately *not* enumerated here — the runtime registry owns
+    that vocabulary, the same way no model vendor is named in a spec model
+    (ADR-0002). `mode` is the binding author's statement of intent; the
+    registry decides the real invocation mode, because a service engine
+    declared in-process would skip every check that makes the call safe.
+
+    `endpoint`, `secret_ref`, `tenant` and `send_data_classes` only mean
+    anything for an out-of-process engine, where invoking the engine is egress
+    and is governed exactly like any other external endpoint (ADR-0030).
+    """
+
+    workflow: str = ""                    # WorkflowSpec id; "" binds all of them
+    engine: str = "native"
+    mode: str = "in_process"              # in_process | out_of_process
+    endpoint: Optional[str] = None        # base URL of a service engine
+    flow: str = ""                        # the engine's own id for the flow
+    secret_ref: Optional[str] = None      # the engine's credential, never ours
+    tenant: str = ""                      # the tenant this engine instance is for
+    trust: str = "partner"                # EndpointTrust value
+    # Data classes the caller may send outward to this engine.
+    send_data_classes: list[str] = Field(default_factory=list)
+    requires_approval: bool = False
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
 class CapabilityBinding(BaseModel):
     """How an abstract capability becomes a concrete MCP server mount."""
 
@@ -132,6 +161,7 @@ class TargetBinding(BaseModel):
     capabilities: list[CapabilityBinding] = Field(default_factory=list)
     channels: list[ChannelBinding] = Field(default_factory=list)
     knowledge: list[KnowledgeBinding] = Field(default_factory=list)
+    workflows: list[WorkflowBinding] = Field(default_factory=list)
     scheduler: Optional[ScheduleBinding] = None
     memory: Optional[MemoryBinding] = None
     secrets_backend: str = "environment"
@@ -147,6 +177,10 @@ class TargetBinding(BaseModel):
 
     def channel_binding(self, channel_id: str) -> Optional[ChannelBinding]:
         return next((c for c in self.channels if c.channel == channel_id), None)
+
+    def workflow_binding(self, workflow_id: str) -> Optional[WorkflowBinding]:
+        exact = next((w for w in self.workflows if w.workflow == workflow_id), None)
+        return exact or next((w for w in self.workflows if not w.workflow), None)
 
     def knowledge_binding(self, source_id: str) -> Optional[KnowledgeBinding]:
         return next((k for k in self.knowledge if k.knowledge == source_id), None)
