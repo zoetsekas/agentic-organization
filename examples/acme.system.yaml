@@ -1,0 +1,461 @@
+# Acme Corp — an agentic organization, defined implementation-neutrally.
+#
+# Nothing here names a cloud, a framework or a container image: those live in
+# acme.binding.yaml. Compile with:
+#   orgagents compile examples/acme.system.yaml --target local
+#   orgagents compile examples/acme.system.yaml --target terraform:gcp
+
+metadata:
+  name: acme
+  spec_version: "1.0.0"
+  version: "0.3.0"
+  description: Finance, technology and revenue agents mirroring Acme's org chart.
+  owner: Acme Platform Team
+  environment: development
+
+data_classes:
+  - id: public_knowledge
+    description: Runbooks, glossaries and decisions any agent may read or extend.
+    scope: public
+  - id: finance_internal
+    description: Management accounts, forecasts and variance analysis.
+    scope: protected
+    groups: [finance]
+    allowed_environments: [analysis, documents, isolated_review]
+  - id: customer_pii
+    description: Identifying customer data. Never leaves the clean room.
+    scope: protected
+    groups: [finance, compliance]
+    allowed_environments: [isolated_review]
+    may_leave_region: false
+    may_appear_in_traces: false
+    retention_days: 30
+  - id: engineering_internal
+    description: Source, designs and incident history.
+    scope: protected
+    groups: [engineering]
+    allowed_environments: [build, integration]
+
+capabilities:
+  - id: warehouse_query
+    description: Read-only analytical queries against the finance warehouse.
+    action: query
+    resource_class: finance_warehouse
+    data_classes: [finance_internal]
+    secret_ref: WAREHOUSE_DSN
+    constraints:
+      max_rows: 1000
+      masked_fields: [tax_id, national_id]
+      allowed_operations: [select]
+  - id: pii_reconciliation
+    description: Reconcile customer identities inside the clean room.
+    action: query
+    resource_class: customer_master
+    data_classes: [customer_pii]
+    secret_ref: CUSTOMER_MASTER_DSN
+    constraints:
+      max_rows: 200
+      masked_fields: [national_id]
+      allowed_operations: [select]
+      requires_approval: true
+  - id: knowledge_contribute
+    description: Read and contribute to the shared knowledge base.
+    action: write
+    resource_class: knowledge_base
+    data_classes: [public_knowledge]
+  - id: code_change
+    description: Propose reviewed changes to engineering repositories.
+    action: write
+    resource_class: source_repository
+    data_classes: [engineering_internal]
+    secret_ref: REPO_TOKEN
+    constraints:
+      requires_approval: true
+  - id: incident_signal
+    description: Read service health signals and raise incidents.
+    action: read
+    resource_class: telemetry
+    data_classes: [engineering_internal]
+
+environments:
+  - id: reasoning
+    description: No code execution; delegation and tool calls only.
+    toolchains: [none]
+    tier: minimal
+    network: none
+    timeout_seconds: 120
+  - id: analysis
+    description: Dataframe and statistical work over warehouse extracts.
+    toolchains: [data_analysis]
+    tier: medium
+    network: allowlist
+    egress_allowlist: ["package-index.internal"]
+    mounts: [finance_internal, public_knowledge]
+    persistence: session
+    timeout_seconds: 900
+    secret_refs: [WAREHOUSE_DSN]
+  - id: documents
+    description: Report and contract production. No network.
+    toolchains: [document]
+    tier: small
+    network: none
+    mounts: [finance_internal]
+    persistence: session
+    timeout_seconds: 900
+  - id: isolated_review
+    description: Clean room for identifying data. Zero egress, wiped on exit.
+    toolchains: [scripting]
+    tier: small
+    network: none
+    mounts: [customer_pii]
+    persistence: ephemeral
+    timeout_seconds: 1800
+    secret_refs: [CUSTOMER_MASTER_DSN]
+  - id: build
+    description: Developer environment for proposing code changes.
+    toolchains: [software_build]
+    tier: large
+    network: allowlist
+    egress_allowlist: ["source-forge.internal", "package-index.internal"]
+    mounts: [engineering_internal]
+    persistence: agent
+    timeout_seconds: 3600
+    secret_refs: [REPO_TOKEN]
+  - id: integration
+    description: Network client for calling internal services.
+    toolchains: [network_client]
+    tier: small
+    network: internal
+    egress_allowlist: ["services.internal"]
+    mounts: [engineering_internal]
+    timeout_seconds: 600
+
+roles:
+  # --- team roles ---
+  - id: executive_team
+    title: Executive team
+    kind: team
+    responsibilities:
+      - Set organizational priorities and arbitrate between functions.
+      - Own escalations that cross team boundaries.
+    permissions:
+      # Deliberately narrow: delegation authority belongs to the agent roles that
+      # lead, not to everyone who inherits from the top of the organization.
+      - {action: read, resource_kind: data_class, resource: public_knowledge}
+  - id: finance_team
+    title: Finance team
+    kind: team
+    responsibilities:
+      - Produce management accounts and forecasts on the close calendar.
+      - Protect identifying customer data throughout financial processes.
+    capabilities: [warehouse_query]
+    permissions:
+      - {action: read, resource_kind: data_class, resource: finance_internal}
+      - {action: query, resource_kind: capability, resource: warehouse_query}
+      - {action: read, resource_kind: data_class, resource: public_knowledge}
+  - id: engineering_team
+    title: Engineering team
+    kind: team
+    responsibilities:
+      - Deliver and operate the platform services Acme depends on.
+      - Keep incident response fast and honest.
+    capabilities: [incident_signal]
+    permissions:
+      - {action: read, resource_kind: data_class, resource: engineering_internal}
+      - {action: read, resource_kind: capability, resource: incident_signal}
+      - {action: read, resource_kind: data_class, resource: public_knowledge}
+  - id: revenue_team
+    title: Revenue team
+    kind: team
+    responsibilities:
+      - Own pipeline, forecast accuracy and customer expansion.
+    permissions:
+      - {action: read, resource_kind: data_class, resource: public_knowledge}
+
+  # --- agent roles ---
+  - id: chief_executive
+    title: Chief executive
+    kind: agent
+    responsibilities:
+      - Route company-wide requests to the function that owns them.
+      - Decide only what no single function can decide alone.
+    permissions:
+      - {action: delegate, resource_kind: agent, resource: "*"}
+      - {action: delegate, resource_kind: team, resource: "*"}
+  - id: function_head
+    title: Function head
+    kind: agent
+    responsibilities:
+      - Translate organizational priorities into team commitments.
+      - Review team output before it leaves the function.
+      - Contribute decisions and runbooks to the knowledge base.
+    capabilities: [knowledge_contribute]
+    permissions:
+      # Scoped to the agent's own team members by the delegation edges the
+      # compiler resolves from the org tree; the wildcard is the action's shape,
+      # not an escalation path.
+      - {action: delegate, resource_kind: agent, resource: "*"}
+      - {action: write, resource_kind: data_class, resource: public_knowledge}
+      - {action: approve, resource_kind: workflow, resource: "*"}
+  - id: financial_analyst
+    title: Financial analyst
+    kind: agent
+    responsibilities:
+      - Answer financial questions from the warehouse, always citing sources.
+      - Draft variance analysis against plan for the close.
+      - Contribute reusable query patterns to the knowledge base.
+    capabilities: [warehouse_query, knowledge_contribute]
+    permissions:
+      - {action: query, resource_kind: capability, resource: warehouse_query}
+      - {action: read, resource_kind: data_class, resource: finance_internal}
+      - {action: write, resource_kind: data_class, resource: public_knowledge}
+      - {action: invoke, resource_kind: workflow, resource: governed_data_request}
+  - id: reconciliation_specialist
+    title: Reconciliation specialist
+    kind: agent
+    responsibilities:
+      - Reconcile customer identities against the master record.
+      - Work exclusively inside the clean room; never export identifying data.
+    capabilities: [pii_reconciliation]
+    permissions:
+      - action: query
+        resource_kind: capability
+        resource: pii_reconciliation
+        conditions:
+          environments: [isolated_review]
+          requires_approval: true
+  - id: platform_engineer
+    title: Platform engineer
+    kind: agent
+    responsibilities:
+      - Propose reviewed code changes to platform repositories.
+      - Keep the build green and the test suite meaningful.
+    capabilities: [code_change]
+    permissions:
+      - {action: write, resource_kind: capability, resource: code_change}
+      - {action: read, resource_kind: data_class, resource: engineering_internal}
+  - id: reliability_engineer
+    title: Reliability engineer
+    kind: agent
+    responsibilities:
+      - Triage incidents, declare severity and page a human for SEV1 and SEV2.
+      - Read telemetry and incident signal to establish impact quickly.
+    capabilities: [incident_signal]
+    permissions:
+      - {action: read, resource_kind: capability, resource: incident_signal}
+      - {action: publish, resource_kind: channel, resource: incidents}
+
+policies:
+  - id: pii_never_leaves_clean_room
+    effect: deny
+    description: Identifying data may only be touched inside the clean room.
+    actions: [query, read, write]
+    resource_kinds: [data_class]
+    resources: [customer_pii]
+    unless:
+      environments: [isolated_review]
+  - id: no_unapproved_writes_to_source
+    effect: deny
+    description: Code changes always require the human counterpart's approval.
+    actions: [write]
+    resource_kinds: [capability]
+    resources: [code_change]
+    unless:
+      requires_approval: true
+  - id: delegation_depth_limit
+    effect: deny
+    description: Sub-agent chains deeper than three hops are refused.
+    actions: [delegate]
+    resource_kinds: [agent]
+    unless:
+      max_delegation_depth: 3
+
+organization:
+  id: acme
+  name: Acme Corp
+  mandate:
+    - Run Acme's agentic workforce safely and usefully.
+  leader: ceo
+  groups: [all_hands]
+  roles: [executive_team]
+  members:
+    - id: ceo
+      name: ceo-agent
+      description: Routes company-wide requests and owns cross-function escalation.
+      roles: [chief_executive]
+      environment: {environment: reasoning}
+      human:
+        name: Dana Whitfield
+        contact: dana@acme.example
+        role_title: Chief Executive Officer
+        notify_on: [mail, team_chat]
+  teams:
+    - id: finance
+      name: Finance
+      mandate:
+        - Close the books accurately and on time.
+        - Forecast revenue and cost with stated confidence.
+      leader: cfo
+      groups: [finance]
+      roles: [finance_team]
+      members:
+        - id: cfo
+          name: cfo-agent
+          description: Owns financial reporting, budget and the close calendar.
+          roles: [function_head]
+          environment: {environment: documents}
+          human:
+            name: Priya Raman
+            contact: priya@acme.example
+            role_title: Chief Financial Officer
+            approves: [pii_reconciliation]
+        - id: analyst
+          name: financial-analyst-agent
+          description: Answers warehouse questions and drafts variance analysis.
+          roles: [financial_analyst]
+          environment: {environment: analysis, timeout_seconds: 600}
+          workflows: [governed_data_request]
+          human:
+            name: Tom Becker
+            contact: tom@acme.example
+            role_title: Senior Analyst
+        - id: reconciler
+          name: reconciliation-agent
+          description: Reconciles customer identities inside the clean room.
+          roles: [reconciliation_specialist]
+          environment: {environment: isolated_review}
+          human:
+            name: Ana Silva
+            contact: ana@acme.example
+            role_title: Controller
+            approves: [pii_reconciliation]
+    - id: technology
+      name: Technology
+      mandate:
+        - Deliver and operate the platform Acme runs on.
+      leader: cto
+      groups: [engineering]
+      roles: [engineering_team]
+      members:
+        - id: cto
+          name: cto-agent
+          description: Owns engineering delivery and platform reliability.
+          roles: [function_head]
+          environment: {environment: reasoning}
+          human:
+            name: Iris Nakamura
+            contact: iris@acme.example
+            role_title: Chief Technology Officer
+      teams:
+        - id: platform
+          name: Platform Engineering
+          mandate:
+            - Ship platform changes safely and keep services healthy.
+          leader: platform_lead
+          groups: [engineering]
+          roles: [engineering_team]
+          members:
+            - id: platform_lead
+              name: platform-lead-agent
+              description: Leads platform delivery; reviews proposed changes.
+              roles: [function_head]
+              environment: {environment: reasoning}
+              human:
+                name: Samir Haddad
+                contact: samir@acme.example
+                role_title: Staff Engineer
+            - id: platform_engineer
+              name: platform-engineer-agent
+              description: Implements changes and opens pull requests.
+              roles: [platform_engineer]
+              environment: {environment: build}
+              human:
+                name: Jo Adeyemi
+                contact: jo@acme.example
+                role_title: Senior Engineer
+                approves: [code_change]
+            - id: sre
+              name: sre-agent
+              description: Shared service; any agent may call it for incident triage.
+              roles: [reliability_engineer]
+              environment: {environment: integration}
+              shared_service: true
+              channels: [direct, async_bus, team_chat]
+              human:
+                name: Lena Fischer
+                contact: lena@acme.example
+                role_title: SRE Lead
+    - id: revenue
+      name: Revenue
+      mandate:
+        - Own pipeline and forecast accuracy.
+      leader: cro
+      groups: [revenue]
+      roles: [revenue_team]
+      members:
+        - id: cro
+          name: cro-agent
+          description: Owns pipeline, forecasting and customer expansion.
+          roles: [function_head]
+          environment: {environment: reasoning}
+          peers: [cfo]
+          human:
+            name: Marco Oliveira
+            contact: marco@acme.example
+            role_title: Chief Revenue Officer
+
+workflows:
+  - id: governed_data_request
+    name: governed-data-request
+    description: Resolve schema, draft a query, run it under the capability
+      constraints, and summarize with provenance.
+    graph:
+      entry: discover
+      nodes:
+        - {id: discover, kind: tool, tool: warehouse_query__list_tables, output: tables}
+        - {id: draft, kind: tool, tool: draft_query,
+           args: {question: "{{ question }}", tables: "{{ tables }}"}, output: query}
+        - {id: execute, kind: tool, tool: warehouse_query__run,
+           args: {query: "{{ query }}"}, output: rows}
+        - {id: summarize, kind: tool, tool: summarize_rows,
+           args: {rows: "{{ rows }}"}, output: answer}
+      edges:
+        - {from: discover, to: draft}
+        - {from: draft, to: execute}
+        - {from: execute, to: summarize}
+        - {from: summarize, to: END}
+
+channels:
+  - id: incidents
+    channel_class: team_chat
+    description: Incident bridge; SRE posts, humans watch.
+    members: [sre, cto, platform_lead]
+  - id: close_calendar
+    channel_class: async_bus
+    description: Finance close coordination.
+    members: [cfo, analyst, reconciler]
+
+observability:
+  traces: true
+  metrics: true
+  propagate_across_delegation: true
+  retention_days: 30
+  sample_rate: 1.0
+  redact_data_classes: [customer_pii]
+  alerts:
+    - id: high_failure_rate
+      description: More than a fifth of sessions are failing.
+      expression: "sessions.failed / max(sessions.total, 1) > 0.2"
+      severity: error
+    - id: approval_backlog
+      description: Humans are not keeping up with approval requests.
+      expression: "sessions.waiting_human > 10"
+      severity: warning
+    - id: cost_budget
+      description: Daily spend above the agreed budget.
+      expression: "cost_usd > 500"
+      severity: warning
+
+deployment:
+  targets: [local, "terraform:gcp"]
+  binding: examples/acme.binding.yaml

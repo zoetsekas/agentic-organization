@@ -1,0 +1,285 @@
+"""Local target: a self-contained stack plus a single-process dev loop (ADR-0011).
+
+Emits a Compose file, a Makefile, an env template that carries secret *names*
+only, per-agent manifests and the IR itself. The same IR feeds the cloud
+targets, so local is the identical system with different bindings — not a mock.
+"""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import yaml
+
+from ..base import GeneratedFile
+from ..ir import SystemIR
+
+# Abstract environment vocabulary → local container settings. This table is the
+# binding; nothing above it knows about images or CPU shares.
+TIER_RESOURCES = {
+    "minimal": {"cpus": "0.25", "memory": "256M"},
+    "small": {"cpus": "1", "memory": "2G"},
+    "medium": {"cpus": "2", "memory": "8G"},
+    "large": {"cpus": "4", "memory": "16G"},
+    "accelerated": {"cpus": "8", "memory": "32G"},
+}
+TOOLCHAIN_IMAGES = {
+    "none": "python:3.11-slim",
+    "scripting": "python:3.11-slim",
+    "data_analysis": "python:3.11",
+    "software_build": "python:3.11",
+    "browser": "mcr.microsoft.com/playwright/python:v1.47-jammy",
+    "document": "python:3.11",
+    "model_training": "python:3.11",
+    "network_client": "python:3.11-slim",
+}
+
+
+class LocalTarget:
+    id = "local"
+
+    def describe(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "title": "Local Compose stack",
+            "summary": "Runs the whole system on one machine, with a single-process "
+                       "fallback for hosts without a container runtime.",
+            "produces": ["docker-compose.yaml", "Makefile", ".env.example",
+                         "system.ir.json", "agents/*.json", "run_local.py", "README.md"],
+            "caveats": ["Compose approximates network policy and cannot represent "
+                        "cloud IAM; local runs do not verify those controls."],
+        }
+
+    # -- generation --------------------------------------------------------
+
+    def generate(self, ir: SystemIR) -> list[GeneratedFile]:
+        files = [
+            GeneratedFile("docker-compose.yaml", self._compose(ir)).with_header(ir),
+            GeneratedFile("Makefile", self._makefile(ir)).with_header(ir),
+            GeneratedFile(".env.example", self._env(ir), preserve_if_exists=False)
+            .with_header(ir),
+            GeneratedFile("system.ir.json", json.dumps(ir.model_dump(mode="json"),
+                                                       indent=2) + "\n"),
+            GeneratedFile("run_local.py", self._single_process(ir)).with_header(ir),
+            GeneratedFile("README.md", self._readme(ir)),
+        ]
+        for agent in ir.agents:
+            files.append(
+                GeneratedFile(
+                    f"agents/{agent.id}.json",
+                    json.dumps(
+                        {
+                            "agent": agent.model_dump(mode="json"),
+                            "system_prompt": agent.system_prompt(),
+                        },
+                        indent=2,
+                    )
+                    + "\n",
+                )
+            )
+        return files
+
+    # -- pieces ------------------------------------------------------------
+
+    def _networks(self, ir: SystemIR) -> dict[str, Any]:
+        networks: dict[str, Any] = {"control": {}}
+        if any(
+            a.environment and a.environment.network.value != "none" for a in ir.agents
+        ):
+            networks["egress"] = {}
+        if any(
+            a.environment and a.environment.network.value == "none" for a in ir.agents
+        ):
+            # An isolated network with no gateway: services on it reach nothing.
+            networks["isolated"] = {"internal": True}
+        return networks
+
+    def _agent_service(self, ir: SystemIR, agent) -> dict[str, Any]:
+        env = agent.environment
+        tier = env.tier.value if env else "minimal"
+        toolchain = env.toolchains[0].value if env and env.toolchains else "none"
+        posture = env.network.value if env else "none"
+        limits = TIER_RESOURCES.get(tier, TIER_RESOURCES["minimal"])
+        networks = ["control"]
+        networks.append("isolated" if posture == "none" else "egress")
+        service: dict[str, Any] = {
+            "image": TOOLCHAIN_IMAGES.get(toolchain, "python:3.11-slim"),
+            "command": ["python", "-m", "orgagents.runtime.worker", agent.id],
+            "environment": {
+                "ORGAGENTS_AGENT_ID": agent.id,
+                "ORGAGENTS_MANIFEST": f"/app/agents/{agent.id}.json",
+                "ORGAGENTS_ADAPTER": agent.runtime_adapter,
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "http://telemetry:4317",
+            },
+            "volumes": ["./agents:/app/agents:ro"],
+            "networks": networks,
+            "depends_on": ["state"],
+            "deploy": {"resources": {"limits": limits}},
+            "labels": {
+                "org.agentic.team": agent.team_id,
+                "org.agentic.network_posture": posture,
+                "org.agentic.identity": agent.identity.id if agent.identity else "",
+            },
+        }
+        for ref in (agent.identity.secret_refs if agent.identity else []):
+            service["environment"][ref] = f"${{{ref}}}"
+        return service
+
+    def _compose(self, ir: SystemIR) -> str:
+        services: dict[str, Any] = {
+            "state": {
+                "image": "postgres:16-alpine",
+                "environment": {
+                    "POSTGRES_PASSWORD": "${STATE_PASSWORD}",
+                    "POSTGRES_DB": "orgagents",
+                },
+                "networks": ["control"],
+                "volumes": ["state-data:/var/lib/postgresql/data"],
+            },
+            "telemetry": {
+                "image": "otel/opentelemetry-collector-contrib:latest",
+                "networks": ["control"],
+                "ports": ["4317:4317"],
+            },
+            "designer": {
+                "image": "orgagents/platform:latest",
+                "command": ["orgagents", "serve", "--host", "0.0.0.0"],
+                "ports": ["8000:8000"],
+                "networks": ["control"],
+                "depends_on": ["state"],
+            },
+        }
+        for agent in ir.agents:
+            services[f"agent-{agent.id}"] = self._agent_service(ir, agent)
+        for cap in ir.capabilities:
+            binding = ir.binding.capability_binding(cap.id)
+            if binding is None:
+                continue
+            services[f"mcp-{binding.server_name}"] = {
+                "image": binding.options.get("image", "orgagents/mcp-runner:latest"),
+                "command": [binding.command or "serve", *binding.args],
+                "environment": (
+                    {binding.dsn_secret_ref: f"${{{binding.dsn_secret_ref}}}"}
+                    if binding.dsn_secret_ref
+                    else {}
+                ),
+                "networks": ["control"],
+                "labels": {"org.agentic.capability": cap.id},
+            }
+        return yaml.safe_dump(
+            {
+                "name": ir.name.lower().replace(" ", "-"),
+                "services": services,
+                "networks": self._networks(ir),
+                "volumes": {"state-data": {}},
+            },
+            sort_keys=False,
+            width=100,
+        )
+
+    def _makefile(self, ir: SystemIR) -> str:
+        return f"""\
+# {ir.name} — local development loop
+
+.PHONY: up down logs seed ps single validate
+
+up:            ## start the whole stack
+\tdocker compose up -d --remove-orphans
+
+down:          ## stop and remove the stack
+\tdocker compose down -v
+
+logs:          ## follow agent logs
+\tdocker compose logs -f $(filter-out $@,$(MAKECMDGOALS))
+
+ps:            ## show running services
+\tdocker compose ps
+
+seed:          ## load the compiled organization into the platform
+\tdocker compose exec designer orgagents seed
+
+single:        ## run everything in one process (no container runtime needed)
+\tpython run_local.py
+
+validate:      ## re-validate the source spec
+\torgagents spec validate ../../{ir.name}.system.yaml
+"""
+
+    def _env(self, ir: SystemIR) -> str:
+        refs = sorted({r for a in ir.agents for r in (a.identity.secret_refs if a.identity else [])})
+        lines = [
+            "# Secret NAMES only — never commit values (ADR-0015).",
+            "# Populate from your secret manager before `make up`.",
+            "STATE_PASSWORD=",
+        ]
+        lines += [f"{ref}=" for ref in refs]
+        return "\n".join(lines) + "\n"
+
+    def _single_process(self, ir: SystemIR) -> str:
+        return f'''"""Run {ir.name} in a single process, backed by SQLite.
+
+For machines without a container runtime, and for fast iteration. Identical
+permission semantics to the Compose stack — only the bindings differ.
+"""
+import json
+from pathlib import Path
+
+from orgagents.platform import Platform
+from orgagents.runtime.loader import load_system
+
+IR_PATH = Path(__file__).parent / "system.ir.json"
+
+
+def main() -> None:
+    ir = json.loads(IR_PATH.read_text())
+    platform = Platform("{ir.name.lower().replace(" ", "_")}.db")
+    load_system(platform, ir)
+    print(f"loaded {{len(ir['agents'])}} agents from the compiled system")
+    for agent in ir["agents"]:
+        print(f"  {{agent['id']:24}} team={{agent['team_id']:16}} "
+              f"adapter={{agent['runtime_adapter']}}")
+    print("\\nStart the designer UI with: orgagents serve")
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+    def _readme(self, ir: SystemIR) -> str:
+        agents = "\n".join(
+            f"| `{a.id}` | {' / '.join(a.team_path)} | "
+            f"{a.environment.id if a.environment else '—'} | "
+            f"{a.environment.network.value if a.environment else '—'} | "
+            f"{len(a.permissions)} |"
+            for a in ir.agents
+        )
+        return f"""# {ir.name} — local deployment
+
+Generated from the system spec (spec_version {ir.spec_version}).
+**Do not edit generated files**; put customizations in `overlays/`.
+
+## Run it
+
+```bash
+cp .env.example .env     # fill in secret values from your secret manager
+make up                  # start the stack
+make seed                # load the compiled organization
+open http://localhost:8000/ui/
+```
+
+No container runtime? `make single` runs everything in one process over SQLite.
+
+## What was generated
+
+| Agent | Team | Environment | Network | Permissions |
+|---|---|---|---|---|
+{agents}
+
+## Caveats
+
+Compose approximates network posture with attached networks and cannot
+represent cloud IAM at all. Isolated (`none`) environments are placed on an
+internal network with no gateway, which is close — but a local run does **not**
+verify the IAM bindings the cloud targets generate. Use a cloud target to test
+those.
+"""

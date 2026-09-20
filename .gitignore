@@ -222,3 +222,4 @@ __marimo__/
 *.db-wal
 *.db-shm
 demo_warehouse.db
+build/

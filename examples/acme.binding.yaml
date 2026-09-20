@@ -1,0 +1,69 @@
+# Binding for acme.system.yaml — the only place implementation choices live.
+# Swapping providers or agent frameworks is a change to THIS file, not the spec.
+spec: acme
+version: "0.3.0"
+
+targets:
+  - target: local
+    model:
+      provider: anthropic
+      model: claude-opus-5
+      subagent_model: claude-haiku-4-5-20251001
+    runtime:
+      adapter: echo          # langchain_deepagents | openai_agents_sdk | langgraph_native
+    infrastructure:
+      provider: local
+      region: local
+    environments:
+      - {environment: reasoning, image: "python:3.11-slim", cpu: "0.25", memory: "256Mi"}
+      - {environment: analysis, image: "python:3.11", cpu: "2", memory: "8Gi",
+         packages: [pandas, numpy, pyarrow, duckdb]}
+      - {environment: documents, image: "python:3.11", cpu: "1", memory: "4Gi",
+         packages: [python-docx, openpyxl, pypdf]}
+      - {environment: isolated_review, image: "python:3.11-slim", cpu: "1", memory: "4Gi"}
+      - {environment: build, image: "ghcr.io/acme/agent-dev:3.11", cpu: "4", memory: "16Gi"}
+      - {environment: integration, image: "python:3.11-slim", cpu: "1", memory: "2Gi",
+         packages: [httpx, tenacity]}
+    capabilities:
+      - {capability: warehouse_query, server_name: warehouse, transport: stdio,
+         command: orgagents-mcp-sql, engine: postgres, dsn_secret_ref: WAREHOUSE_DSN}
+      - {capability: pii_reconciliation, server_name: customer_master, transport: stdio,
+         command: orgagents-mcp-sql, engine: postgres, dsn_secret_ref: CUSTOMER_MASTER_DSN}
+      - {capability: knowledge_contribute, server_name: knowledge, transport: http,
+         url: "http://knowledge.internal/mcp"}
+      - {capability: code_change, server_name: repo, transport: stdio,
+         command: github-mcp-server, dsn_secret_ref: REPO_TOKEN}
+      - {capability: incident_signal, server_name: telemetry, transport: http,
+         url: "http://telemetry.internal/mcp"}
+    channels:
+      - {channel: incidents, provider: slack, address: "#incidents"}
+      - {channel: close_calendar, provider: internal, address: close-calendar}
+    secrets_backend: environment
+    observability_sink: otel_collector
+    agent_overrides:
+      ceo: {model: {model: claude-opus-5}}
+      analyst: {adapter: echo}
+
+  - target: terraform
+    model:
+      provider: anthropic
+      model: claude-opus-5
+    runtime:
+      adapter: langchain_deepagents
+    infrastructure:
+      provider: gcp
+      region: europe-west1
+      project: acme-agents-prod
+      state_backend: acme-terraform-state
+    environments:
+      - {environment: reasoning, image: "europe-docker.pkg.dev/acme/agents/runtime:1",
+         cpu: "0.25", memory: "512Mi"}
+      - {environment: analysis, image: "europe-docker.pkg.dev/acme/agents/analysis:1",
+         cpu: "2", memory: "8Gi"}
+      - {environment: build, image: "europe-docker.pkg.dev/acme/agents/build:1",
+         cpu: "4", memory: "16Gi"}
+    capabilities:
+      - {capability: warehouse_query, server_name: warehouse, transport: http,
+         url: "https://mcp.acme.internal/warehouse", dsn_secret_ref: WAREHOUSE_DSN}
+    secrets_backend: secret_manager
+    observability_sink: cloud_trace

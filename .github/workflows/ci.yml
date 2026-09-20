@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -e '.[dev]'
+
+      # ADR-0001: a dangling record reference is a build failure.
+      - name: Validate decision and workstream records
+        run: orgagents records validate
+
+      - name: Check record indexes are current
+        run: |
+          orgagents records index
+          git diff --exit-code docs/decisions/index.md docs/workstreams/index.md
+
+      # ADR-0004: the example spec must stay valid and neutral.
+      - name: Validate the example system spec
+        run: orgagents spec validate examples/acme.system.yaml
+
+      - name: Compile every target
+        run: |
+          orgagents compile examples/acme.system.yaml \
+            --binding examples/acme.binding.yaml \
+            --target local --target terraform:gcp \
+            --target terraform:aws --target terraform:azure \
+            --out build
+
+      - name: Tests
+        run: pytest -q

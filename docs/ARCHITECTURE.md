@@ -2,8 +2,22 @@
 
 ## Layers
 
+The platform is a designer and compiler (ADR-0003); the runtime below is one of
+its targets, not the centre.
+
 ```
 ┌───────────────────────────────────────────────────────────────────┐
+│  System Spec (spec/)           — implementation-neutral source    │
+│    + Binding                     of truth; vendors live here only │
+├───────────────────────────────────────────────────────────────────┤
+│  Compiler (compiler/)          — phase 1: spec → IR (resolve      │
+│    ir · base · engine            permissions, identities, org)    │
+│    targets/local · terraform     phase 2: IR → artifacts          │
+├───────────────────────────────────────────────────────────────────┤
+│  Security (security/rbac.py)   — deny-by-default policy engine    │
+├───────────────────────────────────────────────────────────────────┤
+│  Records (records.py, docs/)   — ADR + workstream governance      │
+├═══════════════════════════════════════════════════════════════════┤
 │  Agentic Designer UI  (web/)   — org chart · designer · market ·  │
 │                                  sessions · operations            │
 ├───────────────────────────────────────────────────────────────────┤
@@ -23,8 +37,26 @@
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-`Platform` (platform.py) is the composition root: construct it once, hand the
-sub-services to the API, the CLI or a notebook.
+`Platform` (platform.py) is the runtime's composition root. A compiled system
+enters it through `runtime/loader.py`, which turns the IR's teams into org
+units and its `AgentIR`s into runtime agents — so the runtime consumes the same
+artifact the Terraform targets do, and cannot disagree with them about who may
+do what.
+
+## Compilation path
+
+1. **Load and validate** the spec (`spec/loader.py`, `spec/validate.py`):
+   structure, references, least privilege, narrow-only environments. Errors stop
+   the build before any target runs.
+2. **Resolve to IR** (`compiler/ir.py`): team inheritance, role expansion,
+   effective permissions, per-agent environment narrowing, delegation edges, one
+   workload identity per agent, and the provider-neutral resource set.
+3. **Generate** (`compiler/engine.py` → targets): each target renders the IR.
+   Output is compiler-owned, hashed into `manifest.json`, and never clobbers a
+   hand-edited file without `--force`; `overlays/` is user-owned (ADR-0014).
+
+The boundary between 2 and 3 is enforced by a test: no target module may import
+`orgagents.spec`.
 
 ## The request path
 

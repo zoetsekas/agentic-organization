@@ -1,41 +1,96 @@
-# agent-ai — an organizational agentic system
+# agent-ai — an agentic system designer and compiler
 
-An enterprise agent platform where **every agent mirrors a role in the company
-org chart**. Each agent has an accountable human counterpart, reports to a
-manager agent, delegates to sub-agents, runs encoded LangGraph workflows, and
-reaches systems of record through an MCP harness — all under data, sandbox and
-approval policy that is declared, not improvised.
+Define an organization of agents **once, abstractly** — through a UI or an SDK —
+then generate the agent code *and* the infrastructure to run it, on a laptop or
+in your own cloud account (ADR-0003).
+
+Every agent mirrors a role in the company org chart: it has an accountable human
+counterpart, belongs to a team with one leader, delegates down the tree, runs
+encoded workflows, and reaches systems of record through an MCP harness — all
+under RBAC, data classification, sandbox and approval policy that is **declared
+in the spec and compiled into every target**, never improvised per deployment.
 
 ```
-Human org chart                     Agent org chart
-  CEO  ── Dana Whitfield     ⟷        ceo-agent
-   ├─ CFO  ── Priya Raman    ⟷         ├─ cfo-agent ── warehouse grant, erp plugin
-   │   └─ Analyst ── Tom B.  ⟷         │   └─ financial-analyst-agent
-   ├─ CTO  ── Iris Nakamura  ⟷         ├─ cto-agent
-   │   ├─ Staff Eng ── Samir ⟷         │   ├─ platform-engineer-agent (sandbox: SWE)
-   │   └─ SRE Lead ── Lena   ⟷         │   └─ sre-agent  (shared service)
-   └─ CRO  ── Marco O.       ⟷         └─ cro-agent  ⟷ peer link ⟷ cfo-agent
+ spec (what)  +  binding (how)  →  IR (resolved once)  →  targets  →  artifacts
+ ─────────────   ──────────────    ──────────────────     ───────    ─────────
+ teams, roles,   framework,        permissions,           local      compose,
+ capabilities,   images, cloud,    identities,            tf:gcp     Terraform,
+ environments,   MCP servers       environments,          tf:aws     IAM, agent
+ policies                          delegation edges       tf:azure   manifests
+```
+
+Teams nest, and each has exactly one leader agent who is also a member of it —
+`examples/acme.system.yaml` is four levels deep:
+
+```
+Acme Corp                     leader: ceo         (human: Dana Whitfield)
+├── Finance                   leader: cfo         (human: Priya Raman)
+│   ├── analyst               role: financial_analyst      env: analysis
+│   └── reconciler            role: reconciliation_specialist
+│                                                          env: isolated_review
+├── Technology                leader: cto         (human: Iris Nakamura)
+│   └── Platform Engineering  leader: platform_lead
+│       ├── platform_engineer role: platform_engineer      env: build
+│       └── sre               shared service — callable from anywhere
+└── Revenue                   leader: cro         ⟷ peer link ⟷ cfo
 ```
 
 ## Quick start
 
 ```bash
 pip install -e '.[dev]'         # add '[langgraph]' or '[openai]' for real runtimes
-orgagents seed                  # build the demo company + warehouse
-orgagents serve                 # API + designer UI on http://localhost:8000
-orgagents tree                  # print the org chart
-orgagents run agt_cfo "Kick off the quarterly close"
-orgagents catalog --kind agent  # browse the marketplace
-pytest                          # 36 tests, no network or API keys needed
+
+# Design → compile → run
+orgagents spec validate examples/acme.system.yaml
+orgagents spec show     examples/acme.system.yaml       # resolved org at a glance
+orgagents targets                                       # what we can generate
+orgagents compile examples/acme.system.yaml \
+  --binding examples/acme.binding.yaml \
+  --target local --target terraform:gcp --out build
+cd build/local && make up                               # or `make single`
+
+# Or explore the runtime directly
+orgagents seed && orgagents serve                       # UI on localhost:8000
+
+# Governance
+orgagents records validate      # ADR/WS graph integrity
+orgagents records index         # regenerate the record indexes
+pytest                          # 91 tests, no network or API keys needed
 ```
 
 Open <http://localhost:8000/ui/> for the **Agentic Designer**: org chart,
 agent/harness designer, marketplace, session traces and the operations console.
 
+## Decisions and delivery
+
+Architecture is recorded, not remembered (ADR-0001). Eighteen decision records
+and ten workstream records, machine-validated in CI:
+
+- [docs/decisions/index.md](docs/decisions/index.md) — **ADRs**: why, who, what,
+  where, how, when, advantages *and* disadvantages, with statuses, semver,
+  changelogs and explicit supersession.
+- [docs/workstreams/index.md](docs/workstreams/index.md) — **WS records**: the
+  delivery side, owned and dated, cross-linked to the decisions they implement.
+
+`orgagents records validate` fails the build on a dangling reference, an
+asymmetric supersession, a missing section or a changelog that disagrees with
+its version. Two decisions were already corrected and versioned by writing the
+implementation: [ADR-0006 v1.1.0](docs/decisions/ADR-0006-recursive-teams-with-leader-agents.md)
+(implicit parent-team participation) and
+[ADR-0008 v1.1.0](docs/decisions/ADR-0008-deny-by-default-rbac-with-policies.md)
+(the explicit `unless` guard).
+
 ## What the platform gives you
 
 | Capability | Where |
 |---|---|
+| Implementation-neutral System Spec + bindings | `spec/`, [docs](docs/SPEC.md) |
+| Spec validation incl. least-privilege rules | `spec/validate.py` |
+| Two-phase compiler: spec → IR → target plugins | `compiler/` |
+| Local target: Compose stack + single-process mode | `compiler/targets/local.py` |
+| Terraform targets: GCP, AWS, Azure + mapping reports | `compiler/targets/terraform.py` |
+| Deny-by-default RBAC, policies, auditable decisions | `security/rbac.py` |
+| ADR / workstream records with validation and indexes | `records.py`, `docs/` |
 | Org hierarchy, delegation and escalation rules | `org.py` |
 | Agent, harness, session and catalog models | `models.py` |
 | Private / protected / public data planes with ACLs | `data/planes.py` |
@@ -53,11 +108,38 @@ agent/harness designer, marketplace, session traces and the operations console.
 
 ## Design in one page
 
-**Agents are org-shaped.** `Agent.manager_agent_id` / `report_agent_ids` form
-the reporting tree. `OrgChart.can_delegate` enforces the routing rule: delegate
-down your own subtree, call registered peers laterally, escalate up your chain,
-and call shared-service agents from anywhere. Anything else must go through a
-shared manager or an enterprise channel.
+**The spec is the source of truth.** One document describes the system in
+capability terms; a binding says how each capability is realized for one target.
+A test walks the spec schema and fails if a vendor, SDK or provider name leaks
+into it, so neutrality is enforced rather than intended (ADR-0004).
+
+**Everything is resolved exactly once.** Phase 1 turns the spec into an IR:
+team inheritance, role expansion, effective permissions, environment narrowing,
+delegation edges and one workload identity per agent. Phase 2 targets may only
+render that IR — a test asserts no target imports the spec package, so the
+permissions Terraform grants cannot drift from the ones the runtime enforces
+(ADR-0005).
+
+**Teams nest, with one leader each.** A leader is a member of the team it leads
+and participates in its parent implicitly. Delegation follows the tree; declared
+peers go sideways; shared services are callable from anywhere; everything else
+escalates (ADR-0006).
+
+**Roles carry accountability and authority together.** Responsibilities,
+capabilities and permissions are one contract, so the prompt cannot describe
+work the agent has no permission to do. A capability nobody's responsibility
+mentions is a warning (ADR-0007).
+
+**Security is deny-by-default and narrow-only.** Deny wins and cannot be
+overridden; inheritance only narrows, leaders included; wildcards are errors in
+production; every decision names the rule that produced it. Cloud IAM is derived
+from the same resolved set, and where a provider's IAM is coarser, the target
+says so in `MAPPING.md` rather than hiding it (ADR-0008, ADR-0012).
+
+**Agents are org-shaped at runtime too.** `OrgChart.can_delegate` enforces the
+same routing rule the spec declares: delegate down your own subtree, call
+registered peers laterally, escalate up your chain, call shared-service agents
+from anywhere.
 
 **Every agent has a human.** `HumanCounterpart` carries the accountable person,
 their notification channels, and the tool names that must stop for approval.
@@ -93,9 +175,11 @@ otherwise — so the same definition is testable without a model.
 templates and shareable sessions publish into one marketplace with
 visibility-aware search, install, and ratings.
 
-Further reading: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
+Further reading: [docs/SPEC.md](docs/SPEC.md) ·
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) ·
 [docs/DESIGNER.md](docs/DESIGNER.md) ·
-[docs/SANDBOX_TEMPLATES.md](docs/SANDBOX_TEMPLATES.md)
+[docs/SANDBOX_TEMPLATES.md](docs/SANDBOX_TEMPLATES.md) ·
+[decisions](docs/decisions/index.md) · [workstreams](docs/workstreams/index.md)
 
 ## Runtimes
 
@@ -112,9 +196,23 @@ Adapters import their framework lazily, so a deployment installs only what it us
 
 ## Status
 
-The domain model, policy enforcement, workflow engine, catalog, API and UI are
-implemented and tested end to end against the `echo` runtime. The deep-agents
-and OpenAI Agents SDK adapters are thin, lazily imported bindings that require
-their optional dependency and provider credentials; the container sandbox
-backend emits orchestrator run specs rather than launching pods, which is the
-platform's job.
+Implemented and tested end to end: the record layer, the spec and its
+validators, the compiler and IR, the local and three Terraform targets, the
+RBAC engine, and loading a compiled system into the runtime (91 tests, no
+network or API keys).
+
+Known gaps, tracked in the workstreams rather than glossed:
+
+- **Terraform is generated but not applied or `terraform validate`-ed here** —
+  the binary is not installed in this environment, so the tests check
+  identifier validity and block balance instead. Real `plan`/`apply` against a
+  scratch account is WS-007's exit criterion, and the provider mappings are
+  first-cut.
+- **The designer UI still edits the runtime model, not the spec** — spec-backed
+  editing and SDK parity are WS-009 M2/M3.
+- **The deep-agents and OpenAI Agents SDK adapters** are thin, lazily imported
+  bindings needing their optional dependency and provider credentials; only the
+  `echo` adapter is exercised in CI (WS-008 M3).
+- **Compose cannot represent cloud IAM or real network policy**, so a local run
+  does not verify those controls — stated in the generated README, not implied
+  away (ADR-0011).
