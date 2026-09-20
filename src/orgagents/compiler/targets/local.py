@@ -56,7 +56,12 @@ OTEL_COLLECTOR_IMAGE = "otel/opentelemetry-collector-contrib:0.110.0"
 STATE_IMAGE = "postgres:16-alpine"
 # The artifact workspace (ADR-0036) is per tenant, with the tenant's own
 # volume: a shared bucket is a cross-tenant read away from being one.
-ARTIFACTS_IMAGE = "minio/minio:RELEASE.2024-09-13T20-26-02Z"
+# S3-compatible artifact store for the tenant workspace (ADR-0036).
+# SeaweedFS rather than MinIO: MinIO's Docker Hub repository no longer serves
+# tags at all, and its images now live on quay.io, which cannot be reached from
+# every network that builds this. An image we cannot pin is not a pin
+# (ADR-0053 v1.3.0). Tag and digest verified against the registry 2026-09-20.
+ARTIFACTS_IMAGE = "chrislusf/seaweedfs:3.97"
 # Out-of-process workflow engines (ADR-0056). Pinned per ADR-0053 rule 2 — a
 # floating tag on an engine that executes somebody's flows is an unreviewed
 # upgrade of a component outside our sandbox. The tag below was checked against

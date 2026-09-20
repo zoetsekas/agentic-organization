@@ -101,7 +101,7 @@ cd build/local && cp .env.example .env && make up
 is refused, ADR-0050: a design does not get to name its own isolation domain).
 Each tenant gets its own Compose project name, its own networks, its own named
 volumes, its own `postgres:16-alpine` and its own
-`minio/minio:RELEASE...` artifact workspace. A shared database with a tenant
+`chrislusf/seaweedfs` artifact workspace. A shared database with a tenant
 column is rejected (ADR-0053 rule 3, ADR-0050): it is one missing `WHERE` from
 a cross-tenant breach.
 

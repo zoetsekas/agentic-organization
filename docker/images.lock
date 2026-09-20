@@ -12,8 +12,10 @@
 # manifest API. Three did not resolve, and the reasons differ — read them:
 #   * quay.io/keycloak/keycloak:26 — quay.io is blocked by the egress proxy.
 #     Environmental; the tag was never checked either way.
-#   * minio/minio:RELEASE.2024-09-13T20-26-02Z — the registry has no such tag.
-#     It was never a real release. Do not deploy it; pick a real one.
+#   * minio/minio — the Docker Hub repository serves no tags at all any more
+#     (UNAUTHORIZED; Hub reports "object not found", while a control repository
+#     lists 1977). MinIO publishes to quay.io, which this proxy blocks. The
+#     artifact store is now SeaweedFS, which can be pinned. See ADR-0053.
 #   * grafana/grafana:11 — likewise did not exist and has been replaced with
 #     13.2.2, which does.
 # Resolving a digest is not pulling an image: nothing here has been run.
@@ -39,9 +41,7 @@ jaegertracing/all-in-one:1.60                        sha256:4fd2d70fa347d6a47e79
 redis:7-alpine                                       sha256:520775a41a63e77e06c73e35d2fd9cc15921a609516818796b4ecbb813078bc7  fabric
 
 # --- tenant plane: one instance and one volume per tenant -------------------
-# TAG NOT FOUND: the registry has no such MinIO release. Do not deploy this;
-# pick a tag that exists. Left here so the gap is visible rather than tidied away.
-minio/minio:RELEASE.2024-09-13T20-26-02Z             UNRESOLVED  tenant
+chrislusf/seaweedfs:3.97                             sha256:bb05d66d2963b1cc48073190781c3dd29e2c4c88a2ae2986bf58e38c86d89c6e  tenant
 
 # --- sandbox toolchain images (ADR-0053, "Sandbox images, by toolchain") -----
 # `python` and `data` share python:3.11-slim; `data` adds pinned analysis

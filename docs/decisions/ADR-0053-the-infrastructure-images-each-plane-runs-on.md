@@ -2,7 +2,7 @@
 id: ADR-0053
 title: The infrastructure images each plane runs on
 status: Accepted
-version: 1.2.0
+version: 1.3.0
 date: 2026-09-20
 updated: 2026-09-20
 deciders: [Platform Architecture]
@@ -57,7 +57,7 @@ All four build `FROM python:3.11-slim`. One base, one patch cadence.
 | `otel/opentelemetry-collector-contrib:0.110.0` | fabric | One collector; every plane exports to it. Tenant spans are tagged and routed, never merged into a shared view a tenant can read | Managed collector per provider |
 | `prom/prometheus:v2.54.1` + `grafana/grafana:13.2.2` | fabric | Metrics and the operator dashboards behind the command centre | Cloud Monitoring / CloudWatch / Azure Monitor |
 | `jaegertracing/all-in-one:1.60` | fabric | Session traces, which is how anyone debugs an agent run | Cloud Trace / X-Ray / App Insights |
-| `minio/minio:RELEASE.2024-09-13T20-26-02Z` | **per tenant** | S3-compatible artifact workspace — the offload target for large tool output (ADR-0036) | GCS / S3 / Blob Storage |
+| `chrislusf/seaweedfs:3.97` | **per tenant** | S3-compatible artifact workspace — the offload target for large tool output (ADR-0036). Apache-2.0 | GCS / S3 / Blob Storage |
 | `redis:7-alpine` | fabric | Scheduler leases and rate limiting. Optional: the SQLite/Postgres path works without it | Memorystore / ElastiCache |
 | `langflowai/langflow:1.12.2` | **per tenant** | The worked out-of-process workflow engine (ADR-0056). A tenant's engine is that tenant's; a shared instance is a cross-tenant channel | A managed flow runner, or the tenant's own instance |
 
@@ -96,9 +96,19 @@ destination allowlist on its own.
    Three are not resolved, for different reasons, and the difference matters:
    `quay.io/keycloak/keycloak:26` because quay.io is blocked by this proxy
    (environmental, the tag is unchecked either way); and
-   `minio/minio:RELEASE.2024-09-13T20-26-02Z` because **the registry has no
-   such tag** — it was never a real release. `grafana/grafana:11` was the same
-   kind of error and is corrected to `13.2.2` above.
+   `minio/minio` because **its Docker Hub repository serves no tags at all**:
+   the registry answers UNAUTHORIZED and Hub reports "object not found", while
+   a control repository in the same query lists 1977 tags. MinIO publishes to
+   quay.io now, which this proxy blocks. `grafana/grafana:11` was a simpler
+   error — a tag that never existed — and is corrected to `13.2.2` above.
+
+   **v1.3.0 replaces MinIO with SeaweedFS** (`chrislusf/seaweedfs:3.97`,
+   Apache-2.0, tag and digest verified). The reasoning is rule 1 applied to
+   itself: an image we cannot pin is not a pin, and an artifact store nobody
+   can resolve a digest for is a worse default than a less famous one we can.
+   MinIO remains a reasonable choice for an installation whose network reaches
+   quay.io — it is one line in the local target and one lock record — but it
+   cannot be the default while it cannot be verified.
 
    That is the finding: three of the versions in v1.0.0's table did not exist,
    and the only reason anybody knows is that somebody asked the registry.
@@ -146,7 +156,7 @@ Phase 5, alongside WS-029.
   strongest argument in this ADR for its own rule 1. A table of versions
   somebody was fairly confident about is not a supply chain; a resolved lock
   file is. The tags are now checked against the registry, but no image has been
-  pulled or run, and MinIO still has no valid tag chosen.
+  pulled or run.
 - **Shared observability is a cross-tenant channel by construction.** Tagging
   and routing keep tenants apart; a misconfigured collector merges them.
 - **Vault in dev mode is not a secret store.** It is a convenience that looks
@@ -172,6 +182,7 @@ image this ADR names. Nothing here is verified against a running daemon.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.3.0 | 2026-09-20 | Replaced MinIO with SeaweedFS for the per-tenant artifact store: MinIO's Docker Hub repository serves no tags and its images moved to a registry this environment cannot reach, so it could not be pinned. |
 | 1.2.0 | 2026-09-20 | Resolved 11 of 14 digests against the real registry; corrected `grafana/grafana:11` and flagged the MinIO tag, neither of which exists; added Langflow as the per-tenant workflow engine image. |
 | 1.1.0 | 2026-09-20 | Named images for all eight toolchain classes after `browser` silently resolved to a browserless base; recorded that digest pinning and mirroring are not met in this environment. |
 | 1.0.0 | 2026-09-20 | Accepted. Four first-party images on one base, nine pinned third-party images, per-tenant data stores. |

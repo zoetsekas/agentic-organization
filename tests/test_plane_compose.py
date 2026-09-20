@@ -187,7 +187,7 @@ def test_a_tenant_gets_its_own_postgres_and_its_own_artifact_store(tenant_compos
     state = compose["services"]["state"]
     artifacts = compose["services"]["artifacts"]
     assert _repository(state["image"]) == "postgres"
-    assert _repository(artifacts["image"]) == "minio/minio"
+    assert _repository(artifacts["image"]) == "chrislusf/seaweedfs"
     # Per-tenant volumes, declared by this project, named for this tenant.
     for service in (state, artifacts):
         source = service["volumes"][0].split(":", 1)[0]
