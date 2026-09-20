@@ -42,8 +42,10 @@ from ..observability import Observability, log_event
 from ..org import OrgChart
 from ..sessions import SessionManager
 from ..store import AGENTS, WORKFLOWS, Store
-from ..workflows.engine import WorkflowEngine
+from ..spec.binding import WorkflowBinding
 from .adapters import RuntimeAdapter, TurnOutput, adapter_for
+from .endpoints import Transport, boundary_for
+from .engines import ServiceEngine, engine_for_binding
 
 
 @dataclass
@@ -68,6 +70,9 @@ class AgentRuntime:
         classifier: Optional[Classifier] = None,
         summarizer: Optional[Any] = None,
         max_contract_retries: Optional[int] = None,
+        workflow_bindings: Optional[list[WorkflowBinding]] = None,
+        workflow_transport: Optional[Transport] = None,
+        tenant_id: Optional[str] = None,
     ) -> None:
         self.store = store
         self.org = OrgChart(store)
@@ -86,6 +91,14 @@ class AgentRuntime:
         self.classifier = classifier
         self.summarizer = summarizer
         self.max_contract_retries = max_contract_retries
+        # Which engine runs which workflow is a binding choice (ADR-0056).
+        # Unbound workflows run on the native in-process interpreter, which is
+        # what every deployment did before engines were pluggable.
+        self.workflow_bindings = list(workflow_bindings or [])
+        # Supplied by the deployment: there is no HTTP client in here, so an
+        # out-of-process engine refuses rather than improvising one.
+        self.workflow_transport = workflow_transport
+        self.tenant_id = tenant_id
         self._depth = 0
 
     # -- public API --------------------------------------------------------
@@ -653,6 +666,30 @@ class AgentRuntime:
 
         return {"delegate": delegate, "spawn_subagent": spawn_subagent}
 
+    def workflow_binding(self, workflow_id: str) -> Optional[WorkflowBinding]:
+        exact = next(
+            (w for w in self.workflow_bindings if w.workflow == workflow_id), None
+        )
+        return exact or next(
+            (w for w in self.workflow_bindings if not w.workflow), None
+        )
+
+    def workflow_engine_for(self, agent: Agent, workflow_id: str) -> Any:
+        """Resolve the engine for one workflow, bound to this agent's boundary."""
+        binding = self.workflow_binding(workflow_id) or WorkflowBinding(
+            workflow=workflow_id
+        )
+        return engine_for_binding(
+            binding,
+            boundary_for(
+                agent,
+                tenant_id=self.tenant_id,
+                sandbox_runner=getattr(self.harness, "sandboxes", None),
+            ),
+            transport=self.workflow_transport,
+            guardrails=self.guardrail_engine(agent),
+        )
+
     def _workflow_tools(self, agent: Agent, session_id: str) -> dict[str, Any]:
         def run_workflow(workflow_id: str, inputs: Optional[dict] = None) -> dict[str, Any]:
             """Execute an encoded LangGraph workflow the agent is entitled to."""
@@ -661,17 +698,27 @@ class AgentRuntime:
             ref = self.store.get(WORKFLOWS, workflow_id, WorkflowRef)
             if ref is None:
                 return {"ok": False, "error": f"no workflow {workflow_id}"}
-            engine = WorkflowEngine(
-                tool_caller=lambda name, args: self.harness.call(agent, name, **args).value,
-                agent_caller=lambda aid, args: self._delegation_tools(agent, session_id)[
-                    "delegate"
-                ](aid, args.get("task", "")),
+            engine = self.workflow_engine_for(agent, workflow_id)
+            if isinstance(engine, ServiceEngine):
+                return self._run_service_workflow(
+                    agent, session_id, engine, ref, inputs or {}
+                )
+            res = engine.run(
+                ref,
+                inputs or {},
+                # The engine is handed the *agent's* callables: it reaches
+                # exactly what its caller reaches, and nothing else.
+                tool_caller=lambda name, args: self.harness.call(
+                    agent, name, **args
+                ).value,
+                agent_caller=lambda aid, args: self._delegation_tools(
+                    agent, session_id
+                )["delegate"](aid, args.get("task", "")),
                 workflows={
                     w: self.store.get(WORKFLOWS, w, WorkflowRef)
                     for w in agent.workflow_ids
                 },
             )
-            res = engine.run(ref, inputs or {})
             self.sessions.log(
                 session_id,
                 "workflow",
@@ -703,6 +750,30 @@ class AgentRuntime:
             return out
 
         return {"run_workflow": run_workflow, "list_workflows": list_workflows}
+
+    def _run_service_workflow(
+        self, agent: Agent, session_id: str, engine: ServiceEngine,
+        ref: WorkflowRef, inputs: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Hand a workflow to another process — which is an egress event."""
+        classes = tuple((agent.memory or {}).get("readable_data_classes", []))
+        call = engine.invoke(ref, inputs, input_data_classes=classes)
+        self.sessions.log(
+            session_id, "workflow", actor=agent.id,
+            payload={
+                "workflow": ref.name,
+                "engine": engine.descriptor.name,
+                "invocation": engine.descriptor.mode.value,
+                "checks": call.checks,
+                "refusal": call.refusal,
+                "outside_agent_sandbox": True,
+            },
+        )
+        if call.refused:
+            return {"ok": False, "state": {}, "path": [],
+                    "error": f"{call.refusal}: {call.detail}"}
+        return {"ok": True, "state": {"result": call.value}, "path": [ref.id],
+                "engine": engine.descriptor.name}
 
     def _messaging_tools(self, agent: Agent, session_id: str) -> dict[str, Any]:
         def send_message(

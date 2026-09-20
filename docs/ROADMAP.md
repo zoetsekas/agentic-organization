@@ -106,7 +106,22 @@ Opened after the platform split into three planes (ADR-0049/0050/0051).
 | 6.5 | Tenant registration in the CLI and API | WS-028/030 | Tenants exist only through `TenantRegistry` in code. |
 | 6.6 | Incident capture and escalation | WS-030 M6 | Drift raises a signal; nothing routes it to a human. |
 
-## 7. Research and later phases
+## 7. The cognitive gap — from the component-taxonomy pass
+
+`docs/LANDSCAPE.md` §7 checked our build against somebody else's decomposition
+of an agent. Everything we have is structural and governing; everything
+missing is how an agent *thinks*. An organization designed here is governed
+well and reasons exactly as well as whichever framework executes it.
+
+| # | Activity | Owner | Why now |
+|---|---|---|---|
+| 7.1 | A planning primitive, with and without feedback | WS-024 M7 | No decomposition, no ReAct loop, no reflection step. A contract can refuse an answer; nothing can critique one. |
+| 7.2 | Learning from outcomes | WS-014 M3 | Evaluations are declared and never run, so no feedback reaches anything. |
+| 7.3 | Utility at decision time | new | Cost ceilings bind when a model is approved, not when an agent chooses between courses of action. |
+| 7.4 | Governed skill creation | new | "Create new skills, if allowed" is the governance question this platform exists to answer, and we have no answer. |
+| 7.5 | Per-step model routing | WS-026 | Policy governs which models an agent may use, never which it uses when. |
+
+## 8. Research and later phases
 
 Sampling strategy for high fan-out (WS-010 M5), step-level checkpointing and
 event-source bindings (WS-012 M4/M5), reusable sub-agent library and parallel
@@ -125,7 +140,7 @@ re-running the landscape scan against products we could not identify
 3. 3.1 and 3.5, which close governance loops that currently check declarations.
 4. Section 4, which is where the product is judged.
 
-Sections 5 and 7 follow the work above rather than leading it. Section 6 is
+Sections 5 and 8 follow the work above rather than leading it. Section 6 is
 new and runs alongside: the fabric is half-built, and 6.2 and 6.3 are the two
 items that decide whether the tenancy model is real or merely described.
 

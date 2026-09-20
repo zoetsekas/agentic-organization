@@ -242,6 +242,81 @@ generates tools from a schema is genuinely useful and is backlog (WS-024).
 Backlog from this pass, recorded rather than decided: a planning primitive,
 OpenAPI-derived tools, and realtime/voice as a channel modality (WS-024).
 
+## 7. Third pass: a component taxonomy, checked against what we built
+
+Source: NVIDIA's agentic-AI overview, supplied by the user as text.
+`nvidia.com` and `blogs.nvidia.com` are blocked by this environment's egress
+proxy, so this pass is against the text we were given, not a page we read.
+The same applies to OpenClaw and NemoClaw, which that text references and
+which we have not been able to verify beyond an earlier pass's sources.
+
+Useful precisely because it is somebody else's decomposition. Where it matches
+ours, that is corroboration. Where it does not, it is a gap — and the gaps
+cluster in one place, which is the finding.
+
+### Components
+
+| Their component | Ours | State |
+|---|---|---|
+| **LLM / agent core** — reasons, plans, selects tools, within guardrails and policy | Model policy per agent, catalog-approved models, composed prompt | Built |
+| **Harness** — connects memory, knows the tools, *can create new skills if allowed* | `harness/`: MCP, SQL policy, skills, plugins, endpoints, sandbox | Built, **except skill creation** |
+| **Secure runtime** — per-agent sandbox so a rogue agent cannot reach the host, exfiltrate, or run up cost | Environment classes, per-agent narrowing, provider seam (ADR-0009, ADR-0054) | Built; the local kernel boundary is the known weak point |
+| **Memory modules** | Session and long-term tiers, classified namespaces | Built |
+| **Planning modules** — CoT/ToT without feedback; ReAct, Reflexion, human-in-the-loop with feedback | Human-in-the-loop approval only | **Gap** |
+| **Tools and skills** — skills carry instructions for using a tool; APIs; RAG | Skills, plugins, tools as MCP wrappers, knowledge sources | Built (retrieval not wired) |
+| **Systems of models** — open and frontier models together for accuracy, cost and data control | `ModelPolicy` with classes and `subagent_classes` | Partial — **no per-step routing** |
+
+### Agent types
+
+| Their type | Ours |
+|---|---|
+| Simple reflex | Triggers and cadences (WS-012) |
+| Model-based reflex | Session memory and context |
+| Goal-based | **Missions** — objective, deliverables, an end date (ADR-0039) |
+| Hierarchical | **The org tree** — recursive teams, one leader each (ADR-0006). Our strongest area |
+| Multi-agent systems | Delegation, sub-agents as tools, mission peers |
+| Learning | **Gap** — memory stores, it does not learn |
+| Utility-based | **Gap** — no utility or reward anywhere in the decision path |
+
+### What this pass actually found
+
+The gaps are not scattered. Everything we have built is **structural and
+governing**: who reports to whom, what may be reached, what is recorded, what
+is refused. Everything missing is **cognitive**: how an agent decides what to
+do next, whether it critiques its own output, whether it gets better, and
+whether it trades cost against value at decision time rather than at approval
+time.
+
+That is a coherent bias, not an accident — the platform is a designer and a
+control plane, and the reasoning loop is delegated to an adapter. But it has a
+consequence worth stating: an organization designed here is governed well and
+*thinks* exactly as well as whichever framework executes it. We have no opinion
+about planning, and no way to express one.
+
+Five items follow from this, added to the roadmap rather than decided here:
+
+1. **A planning primitive** with and without feedback — decomposition,
+   ReAct-style tool loops, and a reflection step that can revise its own
+   output. Today an output contract can refuse an answer and retry it
+   (ADR-0037); nothing lets an agent *critique* one.
+2. **Learning from outcomes.** Evaluation cases are declared and never run
+   (WS-014 M3), so no feedback reaches anything. Without that, "learning agent"
+   is not a type we can build.
+3. **Utility at decision time.** Cost ceilings apply when a model is approved,
+   not when an agent chooses between two courses of action.
+4. **Skill creation, governed.** "Can create new skills, if allowed" is the
+   interesting half of the harness definition, and the governance question —
+   who approves a capability an agent invented — is exactly the kind this
+   platform exists to answer. We have no answer.
+5. **Per-step model routing.** A routine step on a cheap model and a hard one
+   on a frontier model is what "systems of models" means; our policy governs
+   which models an agent *may* use, never which it uses *when*.
+
+Their framing of guardrails matches ours and is worth quoting as
+corroboration: policy enforcement belongs "at the infrastructure layer—not just
+inside the agent code". That is ADR-0050 and ADR-0054's position, and it is why
+OpenShell's L7 policy engine is interesting to us.
+
 ---
 
 ## Sources
