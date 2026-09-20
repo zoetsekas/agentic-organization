@@ -59,11 +59,16 @@ STATE_IMAGE = "postgres:16-alpine"
 ARTIFACTS_IMAGE = "minio/minio:RELEASE.2024-09-13T20-26-02Z"
 # Out-of-process workflow engines (ADR-0056). Pinned per ADR-0053 rule 2 — a
 # floating tag on an engine that executes somebody's flows is an unreviewed
-# upgrade of a component outside our sandbox. No daemon exists here, so this
-# tag has never been pulled and no digest has been resolved; override it in the
-# binding (`options.image`) if your registry mirrors a different build.
+# upgrade of a component outside our sandbox. The tag below was checked against
+# the registry and exists; no daemon exists here, so the image has never been
+# pulled or run. Override it in the binding (`options.image`) if your registry
+# mirrors a different build.
 SERVICE_ENGINE_IMAGES = {
-    "langflow": "langflowai/langflow:1.1.1",
+    # Verified against Docker Hub on 2026-09-20: 1.12.2 is a real published
+    # release (digest sha256:79c02794…). The tag that was here before was not,
+    # which is why ADR-0053 wants a resolved lock file rather than a version
+    # somebody was fairly sure about.
+    "langflow": "langflowai/langflow:1.12.2",
 }
 
 
@@ -711,6 +716,62 @@ Flows are authored in the engine, not in the spec, and are mounted read-only
 from `./flows`. That means a flow is a dependency the system spec cannot see
 or version: it can change under a system that was already reviewed."""
 
+    def _sandbox_section(self, ir: SystemIR) -> str:
+        """What actually isolates a sandbox here, stated without overselling.
+
+        The tenant boundary and the sandbox boundary are different claims
+        (ADR-0054). Locally the honest answer is uncomfortable — a shared host
+        kernel — and a reader who is not told that will assume otherwise,
+        because the tenant section above sounds reassuring.
+        """
+        from ...sandboxes import EnvironmentFacts, detect_context, resolve_provider
+
+        requested = (ir.sandbox_provider or "container") if hasattr(
+            ir, "sandbox_provider") else "container"
+        context = detect_context(target="local")
+        statement = None
+        gaps: dict[str, list[str]] = {}
+        degraded: list[str] = []
+        for env in ir.environments:
+            facts = EnvironmentFacts.from_environment_class(
+                env, tenant_id=ir.tenant.id if ir.tenant else None
+            )
+            resolution = resolve_provider(requested, facts, context)
+            statement = statement or resolution.boundary
+            if resolution.degraded and resolution.degradation:
+                note = resolution.degradation.reason
+                if note not in degraded:
+                    degraded.append(note)
+            if resolution.mapping.unexpressible:
+                gaps[env.id] = list(resolution.mapping.unexpressible)
+        if statement is None:
+            return "This system declares no environment classes.\n"
+        lines = [
+            f"Provider in force: **{statement.provider}** ({statement.maturity}). "
+            f"{statement.summary}",
+            "",
+            f"- **Enforces:** {'; '.join(statement.enforces)}",
+            f"- **Does not enforce:** {'; '.join(statement.does_not_enforce)}",
+            f"- **Kernel boundary:** {'yes' if statement.kernel_boundary else 'no'}",
+            f"- **Tenant isolation:** {statement.tenant_scoping.value} — "
+            f"{statement.tenant_note}",
+            "- **Verified here:** no. No sandbox provider was run when this "
+            "stack was generated (ADR-0054).",
+        ]
+        if degraded:
+            lines += ["", f"> **Degraded from `{requested}`.** " + " ".join(degraded)
+                      + " The boundary below is the fallback's, not the one asked for."]
+        if gaps:
+            distinct = {tuple(v) for v in gaps.values()}
+            lines += ["", "What the environment class cannot express here:", ""]
+            if len(distinct) == 1 and len(gaps) == len(ir.environments):
+                lines += [f"- {item} (every environment class)"
+                          for item in next(iter(distinct))]
+            else:
+                lines += [f"- `{env_id}`: " + "; ".join(items)
+                          for env_id, items in gaps.items()]
+        return "\n".join(lines) + "\n"
+
     def _readme(self, ir: SystemIR) -> str:
         triggers = "\n".join(
             f"| `{t.id}` | {t.schedule} | `{t.agent_id}` | "
@@ -746,6 +807,7 @@ it. Locally, the enforcement is **coarser than the model** ADR-0050 describes.""
             else """This system was compiled without a tenant, so nothing here is
 namespaced: it is safe on a host that runs one system and nothing else."""
         )
+        sandbox_section = self._sandbox_section(ir)
         engine_section = self._engine_section(ir)
         return f"""# {ir.name} — local deployment
 
@@ -788,6 +850,10 @@ interactive work.
 ## Tenant isolation
 
 {tenant_section}
+
+## Sandbox execution
+
+{sandbox_section}
 
 ## Workflow engines
 

@@ -65,7 +65,32 @@ def _visibility(scope: str) -> Visibility:
     }[scope]
 
 
-def _sandbox_template(env: dict[str, Any], system: str, agent_id: str = "") -> SandboxTemplate:
+def _resolve_sandbox_provider(env: dict[str, Any], tenant_id: Optional[str],
+                              requested: str = "container") -> dict[str, Any]:
+    """Ask the provider seam what really isolates this environment.
+
+    Resolution never raises: an unavailable provider degrades to the container
+    floor and says so, and that degradation has to survive into the runtime
+    record or an operator will read the requested provider as the one in force
+    (ADR-0054).
+    """
+    from ..sandboxes import EnvironmentFacts, detect_context, resolve_provider
+
+    facts = EnvironmentFacts.from_environment_class(env, tenant_id=tenant_id)
+    resolution = resolve_provider(requested, facts, detect_context(target="local"))
+    return {
+        "provider": resolution.provider_name,
+        "boundary_summary": resolution.boundary.summary,
+        "boundary_verified": resolution.boundary.verified,
+        "degraded_from": (resolution.degradation.requested
+                          if resolution.degraded and resolution.degradation else None),
+        "degradation_reason": (resolution.degradation.reason
+                               if resolution.degraded and resolution.degradation else ""),
+    }
+
+
+def _sandbox_template(env: dict[str, Any], system: str, agent_id: str = "",
+                      tenant_id: Optional[str] = None) -> SandboxTemplate:
     """Materialize one environment as a sandbox template.
 
     The IR narrows an environment class per agent (ADR-0009), so each agent gets
@@ -75,6 +100,7 @@ def _sandbox_template(env: dict[str, Any], system: str, agent_id: str = "") -> S
     cpu, memory, disk = _TIER_RESOURCES.get(env.get("tier", "minimal"),
                                             _TIER_RESOURCES["minimal"])
     return SandboxTemplate(
+        **_resolve_sandbox_provider(env, tenant_id),
         id=f"sbx_{system}_{env['id']}" + (f"_{agent_id}" if agent_id else ""),
         name=env["id"],
         description=env.get("description", ""),
@@ -195,6 +221,7 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
     data = ir.model_dump(mode="json") if isinstance(ir, SystemIR) else dict(ir)
     system = data["name"].lower().replace(" ", "_")
     store = platform.store
+    tenant_id = (data.get("tenant") or {}).get("id")
 
     # Environment classes → sandbox templates (the reviewable catalog), and the
     # per-agent narrowed instances the runtime actually uses.
@@ -202,13 +229,16 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
     for env in data.get("environments", []):
         env = {**env, "mount_scopes": [scopes[m] for m in env.get("mounts", [])
                                        if m in scopes]}
-        store.put(TEMPLATE_COLLECTION, _sandbox_template(env, system))
+        store.put(TEMPLATE_COLLECTION, _sandbox_template(env, system,
+                                                        tenant_id=tenant_id))
     for agent in data.get("agents", []):
         env = agent.get("environment")
         if env:
             env = {**env, "mount_scopes": [scopes[m] for m in env.get("mounts", [])
                                            if m in scopes]}
-            store.put(TEMPLATE_COLLECTION, _sandbox_template(env, system, agent["id"]))
+            store.put(TEMPLATE_COLLECTION,
+                      _sandbox_template(env, system, agent["id"],
+                                        tenant_id=tenant_id))
 
     # Workflows.
     for wf in data.get("workflows", []):

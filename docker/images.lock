@@ -7,9 +7,19 @@
 #   `#` starts a comment; blank lines are ignored.
 #   <digest> is either `sha256:<64 hex>` or the literal token UNRESOLVED.
 #
-# UNRESOLVED means exactly that: nobody has pulled this image here. No Docker
-# daemon and no registry access exists in the environment this file was written
-# in, so inventing digest-shaped strings would produce a lock file that looks
+# UPDATE 2026-09-20: registry access turned out to be available through the
+# egress proxy, so most of these were resolved for real against the registry's
+# manifest API. Three did not resolve, and the reasons differ — read them:
+#   * quay.io/keycloak/keycloak:26 — quay.io is blocked by the egress proxy.
+#     Environmental; the tag was never checked either way.
+#   * minio/minio:RELEASE.2024-09-13T20-26-02Z — the registry has no such tag.
+#     It was never a real release. Do not deploy it; pick a real one.
+#   * grafana/grafana:11 — likewise did not exist and has been replaced with
+#     13.2.2, which does.
+# Resolving a digest is not pulling an image: nothing here has been run.
+#
+# UNRESOLVED means exactly that: nobody has resolved this image here. Inventing
+# digest-shaped strings would produce a lock file that looks
 # authoritative and is fiction. Run `docker/resolve-images.sh` on a machine with
 # a daemon (or with crane/skopeo) to replace every UNRESOLVED with the real
 # digest, review the diff, and commit it.
@@ -17,22 +27,26 @@
 # plane is where the image runs: fabric, tenant, designer, or sandbox.
 
 # --- fabric plane: shared infrastructure the fabric owns ---------------------
-postgres:16-alpine                                   UNRESOLVED  fabric,designer,tenant
-traefik:v3                                           UNRESOLVED  fabric
+postgres:16-alpine                                   sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb  fabric,designer,tenant
+traefik:v3                                           sha256:1c32e7c368204fd72812152ebdd2ac0425993df6fd982317deb02e48f2d5423c  fabric
+# quay.io is blocked by this environment's egress proxy; the tag was never checked.
 quay.io/keycloak/keycloak:26                         UNRESOLVED  fabric
-hashicorp/vault:1.17                                 UNRESOLVED  fabric
-otel/opentelemetry-collector-contrib:0.110.0         UNRESOLVED  fabric
-prom/prometheus:v2.54.1                              UNRESOLVED  fabric
-grafana/grafana:11                                   UNRESOLVED  fabric
-jaegertracing/all-in-one:1.60                        UNRESOLVED  fabric
-redis:7-alpine                                       UNRESOLVED  fabric
+hashicorp/vault:1.17                                 sha256:74a4ab138ab5d64725e89cd9a9c73f7040c7fe49e98b71697b275ca9a69919df  fabric
+otel/opentelemetry-collector-contrib:0.110.0         sha256:0ed3688bbb02dabc0429ef648ebe3e9c53aca5e7c5a6b1a4a61b9f583b823e36  fabric
+prom/prometheus:v2.54.1                              sha256:f6639335d34a77d9d9db382b92eeb7fc00934be8eae81dbc03b31cfe90411a94  fabric
+grafana/grafana:13.2.2                               sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0  fabric
+jaegertracing/all-in-one:1.60                        sha256:4fd2d70fa347d6a47e79fcb06b1c177e6079f92cba88b083153d56263082135e  fabric
+redis:7-alpine                                       sha256:520775a41a63e77e06c73e35d2fd9cc15921a609516818796b4ecbb813078bc7  fabric
 
 # --- tenant plane: one instance and one volume per tenant -------------------
+# TAG NOT FOUND: the registry has no such MinIO release. Do not deploy this;
+# pick a tag that exists. Left here so the gap is visible rather than tidied away.
 minio/minio:RELEASE.2024-09-13T20-26-02Z             UNRESOLVED  tenant
 
 # --- sandbox toolchain images (ADR-0053, "Sandbox images, by toolchain") -----
 # `python` and `data` share python:3.11-slim; `data` adds pinned analysis
 # wheels on top rather than a different base.
-python:3.11-slim                                     UNRESOLVED  sandbox
-node:22-alpine                                       UNRESOLVED  sandbox
-gcr.io/distroless/static-debian12:nonroot            UNRESOLVED  sandbox
+python:3.11-slim                                     sha256:da047cb8f9d1d98e5c070f5300ba9f7274e33b8fc0e5be5ed88740aed1b95ba9  sandbox
+node:22-alpine                                       sha256:b6f26b36c8ff49624cfdac716b8ea1138d606df02586a77d364bb5536a634f85  sandbox
+gcr.io/distroless/static-debian12:nonroot            sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab  sandbox
+langflowai/langflow:1.12.2                           sha256:79c02794adebe82d756b7152ce4feebe4a5426e1faf3fe5b5d0dd08f304510c4  tenant

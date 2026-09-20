@@ -2,7 +2,7 @@
 id: ADR-0053
 title: The infrastructure images each plane runs on
 status: Accepted
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-20
 updated: 2026-09-20
 deciders: [Platform Architecture]
@@ -55,10 +55,11 @@ All four build `FROM python:3.11-slim`. One base, one patch cadence.
 | `quay.io/keycloak/keycloak:26` | fabric | An OIDC issuer to develop and test against locally | The company's real IdP |
 | `hashicorp/vault:1.17` | fabric | Resolves the `secret_ref`s the compiler emits. Dev mode locally, never in a deployment | Secret Manager / Secrets Manager / Key Vault |
 | `otel/opentelemetry-collector-contrib:0.110.0` | fabric | One collector; every plane exports to it. Tenant spans are tagged and routed, never merged into a shared view a tenant can read | Managed collector per provider |
-| `prom/prometheus:v2.54.1` + `grafana/grafana:11` | fabric | Metrics and the operator dashboards behind the command centre | Cloud Monitoring / CloudWatch / Azure Monitor |
+| `prom/prometheus:v2.54.1` + `grafana/grafana:13.2.2` | fabric | Metrics and the operator dashboards behind the command centre | Cloud Monitoring / CloudWatch / Azure Monitor |
 | `jaegertracing/all-in-one:1.60` | fabric | Session traces, which is how anyone debugs an agent run | Cloud Trace / X-Ray / App Insights |
 | `minio/minio:RELEASE.2024-09-13T20-26-02Z` | **per tenant** | S3-compatible artifact workspace — the offload target for large tool output (ADR-0036) | GCS / S3 / Blob Storage |
 | `redis:7-alpine` | fabric | Scheduler leases and rate limiting. Optional: the SQLite/Postgres path works without it | Memorystore / ElastiCache |
+| `langflowai/langflow:1.12.2` | **per tenant** | The worked out-of-process workflow engine (ADR-0056). A tenant's engine is that tenant's; a shared instance is a cross-tenant channel | A managed flow runner, or the tenant's own instance |
 
 ### Sandbox images, by toolchain
 
@@ -86,12 +87,22 @@ destination allowlist on its own.
    reviewed. Tags appear in this table for readability and in the generated
    files as digests.
 
-   **Not met today (v1.1.0).** Digests cannot be resolved in this environment —
-   no daemon, no registry access — so `docker/images.lock` carries the literal
-   token `UNRESOLVED` for every entry and the generated Compose files carry
-   tags. `docker/resolve-images.sh` fills the lock in and rewrites the Compose
-   files on a machine that can. Until somebody runs it, rules 1 and 2 are
-   stated intent, not enforced practice, and `docs/DOCKER.md` says so.
+   **Partly met (v1.2.0).** The earlier claim that no registry access exists
+   here was wrong: the egress proxy permits the registry manifest API, and
+   11 of 14 images are now resolved to real digests in `docker/images.lock`.
+   Resolving a digest is not pulling an image — nothing has been run — but it
+   is a real pin rather than a placeholder.
+
+   Three are not resolved, for different reasons, and the difference matters:
+   `quay.io/keycloak/keycloak:26` because quay.io is blocked by this proxy
+   (environmental, the tag is unchecked either way); and
+   `minio/minio:RELEASE.2024-09-13T20-26-02Z` because **the registry has no
+   such tag** — it was never a real release. `grafana/grafana:11` was the same
+   kind of error and is corrected to `13.2.2` above.
+
+   That is the finding: three of the versions in v1.0.0's table did not exist,
+   and the only reason anybody knows is that somebody asked the registry.
+   Rule 2, mirroring, remains stated intent — nothing has been mirrored.
 2. **Mirror before use.** The fabric deploys from a registry it controls, so a
    deleted or re-pushed upstream tag cannot change what a tenant runs.
 3. **A tenant's data stores are the tenant's own.** Postgres and MinIO are
@@ -131,10 +142,11 @@ Phase 5, alongside WS-029.
   digests reduce the risk and do not remove it. No SBOM, no scanning yet.
 - **Pinned digests go stale**, and a stale pin is an unpatched CVE. Nothing
   here updates them; that is a job nobody has been given.
-- **The versions in this table are indicative and unverified.** No Docker
-  daemon exists in this environment, so not one of these images has been
-  pulled, and no digest has been resolved. Treat the table as the decision and
-  the lock file as the truth once somebody generates it.
+- **Three of the versions in the original table did not exist**, which is the
+  strongest argument in this ADR for its own rule 1. A table of versions
+  somebody was fairly confident about is not a supply chain; a resolved lock
+  file is. The tags are now checked against the registry, but no image has been
+  pulled or run, and MinIO still has no valid tag chosen.
 - **Shared observability is a cross-tenant channel by construction.** Tagging
   and routing keep tenants apart; a misconfigured collector merges them.
 - **Vault in dev mode is not a secret store.** It is a convenience that looks
@@ -160,5 +172,6 @@ image this ADR names. Nothing here is verified against a running daemon.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-20 | Resolved 11 of 14 digests against the real registry; corrected `grafana/grafana:11` and flagged the MinIO tag, neither of which exists; added Langflow as the per-tenant workflow engine image. |
 | 1.1.0 | 2026-09-20 | Named images for all eight toolchain classes after `browser` silently resolved to a browserless base; recorded that digest pinning and mirroring are not met in this environment. |
 | 1.0.0 | 2026-09-20 | Accepted. Four first-party images on one base, nine pinned third-party images, per-tenant data stores. |

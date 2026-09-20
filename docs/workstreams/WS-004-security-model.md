@@ -69,6 +69,10 @@ cloud targets in WS-007, which cannot emit IAM without resolved permission sets.
 - Per-agent identity makes containment and attribution possible.
 
 ## Disadvantages
+- Sandbox templates seeded into the marketplace catalog predate the provider
+  seam and carry no boundary statement, so the catalog can show a template
+  whose isolation nobody has stated. Only templates materialized by a compile
+  carry one.
 - Deny-by-default is friction users feel on every new capability, and the
   pressure to add blanket grants will be constant.
 - Provider IAM mapping is lossy; the gap between intended and enforced

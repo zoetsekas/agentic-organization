@@ -296,6 +296,16 @@ class SandboxTemplate(BaseModel):
     disk: str = "10Gi"
     gpu: Optional[str] = None
     timeout_s: int = 900
+    # Which provider actually executes this sandbox, and what that provider
+    # really enforces (ADR-0054). Carried on the template because an operator
+    # asking "what isolates this agent" must not have to read the generated
+    # artifacts to find out — and because a provider that degraded to the
+    # container floor has to be visible at runtime, not only at compile time.
+    provider: str = "container"
+    boundary_summary: str = ""
+    boundary_verified: bool = False
+    degraded_from: Optional[str] = None
+    degradation_reason: str = ""
     network: Literal["none", "egress_allowlist", "internal", "full"] = (
         "egress_allowlist"
     )
