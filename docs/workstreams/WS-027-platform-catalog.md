@@ -2,13 +2,13 @@
 id: WS-027
 title: Platform catalog of building blocks
 status: Active
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
 contributors: [Security Engineering, Product]
 scope: [designer, security, ui]
-decisions: [ADR-0041, ADR-0046]
+decisions: [ADR-0041, ADR-0046, ADR-0062]
 depends_on: [WS-020]
 tags: [catalog, governance]
 ---
@@ -29,6 +29,10 @@ so a designer chooses from what is approved rather than writing it by hand.
   providers as proposals an operator completes.
 - `/api/catalogs` endpoints, `orgagents catalogs` CLI, and a Catalog view in
   the UI with approve, restrict and retire.
+- Editing under ADR-0062: `update`, `amend`, `send_back` and a narrow `delete`
+  on the service, matching routes, `catalogs add|edit|review|send-back|retire|
+  delete` on the CLI, and one designer form generated from each kind's
+  declared attributes.
 
 ## Scope
 In: the inventory of platform building blocks and their approval state. Out:
@@ -50,6 +54,7 @@ cost policy is worse than an empty row.
 | M4 Canvas pickers backed by the catalog | Phase 4 | In progress |
 | M5 Usage tracking — which designs use which entry | Phase 4 | Done |
 | M6 Import from provider and registry sources | Phase 4 | Not started |
+| M7 Editing: editorial in place, substantive versioned (ADR-0062) | Phase 5 | Done |
 
 ## Dependencies
 WS-020 for the designer the catalog serves.
@@ -67,6 +72,10 @@ WS-020 for the designer the catalog serves.
   between catalogued and declared will confuse people.
 - Approval is friction by design, and teams under deadline will route around it
   by declaring things directly in the spec — which nothing currently prevents.
+- Eight of the twelve kinds had no declared attribute shape until the form
+  needed one, so those shapes are ours rather than observed; an entry whose
+  attributes predate them will still load, but the generated form shows only
+  the fields we guessed at.
 - Usage is recorded from compiled designs, so a design nobody has compiled
   since the entry was added is invisible to it, and `force=True` still retires
   an entry out from under its users — the index makes that a decision, not a
@@ -82,5 +91,6 @@ WS-020 for the designer the catalog serves.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-20 | M7: catalog entries manageable end to end — editorial edits in place, substantive edits refused on approved entries with both remedies, explicit send-back, narrow delete, attributed history, and a kind-driven form in the designer. |
 | 1.1.0 | 2026-09-20 | M5 done: catalog references recorded from compiled designs, `usage_report`, and retirement refused while an entry is in use. |
 | 1.0.0 | 2026-09-20 | Opened. Entries, service, API, CLI, seed and UI landed. |

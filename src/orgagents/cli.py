@@ -297,8 +297,62 @@ def _compiler_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _catalogs_add(service, args: argparse.Namespace) -> int:
+    """`catalogs add` — a JSON file, or inline fields for the common case.
+
+    The common case is one MCP server, so kind and name are positional and the
+    kind's own attributes are `--attr key=value`; a `[]`-suffixed key repeats
+    into a list, which is what a tool list needs.
+    """
+    import json as _json
+
+    from .catalogs import CatalogEntry, CatalogKind
+
+    if args.file:
+        payload = _json.loads(Path(args.file).read_text())
+        entries = payload if isinstance(payload, list) else [payload]
+        published = [service.publish(CatalogEntry.model_validate(e),
+                                     actor=args.actor) for e in entries]
+        for entry in published:
+            print(f"{entry.id}  {entry.name}  {entry.status.value}")
+        return 0
+    if len(args.args) < 2:
+        print("usage: orgagents catalogs add <kind> <name> [--attr k=v ...]")
+        return 2
+    kind, name = args.args[0], args.args[1]
+    attributes: dict[str, object] = {}
+    for pair in args.attr:
+        key, _, value = pair.partition("=")
+        if key.endswith("[]"):
+            attributes.setdefault(key[:-2], []).append(value)
+        elif value.lower() in ("true", "false"):
+            attributes[key] = value.lower() == "true"
+        elif value.lstrip("-").isdigit():
+            attributes[key] = int(value)
+        else:
+            attributes[key] = value
+    entry = CatalogEntry(
+        kind=CatalogKind(kind), name=name, summary=args.summary,
+        description=args.description, owner=args.owner, version=args.version,
+        tags=args.tag, documentation_url=args.docs, attributes=attributes,
+    )
+    service.publish(entry, actor=args.actor)
+    # Said at the point of creation, because an operator who publishes a server
+    # and finds no design can pick it has been told nothing.
+    print(f"{entry.id}  {entry.name}  {entry.status.value} "
+          f"— not selectable until approved "
+          f"(orgagents catalogs approve {entry.id})")
+    return 0
+
+
 def _catalogs_command(args: argparse.Namespace) -> int:
-    from .catalogs import ApprovalStatus, CatalogKind, CatalogService, seed_catalog
+    from .catalogs import (
+        ApprovalStatus,
+        CatalogError,
+        CatalogKind,
+        CatalogService,
+        seed_catalog,
+    )
     from .platform import Platform
 
     platform = Platform(args.db, configure_logs=False)
@@ -309,6 +363,62 @@ def _catalogs_command(args: argparse.Namespace) -> int:
         return 0
     if args.action == "stats":
         print(json.dumps(service.stats(), indent=2))
+        return 0
+    if args.action == "add":
+        return _catalogs_add(service, args)
+    if args.action in ("edit", "retire", "delete", "send-back", "review"):
+        if not args.args:
+            print(f"usage: orgagents catalogs {args.action} <entry_id> ...")
+            return 2
+        entry_id = args.args[0]
+        try:
+            if args.action == "edit":
+                fields = {k: v for k, v in (
+                    ("name", args.name), ("summary", args.summary),
+                    ("description", args.description), ("owner", args.owner),
+                    ("documentation_url", args.docs),
+                    ("tags", args.tag or None)) if v}
+                # `--attr`/`--version` go through amend, which is where the
+                # approved-entry refusal lives.
+                substantive: dict[str, object] = {}
+                if args.version:
+                    substantive["version"] = args.version
+                if args.attr:
+                    entry = service._require(entry_id)
+                    merged = dict(entry.attributes)
+                    for pair in args.attr:
+                        key, _, value = pair.partition("=")
+                        merged[key] = value
+                    substantive["attributes"] = merged
+                entry = service.get(entry_id)
+                if fields:
+                    entry = service.update(entry_id, fields, actor=args.actor)
+                if substantive:
+                    entry = service.amend(entry_id, substantive, actor=args.actor)
+                if not fields and not substantive:
+                    print("nothing to change; pass --name/--summary/--owner/--attr")
+                    return 2
+            elif args.action == "review":
+                status = args.status or (args.args[1] if len(args.args) > 1 else "")
+                if not status:
+                    print("usage: orgagents catalogs review <entry_id> --status <s>")
+                    return 2
+                entry = service.review(entry_id, ApprovalStatus(status),
+                                       reviewer=args.actor, note=args.note)
+            elif args.action == "send-back":
+                entry = service.send_back(entry_id, actor=args.actor,
+                                          note=args.note)
+            elif args.action == "retire":
+                entry = service.retire(entry_id, reviewer=args.actor,
+                                       superseded_by=args.superseded_by or None,
+                                       force=args.force)
+            else:
+                print(f"deleted {service.delete(entry_id, actor=args.actor)}")
+                return 0
+        except CatalogError as e:
+            print(f"error: {e}")
+            return 1
+        print(f"{entry.name}: {entry.status.value}")
         return 0
     if args.action == "approve":
         if not args.args:
@@ -627,11 +737,29 @@ def main(argv: list[str] | None = None) -> int:
                        help="for 'sweep': write the closed missions back to the spec")
 
     p_cat2 = sub.add_parser("catalogs", help="the platform catalog of building blocks")
-    p_cat2.add_argument("action", choices=["list", "seed", "approve", "stats",
+    p_cat2.add_argument("action", choices=["list", "seed", "add", "edit",
+                                           "review", "approve", "send-back",
+                                           "retire", "delete", "stats",
                                            "models", "refresh", "stale",
                                            "usage"])
     p_cat2.add_argument("args", nargs="*")
     p_cat2.add_argument("--kind")
+    p_cat2.add_argument("--file", help="for 'add': a JSON entry, or a list of them")
+    p_cat2.add_argument("--attr", action="append", default=[],
+                        help="kind attribute as key=value; key[]=value repeats")
+    p_cat2.add_argument("--name", default="")
+    p_cat2.add_argument("--summary", default="")
+    p_cat2.add_argument("--description", default="")
+    p_cat2.add_argument("--owner", default="")
+    p_cat2.add_argument("--docs", default="", help="documentation URL")
+    p_cat2.add_argument("--tag", action="append", default=[])
+    p_cat2.add_argument("--version", default="")
+    p_cat2.add_argument("--status", default="", help="for 'review'")
+    p_cat2.add_argument("--note", default="")
+    p_cat2.add_argument("--superseded-by", dest="superseded_by", default="")
+    p_cat2.add_argument("--force", action="store_true",
+                        help="for 'retire': break the designs using it")
+    p_cat2.add_argument("--actor", default="cli", help="who is acting, recorded")
 
     p_ten = sub.add_parser("tenants", help="fabric tenants and their lifecycle")
     p_ten.add_argument("action", choices=["list", "show", "register", "suspend",

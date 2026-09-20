@@ -547,4 +547,17 @@ class CatalogService:
                 else entry.attributes
             ),
             "selectable": entry.selectable,
+            "schema": attribute_schema(entry.kind),
+            "editorial_fields": list(EDITORIAL_FIELDS),
+            "substantive_fields": list(SUBSTANTIVE_FIELDS),
+            "substantively_locked": entry.substantively_locked,
+            # Present whenever the lock is on, so a UI can explain before a
+            # form is opened rather than refusing after it is filled in.
+            "amend_refusal": (self.amend_refusal(entry)
+                              if entry.substantively_locked else ""),
+            "used_by": self.usage.systems_using(entry.id),
+            "deletable": (entry.status is ApprovalStatus.PROPOSED
+                          and not entry.reviewed_at
+                          and not self.usage.systems_using(entry.id)),
+            "history": [e.model_dump(mode="json") for e in entry.history],
         }

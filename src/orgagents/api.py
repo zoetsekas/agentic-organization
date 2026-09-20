@@ -41,10 +41,36 @@ from .models import (
 # the factory is invisible there, and FastAPI silently degrades the parameter
 # to a query field — which is how POST /api/catalogs came to be uncallable.
 from .catalogs import CatalogEntry as PlatformCatalogEntry
+from .catalogs import Entitlement as PlatformEntitlement
 from .platform import Platform
 from .store import PLUGINS, SKILLS, WORKFLOWS
 
 WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+
+
+class CatalogEditRequest(BaseModel):
+    """An editorial edit (ADR-0062 rule 1). Omitted fields are left alone."""
+
+    name: Optional[str] = None
+    summary: Optional[str] = None
+    description: Optional[str] = None
+    owner: Optional[str] = None
+    tags: Optional[list[str]] = None
+    documentation_url: Optional[str] = None
+    note: str = ""
+
+
+class CatalogAmendRequest(BaseModel):
+    """A substantive edit (ADR-0062 rule 2), refused on an approved entry."""
+
+    kind: Optional[str] = None
+    version: Optional[str] = None
+    attributes: Optional[dict[str, Any]] = None
+    note: str = ""
+
+
+class CatalogSendBackRequest(BaseModel):
+    note: str = ""
 
 
 class RunRequest(BaseModel):
@@ -407,7 +433,6 @@ def create_app(
         ApprovalStatus,
         CatalogKind,
         CatalogService,
-        Entitlement,
         seed_catalog,
     )
 
@@ -441,7 +466,10 @@ def create_app(
     def catalogs_kinds() -> list[dict]:
         return [
             {"id": k.value, "label": k.value.replace("_", " ").title(),
-             "count": len(catalog_service.list(k))}
+             "count": len(catalog_service.list(k)),
+             # The declared attributes of the kind, so the designer renders one
+             # generated form for all twelve rather than twelve written ones.
+             "attributes": catalog_service.attribute_schema(k)}
             for k in CatalogKind
         ]
 
@@ -453,8 +481,59 @@ def create_app(
             raise HTTPException(404, str(e)) from e
 
     @app.post("/api/catalogs")
-    def catalogs_publish(entry: PlatformCatalogEntry) -> dict:
-        return catalog_service.publish(entry).model_dump(mode="json")
+    def catalogs_publish(entry: PlatformCatalogEntry,
+                         x_user: str = Header(default="anonymous")) -> dict:
+        return catalog_service.publish(entry, actor=x_user).model_dump(mode="json")
+
+    @app.patch("/api/catalogs/{entry_id}")
+    def catalogs_update(entry_id: str, req: CatalogEditRequest,
+                        x_user: str = Header(default="anonymous")) -> dict:
+        try:
+            return catalog_service.update(
+                entry_id, req.model_dump(exclude={"note"}), actor=x_user,
+                note=req.note).model_dump(mode="json")
+        except Exception as e:
+            raise HTTPException(400, str(e)) from e
+
+    @app.post("/api/catalogs/{entry_id}/amend")
+    def catalogs_amend(entry_id: str, req: CatalogAmendRequest,
+                       x_user: str = Header(default="anonymous")) -> dict:
+        try:
+            return catalog_service.amend(
+                entry_id, req.model_dump(exclude={"note"}), actor=x_user,
+                note=req.note).model_dump(mode="json")
+        except Exception as e:
+            # The service's own message names both ways forward; rewriting it
+            # here would lose them.
+            raise HTTPException(400, str(e)) from e
+
+    @app.post("/api/catalogs/{entry_id}/send_back")
+    def catalogs_send_back(entry_id: str, req: CatalogSendBackRequest,
+                           x_user: str = Header(default="anonymous")) -> dict:
+        try:
+            return catalog_service.send_back(
+                entry_id, actor=x_user, note=req.note).model_dump(mode="json")
+        except Exception as e:
+            raise HTTPException(400, str(e)) from e
+
+    @app.post("/api/catalogs/{entry_id}/retire")
+    def catalogs_retire(entry_id: str, superseded_by: str = "",
+                        force: bool = False,
+                        x_user: str = Header(default="anonymous")) -> dict:
+        try:
+            return catalog_service.retire(
+                entry_id, reviewer=x_user, superseded_by=superseded_by or None,
+                force=force).model_dump(mode="json")
+        except Exception as e:
+            raise HTTPException(400, str(e)) from e
+
+    @app.delete("/api/catalogs/{entry_id}")
+    def catalogs_delete(entry_id: str,
+                        x_user: str = Header(default="anonymous")) -> dict:
+        try:
+            return {"deleted": catalog_service.delete(entry_id, actor=x_user)}
+        except Exception as e:
+            raise HTTPException(400, str(e)) from e
 
     @app.post("/api/catalogs/{entry_id}/review")
     def catalogs_review(entry_id: str, status: str, note: str = "",
@@ -467,10 +546,11 @@ def create_app(
             raise HTTPException(400, str(e)) from e
 
     @app.post("/api/catalogs/{entry_id}/entitle")
-    def catalogs_entitle(entry_id: str, entitlement: Entitlement) -> dict:
+    def catalogs_entitle(entry_id: str, entitlement: PlatformEntitlement,
+                         x_user: str = Header(default="anonymous")) -> dict:
         try:
-            return catalog_service.entitle(entry_id,
-                                           entitlement).model_dump(mode="json")
+            return catalog_service.entitle(
+                entry_id, entitlement, actor=x_user).model_dump(mode="json")
         except Exception as e:
             raise HTTPException(400, str(e)) from e
 

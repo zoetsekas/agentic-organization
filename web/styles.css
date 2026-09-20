@@ -253,3 +253,9 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
 .list > div.denied { border-left: 3px solid var(--err); padding-left: 8px; }
 .v-err { color: var(--err); font-size: 12px; }
 .checks { max-height: 160px; overflow: auto; }
+
+/* The catalog's entry form: a substantive edit is visibly unavailable on an
+   approved entry, so the refusal is read before the form is filled in. */
+#pc-form { margin-bottom: 16px; }
+#pc-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+#pc-form input[disabled], #pc-form select[disabled] { opacity: 0.55; }

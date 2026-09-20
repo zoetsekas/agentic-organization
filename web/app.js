@@ -830,8 +830,11 @@ function debounce(fn, ms) {
 }
 
 /* ------------------------------------------------- platform catalog */
+let pcKinds = [];
+
 async function loadPlatformCatalog() {
   const kinds = await api("/catalogs/kinds");
+  pcKinds = kinds;
   const select = $("#pc-kind");
   if (select.options.length <= 1) {
     fillSelect(select, [["", "All kinds"],
@@ -869,6 +872,7 @@ function platformCard(entry) {
   } else if (entry.kind === "permission_set") {
     detail.push(`${(a.permissions || []).length} permissions`, `risk: ${a.risk}`);
   }
+  const approvedish = entry.status === "approved" || entry.status === "restricted";
   const statusClass = { approved: "ok", restricted: "warn", retired: "err",
     rejected: "err", deprecated: "warn" }[entry.status] || "";
   return el("div", { class: "card" },
@@ -886,7 +890,15 @@ function platformCard(entry) {
     el("div", { class: "actions" },
       el("button", { onclick: () => reviewEntry(entry.id, "approved") }, "Approve"),
       el("button", { onclick: () => reviewEntry(entry.id, "restricted") }, "Restrict"),
-      el("button", { onclick: () => reviewEntry(entry.id, "retired") }, "Retire")));
+      el("button", { onclick: () => openEntryForm(entry.id) }, "Edit"),
+      approvedish
+        ? el("button", { onclick: () => sendBackEntry(entry.id) }, "Send back")
+        : null,
+      el("button", { onclick: () => retireEntry(entry.id) }, "Retire"),
+      entry.status === "proposed" && !entry.reviewed_at
+        ? el("button", { onclick: () => deleteEntry(entry.id, entry.name) },
+            "Delete draft")
+        : null));
 }
 
 async function reviewEntry(entryId, status) {
@@ -894,6 +906,191 @@ async function reviewEntry(entryId, status) {
   setStatus(`marked ${status}`);
   loadPlatformCatalog();
 }
+
+async function retireEntry(entryId) {
+  /* Retirement is refused while designs reference the entry; the service says
+     who, and forcing it is a second, explicit answer. */
+  try {
+    await api(`/catalogs/${entryId}/retire`, { method: "POST" });
+  } catch (e) {
+    if (!confirm(`${e.message}\n\nRetire anyway and break them?`)) return;
+    await api(`/catalogs/${entryId}/retire?force=true`, { method: "POST" });
+  }
+  setStatus("retired");
+  loadPlatformCatalog();
+}
+
+async function sendBackEntry(entryId) {
+  const note = prompt(
+    "Send back for review. The entry stops being selectable immediately, and "
+    + "any design bound to it fails at the next compile. Why?", "");
+  if (note === null) return;
+  await api(`/catalogs/${entryId}/send_back`, {
+    method: "POST", body: JSON.stringify({ note }),
+  });
+  setStatus("sent back for review — now unselectable");
+  loadPlatformCatalog();
+}
+
+async function deleteEntry(entryId, name) {
+  if (!confirm(`Delete the draft '${name}'? Only a never-approved, unused `
+    + "entry can be deleted; anything else retires.")) return;
+  try {
+    await api(`/catalogs/${entryId}`, { method: "DELETE" });
+    setStatus("draft deleted");
+  } catch (e) {
+    setStatus(e.message);
+  }
+  loadPlatformCatalog();
+}
+
+/* -------------------------------------------- one generated entry form
+
+   The form is built from the kind's declared attributes (`/catalogs/kinds`
+   carries them), so all twelve kinds share one form and a field added to an
+   attribute model appears here without this file changing. */
+
+const PC_EDITORIAL = [
+  ["name", "Name"], ["summary", "Summary"], ["description", "Description"],
+  ["owner", "Owner"], ["tags", "Tags (comma separated)"],
+  ["documentation_url", "Documentation URL"],
+];
+
+function attributeInput(field, value) {
+  if (field.type === "choice") {
+    const sel = el("select", { id: `pc-a-${field.name}` });
+    fillSelect(sel, field.choices.map((c) => [c, c]));
+    sel.value = value ?? field.choices[0];
+    return sel;
+  }
+  if (field.type === "boolean") {
+    const box = el("input", { id: `pc-a-${field.name}`, type: "checkbox" });
+    box.checked = !!value;
+    return box;
+  }
+  const type = (field.type === "integer" || field.type === "number")
+    ? "number" : "text";
+  const text = field.type === "list" ? (value || []).join(", ")
+    : field.type === "objects" ? JSON.stringify(value ?? [])
+    : (value ?? "");
+  return el("input", { id: `pc-a-${field.name}`, type, value: text });
+}
+
+function readAttributes(fields) {
+  const out = {};
+  for (const field of fields) {
+    const node = $(`#pc-a-${field.name}`);
+    if (!node) continue;
+    if (field.type === "boolean") out[field.name] = node.checked;
+    else if (field.type === "list") {
+      out[field.name] = node.value.split(",").map((v) => v.trim()).filter(Boolean);
+    } else if (field.type === "objects") {
+      try { out[field.name] = JSON.parse(node.value || "[]"); }
+      catch { out[field.name] = []; }
+    } else if (field.type === "integer" || field.type === "number") {
+      out[field.name] = node.value === "" ? null : Number(node.value);
+    } else out[field.name] = node.value;
+  }
+  return out;
+}
+
+async function openEntryForm(entryId = null, preset = null) {
+  const box = $("#pc-form");
+  const detail = entryId ? await api(`/catalogs/${entryId}`) : null;
+  const entry = detail ? detail.entry : (preset || { kind: pcKinds[0]?.id,
+    version: "1.0.0", tags: [], attributes: {} });
+  const locked = detail ? detail.substantively_locked : false;
+  const kindSelect = el("select", { id: "pc-f-kind" });
+  fillSelect(kindSelect, pcKinds.map((k) => [k.id, k.label]));
+  kindSelect.value = entry.kind;
+  if (entryId) kindSelect.disabled = true;
+
+  const fieldsFor = (kindId) =>
+    (pcKinds.find((k) => k.id === kindId) || {}).attributes || [];
+
+  const attrBox = el("div", { class: "form" });
+  const drawAttributes = () => {
+    const fields = fieldsFor(kindSelect.value);
+    attrBox.replaceChildren(...fields.map((f) =>
+      el("label", {}, f.label,
+        Object.assign(attributeInput(f, entry.attributes?.[f.name]),
+          locked ? { disabled: true } : {}))));
+  };
+  kindSelect.addEventListener("change", drawAttributes);
+
+  const banner = locked
+    ? el("div", { class: "validation" },
+        el("p", { class: "v-err" }, detail.amend_refusal),
+        el("div", { class: "actions" },
+          el("button", { onclick: () => openEntryForm(null, {
+            ...entry, id: undefined, version: "", status: "proposed",
+          }) }, "Publish the next version as a new entry"),
+          el("button", { onclick: () => sendBackEntry(entry.id) },
+            "Send this one back for review")))
+    : el("p", { class: "hint" }, entryId
+        ? "This entry is not approved, so its kind, version and attributes may still be edited."
+        : "It will be saved as proposed: recorded, and not selectable by any design until approved.");
+
+  const editorial = PC_EDITORIAL.map(([key, label]) =>
+    el("label", {}, label,
+      el("input", { id: `pc-f-${key}`,
+        value: key === "tags" ? (entry.tags || []).join(", ") : (entry[key] || "") })));
+
+  box.hidden = false;
+  box.replaceChildren(
+    el("h3", {}, entryId ? `Edit ${entry.name}` : "New catalog entry"),
+    banner,
+    el("div", { class: "form" },
+      el("label", {}, "Kind", kindSelect),
+      el("label", {}, "Version",
+        el("input", { id: "pc-f-version", value: entry.version || "1.0.0",
+          ...(locked ? { disabled: true } : {}) })),
+      ...editorial),
+    el("h4", {}, "Attributes"),
+    attrBox,
+    el("div", { class: "actions" },
+      el("button", { onclick: () => saveEntryForm(entryId, locked, kindSelect.value) },
+        "Save"),
+      el("button", { onclick: () => { box.hidden = true; } }, "Cancel")));
+  drawAttributes();
+}
+
+async function saveEntryForm(entryId, locked, kindId) {
+  const fields = (pcKinds.find((k) => k.id === kindId) || {}).attributes || [];
+  const editorial = Object.fromEntries(PC_EDITORIAL.map(([key]) =>
+    [key, key === "tags"
+      ? $(`#pc-f-${key}`).value.split(",").map((v) => v.trim()).filter(Boolean)
+      : $(`#pc-f-${key}`).value]));
+  try {
+    if (!entryId) {
+      await api("/catalogs", {
+        method: "POST",
+        body: JSON.stringify({ ...editorial, kind: kindId,
+          version: $("#pc-f-version").value || "1.0.0",
+          attributes: readAttributes(fields) }),
+      });
+      setStatus("published as proposed — approve it before a design can pick it");
+    } else {
+      await api(`/catalogs/${entryId}`, {
+        method: "PATCH", body: JSON.stringify(editorial),
+      });
+      if (!locked) {
+        await api(`/catalogs/${entryId}/amend`, {
+          method: "POST",
+          body: JSON.stringify({ version: $("#pc-f-version").value,
+            attributes: readAttributes(fields) }),
+        });
+      }
+      setStatus("saved");
+    }
+    $("#pc-form").hidden = true;
+    loadPlatformCatalog();
+  } catch (e) {
+    setStatus(e.message);
+  }
+}
+
+$("#pc-add").addEventListener("click", () => openEntryForm(null));
 
 ["#pc-q", "#pc-kind", "#pc-status"].forEach((sel) =>
   $(sel).addEventListener("input", debounce(loadPlatformCatalog, 250)));
