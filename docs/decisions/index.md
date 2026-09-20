@@ -63,7 +63,7 @@
 | [ADR-0058](ADR-0058-the-agent-to-agent-protocol-is-a2a-and-the-protocol-is-not-the-boundary.md) | The agent-to-agent protocol is A2A, and the protocol is not the boundary | Accepted | 1.1.0 | spec, runtime, security | WS-019 | — |
 | [ADR-0059](ADR-0059-the-message-bus-is-nats-jetstream-one-per-tenant.md) | The message bus is NATS with JetStream, one per tenant | Accepted | 1.0.0 | targets, runtime, security | WS-006, WS-013, WS-028 | — |
 | [ADR-0060](ADR-0060-evaluation-cases-assert-what-a-machine-can-check-and-unrun-or-stale-evidence-never-reads-as-passed.md) | Evaluation cases assert what a machine can check, and unrun or stale evidence never reads as passed | Accepted | 1.0.0 | runtime, security, docs | WS-014 | — |
-| [ADR-0061](ADR-0061-humans-reach-agents-through-a-channel-bridge-port-with-mattermost-first.md) | Humans reach agents through a channel bridge port, with Mattermost as the first adapter | Accepted | 1.0.0 | runtime, targets, security, docs | WS-013 | — |
+| [ADR-0061](ADR-0061-humans-reach-agents-through-a-channel-bridge-port-with-mattermost-first.md) | Humans reach agents through a channel bridge port, with Mattermost as the first adapter | Accepted | 1.1.0 | runtime, targets, security, docs | WS-013 | — |
 
 ## By status
 

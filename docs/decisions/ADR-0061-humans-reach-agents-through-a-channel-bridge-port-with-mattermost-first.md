@@ -2,7 +2,7 @@
 id: ADR-0061
 title: Humans reach agents through a channel bridge port, with Mattermost as the first adapter
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 deciders: [Platform Architecture, Product]
@@ -60,19 +60,40 @@ second.**
    speaking through a human's account destroys the accountability ADR-0026
    exists to create, and makes every message in the channel a lie about who
    said it.
-3. **An approval is a click, not a word.** A bridge that cannot deliver an
+3. **An approval is a click, not a word.** *(mechanism corrected in v1.1.0 —
+   see below.)* A bridge that cannot deliver an
    authenticated callback may not carry `ChannelPurpose.APPROVE` — it may
    still notify, report and ask. Refusing the *binding* for that purpose is
    the enforcement; degrading to text-matching is not an option, because a
    forged approval is worse than an unreachable one.
-4. **A callback is verified and correlated.** The callback proves which human
-   clicked and which request they answered. An approval for a request that has
-   expired, already been answered, or belongs to another tenant is **refused**,
-   not honoured — a stale approval is a decision nobody made today.
+4. **A callback is correlated, and its authentication is weaker than the word
+   "authenticated" suggests.** The callback must identify which human clicked
+   and which request they answered, and a request that has expired, already
+   been answered, or belongs to another tenant is **refused**, not honoured —
+   a stale approval is a decision nobody made today.
+
+   **Corrected in v1.1.0.** v1.0.0 said "verified", which overstated what the
+   platform provides. What comes back is a token *we* placed in the action's
+   context and the server echoes — a shared secret sitting in the message
+   props, readable by any administrator who can read the post, not a signature
+   over the request. That is far better than matching text, and it is not
+   authentication in the sense the word usually carries. If Mattermost signs
+   these requests, our check is weaker than what is on offer and should be
+   replaced by the signature; confirming that is the first item to settle
+   against a real server.
 5. **Inbound is untrusted** (ADR-0035): a human's message is external text and
    crosses the input boundary like any other.
 6. **One instance per tenant** (ADR-0050), on the tenant's own network, with
    the tenant's own bot tokens.
+
+**Mechanism, corrected in v1.1.0.** v1.0.0 named
+`POST /api/v4/actions/dialogs/open` with a `trigger_id` as the approval
+device. That was wrong: a `trigger_id` is issued to an integration *responding
+to a user action*, and an agent-initiated approval has no user action to
+respond to, so it has no trigger. The device is an **interactive message
+action** — a post carrying buttons whose context holds the correlation — which
+may escalate to a dialog once the human clicks, since the click does produce a
+trigger. The principle in rule 3 is unchanged; only the mechanism was wrong.
 
 For the Docker alpha we run **Mattermost Team Edition**,
 `mattermost/mattermost-team-edition:11.11.0` (digest verified against the
@@ -106,12 +127,21 @@ Phase 5, WS-013 M4.
   keeping Slack and Teams — is a second adapter rather than a rewrite.
 
 ## Disadvantages
-- **SSO is not in Team Edition.** SAML, Entra, Okta and OpenID are outside the
-  free tier, and the Enterprise binary's free "Entry" mode carries a message-
-  history cap. So in the alpha, humans authenticate to Mattermost with local
+- **SSO is not in Team Edition, and the consequence is worse than "alpha-only
+  inconvenience" (sharpened in v1.1.0).** SAML, Entra, Okta and OpenID are
+  outside the free tier, and the Enterprise binary's free "Entry" mode carries
+  a message-history cap. So humans authenticate to Mattermost with local
   accounts while the platform authenticates them by OIDC — **two identity
-  systems for the same people**, and nothing reconciles them. That is the
-  strongest argument against this decision and it is not a small one.
+  systems for the same people, with nothing reconciling them**.
+
+  That is not just a login annoyance: the callback proves a *Mattermost* user
+  id or email, and the expected-approver set comes from the platform's
+  *OIDC-known* people. Correlation is therefore only as strong as an email
+  string matching across two directories. That seam will refuse a legitimate
+  approval for the wrong reason, or accept one from a re-registered address,
+  and it is the most likely place this decision hurts a real deployment.
+  Reconciling the two directories is a prerequisite for using this beyond a
+  demo, not a nicety.
 - **A chat server is a large dependency** to run per tenant: an application and
   a database each, which is heavier than everything else we made per-tenant.
 - **We now have two answers to "where do humans talk"**, and somebody will run
@@ -124,6 +154,11 @@ Phase 5, WS-013 M4.
 - **Nothing has been run.** No daemon, no server, no bot token.
 - Rule 3 will be argued with: a deployment that only has a notify-capable
   bridge will want to approve through it anyway.
+- **Rule 6 is enforced on our side only.** Our bridge refuses cross-tenant
+  work, but Team Edition has no tenancy of its own, so nothing stops an
+  operator pointing two tenants at one server. A per-tenant chat server is a
+  large thing to run, which makes that shortcut tempting, and the refusal is
+  declared rather than verified against the server.
 
 ## Alternatives considered
 - **OpenClaw gateway first** — the better long-run answer, since people keep
@@ -150,4 +185,5 @@ network. All against a fake server.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Corrected the approval mechanism (interactive message actions, not a `trigger_id` dialog an agent cannot obtain), qualified "authenticated" down to an echoed shared secret, and sharpened the two-directory identity seam from an alpha inconvenience to a prerequisite. |
 | 1.0.0 | 2026-09-20 | Accepted. Channel bridge port; Mattermost Team Edition first, OpenClaw second; approval requires an authenticated click. |
