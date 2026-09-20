@@ -238,3 +238,29 @@ def test_diff_refuses_a_user_without_read_access(client, system):
     widen(client, system)
     assert client.get(f"/api/designer/systems/{system}/diff",
                       headers=MALLORY).status_code == 403
+
+
+# -- the palette can place what the canvas can draw ------------------------
+
+
+def test_the_palette_offers_a_mission(client):
+    """The canvas drew a mission capsule that nobody could place.
+
+    A vocabulary the palette cannot produce is a drawing, not an editor — the
+    visual pass surfaced this, and it is a one-entry gap rather than a design
+    question (ADR-0039).
+    """
+    groups = client.get("/api/designer/palette").json()["groups"]
+    kinds = {k["kind"]: k for g in groups for k in g.get("kinds", [])}
+    assert "mission" in kinds
+
+
+def test_a_mission_must_declare_when_it_ends(client):
+    # A mission that never ends is a reorganization and belongs in the org
+    # chart, so the form cannot let somebody omit the date.
+    groups = client.get("/api/designer/palette").json()["groups"]
+    kinds = {k["kind"]: k for g in groups for k in g.get("kinds", [])}
+    fields = {f["name"]: f for f in kinds["mission"]["fields"]}
+    assert fields["ends_on"]["required"] is True
+    assert fields["objective"]["required"] is True
+    assert "leader" in fields and "members" in fields

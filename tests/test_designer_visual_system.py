@@ -187,9 +187,14 @@ def test_the_rail_calls_the_two_routes_it_was_given(app_js):
 
 
 def test_absence_is_absence_and_not_a_broken_panel(app_js):
+    # Intent, not mechanism: whatever the transport, a review route that has
+    # nothing to say must yield null rather than propagate. The rail went in
+    # before its routes existed and used a bare fetch to dodge a test; it now
+    # uses `dapi` like every other call, so assert on the behaviour instead.
     body = app_js.split("async function consequence(")[1][:600]
-    assert "if (!res.ok) return null" in body
+    assert "return null" in body
     assert "catch" in body
+    assert "dapi(" in body
     # Nothing to say means an empty rail, not an error state.
     assert "if (!verdict && !changes.length) return host.replaceChildren();" in app_js
 

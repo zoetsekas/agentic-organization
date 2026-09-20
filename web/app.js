@@ -576,11 +576,11 @@ function renderAgentSide() {
 const DESIGNER_API = "/api/designer";
 
 async function consequence(path) {
+  // The review routes report on the open design; a design mid-edit legitimately
+  // has nothing to say (422 while it does not compile, 404 before it is saved),
+  // and that is an empty rail rather than an error the user must dismiss.
   try {
-    const res = await fetch(DESIGNER_API + path,
-      { headers: { "Content-Type": "application/json" } });
-    if (!res.ok) return null;       // 404 while the route is not yet there
-    return await res.json();
+    return await dapi(path);
   } catch {
     return null;
   }

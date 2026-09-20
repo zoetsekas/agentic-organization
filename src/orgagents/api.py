@@ -1516,6 +1516,26 @@ PALETTE: dict[str, Any] = {
                      {"name": "shared_service", "type": "bool"},
                      {"name": "humans", "type": "humans"},
                  ]},
+                # A mission is a short-lived team drawn from the standing
+                # organization (ADR-0039). It was missing here, so the canvas
+                # could draw one and nobody could place one — the end date is
+                # required because a mission that never ends is a
+                # reorganization and belongs in the org chart.
+                {"kind": "mission", "label": "Mission", "icon": "◍",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "name", "type": "string"},
+                     {"name": "objective", "type": "text", "required": True},
+                     {"name": "deliverables", "type": "list"},
+                     {"name": "leader", "type": "string",
+                      "help": "agent id; must also be a member"},
+                     {"name": "members", "type": "list",
+                      "help": "agent ids drawn from the standing organization"},
+                     {"name": "starts_on", "type": "string", "help": "ISO date"},
+                     {"name": "ends_on", "type": "string", "required": True,
+                      "help": "ISO date; a mission always ends"},
+                     {"name": "success_criteria", "type": "list"},
+                 ]},
                 {"kind": "subagent", "label": "Sub-agent", "icon": "◇",
                  "fields": [
                      {"name": "id", "type": "string", "required": True},
