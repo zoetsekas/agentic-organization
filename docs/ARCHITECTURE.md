@@ -23,6 +23,12 @@ its targets, not the centre.
 ├───────────────────────────────────────────────────────────────────┤
 │  Human routing (humans.py)     — availability, SLA, escalation    │
 ├───────────────────────────────────────────────────────────────────┤
+│  Memory (memory.py)            — session tier · long-term tier ·  │
+│                                  classified namespaces, promotion │
+├───────────────────────────────────────────────────────────────────┤
+│  Sub-agents (runtime/          — tool-shaped workers, narrow-only │
+│   subagents.py)                  inheritance from the parent      │
+├───────────────────────────────────────────────────────────────────┤
 │  Records (records.py, docs/)   — ADR + workstream governance      │
 ├═══════════════════════════════════════════════════════════════════┤
 │  Agentic Designer UI  (web/)   — org chart · designer · market ·  │
@@ -90,6 +96,21 @@ available, the response SLA, the escalation chain and the data it may never
 carry. `humans.py` turns that into a routing plan: when to deliver, when the
 SLA expires, and who is notified at what time. One generated bridge per channel
 holds the workspace credential.
+
+## Memory and sub-agents
+
+**Memory** (ADR-0028) has two tiers. Session memory is private to one session
+and always expires. Long-term memory lives in namespaces with a sharing scope,
+so recall is governed by the classification rules in ADR-0017 rather than by a
+second ACL model. Promotion from one to the other requires policy permission,
+namespace compatibility, read access to the class and — where configured — a
+human. `MemoryManager` enforces all of it; the runtime exposes it as tools and
+pre-loads on automatic recall.
+
+**Sub-agents** (ADR-0027) are tools, not org members. They are declared inline,
+resolved with narrow-only inheritance from the parent's capabilities, tools,
+knowledge and environment, and invoked as `subagent_<id>` with their calls
+logged into the parent's session. Naming nothing means reaching nothing.
 
 ## Governance artifacts
 

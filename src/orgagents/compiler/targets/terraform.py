@@ -61,6 +61,8 @@ PROFILES: dict[str, ProviderProfile] = {
             "event_subscription": "google_eventarc_trigger",
             "channel_bridge": "google_cloud_run_v2_service",
             "knowledge_index": "google_discovery_engine_data_store",
+            "memory_store": "google_firestore_database",
+            "agent_endpoint": "google_service_networking_connection",
         },
         schedule_field="schedule",
         timezone_field="time_zone",
@@ -88,6 +90,8 @@ PROFILES: dict[str, ProviderProfile] = {
             "event_subscription": "aws_cloudwatch_event_rule",
             "channel_bridge": "aws_ecs_service",
             "knowledge_index": "aws_kendra_index",
+            "memory_store": "aws_dynamodb_table",
+            "agent_endpoint": "aws_vpc_endpoint",
         },
         schedule_field="schedule_expression",
         timezone_field="schedule_expression_timezone",
@@ -115,6 +119,8 @@ PROFILES: dict[str, ProviderProfile] = {
             "event_subscription": "azurerm_eventgrid_event_subscription",
             "channel_bridge": "azurerm_container_app",
             "knowledge_index": "azurerm_search_service",
+            "memory_store": "azurerm_cosmosdb_account",
+            "agent_endpoint": "azurerm_private_endpoint",
         },
         schedule_field="schedule",
         timezone_field="time_zone",
@@ -457,6 +463,27 @@ locals {{
   secret_id = "{channel.bot_identity_ref}"
 }}'''
                 )
+        if ir.memory.long_term.enabled:
+            namespaces = ", ".join(n.id for n in ir.memory.namespaces) or "none"
+            blocks.append(
+                f'''resource "{p.resources["memory_store"]}" "long_term_memory" {{
+  # Long-term agent memory (ADR-0028); namespaces: {namespaces}
+  # retention: {ir.memory.long_term.retention_days or "unbounded"} days,
+  # promotion from a session: {ir.memory.long_term.promotion_allowed}
+  name             = "{ir.name}-memory"
+  {p.region_variable} = var.{p.region_variable}
+}}'''
+            )
+        for endpoint in {e.id: e for a in ir.agents for e in a.endpoints}.values():
+            blocks.append(
+                f'''resource "{p.resources["agent_endpoint"]}" "{_tf_name(endpoint.id)}" {{
+  # External agent '{endpoint.id}' — trust: {endpoint.trust.value} (ADR-0030)
+  # may be sent: {", ".join(endpoint.send_data_classes) or "nothing"}
+  # answers are data, never instructions: {endpoint.treat_output_as_data}
+  name             = "endpoint-{endpoint.id}"
+  {p.region_variable} = var.{p.region_variable}
+}}'''
+            )
         for source in ir.knowledge:
             blocks.append(
                 f'''resource "{p.resources["knowledge_index"]}" "{_tf_name(source.id)}" {{

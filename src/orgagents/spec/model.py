@@ -25,9 +25,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-SPEC_VERSION = "1.0.0"
+SPEC_VERSION = "1.1.0"
 
 
 # --------------------------------------------------------------------------
@@ -115,6 +115,56 @@ class ChannelClass(str, Enum):
     TEAM_CHAT = "team_chat"              # human-facing chat surface
     MAIL = "mail"
     WEBHOOK = "webhook"
+
+
+class HumanRole(str, Enum):
+    """Why a person is paired with an agent (ADR-0026).
+
+    An agent answers to several people in different capacities: one is
+    accountable for it, others approve specific actions, review its output, or
+    are simply told what it did.
+    """
+
+    OWNER = "owner"              # accountable; exactly one per agent
+    APPROVER = "approver"        # decides on gated actions
+    REVIEWER = "reviewer"        # reviews output, does not gate it
+    ESCALATION = "escalation"    # contacted when the owner does not answer
+    OPERATOR = "operator"        # runs and maintains it day to day
+    STAKEHOLDER = "stakeholder"  # informed, no decision rights
+
+
+class SubAgentKind(str, Enum):
+    """What a tool-shaped sub-agent is for (ADR-0027)."""
+
+    RESEARCH = "research"
+    REVIEW = "review"
+    SUMMARIZE = "summarize"
+    EXTRACT = "extract"
+    CRITIQUE = "critique"
+    PLAN = "plan"
+    VERIFY = "verify"
+    CUSTOM = "custom"
+
+
+class EndpointTrust(str, Enum):
+    """How far an external agent endpoint is trusted (ADR-0030)."""
+
+    INTERNAL = "internal"    # another team's agent in this organization
+    PARTNER = "partner"      # a contracted third party
+    EXTERNAL = "external"    # anything else; treated as hostile input
+
+
+class MemoryTier(str, Enum):
+    """Where a memory lives (ADR-0028)."""
+
+    SESSION = "session"        # short term, scoped to one session
+    LONG_TERM = "long_term"    # survives sessions, recalled into them
+
+
+class RecallMode(str, Enum):
+    NONE = "none"
+    ON_DEMAND = "on_demand"    # the agent asks
+    AUTOMATIC = "automatic"    # relevant memories are pre-loaded
 
 
 class TriggerKind(str, Enum):
@@ -374,14 +424,185 @@ class RoleAssignment(BaseModel):
         return cls(role=value) if isinstance(value, str) else value
 
 
+class WorkingHours(BaseModel):
+    """When the humans on a channel are actually available."""
+
+    timezone: str = "UTC"
+    days: list[int] = Field(default_factory=lambda: [1, 2, 3, 4, 5])  # 1=Monday
+    start_hour: int = 9
+    end_hour: int = 17
+    holidays: list[str] = Field(default_factory=list)   # ISO dates
+
+
+class SkillSpec(BaseModel):
+    """A packaged capability pack an agent can hold (ADR-0029).
+
+    A skill is instructions plus optional resources — it changes how an agent
+    works, not what it may reach. Access always comes from capabilities.
+    """
+
+    id: str
+    description: str = ""
+    version: str = "0.1.0"
+    instructions: str = ""
+    triggers: list[str] = Field(default_factory=list)   # phrases that invoke it
+    # Capabilities the skill assumes; validated against the holder's grants.
+    requires_capabilities: list[str] = Field(default_factory=list)
+    resources: dict[str, str] = Field(default_factory=dict)
+
+
+class PluginSpec(BaseModel):
+    """An installable bundle of skills and tools (ADR-0029)."""
+
+    id: str
+    description: str = ""
+    version: str = "0.1.0"
+    provides_skills: list[str] = Field(default_factory=list)
+    provides_tools: list[str] = Field(default_factory=list)
+    requires_capabilities: list[str] = Field(default_factory=list)
+    # Lifecycle hooks by event name, resolved by the target.
+    hooks: dict[str, str] = Field(default_factory=dict)
+
+
+class ToolSpec(BaseModel):
+    """A named callable an agent sees, wrapping something else (ADR-0029).
+
+    A tool is a thin, reviewable wrapper: it narrows and names an underlying
+    capability, sub-agent, workflow or external endpoint. It never grants
+    anything its target does not already grant.
+    """
+
+    id: str
+    description: str = ""
+    wraps_kind: Literal["capability", "subagent", "workflow", "endpoint"] = "capability"
+    wraps: str = ""
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    output_schema: dict[str, Any] = Field(default_factory=dict)
+    # Constraints applied on top of the wrapped thing's own constraints.
+    constraints: "CapabilityConstraint" = Field(default_factory=lambda: CapabilityConstraint())
+    idempotent: bool = True
+
+
+class SubAgentSpec(BaseModel):
+    """A task-scoped worker an agent calls like a tool (ADR-0027).
+
+    A sub-agent is not an org member: it has no reporting line, no human
+    counterpart of its own, no session URL and no memory beyond the call. It
+    runs under its parent's identity with a **narrowed** set of that parent's
+    capabilities, returns a result, and is gone.
+    """
+
+    id: str
+    name: str = ""
+    kind: SubAgentKind = SubAgentKind.CUSTOM
+    purpose: str = ""
+    instructions: str = ""
+    # Must be a subset of the calling agent's capabilities; validated.
+    capabilities: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    knowledge: list[str] = Field(default_factory=list)
+    environment: Optional[str] = None       # environment class id, if it executes
+    returns: str = ""                       # what the caller gets back
+    max_turns: int = 8
+    max_runtime_seconds: int = 300
+    parallel_safe: bool = True
+
+
+class AgentEndpoint(BaseModel):
+    """An agent outside this system that ours may call (ADR-0030).
+
+    The agentic workforce reaches past one organization. An endpoint is a
+    declared, trust-classified boundary: what it offers, what we may send it,
+    and what its answers are worth.
+    """
+
+    id: str
+    description: str = ""
+    trust: EndpointTrust = EndpointTrust.EXTERNAL
+    provides: list[str] = Field(default_factory=list)      # capability ids offered
+    # Data classes we are permitted to send outward.
+    send_data_classes: list[str] = Field(default_factory=list)
+    # Answers from anything but `internal` are untrusted input, never instructions.
+    treat_output_as_data: bool = True
+    requires_approval: bool = False
+    response_sla_seconds: Optional[int] = None
+    secret_ref: Optional[str] = None
+
+
+class MemoryPolicy(BaseModel):
+    """How one memory tier behaves (ADR-0028)."""
+
+    tier: MemoryTier = MemoryTier.SESSION
+    enabled: bool = True
+    # Classes of data this tier may hold; anything else is refused.
+    data_classes: list[str] = Field(default_factory=list)
+    retention_days: Optional[int] = None       # None = for the session only
+    max_items: int = 500
+    recall: RecallMode = RecallMode.ON_DEMAND
+    # Long-term only: may a session promote a memory into this tier, and does
+    # promotion need a human to agree?
+    promotion_allowed: bool = False
+    promotion_requires_approval: bool = False
+    redact_data_classes: list[str] = Field(default_factory=list)
+
+
+class Memory(BaseModel):
+    """The two-tier memory contract for the system (ADR-0028)."""
+
+    session: MemoryPolicy = Field(
+        default_factory=lambda: MemoryPolicy(tier=MemoryTier.SESSION)
+    )
+    long_term: MemoryPolicy = Field(
+        default_factory=lambda: MemoryPolicy(
+            tier=MemoryTier.LONG_TERM, retention_days=365, promotion_allowed=True
+        )
+    )
+    # Namespaces long-term memory is partitioned into, each with a scope.
+    namespaces: list["MemoryNamespace"] = Field(default_factory=list)
+
+
+class MemoryNamespace(BaseModel):
+    """A partition of long-term memory, scoped like any other data."""
+
+    id: str
+    description: str = ""
+    scope: SharingScope = SharingScope.PRIVATE
+    groups: list[str] = Field(default_factory=list)
+    data_classes: list[str] = Field(default_factory=list)
+    retention_days: Optional[int] = None
+
+
+class AgentMemoryOverride(BaseModel):
+    """An agent's narrowing of the system memory contract."""
+
+    session_retention_minutes: Optional[int] = None
+    long_term_enabled: bool = True
+    namespaces: list[str] = Field(default_factory=list)
+    recall: Optional[RecallMode] = None
+    may_promote: bool = True
+
+
 class HumanCounterpart(BaseModel):
-    """The accountable person behind an agent."""
+    """A person paired with an agent, in a named capacity (ADR-0026).
+
+    An agent has one `owner` and may have any number of approvers, reviewers,
+    escalation contacts, operators and stakeholders. Pairing is many-to-many:
+    one person can be the owner of several agents and a reviewer on others.
+    """
 
     name: str
     contact: str
     role_title: str = ""
+    roles: list[HumanRole] = Field(default_factory=lambda: [HumanRole.OWNER])
     approves: list[str] = Field(default_factory=list)   # capability/action ids
     notify_on: list[ChannelClass] = Field(default_factory=lambda: [ChannelClass.MAIL])
+    # The channel this person prefers to be reached on, if not the default.
+    channel: Optional[str] = None
+    working_hours: Optional["WorkingHours"] = None
+
+    @property
+    def is_owner(self) -> bool:
+        return HumanRole.OWNER in self.roles
 
 
 class AgentSpec(BaseModel):
@@ -391,10 +612,19 @@ class AgentSpec(BaseModel):
     name: str = ""
     description: str = ""
     roles: list[RoleAssignment] = Field(default_factory=list)
-    human: Optional[HumanCounterpart] = None
+    # One or more paired humans; exactly one carries the `owner` role.
+    humans: list[HumanCounterpart] = Field(default_factory=list)
     environment: Optional[EnvironmentOverride] = None
     capabilities: list[str] = Field(default_factory=list)
     knowledge: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    plugins: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    # Tool-shaped workers this agent may call (ADR-0027).
+    subagents: list[SubAgentSpec] = Field(default_factory=list)
+    # External agents this agent may reach (ADR-0030).
+    endpoints: list[str] = Field(default_factory=list)
+    memory: Optional[AgentMemoryOverride] = None
     workflows: list[str] = Field(default_factory=list)
     channels: list[ChannelClass] = Field(
         default_factory=lambda: [ChannelClass.DIRECT, ChannelClass.ASYNC_BUS]
@@ -413,6 +643,34 @@ class AgentSpec(BaseModel):
         if isinstance(v, list):
             return [RoleAssignment.coerce(item) for item in v]
         return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lift_single_human(cls, data: Any) -> Any:
+        """Accept the pre-1.1 `human:` field as a single owner pairing."""
+        if isinstance(data, dict) and data.get("human") and not data.get("humans"):
+            data = dict(data)
+            data["humans"] = [data.pop("human")]
+        return data
+
+    # -- pairing lookups ---------------------------------------------------
+
+    @property
+    def owner(self) -> Optional[HumanCounterpart]:
+        return next((h for h in self.humans if HumanRole.OWNER in h.roles), None)
+
+    def humans_with(self, role: HumanRole) -> list[HumanCounterpart]:
+        return [h for h in self.humans if role in h.roles]
+
+    def approvers_for(self, action: str) -> list[HumanCounterpart]:
+        """Who may approve this action; an approver with no list approves all."""
+        approvers = self.humans_with(HumanRole.APPROVER)
+        named = [h for h in approvers if action in h.approves]
+        return named or [h for h in approvers if not h.approves]
+
+    @property
+    def approval_required_for(self) -> list[str]:
+        return sorted({a for h in self.humans for a in h.approves})
 
 
 class Team(BaseModel):
@@ -446,6 +704,9 @@ class Team(BaseModel):
 
 
 Team.model_rebuild()
+HumanCounterpart.model_rebuild()
+Memory.model_rebuild()
+ToolSpec.model_rebuild()
 
 
 class Cadence(BaseModel):
@@ -505,16 +766,6 @@ class WorkflowSpec(BaseModel):
     graph: dict[str, Any] = Field(default_factory=dict)
     interrupt_before: list[str] = Field(default_factory=list)
     inputs: dict[str, Any] = Field(default_factory=dict)
-
-
-class WorkingHours(BaseModel):
-    """When the humans on a channel are actually available."""
-
-    timezone: str = "UTC"
-    days: list[int] = Field(default_factory=lambda: [1, 2, 3, 4, 5])  # 1=Monday
-    start_hour: int = 9
-    end_hour: int = 17
-    holidays: list[str] = Field(default_factory=list)   # ISO dates
 
 
 class EscalationStep(BaseModel):
@@ -687,6 +938,11 @@ class SystemSpec(BaseModel):
     roles: list[Role] = Field(default_factory=list)
     policies: list[PolicyRule] = Field(default_factory=list)
     organization: Team = Field(default_factory=lambda: Team(id="root", name="root"))
+    skills: list[SkillSpec] = Field(default_factory=list)
+    plugins: list[PluginSpec] = Field(default_factory=list)
+    tools: list[ToolSpec] = Field(default_factory=list)
+    endpoints: list[AgentEndpoint] = Field(default_factory=list)
+    memory: Memory = Field(default_factory=Memory)
     workflows: list[WorkflowSpec] = Field(default_factory=list)
     channels: list[ChannelSpec] = Field(default_factory=list)
     triggers: list[TriggerSpec] = Field(default_factory=list)
@@ -738,3 +994,26 @@ class SystemSpec(BaseModel):
 
     def flows_from(self, agent_id: str) -> list[InteractionFlow]:
         return [f for f in self.interaction_flows if f.source == agent_id]
+
+    def skill(self, skill_id: str) -> Optional[SkillSpec]:
+        return next((s for s in self.skills if s.id == skill_id), None)
+
+    def plugin(self, plugin_id: str) -> Optional[PluginSpec]:
+        return next((p for p in self.plugins if p.id == plugin_id), None)
+
+    def tool(self, tool_id: str) -> Optional[ToolSpec]:
+        return next((t for t in self.tools if t.id == tool_id), None)
+
+    def endpoint(self, endpoint_id: str) -> Optional[AgentEndpoint]:
+        return next((e for e in self.endpoints if e.id == endpoint_id), None)
+
+    def namespace(self, namespace_id: str) -> Optional[MemoryNamespace]:
+        return next((n for n in self.memory.namespaces if n.id == namespace_id), None)
+
+    def humans(self) -> dict[str, list[str]]:
+        """Every paired person, and the agents they are paired with."""
+        pairs: dict[str, list[str]] = {}
+        for agent in self.agents():
+            for human in agent.humans:
+                pairs.setdefault(human.contact, []).append(agent.id)
+        return pairs

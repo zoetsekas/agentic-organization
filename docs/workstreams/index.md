@@ -18,10 +18,14 @@
 | [WS-013](WS-013-human-channels-and-hitl.md) | Human channels, approval routing and declared interaction flows | Active | 1.0.0 | Product | ADR-0021, ADR-0024 | WS-005, WS-011 |
 | [WS-014](WS-014-enterprise-registry-and-lifecycle.md) | Enterprise governance — registry, lifecycle gates, evaluations, budgets, compliance | Active | 1.0.0 | Security Engineering | ADR-0022 | WS-004, WS-005, WS-011 |
 | [WS-015](WS-015-knowledge-grounding.md) | Knowledge grounding sources and retrieval | Proposed | 1.0.0 | Data Platform | ADR-0023 | WS-005, WS-011 |
+| [WS-016](WS-016-human-pairing.md) | Human pairing and accountability | Active | 1.0.0 | Product | ADR-0026 | WS-013 |
+| [WS-017](WS-017-subagents-as-tools.md) | Sub-agents as tools | Active | 1.0.0 | Platform Architecture | ADR-0027 | WS-005 |
+| [WS-018](WS-018-memory-management.md) | Memory management — session and long term | Active | 1.0.0 | Platform Architecture | ADR-0028 | WS-004, WS-005 |
+| [WS-019](WS-019-agent-capability-bundle.md) | Agent capability bundle — skills, plugins, tools and external endpoints | Active | 1.0.0 | Platform Architecture | ADR-0029, ADR-0030 | WS-005, WS-004 |
 
 ## By status
 
-- **Active** — [WS-002](WS-002-system-spec-language.md), [WS-003](WS-003-organization-and-roles.md), [WS-004](WS-004-security-model.md), [WS-005](WS-005-compiler-core.md), [WS-006](WS-006-local-deployment-target.md), [WS-008](WS-008-runtime-adapters-and-harness.md), [WS-009](WS-009-designer-ui-and-sdk.md), [WS-012](WS-012-scheduling-and-triggers.md), [WS-013](WS-013-human-channels-and-hitl.md), [WS-014](WS-014-enterprise-registry-and-lifecycle.md)
+- **Active** — [WS-002](WS-002-system-spec-language.md), [WS-003](WS-003-organization-and-roles.md), [WS-004](WS-004-security-model.md), [WS-005](WS-005-compiler-core.md), [WS-006](WS-006-local-deployment-target.md), [WS-008](WS-008-runtime-adapters-and-harness.md), [WS-009](WS-009-designer-ui-and-sdk.md), [WS-012](WS-012-scheduling-and-triggers.md), [WS-013](WS-013-human-channels-and-hitl.md), [WS-014](WS-014-enterprise-registry-and-lifecycle.md), [WS-016](WS-016-human-pairing.md), [WS-017](WS-017-subagents-as-tools.md), [WS-018](WS-018-memory-management.md), [WS-019](WS-019-agent-capability-bundle.md)
 - **Complete** — [WS-001](WS-001-records-and-governance.md), [WS-011](WS-011-landscape-and-capability-roadmap.md)
 - **Proposed** — [WS-007](WS-007-cloud-terraform-targets.md), [WS-010](WS-010-observability-and-operations.md), [WS-015](WS-015-knowledge-grounding.md)
 

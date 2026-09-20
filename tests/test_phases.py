@@ -45,8 +45,43 @@ def test_definition_gaps_are_named_with_a_fix(spec):
 
 def test_agent_without_a_human_fails_the_definition_phase(spec):
     broken = spec.model_copy(deep=True)
-    broken.agent("analyst").human = None
+    broken.agent("analyst").humans = []
     assert "agents_have_humans" in {c.id for c in review(broken).failures("definition")}
+
+
+def test_agent_without_an_owner_fails_the_definition_phase(spec):
+    """Pairing several humans is not enough; one must be accountable."""
+    from orgagents.spec.model import HumanRole
+
+    broken = spec.model_copy(deep=True)
+    for human in broken.agent("analyst").humans:
+        human.roles = [HumanRole.REVIEWER]
+    assert "agents_have_one_owner" in {
+        c.id for c in review(broken).failures("definition")
+    }
+
+
+def test_long_term_memory_without_a_namespace_fails(spec):
+    broken = spec.model_copy(deep=True)
+    broken.memory.namespaces = []
+    assert "memory_namespaces_declared" in {
+        c.id for c in review(broken).failures("definition")
+    }
+
+
+def test_session_memory_masquerading_as_long_term_fails(spec):
+    broken = spec.model_copy(deep=True)
+    broken.memory.session.retention_days = 90
+    assert "session_memory_is_short_term" in {
+        c.id for c in review(broken).failures("definition")
+    }
+
+
+def test_unbound_memory_store_fails_the_implementation_phase(spec, binding):
+    partial = binding.model_copy(deep=True)
+    partial.for_target("local").memory = None
+    report = review(spec, binding=partial, target="local")
+    assert "memory_store_bound" in {c.id for c in report.failures("implementation")}
 
 
 def test_approval_without_a_channel_fails(spec):

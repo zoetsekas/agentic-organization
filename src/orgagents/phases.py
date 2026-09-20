@@ -21,7 +21,14 @@ from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 from .spec.binding import Binding, TargetBinding
-from .spec.model import ChannelPurpose, LifecycleStage, SystemSpec, TriggerKind
+from .spec.model import (
+    ChannelPurpose,
+    EndpointTrust,
+    HumanRole,
+    LifecycleStage,
+    SystemSpec,
+    TriggerKind,
+)
 from .spec.validate import validate_spec
 
 Phase = Literal["definition", "implementation"]
@@ -124,11 +131,38 @@ def review_definition(spec: SystemSpec, report: PhaseReport) -> None:
            f"no role assigned: {roleless}",
            "assign a role; a role is what states the agent's accountability")
 
-    humanless = [a.id for a in agents if a.human is None]
-    _check(report, "definition", not humanless, "agents_have_humans",
-           "Every agent has a human counterpart",
-           f"no human counterpart: {humanless}",
-           "name the accountable person; agents do not own their own outcomes")
+    # -- human pairing (ADR-0026) -----------------------------------------
+    unpaired = [a.id for a in agents if not a.humans]
+    _check(report, "definition", not unpaired, "agents_have_humans",
+           "Every agent is paired with at least one human",
+           f"paired with nobody: {unpaired}",
+           "pair the people this agent answers to; agents do not own their outcomes")
+
+    ownerless = [a.id for a in agents if a.humans and not a.owner]
+    _check(report, "definition", not ownerless, "agents_have_one_owner",
+           "Every agent has exactly one accountable owner",
+           f"no owner among the paired humans: {ownerless}",
+           "give exactly one paired human the `owner` role")
+
+    gated_without_approver = [
+        a.id for a in agents
+        if a.approval_required_for and not a.humans_with(HumanRole.APPROVER)
+    ]
+    _check(report, "definition", not gated_without_approver,
+           "gated_actions_have_approvers",
+           "Gated actions have someone who can approve them",
+           f"gates actions but pairs no approver: {gated_without_approver}",
+           "pair an approver, or the agent stops at its own gate")
+
+    lonely = [
+        a.id for a in agents
+        if len(a.humans) == 1 and not a.humans_with(HumanRole.ESCALATION)
+    ]
+    _check(report, "definition", not lonely, "agents_have_a_fallback_human",
+           "Every agent has someone beyond its owner",
+           f"only one paired human and no escalation contact: {lonely}",
+           "pair an escalation contact; one person is a single point of failure",
+           soft=True)
 
     empty_roles = [r.id for r in spec.roles if not r.responsibilities]
     _check(report, "definition", not empty_roles, "roles_have_responsibilities",
@@ -187,9 +221,9 @@ def review_definition(spec: SystemSpec, report: PhaseReport) -> None:
     approval_channels = [
         c for c in human_channels if ChannelPurpose.APPROVE in (c.purposes or [])
     ]
-    needs_approval = any(
-        a.human and a.human.approves for a in agents
-    ) or any(t.requires_approval for t in spec.triggers)
+    needs_approval = any(a.approval_required_for for a in agents) or any(
+        t.requires_approval for t in spec.triggers
+    )
     _check(report, "definition", not needs_approval or bool(approval_channels),
            "approval_route_exists", "Approvals have a channel to land on",
            "approvals are required but no channel serves `approve`",
@@ -221,6 +255,64 @@ def review_definition(spec: SystemSpec, report: PhaseReport) -> None:
            "Spend is bounded",
            "no budget is declared",
            "declare a budget with an action on breach; no agent gets unbounded spend")
+
+    # -- sub-agents, tools and endpoints (ADR-0027, 0029, 0030) -----------
+    unclear_subagents = [
+        f"{a.id}/{sub.id}" for a in agents for sub in a.subagents if not sub.returns
+    ]
+    _check(report, "definition", not unclear_subagents, "subagents_declare_returns",
+           "Every sub-agent says what it returns",
+           f"no declared return: {unclear_subagents}",
+           "a sub-agent is a tool; say what the caller gets back", soft=True)
+
+    # A critique or summarize sub-agent works on text it is handed and needs
+    # nothing; one that goes looking for information does.
+    from .spec.model import SubAgentKind
+
+    needs_access = {SubAgentKind.RESEARCH, SubAgentKind.EXTRACT, SubAgentKind.VERIFY}
+    wide_subagents = [
+        f"{a.id}/{sub.id}" for a in agents for sub in a.subagents
+        if sub.kind in needs_access
+        and not (sub.capabilities or sub.tools or sub.knowledge)
+    ]
+    _check(report, "definition", not wide_subagents, "subagents_are_scoped",
+           "Sub-agents that go looking for information name their sources",
+           f"a {'/'.join(k.value for k in needs_access)} sub-agent with no "
+           f"capabilities, tools or knowledge reaches nothing: {wide_subagents}",
+           "name the capabilities, tools or knowledge the sub-agent needs",
+           soft=True)
+
+    ungated_external = [
+        e.id for e in spec.endpoints
+        if e.trust is EndpointTrust.EXTERNAL and not e.requires_approval
+    ]
+    _check(report, "definition", not ungated_external, "external_endpoints_gated",
+           "External agent endpoints require approval",
+           f"callable without approval: {ungated_external}",
+           "gate calls out to agents you do not run")
+
+    # -- memory (ADR-0028) ------------------------------------------------
+    _check(report, "definition",
+           not spec.memory.long_term.enabled or bool(spec.memory.namespaces),
+           "memory_namespaces_declared",
+           "Long-term memory has somewhere to live",
+           "long-term memory is enabled but no namespace is declared",
+           "declare namespaces; memory without a scope cannot be governed")
+
+    unscoped = [n.id for n in spec.memory.namespaces if not n.data_classes]
+    _check(report, "definition", not unscoped, "memory_namespaces_classified",
+           "Every memory namespace states what it may hold",
+           f"no data classes declared: {unscoped}",
+           "classify what the namespace stores, as you would any other data",
+           soft=True)
+
+    _check(report, "definition",
+           spec.memory.session.retention_days is None
+           or spec.memory.session.retention_days <= 7,
+           "session_memory_is_short_term",
+           "Session memory is actually short term",
+           f"session retention is {spec.memory.session.retention_days} days",
+           "long retention makes it long-term memory; govern it as such")
 
     regulated = [d.id for d in spec.data_classes if not d.may_leave_region]
     _check(report, "definition",
@@ -318,6 +410,23 @@ def review_implementation(
                "The region satisfies the declared residency",
                f"region '{infra.region}' is not in {allowed}",
                "choose a region inside the declared residency")
+
+    unbound_endpoints = [
+        e.id for e in spec.endpoints
+        if e.secret_ref and e.secret_ref not in {
+            c.dsn_secret_ref for c in bound.capabilities if c.dsn_secret_ref
+        } and bound.secrets_backend == ""
+    ]
+    _check(report, "implementation", not unbound_endpoints, "endpoint_secrets_backed",
+           "External endpoint credentials have a backend",
+           f"no secrets backend for: {unbound_endpoints}",
+           "set `secrets_backend` so endpoint credentials resolve")
+
+    _check(report, "implementation",
+           not spec.memory.long_term.enabled or bool(bound.memory),
+           "memory_store_bound", "Long-term memory has a store",
+           "long-term memory is enabled but no store is bound",
+           "set `memory` on the target binding (ADR-0028)")
 
     _check(report, "implementation", bool(bound.observability_sink),
            "observability_bound", "An observability sink is selected",

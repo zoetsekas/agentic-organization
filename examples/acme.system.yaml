@@ -7,8 +7,8 @@
 
 metadata:
   name: acme
-  spec_version: "1.0.0"
-  version: "0.3.0"
+  spec_version: "1.1.0"
+  version: "0.4.0"
   description: Finance, technology and revenue agents mirroring Acme's org chart.
   owner: Acme Platform Team
   environment: development
@@ -284,11 +284,18 @@ organization:
       description: Routes company-wide requests and owns cross-function escalation.
       roles: [chief_executive]
       environment: {environment: reasoning}
-      human:
-        name: Dana Whitfield
-        contact: dana@acme.example
-        role_title: Chief Executive Officer
-        notify_on: [mail, team_chat]
+      humans:
+        - name: Dana Whitfield
+          contact: dana@acme.example
+          role_title: Chief Executive Officer
+          roles: [owner]
+          notify_on: [mail, team_chat]
+          channel: exec_briefing
+        - name: Nadia Okonjo
+          contact: nadia@acme.example
+          role_title: Chief of Staff
+          roles: [operator, escalation]
+          channel: exec_briefing
   teams:
     - id: finance
       name: Finance
@@ -305,11 +312,29 @@ organization:
           roles: [function_head]
           knowledge: [finance_handbook]
           environment: {environment: documents}
-          human:
-            name: Priya Raman
-            contact: priya@acme.example
-            role_title: Chief Financial Officer
-            approves: [pii_reconciliation]
+          humans:
+            - name: Priya Raman
+              contact: priya@acme.example
+              role_title: Chief Financial Officer
+              roles: [owner, approver]
+              approves: [pii_reconciliation]
+              channel: finance_approvals
+              working_hours: {timezone: Europe/London, start_hour: 8, end_hour: 18}
+            - name: Dana Whitfield
+              contact: dana@acme.example
+              role_title: Chief Executive Officer
+              roles: [escalation]
+              channel: exec_briefing
+          skills: [close_narrative]
+          plugins: [finance_pack]
+          subagents:
+            - id: pack_reviewer
+              name: close-pack-reviewer
+              kind: review
+              purpose: Review the close pack against the accounting policy.
+              returns: a list of concrete issues with severity
+              max_turns: 6
+              max_runtime_seconds: 300
         - id: analyst
           name: financial-analyst-agent
           description: Answers warehouse questions and drafts variance analysis.
@@ -317,20 +342,71 @@ organization:
           knowledge: [finance_handbook, company_glossary]
           environment: {environment: analysis, timeout_seconds: 600}
           workflows: [governed_data_request]
-          human:
-            name: Tom Becker
-            contact: tom@acme.example
-            role_title: Senior Analyst
+          skills: [sql_authoring, close_narrative]
+          tools: [warehouse_lookup, ask_market_research]
+          endpoints: [market_research_desk]
+          memory:
+            long_term_enabled: true
+            namespaces: [finance_lessons, query_patterns]
+            recall: automatic
+            may_promote: true
+          subagents:
+            - id: topic_research
+              name: topic-researcher
+              kind: research
+              purpose: Gather context on a metric or account before analysing it.
+              capabilities: [warehouse_query]
+              knowledge: [finance_handbook, company_glossary]
+              returns: a cited findings list
+              max_turns: 8
+              max_runtime_seconds: 300
+            - id: figure_check
+              name: figure-checker
+              kind: verify
+              purpose: Check every figure in a draft against the warehouse.
+              capabilities: [warehouse_query]
+              returns: each figure marked supported, contradicted or unverifiable
+              max_turns: 6
+              max_runtime_seconds: 240
+            - id: draft_critic
+              name: draft-critic
+              kind: critique
+              purpose: Argue the strongest case against a draft analysis.
+              returns: the weakest assumption and why it matters
+              max_turns: 4
+              max_runtime_seconds: 180
+          humans:
+            - name: Tom Becker
+              contact: tom@acme.example
+              role_title: Senior Analyst
+              roles: [owner]
+              channel: finance_approvals
+            - name: Priya Raman
+              contact: priya@acme.example
+              role_title: Chief Financial Officer
+              roles: [reviewer, escalation]
+              channel: finance_approvals
         - id: reconciler
           name: reconciliation-agent
           description: Reconciles customer identities inside the clean room.
           roles: [reconciliation_specialist]
           environment: {environment: isolated_review}
-          human:
-            name: Ana Silva
-            contact: ana@acme.example
-            role_title: Controller
-            approves: [pii_reconciliation]
+          memory:
+            long_term_enabled: false      # nothing from the clean room persists
+            may_promote: false
+          humans:
+            - name: Ana Silva
+              contact: ana@acme.example
+              role_title: Controller
+              roles: [owner, approver]
+              approves: [pii_reconciliation]
+              channel: finance_approvals
+            - name: Priya Raman
+              contact: priya@acme.example
+              role_title: Chief Financial Officer
+              roles: [approver, escalation]
+              approves: [pii_reconciliation]
+              channel: finance_approvals
     - id: technology
       name: Technology
       mandate:
@@ -344,10 +420,17 @@ organization:
           description: Owns engineering delivery and platform reliability.
           roles: [function_head]
           environment: {environment: reasoning}
-          human:
-            name: Iris Nakamura
-            contact: iris@acme.example
-            role_title: Chief Technology Officer
+          humans:
+            - name: Iris Nakamura
+              contact: iris@acme.example
+              role_title: Chief Technology Officer
+              roles: [owner]
+              channel: incidents
+            - name: Dana Whitfield
+              contact: dana@acme.example
+              role_title: Chief Executive Officer
+              roles: [escalation]
+              channel: exec_briefing
       teams:
         - id: platform
           name: Platform Engineering
@@ -362,20 +445,60 @@ organization:
               description: Leads platform delivery; reviews proposed changes.
               roles: [function_head]
               environment: {environment: reasoning}
-              human:
-                name: Samir Haddad
-                contact: samir@acme.example
-                role_title: Staff Engineer
+              knowledge: [engineering_runbooks, company_glossary]
+              skills: [incident_response]
+              humans:
+                - name: Samir Haddad
+                  contact: samir@acme.example
+                  role_title: Staff Engineer
+                  roles: [owner, approver]
+                  approves: [code_change]
+                  channel: change_review
+                - name: Iris Nakamura
+                  contact: iris@acme.example
+                  role_title: Chief Technology Officer
+                  roles: [escalation]
+                  channel: incidents
             - id: platform_engineer
               name: platform-engineer-agent
               description: Implements changes and opens pull requests.
               roles: [platform_engineer]
               environment: {environment: build}
-              human:
-                name: Jo Adeyemi
-                contact: jo@acme.example
-                role_title: Senior Engineer
-                approves: [code_change]
+              knowledge: [engineering_runbooks, company_glossary]
+              plugins: [engineering_pack]
+              subagents:
+                - id: change_reviewer
+                  name: change-reviewer
+                  kind: review
+                  purpose: Review a proposed diff before humans see it.
+                  knowledge: [engineering_runbooks]
+                  returns: blocking issues, then non-blocking suggestions
+                  max_turns: 8
+                  max_runtime_seconds: 600
+                - id: impact_research
+                  name: impact-researcher
+                  kind: research
+                  purpose: Find what else depends on the code being changed.
+                  knowledge: [engineering_runbooks]
+                  returns: a list of dependants with evidence
+                  max_turns: 6
+                  max_runtime_seconds: 300
+              memory:
+                long_term_enabled: true
+                namespaces: [engineering_lessons]
+                may_promote: true
+              humans:
+                - name: Jo Adeyemi
+                  contact: jo@acme.example
+                  role_title: Senior Engineer
+                  roles: [owner]
+                  channel: change_review
+                - name: Samir Haddad
+                  contact: samir@acme.example
+                  role_title: Staff Engineer
+                  roles: [approver, reviewer]
+                  approves: [code_change]
+                  channel: change_review
             - id: sre
               name: sre-agent
               description: Shared service; any agent may call it for incident triage.
@@ -383,10 +506,36 @@ organization:
               environment: {environment: integration}
               shared_service: true
               channels: [direct, async_bus, team_chat]
-              human:
-                name: Lena Fischer
-                contact: lena@acme.example
-                role_title: SRE Lead
+              knowledge: [engineering_runbooks]
+              skills: [incident_response]
+              subagents:
+                - id: incident_summary
+                  name: incident-summarizer
+                  kind: summarize
+                  purpose: Summarize an incident timeline for the bridge.
+                  returns: a timeline with impact, cause and current status
+                  max_turns: 4
+                  max_runtime_seconds: 180
+              memory:
+                long_term_enabled: true
+                namespaces: [engineering_lessons]
+                recall: automatic
+              humans:
+                - name: Lena Fischer
+                  contact: lena@acme.example
+                  role_title: SRE Lead
+                  roles: [owner, operator]
+                  channel: incidents
+                - name: Samir Haddad
+                  contact: samir@acme.example
+                  role_title: Staff Engineer
+                  roles: [escalation]
+                  channel: incidents
+                - name: Iris Nakamura
+                  contact: iris@acme.example
+                  role_title: Chief Technology Officer
+                  roles: [escalation, stakeholder]
+                  channel: incidents
     - id: revenue
       name: Revenue
       mandate:
@@ -401,10 +550,118 @@ organization:
           roles: [function_head]
           environment: {environment: reasoning}
           peers: [cfo]
-          human:
-            name: Marco Oliveira
-            contact: marco@acme.example
-            role_title: Chief Revenue Officer
+          endpoints: [market_research_desk]
+          humans:
+            - name: Marco Oliveira
+              contact: marco@acme.example
+              role_title: Chief Revenue Officer
+              roles: [owner]
+              channel: exec_briefing
+            - name: Dana Whitfield
+              contact: dana@acme.example
+              role_title: Chief Executive Officer
+              roles: [escalation]
+              channel: exec_briefing
+
+skills:
+  - id: sql_authoring
+    description: Write safe, index-aware SQL against the warehouse.
+    instructions: >-
+      Always filter by period. Never select every column. Name the tables you
+      used in the answer so the reader can check it.
+    triggers: [query, metric, report]
+    requires_capabilities: [warehouse_query]
+  - id: close_narrative
+    description: Turn financial results into a narrative the board can act on.
+    instructions: >-
+      Lead with the variance against plan, then the drivers, then the asks.
+      Never present an unsourced figure.
+    triggers: [close, board deck, variance]
+  - id: incident_response
+    description: Run the incident bridge — triage, comms, postmortem.
+    instructions: >-
+      Declare a severity first. Page a human for SEV1 and SEV2 before doing
+      anything else. Keep the bridge updated every fifteen minutes.
+    triggers: [incident, outage, sev]
+    requires_capabilities: [incident_signal]
+
+plugins:
+  - id: finance_pack
+    description: Period-close helpers for finance agents.
+    provides_skills: [close_narrative]
+    provides_tools: [warehouse_lookup]
+    requires_capabilities: [warehouse_query]
+  - id: engineering_pack
+    description: Change-management helpers for engineering agents.
+    provides_skills: [incident_response]
+    requires_capabilities: [code_change]
+
+tools:
+  # A tool is a thin wrapper that names and narrows something the agent already
+  # holds. It grants nothing new (ADR-0029).
+  - id: warehouse_lookup
+    description: Look up one metric for one period, already scoped and masked.
+    wraps_kind: capability
+    wraps: warehouse_query
+    input_schema: {metric: string, period: string}
+    output_schema: {value: number, source_tables: array}
+    constraints: {max_rows: 100, allowed_operations: [select]}
+  - id: ask_market_research
+    description: Ask the external market-research desk a question.
+    wraps_kind: endpoint
+    wraps: market_research_desk
+    input_schema: {question: string}
+    output_schema: {answer: string, provenance: string}
+    constraints: {requires_approval: true}
+
+endpoints:
+  - id: market_research_desk
+    description: A contracted third-party research agent.
+    trust: partner
+    provides: [market_sizing, competitor_scan]
+    send_data_classes: [public_knowledge]
+    treat_output_as_data: true
+    requires_approval: true
+    response_sla_seconds: 600
+    secret_ref: RESEARCH_DESK_KEY
+
+memory:
+  session:
+    enabled: true
+    max_items: 200
+    recall: automatic
+    redact_data_classes: [customer_pii]
+  long_term:
+    enabled: true
+    retention_days: 365
+    max_items: 2000
+    recall: on_demand
+    promotion_allowed: true
+    promotion_requires_approval: false
+    redact_data_classes: [customer_pii]
+  namespaces:
+    - id: query_patterns
+      description: Query shapes that answered a question well.
+      scope: protected
+      groups: [finance]
+      data_classes: [finance_internal, public_knowledge]
+      retention_days: 365
+    - id: finance_lessons
+      description: What went wrong in a close, and what fixed it.
+      scope: protected
+      groups: [finance]
+      data_classes: [finance_internal]
+      retention_days: 730
+    - id: engineering_lessons
+      description: Incident causes, fixes and the changes that caused them.
+      scope: protected
+      groups: [engineering]
+      data_classes: [engineering_internal]
+      retention_days: 730
+    - id: company_facts
+      description: Durable facts any agent may rely on.
+      scope: public
+      data_classes: [public_knowledge]
 
 workflows:
   - id: governed_data_request

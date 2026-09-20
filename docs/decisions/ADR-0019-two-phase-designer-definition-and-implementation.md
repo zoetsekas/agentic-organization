@@ -2,7 +2,7 @@
 id: ADR-0019
 title: The designer has two explicit phases with a checkable gate between them
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-20
 updated: 2026-09-20
 deciders: [Platform Architecture, Product]
@@ -12,7 +12,7 @@ scope: [spec, compiler, ui, sdk, process]
 workstreams: [WS-011, WS-009, WS-005]
 supersedes: []
 superseded_by: []
-related: [ADR-0003, ADR-0004, ADR-0005, ADR-0022]
+related: [ADR-0003, ADR-0004, ADR-0005, ADR-0022, ADR-0026, ADR-0028]
 tags: [foundational, product]
 ---
 
@@ -59,13 +59,16 @@ enforceable process with named checks.
 
 ## Implementation
 `orgagents/phases.py` holds the checks as data: each has an id, a phase, a
-title, a detail and a **fix**. Definition checks cover ownership, roles,
-human counterparts, classification, placement, trigger delivery, approval
-routing, lifecycle gates, budgets and residency. Implementation checks cover
+title, a detail and a **fix**. Definition checks cover ownership, roles, human
+pairing (exactly one accountable owner, an approver for every gated action, a
+fallback contact), classification, placement, trigger delivery, approval
+routing, sub-agent scoping, external-endpoint gating, memory namespaces and
+retention, lifecycle gates, budgets and residency. Implementation checks cover
 binding completeness per target: capabilities, environments, channels,
 scheduler, knowledge, secrets backend, region, state backend and residency
-agreement. `orgagents phase <spec> [--binding B --target T]` prints both;
-exit status is non-zero on any failure.
+agreement. Implementation checks additionally cover the memory store binding.
+`orgagents phase <spec> [--binding B --target T]` prints both; exit status is
+non-zero on any failure.
 
 Some checks are warnings in development and errors in production, mirroring
 the least-privilege rules in ADR-0008.
@@ -109,4 +112,5 @@ and that every failure carries a fix.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-20 | Extended the check set for human pairing (ADR-0026), sub-agents (ADR-0027), memory (ADR-0028) and external endpoints (ADR-0030); `agents_have_humans` now means "paired with at least one human", with ownership checked separately. |
 | 1.0.0 | 2026-09-20 | Accepted. Two phases, mechanical gate, per-check fixes. |

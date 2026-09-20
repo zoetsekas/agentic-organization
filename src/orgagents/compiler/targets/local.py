@@ -47,7 +47,8 @@ class LocalTarget:
                        "fallback for hosts without a container runtime.",
             "produces": ["docker-compose.yaml", "Makefile", ".env.example",
                          "system.ir.json", "agents/*.json", "triggers.json",
-                         "channels.json", "REGISTRY.md", "run_local.py", "README.md"],
+                         "channels.json", "memory.json", "REGISTRY.md",
+                         "run_local.py", "README.md"],
             "caveats": ["Compose approximates network policy and cannot represent "
                         "cloud IAM; local runs do not verify those controls."],
         }
@@ -69,6 +70,8 @@ class LocalTarget:
                 [t.model_dump(mode="json") for t in ir.triggers], indent=2) + "\n"),
             GeneratedFile("channels.json", json.dumps(
                 [c.model_dump(mode="json") for c in ir.channels], indent=2) + "\n"),
+            GeneratedFile("memory.json", json.dumps(
+                ir.memory.model_dump(mode="json"), indent=2) + "\n"),
         ]
         for agent in ir.agents:
             files.append(
@@ -180,6 +183,30 @@ class LocalTarget:
                 "networks": ["control"],
                 "depends_on": ["state"],
                 "labels": {"org.agentic.triggers": str(len(ir.triggers))},
+            }
+
+        # Long-term memory needs somewhere to live that outlives a session.
+        if ir.memory.long_term.enabled:
+            memory = ir.binding.memory
+            services["memory"] = {
+                "image": "orgagents/platform:latest",
+                "command": ["orgagents", "memory", "serve"],
+                "environment": {
+                    "ORGAGENTS_SESSION_STORE": memory.session_store if memory
+                    else "in_process",
+                    "ORGAGENTS_LONG_TERM_STORE": memory.long_term_store if memory
+                    else "relational",
+                    "ORGAGENTS_MEMORY_RETENTION_DAYS": str(
+                        ir.memory.long_term.retention_days or 0
+                    ),
+                },
+                "networks": ["control"],
+                "depends_on": ["state"],
+                "labels": {
+                    "org.agentic.memory.namespaces": ",".join(
+                        n.id for n in ir.memory.namespaces
+                    )
+                },
             }
 
         # One bridge per human-facing channel (ADR-0021). The bridge is the only

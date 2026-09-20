@@ -57,6 +57,10 @@ targets:
       queue: acme-triggers
       dead_letter: acme-triggers-dlq
       max_concurrency: 4
+    memory:
+      session_store: in_process
+      long_term_store: relational
+      index: acme-memory
     secrets_backend: environment
     observability_sink: otel_collector
     agent_overrides:
@@ -124,5 +128,11 @@ targets:
       queue: acme-triggers
       dead_letter: acme-triggers-dlq
       max_concurrency: 8
+    memory:
+      session_store: redis
+      long_term_store: vector
+      index: acme-memory
+      embedding_model: text-embedding-3-large
+      secret_ref: MEMORY_INDEX_KEY
     secrets_backend: secret_manager
     observability_sink: cloud_trace

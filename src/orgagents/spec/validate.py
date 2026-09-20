@@ -12,6 +12,9 @@ from typing import Literal, Optional
 
 from .model import (
     ChannelPurpose,
+    EndpointTrust,
+    HumanRole,
+    MemoryTier,
     LifecycleStage,
     NetworkPosture,
     Permission,
@@ -173,9 +176,167 @@ def validate_spec(spec: SystemSpec) -> list[Finding]:
                     f"environment '{agent.environment.environment}'", agent.id)
             else:
                 _check_narrowing(agent.id, env, agent.environment, err)
-        if agent.human is None:
-            warn("agent_without_human", f"agent '{agent.id}' has no human counterpart",
+        # -- human pairing (ADR-0026) --------------------------------------
+        owners = agent.humans_with(HumanRole.OWNER)
+        if not agent.humans:
+            warn("agent_without_human", f"agent '{agent.id}' is paired with nobody",
                  agent.id, strict=True)
+        elif not owners:
+            err("agent_without_owner", f"agent '{agent.id}' has {len(agent.humans)} "
+                "paired human(s) but none is the accountable owner", agent.id)
+        elif len(owners) > 1:
+            err("multiple_owners", f"agent '{agent.id}' has {len(owners)} owners "
+                f"({', '.join(h.contact for h in owners)}); exactly one is "
+                "accountable", agent.id)
+        contacts = [h.contact for h in agent.humans]
+        if len(contacts) != len(set(contacts)):
+            err("duplicate_pairing", f"agent '{agent.id}' pairs the same person "
+                "twice", agent.id)
+        for human in agent.humans:
+            if human.channel and human.channel not in {c.id for c in spec.channels}:
+                err("unknown_human_channel", f"agent '{agent.id}' routes "
+                    f"{human.contact} to unknown channel '{human.channel}'", agent.id)
+        gated = agent.approval_required_for
+        if gated and not agent.humans_with(HumanRole.APPROVER):
+            err("approvals_without_approver", f"agent '{agent.id}' gates "
+                f"{gated} but pairs no approver", agent.id)
+        for action in gated:
+            if not agent.approvers_for(action):
+                err("action_without_approver", f"agent '{agent.id}' gates '{action}' "
+                    "but no paired approver covers it", agent.id)
+
+        # Capabilities reach an agent through its roles as well as directly,
+        # so every containment check below uses the effective set.
+        held_caps = set(agent.capabilities)
+        for assignment in agent.roles:
+            role = spec.role(assignment.role)
+            if role:
+                held_caps |= set(role.capabilities)
+        team_of = spec.team_of(agent.id)
+        if team_of:
+            for assignment in team_of.roles:
+                role = spec.role(assignment.role)
+                if role:
+                    held_caps |= set(role.capabilities)
+
+        # -- skills, plugins, tools (ADR-0029) -----------------------------
+        for skill_id in agent.skills:
+            skill = spec.skill(skill_id)
+            if skill is None:
+                err("unknown_skill", f"agent '{agent.id}' references unknown skill "
+                    f"'{skill_id}'", agent.id)
+                continue
+            missing = set(skill.requires_capabilities) - held_caps
+            if missing:
+                warn("skill_without_capability", f"agent '{agent.id}' holds skill "
+                     f"'{skill_id}' which assumes capabilities it lacks: "
+                     f"{sorted(missing)}", agent.id)
+        for plugin_id in agent.plugins:
+            plugin = spec.plugin(plugin_id)
+            if plugin is None:
+                err("unknown_plugin", f"agent '{agent.id}' references unknown plugin "
+                    f"'{plugin_id}'", agent.id)
+                continue
+            missing = set(plugin.requires_capabilities) - held_caps
+            if missing:
+                err("plugin_without_capability", f"agent '{agent.id}' installs plugin "
+                    f"'{plugin_id}' which requires capabilities it lacks: "
+                    f"{sorted(missing)}", agent.id)
+        for tool_id in agent.tools:
+            tool = spec.tool(tool_id)
+            if tool is None:
+                err("unknown_tool", f"agent '{agent.id}' references unknown tool "
+                    f"'{tool_id}'", agent.id)
+                continue
+            if tool.wraps_kind == "capability" and tool.wraps not in held_caps:
+                err("tool_without_capability", f"agent '{agent.id}' holds tool "
+                    f"'{tool_id}' wrapping capability '{tool.wraps}' it does not "
+                    "hold", agent.id)
+            if tool.wraps_kind == "endpoint" and tool.wraps not in agent.endpoints:
+                err("tool_without_endpoint", f"agent '{agent.id}' holds tool "
+                    f"'{tool_id}' wrapping endpoint '{tool.wraps}' it may not "
+                    "reach", agent.id)
+            if tool.wraps_kind == "workflow" and tool.wraps not in agent.workflows:
+                err("tool_without_workflow", f"agent '{agent.id}' holds tool "
+                    f"'{tool_id}' wrapping workflow '{tool.wraps}' it may not "
+                    "invoke", agent.id)
+            if tool.wraps_kind == "subagent" and tool.wraps not in {
+                sa.id for sa in agent.subagents
+            }:
+                err("tool_without_subagent", f"agent '{agent.id}' holds tool "
+                    f"'{tool_id}' wrapping sub-agent '{tool.wraps}' it does not "
+                    "define", agent.id)
+
+        # -- sub-agents are tools, and narrow only (ADR-0027) --------------
+        seen_sub: set[str] = set()
+        for sub in agent.subagents:
+            if sub.id in seen_sub:
+                err("duplicate_subagent", f"agent '{agent.id}' defines sub-agent "
+                    f"'{sub.id}' twice", agent.id)
+            seen_sub.add(sub.id)
+            extra = set(sub.capabilities) - held_caps
+            if extra:
+                err("subagent_widens_access", f"sub-agent '{sub.id}' of "
+                    f"'{agent.id}' requests capabilities its parent lacks: "
+                    f"{sorted(extra)}", agent.id)
+            extra_tools = set(sub.tools) - set(agent.tools)
+            if extra_tools:
+                err("subagent_widens_tools", f"sub-agent '{sub.id}' of '{agent.id}' "
+                    f"requests tools its parent lacks: {sorted(extra_tools)}",
+                    agent.id)
+            extra_knowledge = set(sub.knowledge) - set(agent.knowledge)
+            if extra_knowledge:
+                err("subagent_widens_knowledge", f"sub-agent '{sub.id}' of "
+                    f"'{agent.id}' requests knowledge its parent lacks: "
+                    f"{sorted(extra_knowledge)}", agent.id)
+            if sub.environment and agent.environment and (
+                sub.environment != agent.environment.environment
+            ):
+                err("subagent_changes_environment", f"sub-agent '{sub.id}' of "
+                    f"'{agent.id}' requests a different environment; a sub-agent "
+                    "may not change the isolation boundary", agent.id)
+            if sub.max_runtime_seconds > spec.resilience.max_run_seconds:
+                err("subagent_exceeds_run_budget", f"sub-agent '{sub.id}' allows "
+                    f"{sub.max_runtime_seconds}s beyond the system budget", agent.id)
+            if not sub.returns:
+                warn("subagent_without_return", f"sub-agent '{sub.id}' of "
+                     f"'{agent.id}' does not say what it returns; a tool with an "
+                     "undefined result is hard to use well", agent.id)
+
+        # -- external endpoints (ADR-0030) ---------------------------------
+        for endpoint_id in agent.endpoints:
+            endpoint = spec.endpoint(endpoint_id)
+            if endpoint is None:
+                err("unknown_endpoint", f"agent '{agent.id}' references unknown "
+                    f"endpoint '{endpoint_id}'", agent.id)
+                continue
+            sendable = set(endpoint.send_data_classes)
+            for dc_id in sendable:
+                dc = spec.data_class(dc_id)
+                if dc is None:
+                    err("unknown_data_class", f"endpoint '{endpoint_id}' may send "
+                        f"unknown data class '{dc_id}'", endpoint_id)
+                elif (endpoint.trust is not EndpointTrust.INTERNAL
+                      and dc.scope is not SharingScope.PUBLIC):
+                    err("endpoint_exfiltration", f"endpoint '{endpoint_id}' is "
+                        f"{endpoint.trust.value} but may send non-public data class "
+                        f"'{dc_id}'", endpoint_id)
+            if (endpoint.trust is not EndpointTrust.INTERNAL
+                    and not endpoint.treat_output_as_data):
+                err("endpoint_trusts_output", f"endpoint '{endpoint_id}' is "
+                    f"{endpoint.trust.value}; its answers must be treated as data, "
+                    "never as instructions", endpoint_id)
+            if endpoint.trust is EndpointTrust.EXTERNAL and not endpoint.requires_approval:
+                warn("external_endpoint_ungated", f"agent '{agent.id}' may call "
+                     f"external endpoint '{endpoint_id}' without approval",
+                     agent.id, strict=True)
+
+        # -- memory (ADR-0028) ---------------------------------------------
+        if agent.memory:
+            for namespace_id in agent.memory.namespaces:
+                if spec.namespace(namespace_id) is None:
+                    err("unknown_memory_namespace", f"agent '{agent.id}' uses "
+                        f"unknown memory namespace '{namespace_id}'", agent.id)
 
     for team in teams:
         for assignment in team.roles:
@@ -406,9 +567,60 @@ def validate_spec(spec: SystemSpec) -> list[Finding]:
             err("trace_leak", f"data class '{dc.id}' may not appear in traces but is not "
                 "redacted in the observability contract", dc.id)
 
+    # -- memory contract (ADR-0028) ---------------------------------------
+    for namespace in spec.memory.namespaces:
+        if namespace.scope is SharingScope.PROTECTED and not namespace.groups:
+            err("memory_namespace_without_groups", f"memory namespace "
+                f"'{namespace.id}' is protected but names no groups", namespace.id)
+        for dc_id in namespace.data_classes:
+            dc = spec.data_class(dc_id)
+            if dc is None:
+                err("unknown_data_class", f"memory namespace '{namespace.id}' holds "
+                    f"unknown data class '{dc_id}'", namespace.id)
+                continue
+            # Anything excluded from traces is excluded from durable memory too,
+            # unless the tier redacts it.
+            if (not dc.may_appear_in_traces
+                    and dc_id not in spec.memory.long_term.redact_data_classes):
+                err("memory_retains_sensitive_class", f"memory namespace "
+                    f"'{namespace.id}' holds '{dc_id}', which may not be retained "
+                    "unredacted", namespace.id)
+            if not dc.may_leave_region and not spec.compliance.data_residency:
+                warn("memory_residency_undeclared", f"memory namespace "
+                     f"'{namespace.id}' holds region-restricted '{dc_id}' but no "
+                     "residency is declared", namespace.id, strict=True)
+    if spec.memory.long_term.enabled and not spec.memory.namespaces:
+        warn("long_term_without_namespace", "long-term memory is enabled but no "
+             "namespace is declared, so nothing can be promoted into it")
+    if spec.memory.session.retention_days and spec.memory.session.retention_days > 7:
+        warn("session_memory_is_long_term", "session memory retained for "
+             f"{spec.memory.session.retention_days} days is long-term memory that "
+             "has not been governed as such")
+
+    # -- system-level skill/plugin/tool references ------------------------
+    for plugin in spec.plugins:
+        for skill_id in plugin.provides_skills:
+            if spec.skill(skill_id) is None:
+                err("unknown_skill", f"plugin '{plugin.id}' provides unknown skill "
+                    f"'{skill_id}'", plugin.id)
+        for tool_id in plugin.provides_tools:
+            if spec.tool(tool_id) is None:
+                err("unknown_tool", f"plugin '{plugin.id}' provides unknown tool "
+                    f"'{tool_id}'", plugin.id)
+    for tool in spec.tools:
+        if tool.wraps_kind == "capability" and spec.capability(tool.wraps) is None:
+            err("tool_wraps_unknown", f"tool '{tool.id}' wraps unknown capability "
+                f"'{tool.wraps}'", tool.id)
+        if tool.wraps_kind == "endpoint" and spec.endpoint(tool.wraps) is None:
+            err("tool_wraps_unknown", f"tool '{tool.id}' wraps unknown endpoint "
+                f"'{tool.wraps}'", tool.id)
+
     # -- capability coverage ----------------------------------------------
     used = {c for a in agents for c in a.capabilities}
     used |= {c for r in spec.roles for c in r.capabilities}
+    used |= {c for a in agents for sa in a.subagents for c in sa.capabilities}
+    used |= {t.wraps for t in spec.tools if t.wraps_kind == "capability"}
+    used |= {c for e in spec.endpoints for c in e.provides}
     for cap in spec.capabilities:
         if cap.id not in used:
             warn("unused_capability", f"capability '{cap.id}' is declared but unused",

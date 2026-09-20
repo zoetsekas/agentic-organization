@@ -47,10 +47,11 @@ Teams nest, and each has exactly one leader agent who is also a member of it —
 
 ```
 Acme Corp                     leader: ceo         (human: Dana Whitfield)
-├── Finance                   leader: cfo         (human: Priya Raman)
-│   ├── analyst               role: financial_analyst      env: analysis
-│   └── reconciler            role: reconciliation_specialist
-│                                                          env: isolated_review
+├── Finance                   leader: cfo         (owner: Priya Raman)
+│   ├── analyst               owner: Tom Becker · reviewer: Priya Raman
+│   │                         env: analysis · 3 sub-agents · memory: 2 namespaces
+│   └── reconciler            owner: Ana Silva · approvers: Ana, Priya
+│                             env: isolated_review · long-term memory: off
 ├── Technology                leader: cto         (human: Iris Nakamura)
 │   └── Platform Engineering  leader: platform_lead
 │       ├── platform_engineer role: platform_engineer      env: build
@@ -80,7 +81,7 @@ orgagents phase    examples/acme.system.yaml --binding examples/acme.binding.yam
                    --target terraform:gcp    # definition + implementation readiness
 orgagents schedule examples/acme.system.yaml --simulate-days 7
 orgagents records  validate                  # ADR/WS graph integrity
-pytest                                       # 147 tests, no network or API keys
+pytest                                       # 186 tests, no network or API keys
 ```
 
 Open <http://localhost:8000/ui/> for the **Agentic Designer**: org chart,
@@ -99,8 +100,8 @@ ADR-0019 through ADR-0025.
 
 ## Decisions and delivery
 
-Architecture is recorded, not remembered (ADR-0001). Twenty-five decision
-records and fifteen workstream records, machine-validated in CI:
+Architecture is recorded, not remembered (ADR-0001). Thirty decision records
+and nineteen workstream records, machine-validated in CI:
 
 - [docs/decisions/index.md](docs/decisions/index.md) — **ADRs**: why, who, what,
   where, how, when, advantages *and* disadvantages, with statuses, semver,
@@ -127,6 +128,10 @@ implementation: [ADR-0006 v1.1.0](docs/decisions/ADR-0006-recursive-teams-with-l
 | Generated agent registry for the whole fleet | `compiler/registry.py` |
 | Lifecycle stages, promotion gates, evaluations, budgets | `spec/model.py` |
 | Knowledge grounding sources | `spec/model.py`, `compiler/ir.py` |
+| Many-to-many human pairing in named roles | `spec/model.py`, `compiler/registry.py` |
+| Sub-agents callable as tools, narrow-only | `runtime/subagents.py` |
+| Two-tier memory: session + governed long term | `memory.py` |
+| Skills, plugins, wrapper tools, external endpoints | `spec/model.py`, `compiler/ir.py` |
 | Spec validation incl. least-privilege rules | `spec/validate.py` |
 | Two-phase compiler: spec → IR → target plugins | `compiler/` |
 | Local target: Compose stack + single-process mode | `compiler/targets/local.py` |
@@ -191,6 +196,32 @@ what data it may never carry. An approval requested at 03:00 queues to 09:00,
 escalates to the CFO at 10:00 and to the CEO at 13:00 — computed, not hoped
 for. One bridge per channel holds the workspace credential, so a compromised
 agent cannot post as the company (ADR-0021).
+
+**An agent answers to people, plural.** Pairing is many-to-many and role-typed
+— owner, approver, reviewer, escalation, operator, stakeholder — with exactly
+one accountable owner and an approver for every gated action, so a holiday does
+not stop the organization. The registry answers both "who owns this agent" and
+"what is this person on the hook for" (ADR-0026).
+
+**Sub-agents are tools, not hires.** `research`, `review`, `verify`,
+`critique` and friends are declared inline, exposed as `subagent_<id>`, and run
+under the parent's identity with a **subset** of its access. No reporting line,
+no human of their own, no session, no memory beyond the call. Naming nothing
+means reaching nothing (ADR-0027).
+
+**Memory is two-tiered and governed.** Session memory is short term, private
+and always expires. Long-term memory lives in classified namespaces with a
+sharing scope, so who can recall what follows the same rules as who can read
+what. The bridge is **promotion** — allowed by policy, permitted by the
+namespace's classes, optionally approved by a human — so what an agent knows
+permanently is deliberate rather than accidental (ADR-0028).
+
+**Tools grant nothing.** Capabilities and endpoints grant access; skills
+instruct; a tool is a named, narrowed wrapper over something already held, and
+inherits its target's approval gate. If a spec line widens what an agent can
+reach, it is reviewed as access (ADR-0029). External agents are trust-classified
+endpoints: public data only may leave, and their answers are marked as data to
+check, never instructions to follow (ADR-0030).
 
 **The fleet has a registry.** Every target generates `REGISTRY.md`: each agent
 with its owner, identity, permissions, environment, triggers, channels and
@@ -272,6 +303,15 @@ Known gaps, tracked in the workstreams rather than glossed:
 - **`freshness_seconds` on knowledge sources is declared but unenforced**
   (WS-015 M4), and step-level checkpointing is honoured only by the LangGraph
   adapter (ADR-0025).
+- **Memory recall is token overlap, not embeddings.** It misses paraphrases and
+  will return the wrong memory often enough to matter; embedding-backed recall
+  is WS-018 M4. This is the honest limit of the memory feature today.
+- **External agent endpoints are governed but not yet callable** — no
+  agent-to-agent protocol is bound (WS-019 M4), and inbound endpoints (other
+  organizations calling our agents) are entirely unaddressed (WS-019 M5).
+- **Human pairings name individuals and rot.** Nothing detects a departed
+  employee still listed as an approver until directory integration lands
+  (WS-016 M4).
 - **Terraform is generated but not applied or `terraform validate`-ed here** —
   the binary is not installed in this environment, so the tests check
   identifier validity and block balance instead. Real `plan`/`apply` against a

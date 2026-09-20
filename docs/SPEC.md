@@ -25,6 +25,11 @@ spec (what)  +  binding (how)  →  IR (resolved)  →  target plugins  →  art
 | `triggers` | What starts a run without a person asking (ADR-0020) |
 | `interaction_flows` | Declared directional agent-to-agent links (ADR-0024) |
 | `knowledge` | Grounding sources agents may consult (ADR-0023) |
+| `skills` | Instruction packs an agent carries (ADR-0029) |
+| `plugins` | Bundles of skills and tools (ADR-0029) |
+| `tools` | Named wrappers over things already granted (ADR-0029) |
+| `endpoints` | External agents ours may call, by trust level (ADR-0030) |
+| `memory` | Session and long-term memory, with namespaces (ADR-0028) |
 | `budgets` | Spend ceilings with a mandatory breach action (ADR-0022) |
 | `lifecycle` | Stages, promotion gates and evaluation cases (ADR-0022) |
 | `compliance` | Residency, retention, redaction, review interval |
@@ -150,6 +155,120 @@ behaves differently by design.
 
 The binding names the provider and the bot identity *reference*; the generated
 bridge holds the credential, the agents do not.
+
+## Human pairing
+
+An agent answers to several people in different capacities (ADR-0026):
+
+```yaml
+humans:
+  - {name: Jo Adeyemi, contact: jo@acme.example, roles: [owner],
+     channel: change_review}
+  - {name: Samir Haddad, contact: samir@acme.example,
+     roles: [approver, reviewer], approves: [code_change],
+     channel: change_review}
+```
+
+Exactly one paired human holds `owner`. Every gated action must have a paired
+approver who covers it — otherwise the agent stops at its own gate, and the
+validator says so. The pre-1.1 single `human:` field still loads as one owner.
+
+## Sub-agents: tools, not hires
+
+```yaml
+subagents:
+  - id: topic_research
+    kind: research               # research | review | summarize | extract |
+                                 # critique | plan | verify | custom
+    purpose: Gather context on a metric before analysing it.
+    capabilities: [warehouse_query]     # must be a SUBSET of the parent's
+    knowledge: [finance_handbook]
+    returns: a cited findings list
+    max_runtime_seconds: 300
+```
+
+Exposed as `subagent_topic_research`. No reporting line, no human of its own,
+no session, no memory beyond the call. **Naming nothing means reaching
+nothing** — the safe default is the lazy one. Widening anything the parent
+holds, including the environment, fails validation (ADR-0027).
+
+## Memory
+
+```yaml
+memory:
+  session:
+    max_items: 200
+    recall: automatic
+    redact_data_classes: [customer_pii]
+  long_term:
+    retention_days: 365
+    promotion_allowed: true
+    promotion_requires_approval: false
+  namespaces:
+    - {id: query_patterns, scope: protected, groups: [finance],
+       data_classes: [finance_internal], retention_days: 365}
+    - {id: company_facts, scope: public, data_classes: [public_knowledge]}
+```
+
+Session memory is private to one session and **always expires**, even with no
+retention set — otherwise it is long-term memory nobody governed. Long-term
+memory lives in namespaces whose scope decides who may recall it, using the
+same rules as any other data (ADR-0017).
+
+Promotion is the only bridge, and it needs all four: policy allows it, the
+namespace holds that data class, the agent may read that class, and — where
+configured — a human agrees.
+
+An agent narrows the contract:
+
+```yaml
+memory:
+  long_term_enabled: false      # the clean-room agent remembers nothing
+  may_promote: false
+```
+
+Runtime tools: `memory_remember`, `memory_recall`, `memory_promote`,
+`memory_forget`. With `recall: automatic`, relevant long-term memories are
+pre-loaded into the session and the pre-load is recorded.
+
+## Skills, plugins and tools
+
+Three distinct things, so a reviewer can tell which lines widen access:
+
+| | Grants access? | What it is |
+|---|:--:|---|
+| **capability** / **endpoint** | **yes** | what the agent may reach |
+| **skill** | no | instructions it carries |
+| **plugin** | no | a bundle of skills and tools |
+| **tool** | no | a named, narrowed wrapper over something already held |
+
+```yaml
+tools:
+  - id: warehouse_lookup
+    wraps_kind: capability       # capability | subagent | workflow | endpoint
+    wraps: warehouse_query
+    constraints: {max_rows: 100, allowed_operations: [select]}
+```
+
+A wrapper may narrow and may add an approval gate. It can never remove one, and
+it never grants anything its target does not (ADR-0029).
+
+## External agent endpoints
+
+```yaml
+endpoints:
+  - id: market_research_desk
+    trust: partner               # internal | partner | external
+    provides: [market_sizing]
+    send_data_classes: [public_knowledge]   # non-internal ⇒ public only
+    treat_output_as_data: true              # required for non-internal
+    requires_approval: true
+```
+
+Outbound is classified: a non-`internal` endpoint may be sent public data only,
+or validation fails as exfiltration. Inbound is data, never instruction, and
+the composed prompt says so. The endpoint's credential lands on the **calling
+agent's** identity (ADR-0030).
 
 ## Interaction flows
 

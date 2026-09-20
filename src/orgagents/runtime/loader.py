@@ -252,7 +252,11 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
         prompt_source = AgentIR.model_validate(agent) if "id" in agent else None
         system_prompt = prompt_source.system_prompt() if prompt_source else ""
         enriched = {**agent, "system_prompt": system_prompt}
-        human = agent.get("human")
+        humans = agent.get("humans") or []
+        owner = next(
+            (h for h in humans if "owner" in (h.get("roles") or [])),
+            humans[0] if humans else None,
+        )
         platform.org.add_agent(
             Agent(
                 id=agent["id"],
@@ -266,18 +270,10 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
                     p for p in agent.get("delegates_to", [])
                     if p not in (agent.get("reports_to"),)
                 ],
-                human=HumanCounterpart(
-                    user_id=human["contact"],
-                    display_name=human["name"],
-                    email=human["contact"],
-                    role_title=human.get("role_title", ""),
-                    approval_required_for=agent.get("requires_approval_for", []),
-                    notify_channels=[
-                        ChannelKind(_channel(c)) for c in human.get("notify_on", ["mail"])
-                    ],
-                )
-                if human
-                else None,
+                human=_counterpart(owner, agent) if owner else None,
+                humans=[_counterpart(h, agent) for h in humans],
+                subagents=agent.get("subagents", []),
+                memory=agent.get("memory", {}),
                 harness=_harness(enriched, data),
                 workflow_ids=agent.get("workflows", []),
                 sandbox=SandboxSpec(
@@ -299,6 +295,26 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
         "channels": channels,
         "triggers": [t["id"] for t in data.get("triggers", [])],
     }
+
+
+def _counterpart(human: dict[str, Any], agent: dict[str, Any]) -> HumanCounterpart:
+    """One paired person, in the runtime's shape."""
+    return HumanCounterpart(
+        user_id=human["contact"],
+        display_name=human["name"],
+        email=human["contact"],
+        role_title=human.get("role_title", "")
+        or "/".join(human.get("roles", []) or []),
+        approval_required_for=(
+            agent.get("requires_approval_for", [])
+            if "approver" in (human.get("roles") or [])
+            or "owner" in (human.get("roles") or [])
+            else []
+        ),
+        notify_channels=[
+            ChannelKind(_channel(c)) for c in human.get("notify_on", ["mail"])
+        ],
+    )
 
 
 def _kind(agent: dict[str, Any]) -> AgentKind:

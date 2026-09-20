@@ -87,6 +87,17 @@ class ScheduleBinding(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
 
 
+class MemoryBinding(BaseModel):
+    """Where the two memory tiers actually live (ADR-0028)."""
+
+    session_store: str = "in_process"      # in_process | redis | ...
+    long_term_store: str = "relational"    # relational | document | vector | ...
+    index: str = ""
+    embedding_model: str = ""
+    secret_ref: Optional[str] = None
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
 class KnowledgeBinding(BaseModel):
     """Which concrete system backs a declared grounding source (ADR-0023)."""
 
@@ -122,6 +133,7 @@ class TargetBinding(BaseModel):
     channels: list[ChannelBinding] = Field(default_factory=list)
     knowledge: list[KnowledgeBinding] = Field(default_factory=list)
     scheduler: Optional[ScheduleBinding] = None
+    memory: Optional[MemoryBinding] = None
     secrets_backend: str = "environment"
     observability_sink: str = "otel_collector"
     # Per-agent overrides of the runtime/model binding.

@@ -14,11 +14,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from datetime import datetime, timezone
+
 from ..catalog import Catalog
-from ..data.planes import DataPlanes
+from ..data.planes import AccessDenied, DataPlanes
 from ..harness.builder import HarnessBuilder
 from ..messaging import ChannelKind, DeliveryError, MessageBus
+from ..memory import MemoryError, MemoryManager, ResolvedMemory
 from ..models import Agent, AgentKind, SessionState, Severity, WorkflowRef
+from ..spec.model import MemoryNamespace, MemoryPolicy, MemoryTier, RecallMode, SharingScope
 from ..observability import Observability, log_event
 from ..org import OrgChart
 from ..sessions import SessionManager
@@ -55,6 +59,7 @@ class AgentRuntime:
         self.catalog = Catalog(store, base_url)
         self.obs = Observability(store)
         self.harness = harness or HarnessBuilder(store)
+        self.memory = MemoryManager(store)
         self._depth = 0
 
     # -- public API --------------------------------------------------------
@@ -88,8 +93,11 @@ class AgentRuntime:
         self.sessions.set_state(session.id, SessionState.RUNNING)
         self.sessions.log(session.id, "message", actor=created_by or "human",
                           payload={"role": "user", "content": prompt})
+        self.preload_memories(agent, session.id, prompt)
 
         tools = self.harness.build(agent)
+        tools.update(self._memory_tools(agent, session.id))
+        tools.update(self._subagent_tools(agent, session.id))
         tools.update(self._delegation_tools(agent, session.id))
         tools.update(self._workflow_tools(agent, session.id))
         tools.update(self._messaging_tools(agent, session.id))
@@ -150,6 +158,181 @@ class AgentRuntime:
             if e.type == "delegation"
         ]
         return result
+
+    # -- memory (ADR-0028) -------------------------------------------------
+
+    def memory_contract(self, agent: Agent) -> ResolvedMemory:
+        """Rebuild the agent's resolved memory contract from its manifest."""
+        policy = agent.memory or {}
+        session = MemoryPolicy(
+            tier=MemoryTier.SESSION,
+            enabled=policy.get("session_enabled", True),
+            max_items=policy.get("session_max_items", 500),
+            recall=RecallMode(policy.get("session_recall", "automatic")),
+            redact_data_classes=policy.get("redact_data_classes", []),
+        )
+        long_term = MemoryPolicy(
+            tier=MemoryTier.LONG_TERM,
+            enabled=policy.get("long_term_enabled", False),
+            retention_days=policy.get("long_term_retention_days"),
+            max_items=policy.get("long_term_max_items", 2000),
+            recall=RecallMode(policy.get("recall", "on_demand")),
+            promotion_allowed=policy.get("may_promote", False),
+            promotion_requires_approval=policy.get("promotion_requires_approval", False),
+            redact_data_classes=policy.get("redact_data_classes", []),
+        )
+        namespaces = [
+            MemoryNamespace(
+                id=n["id"],
+                description=n.get("description", ""),
+                scope=SharingScope(n.get("scope", "private")),
+                groups=n.get("groups", []),
+                data_classes=n.get("data_classes", []),
+                retention_days=n.get("retention_days"),
+            )
+            for n in policy.get("namespaces", [])
+        ]
+        return ResolvedMemory(
+            agent_id=agent.id,
+            session=session,
+            long_term=long_term,
+            namespaces=namespaces,
+            groups=tuple(agent.groups),
+            readable_data_classes=tuple(policy.get("readable_data_classes", [])),
+        )
+
+    def _memory_tools(self, agent: Agent, session_id: str) -> dict[str, Any]:
+        contract = self.memory_contract(agent)
+
+        def remember(
+            content: str, key: str = "", tags: Optional[list[str]] = None,
+            data_class: str = "", long_term: bool = False, namespace: str = "",
+        ) -> dict[str, Any]:
+            """Remember something. Session-scoped unless long_term is set."""
+            tier = MemoryTier.LONG_TERM if long_term else MemoryTier.SESSION
+            if long_term and not namespace:
+                return {"ok": False,
+                        "error": "long-term memory needs a namespace; "
+                                 f"yours are {[n.id for n in contract.namespaces]}"}
+            try:
+                entry = self.memory.remember(
+                    contract, content, session_id=session_id, key=key, tier=tier,
+                    namespace=namespace or "default", data_class=data_class,
+                    tags=tags or [], source=session_id,
+                )
+            except (MemoryError, AccessDenied) as e:
+                return {"ok": False, "error": str(e)}
+            self.sessions.log(session_id, "memory_write", actor=agent.id,
+                              payload={"id": entry.id, "tier": entry.tier.value,
+                                       "namespace": entry.namespace, "key": entry.key})
+            return {"ok": True, "id": entry.id, "tier": entry.tier.value,
+                    "expires_at": entry.expires_at}
+
+        def recall(query: str = "", scope: str = "all", limit: int = 5) -> list[dict]:
+            """Recall memories. scope: session | long_term | all."""
+            tier = {"session": MemoryTier.SESSION,
+                    "long_term": MemoryTier.LONG_TERM}.get(scope)
+            found = self.memory.recall(contract, query, session_id=session_id,
+                                       tier=tier, limit=limit)
+            self.sessions.log(session_id, "memory_recall", actor=agent.id,
+                              payload={"query": query, "hits": len(found)})
+            return [
+                {"id": e.id, "tier": e.tier.value, "namespace": e.namespace,
+                 "key": e.key, "content": e.content, "created_at": e.created_at}
+                for e in found
+            ]
+
+        def promote(entry_id: str, namespace: str, approved: bool = False) -> dict:
+            """Move a session memory into long-term storage, if policy allows."""
+            try:
+                entry = self.memory.promote(contract, entry_id, namespace=namespace,
+                                            approved=approved)
+            except (MemoryError, AccessDenied) as e:
+                return {"ok": False, "error": str(e)}
+            self.sessions.log(session_id, "memory_promote", actor=agent.id,
+                              payload={"from": entry_id, "to": entry.id,
+                                       "namespace": namespace})
+            return {"ok": True, "id": entry.id, "namespace": namespace}
+
+        def forget(entry_id: str) -> dict:
+            """Forget one of your own memories."""
+            return {"ok": self.memory.forget(contract, entry_id)}
+
+        tools: dict[str, Any] = {"memory_recall": recall, "memory_forget": forget}
+        if contract.session.enabled:
+            tools["memory_remember"] = remember
+        if contract.long_term.promotion_allowed:
+            tools["memory_promote"] = promote
+        return tools
+
+    def preload_memories(self, agent: Agent, session_id: str, prompt: str) -> list[dict]:
+        """Recall relevant long-term memories into a session that asked for it."""
+        contract = self.memory_contract(agent)
+        if contract.long_term.recall is not RecallMode.AUTOMATIC:
+            return []
+        found = self.memory.recall(contract, prompt, session_id=session_id,
+                                   tier=MemoryTier.LONG_TERM, limit=5)
+        if found:
+            self.sessions.log(session_id, "memory_preload", actor=agent.id,
+                              payload={"count": len(found),
+                                       "keys": [e.key or e.id for e in found]})
+        return [{"key": e.key, "content": e.content, "namespace": e.namespace}
+                for e in found]
+
+    # -- sub-agents as tools (ADR-0027) -----------------------------------
+
+    def _subagent_tools(self, agent: Agent, session_id: str) -> dict[str, Any]:
+        """Expose each sub-agent as a callable tool, run under the parent."""
+        from .adapters import EchoAdapter, adapter_for
+        from .subagents import SubAgentRunner, SubAgentTool
+        from ..spec.model import SubAgentKind
+
+        if not agent.subagents:
+            return {}
+
+        resolved = [
+            SubAgentTool(
+                id=sub["id"],
+                name=sub.get("name", sub["id"]),
+                kind=SubAgentKind(sub.get("kind", "custom")),
+                purpose=sub.get("purpose", ""),
+                instructions=sub.get("instructions", ""),
+                parent_agent_id=agent.id,
+                capabilities=tuple(sub.get("capabilities", [])),
+                tools=tuple(sub.get("tools", [])),
+                knowledge=tuple(sub.get("knowledge", [])),
+                environment=sub.get("environment"),
+                returns=sub.get("returns", ""),
+                max_turns=sub.get("max_turns", 8),
+                max_runtime_seconds=sub.get("max_runtime_seconds", 300),
+                parallel_safe=sub.get("parallel_safe", True),
+            )
+            for sub in agent.subagents
+        ]
+
+        parent_tools = self.harness.build(agent)
+
+        def invoke(tool: SubAgentTool, task: str, context: dict[str, Any]) -> Any:
+            # A sub-agent sees only the slice of the parent's toolset it named.
+            allowed = {
+                name: fn for name, fn in parent_tools.items()
+                if not tool.capabilities or any(
+                    name.startswith(cap) or cap in name for cap in tool.capabilities
+                )
+            }
+            adapter_cls = adapter_for(agent) if agent.subagents else EchoAdapter
+            adapter = adapter_cls(agent, tool.system_prompt(), allowed)
+            started = datetime.now(timezone.utc)
+            output = adapter.run(task if not context else f"{task}\n\n{context}")
+            elapsed = (datetime.now(timezone.utc) - started).total_seconds()
+            self.sessions.log(
+                session_id, "subagent", actor=agent.id,
+                payload={"subagent": tool.id, "kind": tool.kind.value, "task": task,
+                         "tools_visible": sorted(allowed), "seconds": round(elapsed, 3)},
+            )
+            return output.text
+
+        return SubAgentRunner(resolved, invoke=invoke).callables()
 
     # -- tool families bound to a session ---------------------------------
 

@@ -2,6 +2,7 @@ from .binding import (
     Binding,
     ChannelBinding,
     KnowledgeBinding,
+    MemoryBinding,
     ScheduleBinding,
     TargetBinding,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "ChannelBinding",
     "ScheduleBinding",
     "KnowledgeBinding",
+    "MemoryBinding",
     "load_spec",
     "load_spec_text",
     "load_binding",

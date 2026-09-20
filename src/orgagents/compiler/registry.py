@@ -15,7 +15,9 @@ from .ir import SystemIR
 def registry_report(ir: SystemIR) -> str:
     rows = []
     for agent in sorted(ir.agents, key=lambda a: a.id):
-        human = agent.human.name if agent.human else "**unowned**"
+        owner = agent.owner.name if agent.owner else "**unowned**"
+        others = len(agent.humans) - (1 if agent.owner else 0)
+        human = owner + (f" +{others}" if others > 0 else "")
         triggers = ", ".join(agent.triggers) or "interactive only"
         channels = ", ".join(agent.human_channels) or "—"
         budget = (
@@ -67,7 +69,7 @@ def registry_report(ir: SystemIR) -> str:
         for k in ir.knowledge
     ]
 
-    unowned = [a.id for a in ir.agents if a.human is None]
+    unowned = [a.id for a in ir.agents if a.owner is None]
     unbudgeted = [a.id for a in ir.agents if not a.budget_usd]
     untriggered = [a.id for a in ir.agents if not a.triggers]
 
@@ -76,6 +78,74 @@ def registry_report(ir: SystemIR) -> str:
         f"{g.min_pass_rate:.0%} | {', '.join(g.approvers) or '—'} |"
         for g in ir.lifecycle.gates
     ) or "| — | — | — | — |"
+
+    pairing_rows = [
+        f"| `{agent.id}` | {human.name} | {human.role_title or '—'} | "
+        f"{', '.join(r.value for r in human.roles)} | "
+        f"{', '.join(human.approves) or '—'} | {human.channel or '—'} |"
+        for agent in sorted(ir.agents, key=lambda a: a.id)
+        for human in agent.humans
+    ]
+
+    people: dict[str, list[str]] = {}
+    for agent in ir.agents:
+        for human in agent.humans:
+            people.setdefault(f"{human.name} ({human.contact})", []).append(
+                f"{agent.id}:{'/'.join(r.value for r in human.roles)}"
+            )
+    person_rows = [
+        f"| {person} | {len(pairs)} | {', '.join(sorted(pairs))} |"
+        for person, pairs in sorted(people.items())
+    ]
+
+    subagent_rows = [
+        f"| `{agent.id}` | `{sub.tool_name}` | {sub.kind} | {sub.purpose} | "
+        f"{', '.join(sub.capabilities) or 'none'} | {sub.returns or '—'} | "
+        f"{sub.max_runtime_seconds}s |"
+        for agent in sorted(ir.agents, key=lambda a: a.id)
+        for sub in agent.subagents
+    ]
+
+    tool_rows = [
+        f"| `{agent.id}` | `{tool.id}` | {tool.wraps_kind} `{tool.wraps}` | "
+        f"{tool.source} | {'yes' if tool.requires_approval else 'no'} |"
+        for agent in sorted(ir.agents, key=lambda a: a.id)
+        for tool in agent.tools
+    ]
+
+    skill_rows = [
+        f"| `{agent.id}` | {', '.join(s.id for s in agent.skills) or '—'} | "
+        f"{', '.join(agent.plugins) or '—'} |"
+        for agent in sorted(ir.agents, key=lambda a: a.id)
+        if agent.skills or agent.plugins
+    ]
+
+    endpoint_rows = [
+        f"| `{e.id}` | {e.trust.value} | {', '.join(e.provides) or '—'} | "
+        f"{', '.join(e.send_data_classes) or 'nothing'} | "
+        f"{'yes' if e.requires_approval else '**no**'} |"
+        for e in {e.id: e for a in ir.agents for e in a.endpoints}.values()
+    ]
+
+    memory_rows = [
+        f"| `{agent.id}` | {'yes' if agent.memory.session_enabled else 'no'} | "
+        f"{'yes' if agent.memory.long_term_enabled else 'no'} | "
+        f"{', '.join(n.id for n in agent.memory.namespaces) or '—'} | "
+        f"{agent.memory.recall} | "
+        f"{'yes' if agent.memory.may_promote else 'no'} |"
+        for agent in sorted(ir.agents, key=lambda a: a.id)
+    ]
+
+    namespace_rows = [
+        f"| `{n.id}` | {n.scope.value} | {', '.join(n.groups) or '—'} | "
+        f"{', '.join(n.data_classes) or '—'} | {n.retention_days or 'forever'} |"
+        for n in ir.memory.namespaces
+    ]
+
+    single_human = [
+        a.id for a in ir.agents if len(a.humans) == 1
+    ]
+    no_memory = [a.id for a in ir.agents if not a.memory.long_term_enabled]
 
     return f"""# Agent registry — {ir.name}
 
@@ -94,11 +164,57 @@ what it may reach, what wakes it and where it talks to people.
 |---|---|---|---|---|---|---|---|---|
 {chr(10).join(rows) or "| — |"}
 
+## Who each agent answers to
+
+| Agent | Person | Title | Roles | Approves | Channel |
+|---|---|---|---|---|---|
+{chr(10).join(pairing_rows) or "| — |"}
+
+## People, and what they are on the hook for
+
+| Person | Agents | Pairings |
+|---|---|---|
+{chr(10).join(person_rows) or "| — |"}
+
 ## What each agent may reach
 
 | Agent | Capability | Action | Resource class | Data classes | Approval |
 |---|---|---|---|---|---|
 {chr(10).join(capability_rows) or "| — |"}
+
+## Sub-agents (called as tools)
+
+| Parent | Tool | Kind | Purpose | Capabilities | Returns | Budget |
+|---|---|---|---|---|---|---|
+{chr(10).join(subagent_rows) or "| — |"}
+
+## Tools and what they wrap
+
+| Agent | Tool | Wraps | Source | Approval |
+|---|---|---|---|---|
+{chr(10).join(tool_rows) or "| — |"}
+
+## Skills and plugins
+
+| Agent | Skills | Plugins |
+|---|---|---|
+{chr(10).join(skill_rows) or "| — |"}
+
+## External agent endpoints
+
+| Endpoint | Trust | Provides | May be sent | Approval |
+|---|---|---|---|---|
+{chr(10).join(endpoint_rows) or "| — |"}
+
+## Memory
+
+| Agent | Session | Long term | Namespaces | Recall | May promote |
+|---|---|---|---|---|---|
+{chr(10).join(memory_rows) or "| — |"}
+
+| Namespace | Scope | Groups | Data classes | Retention (days) |
+|---|---|---|---|---|
+{chr(10).join(namespace_rows) or "| — |"}
 
 ## What wakes them
 
@@ -137,6 +253,8 @@ Beyond the hierarchy: who may consult, notify or escalate to whom.
 - **Agents without a human owner:** {", ".join(f"`{a}`" for a in unowned) or "none"}
 - **Agents without a budget:** {", ".join(f"`{a}`" for a in unbudgeted) or "none"}
 - **Agents that never run unattended:** {", ".join(f"`{a}`" for a in untriggered) or "none"}
+- **Agents with a single paired human:** {", ".join(f"`{a}`" for a in single_human) or "none"}
+- **Agents with no long-term memory:** {", ".join(f"`{a}`" for a in no_memory) or "none"}
 - **Compliance frameworks:** {", ".join(ir.compliance.frameworks) or "none declared"}
 - **Data residency:** {", ".join(ir.compliance.data_residency) or "unrestricted"}
 - **Redacted from traces:** {", ".join(ir.compliance.redact_data_classes) or "nothing"}

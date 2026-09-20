@@ -358,7 +358,14 @@ class Agent(BaseModel):
     report_agent_ids: list[str] = Field(default_factory=list)
     # Peers reachable by direct tool call without going through the manager.
     peer_agent_ids: list[str] = Field(default_factory=list)
+    # The accountable owner, kept for callers that want one person.
     human: Optional[HumanCounterpart] = None
+    # Everyone paired with this agent, in their named capacities (ADR-0026).
+    humans: list[HumanCounterpart] = Field(default_factory=list)
+    # Sub-agents this agent may call as tools (ADR-0027), as resolved IR dicts.
+    subagents: list[dict[str, Any]] = Field(default_factory=list)
+    # The resolved two-tier memory contract (ADR-0028).
+    memory: dict[str, Any] = Field(default_factory=dict)
     harness: Harness = Field(default_factory=Harness)
     skill_ids: list[str] = Field(default_factory=list)
     plugin_ids: list[str] = Field(default_factory=list)
