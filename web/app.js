@@ -44,12 +44,22 @@ function showView(name) {
   const loaders = {
     org: loadOrg, catalog: loadCatalog, sessions: loadSessions, ops: loadOps,
     platform: loadPlatformCatalog,
-    canvas: () => (window.initCanvas && !state.canvasReady
-      ? ((state.canvasReady = true), window.initCanvas())
-      : undefined),
+    canvas: () => {
+      if (window.initCanvas && !state.canvasReady) {
+        state.canvasReady = true;
+        window.initCanvas();
+      }
+    },
   };
   (loaders[name] || (() => {}))();
 }
+
+window.addEventListener("hashchange", () => {
+  const route = location.hash.match(/^#\/(\w+)/)?.[1];
+  const session = location.hash.match(/^#\/sessions\/(\S+)/)?.[1];
+  if (session) { showView("sessions"); loadTrace(session); }
+  else if (route) { showView(route); }
+});
 
 /* ----------------------------------------------------------- org chart */
 async function loadOrg() {

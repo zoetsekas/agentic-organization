@@ -740,3 +740,4 @@ async function initCanvas() {
   wireCanvas();
   await loadWorkspaces();
 }
+window.initCanvas = initCanvas;
