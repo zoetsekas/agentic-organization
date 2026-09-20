@@ -31,16 +31,31 @@ TIER_RESOURCES = {
     "large": {"cpus": "4", "memory": "16G"},
     "accelerated": {"cpus": "8", "memory": "32G"},
 }
+# Toolchain class -> sandbox image. ADR-0053 names four toolchain images and
+# this vocabulary has eight classes, so the classes it does not name are mapped
+# onto the nearest one it does rather than to an image nobody reviewed; ADR-0054
+# records what that costs (a `browser` sandbox has no browser).
 TOOLCHAIN_IMAGES = {
-    "none": "python:3.11-slim",
+    "none": "gcr.io/distroless/static-debian12:nonroot",
     "scripting": "python:3.11-slim",
-    "data_analysis": "python:3.11",
-    "software_build": "python:3.11",
-    "browser": "mcr.microsoft.com/playwright/python:v1.47-jammy",
-    "document": "python:3.11",
-    "model_training": "python:3.11",
+    "data_analysis": "python:3.11-slim",
+    "software_build": "node:22-alpine",
+    "browser": "python:3.11-slim",
+    "document": "python:3.11-slim",
+    "model_training": "python:3.11-slim",
     "network_client": "python:3.11-slim",
 }
+# Images with no shell and no package manager: the generated Dockerfile for one
+# of these cannot RUN anything, which is the point of choosing it.
+NO_RUNTIME_IMAGES = ("gcr.io/distroless/",)
+
+# Pinned per ADR-0053; `latest` on a collector is a silent upgrade of the one
+# component every plane exports to.
+OTEL_COLLECTOR_IMAGE = "otel/opentelemetry-collector-contrib:0.110.0"
+STATE_IMAGE = "postgres:16-alpine"
+# The artifact workspace (ADR-0036) is per tenant, with the tenant's own
+# volume: a shared bucket is a cross-tenant read away from being one.
+ARTIFACTS_IMAGE = "minio/minio:RELEASE.2024-09-13T20-26-02Z"
 
 
 class LocalTarget:
@@ -259,7 +274,7 @@ CMD ["orgagents", "worker"]
                 "dockerfile": f"docker/Dockerfile.{env.id}" if env
                 else "Dockerfile",
             },
-            "image": f"{ir.name}/agent-{agent.id}:latest",
+            "image": f"{ir.name}/agent-{agent.id}:{ir.spec_version}",
             "command": ["orgagents", "worker", agent.id],
             "environment": {
                 "ORGAGENTS_AGENT_ID": agent.id,
@@ -287,7 +302,7 @@ CMD ["orgagents", "worker"]
     def _compose(self, ir: SystemIR) -> str:
         services: dict[str, Any] = {
             "state": {
-                "image": "postgres:16-alpine",
+                "image": STATE_IMAGE,
                 "environment": {
                     "POSTGRES_PASSWORD": "${STATE_PASSWORD}",
                     "POSTGRES_DB": "orgagents",
@@ -296,13 +311,13 @@ CMD ["orgagents", "worker"]
                 "volumes": [f'{ir.qualified("state-data")}:/var/lib/postgresql/data'],
             },
             "telemetry": {
-                "image": "otel/opentelemetry-collector-contrib:latest",
+                "image": OTEL_COLLECTOR_IMAGE,
                 "networks": [ir.qualified("control")],
                 "ports": ["4317:4317"],
             },
             "designer": {
                 "build": {"context": ".", "dockerfile": "Dockerfile"},
-                "image": f"{ir.name}/platform:latest",
+                "image": f"{ir.name}/platform:{ir.spec_version}",
                 "command": ["orgagents", "serve", "--host", "0.0.0.0"],
                 "ports": ["8000:8000"],
                 "networks": [ir.qualified("control")],
@@ -318,7 +333,7 @@ CMD ["orgagents", "worker"]
             scheduler = ir.binding.scheduler
             services["scheduler"] = {
                 "build": {"context": ".", "dockerfile": "Dockerfile"},
-                "image": f"{ir.name}/platform:latest",
+                "image": f"{ir.name}/platform:{ir.spec_version}",
                 "command": ["orgagents", "scheduler", "--manifest", "/app/triggers.json"],
                 "environment": {
                     "ORGAGENTS_SCHEDULER": scheduler.provider if scheduler else "internal",
@@ -340,7 +355,7 @@ CMD ["orgagents", "worker"]
             memory = ir.binding.memory
             services["memory"] = {
                 "build": {"context": ".", "dockerfile": "Dockerfile"},
-                "image": f"{ir.name}/platform:latest",
+                "image": f"{ir.name}/platform:{ir.spec_version}",
                 "command": ["orgagents", "memory", "serve"],
                 "environment": {
                     "ORGAGENTS_SESSION_STORE": memory.session_store if memory
@@ -377,7 +392,7 @@ CMD ["orgagents", "worker"]
                 env[channel.bot_identity_ref] = f"${{{channel.bot_identity_ref}}}"
             services[f"channel-{channel.id}"] = {
                 "build": {"context": ".", "dockerfile": "Dockerfile"},
-                "image": f"{ir.name}/platform:latest",
+                "image": f"{ir.name}/platform:{ir.spec_version}",
                 "command": ["serve", "--channel", channel.id],
                 "environment": env,
                 "volumes": ["./channels.json:/app/channels.json:ro"],
@@ -394,7 +409,7 @@ CMD ["orgagents", "worker"]
                 continue
             services[f"mcp-{binding.server_name}"] = {
                 "build": {"context": ".", "dockerfile": "Dockerfile"},
-                "image": binding.options.get("image", f"{ir.name}/platform:latest"),
+                "image": binding.options.get("image", f"{ir.name}/platform:{ir.spec_version}"),
                 "command": [binding.command or "serve", *binding.args],
                 "environment": (
                     {binding.dsn_secret_ref: f"${{{binding.dsn_secret_ref}}}"}

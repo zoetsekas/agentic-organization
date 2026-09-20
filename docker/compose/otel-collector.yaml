@@ -1,0 +1,40 @@
+# The fabric's collector (ADR-0016, ADR-0053).
+#
+# Every plane exports here. The tenant attribute is what keeps tenants apart
+# downstream, so it is attached at ingest rather than trusted from the caller:
+# a tenant that could set `tenant.id` itself could write into another tenant's
+# view.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+  attributes/tenant:
+    actions:
+      - key: tenant.id
+        action: insert
+        value: unassigned
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [attributes/tenant, batch]
+      exporters: [otlp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [attributes/tenant, batch]
+      exporters: [prometheus]

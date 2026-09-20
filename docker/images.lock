@@ -1,0 +1,38 @@
+# docker/images.lock — tag-to-digest pins for every third-party image ADR-0053
+# names. A tag moves; a digest is the thing that was reviewed (ADR-0053 rule 1),
+# so the tags below are for humans and the digests are what deployment uses.
+#
+# FORMAT
+#   One record per line:   <repository>:<tag><TAB or spaces><digest><TAB>plane
+#   `#` starts a comment; blank lines are ignored.
+#   <digest> is either `sha256:<64 hex>` or the literal token UNRESOLVED.
+#
+# UNRESOLVED means exactly that: nobody has pulled this image here. No Docker
+# daemon and no registry access exists in the environment this file was written
+# in, so inventing digest-shaped strings would produce a lock file that looks
+# authoritative and is fiction. Run `docker/resolve-images.sh` on a machine with
+# a daemon (or with crane/skopeo) to replace every UNRESOLVED with the real
+# digest, review the diff, and commit it.
+#
+# plane is where the image runs: fabric, tenant, designer, or sandbox.
+
+# --- fabric plane: shared infrastructure the fabric owns ---------------------
+postgres:16-alpine                                   UNRESOLVED  fabric,designer,tenant
+traefik:v3                                           UNRESOLVED  fabric
+quay.io/keycloak/keycloak:26                         UNRESOLVED  fabric
+hashicorp/vault:1.17                                 UNRESOLVED  fabric
+otel/opentelemetry-collector-contrib:0.110.0         UNRESOLVED  fabric
+prom/prometheus:v2.54.1                              UNRESOLVED  fabric
+grafana/grafana:11                                   UNRESOLVED  fabric
+jaegertracing/all-in-one:1.60                        UNRESOLVED  fabric
+redis:7-alpine                                       UNRESOLVED  fabric
+
+# --- tenant plane: one instance and one volume per tenant -------------------
+minio/minio:RELEASE.2024-09-13T20-26-02Z             UNRESOLVED  tenant
+
+# --- sandbox toolchain images (ADR-0053, "Sandbox images, by toolchain") -----
+# `python` and `data` share python:3.11-slim; `data` adds pinned analysis
+# wheels on top rather than a different base.
+python:3.11-slim                                     UNRESOLVED  sandbox
+node:22-alpine                                       UNRESOLVED  sandbox
+gcr.io/distroless/static-debian12:nonroot            UNRESOLVED  sandbox

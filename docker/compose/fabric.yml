@@ -1,0 +1,226 @@
+# The fabric plane (ADR-0049, ADR-0053).
+#
+#   docker compose -f docker/compose/fabric.yml up -d
+#   docker compose -f docker/compose/fabric.yml --profile leases up -d   # + Redis
+#
+# One Compose project per plane: this one is the control plane and the shared
+# services every tenant draws on. It does not run anybody's agents — a tenant's
+# stack is generated (`orgagents compile --target local`) and stands up on its
+# own, with its own Postgres and its own MinIO (ADR-0053 rule 3).
+#
+# Every third-party image here is pinned to the tag ADR-0053 names. The tags are
+# for readability; `docker/resolve-images.sh --apply docker/compose/fabric.yml`
+# rewrites them as tag@sha256:... from docker/images.lock, which is what a
+# deployment should run (ADR-0053 rule 1). Rule 2 — mirror before use — is not
+# done here: these are upstream names, see docs/DOCKER.md.
+
+name: orgagents-fabric
+
+services:
+  # -- our own images --------------------------------------------------------
+
+  fabric:
+    build:
+      context: ../..
+      dockerfile: docker/images/fabric/Dockerfile
+    image: orgagents-fabric:local
+    container_name: orgagents-fabric
+    environment:
+      ORGAGENTS_DB: /data/fabric.db
+      ORGAGENTS_BASE_URL: ${ORGAGENTS_FABRIC_BASE_URL:-http://localhost}
+      # trusted_proxy is only trustworthy because Traefik is the sole ingress
+      # here and strips client-supplied identity headers (ADR-0047).
+      ORGAGENTS_DESIGNER_AUTH: ${ORGAGENTS_FABRIC_AUTH:-trusted_proxy}
+    volumes:
+      - fabric-data:/data
+    depends_on:
+      - postgres
+    networks: [fabric]
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.fabric.rule: "PathPrefix(`/api/`) || PathPrefix(`/healthz`)"
+      traefik.http.services.fabric.loadbalancer.server.port: "8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status==200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  # The command centre is a separate application over the same backend
+  # (ADR-0051), so it is its own image and its own container even though the
+  # process it runs today is the same one.
+  command:
+    build:
+      context: ../..
+      dockerfile: docker/images/command/Dockerfile
+    image: orgagents-command:local
+    container_name: orgagents-command
+    environment:
+      ORGAGENTS_DB: /data/fabric.db
+      ORGAGENTS_BASE_URL: ${ORGAGENTS_COMMAND_BASE_URL:-http://localhost/command/}
+    volumes:
+      - fabric-data:/data
+    depends_on:
+      fabric:
+        condition: service_healthy
+    networks: [fabric]
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.command.rule: "PathPrefix(`/command/`) || PathPrefix(`/ui/`)"
+      traefik.http.services.command.loadbalancer.server.port: "8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status==200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  # -- third-party infrastructure -------------------------------------------
+
+  # The fabric's own store: tenants, deployments, quotas, health. Tenant data
+  # never lands here; each tenant has its own instance (ADR-0053 rule 3).
+  postgres:
+    image: postgres:16-alpine
+    container_name: orgagents-fabric-postgres
+    environment:
+      POSTGRES_DB: fabric
+      POSTGRES_USER: ${FABRIC_DB_USER:-fabric}
+      POSTGRES_PASSWORD: ${FABRIC_DB_PASSWORD:?set FABRIC_DB_PASSWORD}
+    volumes:
+      - fabric-postgres:/var/lib/postgresql/data
+    networks: [fabric]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${FABRIC_DB_USER:-fabric} -d fabric"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  traefik:
+    image: traefik:v3
+    container_name: orgagents-traefik
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      # Identity headers a client sends must never survive the proxy, or
+      # trusted_proxy mode is a header anybody can set (ADR-0047).
+      - --entrypoints.web.http.middlewares=strip-identity@docker
+    ports:
+      - "${FABRIC_HTTP_PORT:-80}:80"
+    volumes:
+      # Read-only, and still the strongest privilege in this file: anything
+      # that can read this socket can reach every container on the host.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [fabric]
+    labels:
+      traefik.enable: "true"
+      traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-Forwarded-User: ""
+      traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-Forwarded-Email: ""
+      traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-Forwarded-Groups: ""
+    restart: unless-stopped
+
+  # An OIDC issuer to develop against. Not the company's IdP, and start-dev
+  # means no TLS and an in-memory-ish dev database.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26
+    container_name: orgagents-keycloak
+    command: ["start-dev", "--http-port=8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD}
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+    volumes:
+      - fabric-keycloak:/opt/keycloak/data
+    networks: [fabric]
+    restart: unless-stopped
+
+  # DEV MODE. This is NOT a secret store: the root token is fixed, storage is
+  # in memory, and everything in it is gone on restart. It exists so the
+  # secret_refs the compiler emits resolve to something locally. A deployment
+  # uses the cloud secret manager instead (ADR-0015, ADR-0053).
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: orgagents-vault-dev
+    command: ["server", "-dev", "-dev-listen-address=0.0.0.0:8200"]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_TOKEN:-orgagents-dev-root}
+      VAULT_ADDR: http://127.0.0.1:8200
+    cap_add: ["IPC_LOCK"]
+    networks: [fabric]
+    restart: unless-stopped
+
+  # One collector for every plane. Tenant spans are tagged and routed; merging
+  # them into one view a tenant can read is the failure mode (ADR-0053).
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.110.0
+    container_name: orgagents-otel-collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    networks: [fabric]
+    depends_on:
+      - jaeger
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: orgagents-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - fabric-prometheus:/prometheus
+    networks: [fabric]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11
+    container_name: orgagents-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - fabric-grafana:/var/lib/grafana
+    networks: [fabric]
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    container_name: orgagents-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
+    networks: [fabric]
+    restart: unless-stopped
+
+  # Optional: scheduler leases and rate limiting. The Postgres path works
+  # without it, so it is a profile rather than a dependency (ADR-0053).
+  redis:
+    profiles: ["leases"]
+    image: redis:7-alpine
+    container_name: orgagents-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks: [fabric]
+    restart: unless-stopped
+
+networks:
+  fabric:
+    name: orgagents-fabric
+
+volumes:
+  fabric-data:
+  fabric-postgres:
+  fabric-keycloak:
+  fabric-prometheus:
+  fabric-grafana:

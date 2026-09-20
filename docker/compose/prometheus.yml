@@ -1,0 +1,12 @@
+# Fabric metrics (ADR-0053). Scrapes the collector's Prometheus
+# exporter only: the control plane's own /api/ops/metrics is JSON, not the
+# Prometheus text format, so scraping it would fail silently. Tenant workloads
+# export through the collector rather than being scraped directly, so the
+# fabric needs no route into a tenant network.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8889"]
