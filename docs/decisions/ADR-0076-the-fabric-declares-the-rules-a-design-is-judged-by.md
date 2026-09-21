@@ -2,7 +2,7 @@
 id: ADR-0076
 title: The fabric declares the rules a design is judged by
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-21
 updated: 2026-09-21
 deciders: [Platform Architecture, Security Engineering]
@@ -12,7 +12,7 @@ scope: [spec, compiler, security]
 workstreams: [WS-002, WS-028]
 supersedes: []
 superseded_by: []
-related: [ADR-0008, ADR-0050, ADR-0052, ADR-0060, ADR-0072, ADR-0073]
+related: [ADR-0008, ADR-0050, ADR-0052, ADR-0060, ADR-0072, ADR-0073, ADR-0077]
 tags: [governance, fabric, controls]
 ---
 
@@ -114,10 +114,11 @@ Phase 5, WS-028. Implemented with this record.
   with a sentence of justification nobody validates. The reason travels with
   the verdict, which makes the choice visible and does not make it good, and
   the pressure to use it will come from whoever is shipping.
-- **A policy is itself unreviewed.** It has a version and no lifecycle: no
-  approval, no review interval, nothing that stops somebody editing the house
-  rules and re-running the build. The catalog's editorial-versus-substantive
-  discipline (ADR-0062) is exactly what this wants and does not have.
+- **A policy was itself unreviewed.** It had a version and no lifecycle.
+  **Closed by ADR-0077**: four states, a signed and dated approval, an optional
+  lapsing review, and a fingerprint over the substantive fields so a version
+  claim is checkable. What remains open there is that the approval is still a
+  string in a file.
 - **The rule vocabulary is small and ours.** Require, forbid, cap, re-rank. A
   real house policy says things like "designs touching customer data need a
   named DPO", and none of that is expressible, so it will live in a wiki
@@ -161,4 +162,5 @@ failing the house rules raises with the policy named and writes no artifacts.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-21 | The missing lifecycle is ADR-0077: only an approved, current policy may decide a build, and the stamp carries a fingerprint. |
 | 1.0.0 | 2026-09-21 | Accepted and implemented. A fabric-owned, versioned policy that sets strictness, re-ranks built-in rules with lowering reported, requires/forbids/caps, and is stamped into the IR. |

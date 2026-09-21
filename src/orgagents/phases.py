@@ -366,10 +366,22 @@ def review_platform_policy(
                "Judged against the built-in rules only — no platform policy "
                "is in force")
         return
+    # May it judge a build at all? A draft may be evaluated so its author can
+    # see what it does; it may not decide whether something ships (ADR-0077).
+    blocked = policy.refusal()
+    _check(
+        report, "definition", not blocked, "platform_policy_usable",
+        f"Platform policy '{policy.stamp}' is approved and current"
+        + (f" — approved by {policy.approved_by} on {policy.approved_on}"
+           if policy.approved_by else ""),
+        blocked,
+        "approve it, or evaluate against it without building",
+    )
+
     lowered = policy.lowered
     _check(
         report, "definition", not lowered, "platform_policy",
-        f"Platform policy '{policy.stamp}' is in force"
+        f"Platform policy '{policy.stamp}' ({policy.fingerprint}) is in force"
         + (f", strictness {policy.treat_as}" if policy.treat_as else ""),
         "; ".join(f"{code} lowered — {why or 'no reason given'}"
                   for code, why in sorted(lowered.items())),

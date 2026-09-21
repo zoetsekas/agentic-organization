@@ -3,6 +3,14 @@
 # (ADR-0076).
 id: house
 version: "1.0.0"
+
+# A policy that judges a build has to have been approved by somebody, and the
+# approval has to be current. A draft may still be evaluated — an author has
+# to see what a rule does before asking anyone to accept it (ADR-0077).
+status: approved
+approved_by: Security Engineering
+approved_on: "2026-09-21"
+review_interval_days: 180
 description: >-
   What this fabric requires of any design it builds, regardless of what the
   design says about itself.

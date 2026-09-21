@@ -21,11 +21,38 @@ validator:
 """
 from __future__ import annotations
 
+import hashlib
+import json
+from datetime import date, timedelta
+from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
 SEVERITIES = ("error", "warning", "ignore")
+
+#: Fields that change what a design is judged by. Editing one of these without
+#: a new version would make a verdict mean something different from what it
+#: meant last week, which is why the fingerprint covers exactly this set
+#: (ADR-0077, following ADR-0062's editorial/substantive split).
+SUBSTANTIVE = (
+    "treat_as", "severity", "reasons", "require_declared",
+    "forbid_autonomy_over", "max_autonomy",
+)
+
+
+class PolicyStatus(str, Enum):
+    """Where a platform policy is in its life (ADR-0077)."""
+
+    #: Being written. May be evaluated so its author can see what it does.
+    DRAFT = "draft"
+    #: Submitted, not yet approved. Same: may be tried, may not judge a build.
+    IN_REVIEW = "in_review"
+    #: Somebody accountable accepted it. The only state that may judge a build.
+    APPROVED = "approved"
+    #: Withdrawn. Judges nothing, and stays readable because the verdicts it
+    #: produced are still on record.
+    RETIRED = "retired"
 
 #: Blocks a policy may require a design to have declared, and how to find them.
 REQUIRABLE = {
@@ -45,6 +72,20 @@ class PlatformPolicy(BaseModel):
     #: Semver. Stamped into the IR so a verdict can be re-checked later.
     version: str = "0.1.0"
     description: str = ""
+
+    # -- lifecycle (ADR-0077) ----------------------------------------------
+    status: PolicyStatus = PolicyStatus.DRAFT
+    #: Who accepted it. A policy approved by nobody is a file.
+    approved_by: str = ""
+    #: ISO date. With `review_interval_days`, decides staleness.
+    approved_on: Optional[str] = None
+    #: How long an approval is good for. `None` means it does not lapse —
+    #: opting in is choosing the behaviour, so a fabric that sets one means it.
+    review_interval_days: Optional[int] = None
+    #: The policy version this replaces, for the reader. One-way on purpose:
+    #: a superseded policy is retired, and retirement is the machine-readable
+    #: half.
+    supersedes: str = ""
 
     #: Judge the design at this strictness whatever it declares about itself.
     #: `None` leaves `metadata.environment` deciding, which is the old
@@ -78,6 +119,19 @@ class PlatformPolicy(BaseModel):
                     "lowering one does, and the reason is reported wherever the "
                     "policy is (ADR-0076)"
                 )
+        if self.status is PolicyStatus.APPROVED and not (
+            self.approved_by and self.approved_on
+        ):
+            raise ValueError(
+                f"platform policy '{self.id}' is approved and does not say by "
+                "whom or when. An approval nobody signed and nothing dates is "
+                "not an approval (ADR-0077)"
+            )
+        if self.review_interval_days is not None and self.review_interval_days < 1:
+            raise ValueError(
+                f"platform policy '{self.id}' has a review interval of "
+                f"{self.review_interval_days} days, which is not an interval"
+            )
         unknown = [b for b in self.require_declared if b not in REQUIRABLE]
         if unknown:
             raise ValueError(
@@ -89,6 +143,58 @@ class PlatformPolicy(BaseModel):
     @property
     def stamp(self) -> str:
         return f"{self.id}/{self.version}"
+
+    @property
+    def fingerprint(self) -> str:
+        """A hash over everything that decides a verdict.
+
+        A version is a name somebody types and can be typed again over changed
+        substance. The fingerprint is what makes "this passed `house/1.0.0`"
+        checkable rather than asserted: two builds claiming the same version
+        with different fingerprints are visibly not the same rules.
+        """
+        material = json.dumps(
+            {k: getattr(self, k) for k in SUBSTANTIVE},
+            sort_keys=True, default=str,
+        )
+        return hashlib.sha256(material.encode()).hexdigest()[:12]
+
+    def review_due(self) -> Optional[date]:
+        if self.review_interval_days is None or not self.approved_on:
+            return None
+        return date.fromisoformat(self.approved_on) + timedelta(
+            days=self.review_interval_days
+        )
+
+    def is_stale(self, on: Optional[date] = None) -> bool:
+        due = self.review_due()
+        return due is not None and (on or date.today()) > due
+
+    def refusal(self, on: Optional[date] = None) -> str:
+        """Why this policy may not judge a build, or an empty string.
+
+        A draft may be *evaluated* — an author has to be able to see what a
+        rule would do before asking anybody to approve it — and may not stamp
+        a build. The two are different questions and collapsing them would
+        make the policy untestable.
+        """
+        if self.status is PolicyStatus.RETIRED:
+            return f"platform policy '{self.stamp}' is retired and judges nothing"
+        if self.status is not PolicyStatus.APPROVED:
+            return (
+                f"platform policy '{self.stamp}' is {self.status.value} and has "
+                "not been approved. Evaluate a design against it freely; it may "
+                "not decide whether one is built"
+            )
+        if self.is_stale(on):
+            return (
+                f"platform policy '{self.stamp}' was approved on "
+                f"{self.approved_on} and was due for review by "
+                f"{self.review_due().isoformat()}. House rules nobody has "
+                "confirmed still apply are not house rules — re-approve it, or "
+                "drop the review interval if it was not meant"
+            )
+        return ""
 
     @property
     def lowered(self) -> dict[str, str]:

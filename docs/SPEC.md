@@ -273,6 +273,10 @@ judged.
 # house.platform-policy.yaml — passed with --platform-policy
 id: house
 version: "1.0.0"
+status: approved              # only an approved, current policy decides a build
+approved_by: Security Engineering
+approved_on: "2026-09-21"
+review_interval_days: 180     # optional; where set, the approval lapses
 treat_as: production          # strictness is ours, not the design's
 require_declared: [separations, guardrails, decisions, evaluations]
 forbid_autonomy_over: [release_payment, approve_capex]
@@ -281,10 +285,18 @@ severity:
 ```
 
 Lowering a rule needs a `reasons` entry and is refused without one, and every
-lowered rule is reported in the gate and stamped into the IR alongside the
-policy's id and version — so "this passed `house/1.0.0`" is a fact somebody can
-re-check, and a build with no policy records `none` rather than looking the
-same as a policed one.
+lowered rule is reported in the gate and stamped into the IR. A build with no
+policy records `none` rather than looking the same as a policed one.
+
+A policy has a lifecycle (ADR-0077). A **draft may be evaluated and may not
+decide a build**, so an author can see what a rule does before asking anybody
+to accept it. An approved policy without a signature and a date is refused at
+load. Where `review_interval_days` is set, a lapsed approval stops deciding and
+says by when it was due.
+
+The stamp carries a **fingerprint over the substantive fields**, so
+"this passed `house/1.0.0`" says *which* `house/1.0.0`: edit `treat_as` and keep
+the version, and the fingerprint moves. Rewriting the description does not.
 
 ## Policies: `conditions` vs `unless`
 

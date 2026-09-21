@@ -79,6 +79,13 @@ def compile_system(
     refused if it reaches outside the tenant, and the generated artifacts are
     refused if any of their names is not the tenant's.
     """
+    # A policy that has not been approved, or whose approval has lapsed, may
+    # be evaluated and may not decide whether something is built (ADR-0077).
+    if platform_policy is not None:
+        blocked = platform_policy.refusal()
+        if blocked:
+            raise CompileError(blocked)
+
     # The fabric's rules are applied here, not after: a design that fails the
     # house policy produces no artifacts at all (ADR-0076).
     findings = validate_spec(spec, platform_policy=platform_policy)

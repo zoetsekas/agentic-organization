@@ -178,3 +178,111 @@ def test_the_gate_says_when_no_policy_is_in_force(spec):
     report = review(spec)
     check = next(c for c in report.of("definition") if c.id == "platform_policy")
     assert "no platform policy" in check.title
+
+
+# --------------------------------------------------------------------------
+# Lifecycle (ADR-0077)
+# --------------------------------------------------------------------------
+
+
+from datetime import date  # noqa: E402
+
+from orgagents.platform_policy import PolicyStatus  # noqa: E402
+
+
+def _approved(**over) -> PlatformPolicy:
+    base = dict(id="h", version="1.0.0", status="approved",
+                approved_by="ana", approved_on="2026-09-01",
+                treat_as="production")
+    base.update(over)
+    return PlatformPolicy(**base)
+
+
+def test_a_new_policy_starts_as_a_draft():
+    assert PlatformPolicy(id="h").status is PolicyStatus.DRAFT
+
+
+def test_an_approval_nobody_signed_is_refused():
+    with pytest.raises(ValueError) as excinfo:
+        PlatformPolicy(id="h", status="approved")
+    assert "by whom or when" in str(excinfo.value)
+
+
+def test_a_draft_may_be_evaluated_and_may_not_decide_a_build(spec, tmp_path):
+    """An author has to see what a rule does before asking anyone to accept
+    it, so the two questions are kept apart."""
+    draft = PlatformPolicy(id="h", version="1.0.0", treat_as="production")
+    assert _codes(spec, draft), "a draft must still be evaluable"
+    with pytest.raises(CompileError) as excinfo:
+        compile_system(spec, targets=["local"], out_dir=tmp_path,
+                       platform_policy=draft)
+    assert "has not been approved" in str(excinfo.value)
+    assert not list(tmp_path.glob("**/*"))
+
+
+def test_an_approved_policy_may_decide_a_build():
+    assert _approved().refusal() == ""
+
+
+def test_a_retired_policy_judges_nothing():
+    retired = PlatformPolicy(id="h", version="1.0.0", status="retired")
+    assert "retired" in retired.refusal()
+
+
+def test_a_lapsed_approval_stops_deciding_and_says_why():
+    """House rules nobody has confirmed still apply are not house rules."""
+    stale = _approved(approved_on="2025-01-01", review_interval_days=90)
+    assert stale.is_stale(date(2026, 9, 21))
+    assert "due for review by" in stale.refusal(date(2026, 9, 21))
+
+
+def test_a_policy_with_no_interval_does_not_lapse():
+    """Opting in is choosing the behaviour; a fabric that sets one means it."""
+    assert _approved(approved_on="2020-01-01").refusal() == ""
+
+
+def test_an_interval_that_is_not_an_interval_is_refused():
+    with pytest.raises(ValueError):
+        _approved(review_interval_days=0)
+
+
+# --------------------------------------------------------------------------
+# A version is a name somebody types
+# --------------------------------------------------------------------------
+
+
+def test_the_same_version_over_changed_substance_has_a_different_fingerprint():
+    """This is what makes "it passed house/1.0.0" checkable rather than
+    asserted."""
+    a = _approved(treat_as="production")
+    b = _approved(treat_as="development")
+    assert a.stamp == b.stamp
+    assert a.fingerprint != b.fingerprint
+
+
+def test_editorial_changes_do_not_move_the_fingerprint():
+    """Following ADR-0062: describing a policy differently is not changing it."""
+    a = _approved(description="house rules")
+    b = _approved(description="the rules of this house", approved_by="bo")
+    assert a.fingerprint == b.fingerprint
+
+
+def test_the_stamp_records_the_lifecycle_not_only_the_name(spec, house):
+    ir = build_ir(spec, platform_policy=house)
+    assert ir.platform_policy.status == "approved"
+    assert ir.platform_policy.approved_by == "Security Engineering"
+    assert ir.platform_policy.fingerprint == house.fingerprint
+
+
+def test_the_gate_reports_why_a_policy_may_not_decide(spec):
+    draft = PlatformPolicy(id="h", version="1.0.0")
+    report = review(spec, platform_policy=draft)
+    check = next(c for c in report.of("definition")
+                 if c.id == "platform_policy_usable")
+    assert check.status == "fail"
+    assert "has not been approved" in check.detail
+
+
+def test_the_worked_house_policy_is_approved_and_current(house):
+    assert house.refusal() == "", house.refusal()
+    assert house.review_interval_days, "house rules should be revisited"

@@ -541,6 +541,13 @@ class PlatformPolicyStampIR(BaseModel):
     version: str = ""
     treat_as: str = ""
     lowered: dict[str, str] = Field(default_factory=dict)
+    #: A version is a name somebody types; this is what they typed it over.
+    #: Two builds claiming one version with different fingerprints are
+    #: visibly not the same rules (ADR-0077).
+    fingerprint: str = ""
+    status: str = ""
+    approved_by: str = ""
+    approved_on: str = ""
 
     @property
     def stamp(self) -> str:
@@ -1250,6 +1257,11 @@ def build_ir(
             version=platform_policy.version if platform_policy else "",
             treat_as=(platform_policy.treat_as or "") if platform_policy else "",
             lowered=dict(platform_policy.lowered) if platform_policy else {},
+            fingerprint=platform_policy.fingerprint if platform_policy else "",
+            status=platform_policy.status.value if platform_policy else "",
+            approved_by=platform_policy.approved_by if platform_policy else "",
+            approved_on=(platform_policy.approved_on or "")
+            if platform_policy else "",
         ),
         target=target,
         name=spec.metadata.name,
