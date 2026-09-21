@@ -279,11 +279,37 @@ round-trip stability tests (WS-009 M4); per-system access within a workspace
 3. **Add the publish path.** Validate → compile → request deployment, with the
    phase gate's output shown as the reason when it refuses. This is the one
    thing the platform exists to do and the one thing the UI cannot do.
-4. **Show the two review surfaces** — the evaluation gate and the IR diff — on
-   the system being edited. A widened permission discovered in a terminal is
-   discovered by the wrong person at the wrong time.
-5. **Then presence, auto-layout and form coverage**, which are experience
+4. ~~**Show the two review surfaces** — the evaluation gate and the IR diff —
+   on the system being edited.~~ Done: the consequence rail fetches both for
+   the open design and ranks changes by consequence.
+5. **Close the orphaned routes.** `GET .../placements` is served and nothing
+   in the bundle calls it, so the shared volumes, what crosses between
+   placements and why, the agents placed nowhere and the placement findings
+   are API-only. The canvas draws the regions from the spec; everything the
+   route adds is invisible. A backend capability with no UI in front of it is
+   the category this review exists to catch, and this one was added by the
+   same session that wrote the category down.
+6. **Then presence, auto-layout and form coverage**, which are experience
    rather than correctness.
+
+## Coverage, measured
+
+Counted against `SystemSpec`, not estimated. 24 palette kinds; the canvas
+places 17 top-level blocks and 2 nested ones.
+
+**No UI at all (9):** `policies`, `context`, `missions`, `model_policy`,
+`budgets`, `compliance`, `resilience`, `observability`, `deployment`.
+
+**Partial (5):** `operating_principles` (on the org form), `memory`
+(namespaces only), `lifecycle` (evaluation cases only — the stage *gates* are
+not authorable), `artifact_stores` (an agent picks one; the store itself is
+not authorable), `interaction_flows` (drawn as edges, never created).
+
+Two of those are load-bearing rather than cosmetic. `missions` is the whole
+temporary-authority model (ADR-0039) and can only be written in YAML. And
+`policies` was flagged in the earlier review as resisting a form because its
+`conditions`/`unless` keys have no closed vocabulary — that is still true, and
+it is a spec problem wearing a UI problem's clothes.
 
 ## What this review did not check
 

@@ -61,6 +61,8 @@ small enough that failing it is a prompt rather than a permanent red mark.
 | M5 Undo for canvas edits | Phase 6 | Not started |
 | M6 Keyboard node creation and a focus treatment | Phase 6 | Not started |
 | M7 A drift check between the palette and the spec model | Phase 6 | Not started |
+| M8 Wire the placements route into the view — volumes, what crosses, who is placed nowhere | Phase 6 | Not started |
+| M9 The publish path: validate → compile → request deployment, with the gate's refusal as the reason | Phase 6 | Not started |
 
 ## Dependencies
 WS-009 for the designer itself and WS-023 for the canvas. Nothing here blocks
@@ -98,6 +100,7 @@ in `docs/DESIGNER.md` no longer lists coverage as the largest gap.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.3.0 | 2026-09-21 | M8 and M9 opened. Coverage measured rather than estimated: 9 spec blocks have no UI and 5 are partial, `missions` and `policies` being the two that matter. `GET .../placements` is served and nothing calls it. |
 | 1.3.0 | 2026-09-21 | M3 done. Operating principles went to the organisation form rather than the palette: instructions every agent carries are an organisation-wide statement, not a node. 23 palette kinds. |
 | 1.2.0 | 2026-09-21 | M2 done. It needed three field types the inspector did not have — `multi` for closed vocabularies, `json` for a schema, and `object` for a nested policy — which is the widget cost this workstream's Disadvantages predicted. |
 | 1.1.0 | 2026-09-21 | M1 done. It also surfaced two palette kinds — `decision` and `separation` — that were offered and could not be placed, because they were never wired into the canvas's collection map. |
