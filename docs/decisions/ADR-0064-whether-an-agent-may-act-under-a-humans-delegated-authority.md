@@ -12,7 +12,7 @@ scope: [security, runtime, spec]
 workstreams: [WS-009, WS-031]
 supersedes: []
 superseded_by: []
-related: [ADR-0057, ADR-0061, ADR-0063]
+related: [ADR-0057, ADR-0061, ADR-0063, ADR-0079]
 tags: [identity, authority, open-question]
 ---
 
@@ -137,6 +137,9 @@ refused; an expired grant is refused at the next act, not at the next compile;
 revocation stops in-flight work; a backend that cannot distinguish the agent
 from the human is refused at bind time even with a valid grant; and no
 workflow, scheduled or agent-to-agent path can carry a delegation.
+
+## Follow-up
+ADR-0079 answers the half of this that is about a person's *own* authority: a person may hold a mandate, so a decision only a board can take has somewhere to land. Whether an agent may act *as* a person is still this record's question, and still open.
 
 ## Changelog
 

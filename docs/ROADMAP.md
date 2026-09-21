@@ -49,7 +49,8 @@ Recorded as decisions, implemented in none. In dependency order.
 | 0.5 | A boundary for **legal entities** | — | Consolidation and transfer pricing need controlled crossing. We have self-declared groups a design can widen, and fabric-assigned tenants nothing may cross. Neither is it. |
 | 0.6 | **Calendar-fresh** control evidence | ADR-0060 | Staleness is fingerprint-based by design, which is right for "did the design change" and wrong for "has this been tested this quarter". |
 | 0.7 | **Spec composition** | — | 748 lines for twelve agents, one document, no includes. A group with hundreds of entities cannot be one file, and Treasury cannot own its own. |
-| 0.8 | **Delegated human authority** | ADR-0064 | Still open. Capital allocation is decided by a board, and a board is people, so `approve_capex` has nowhere to land. |
+| 0.8 | **People as principals for authority** | ADR-0079 · WS-016 M5 | One human is six principals in the worked finance example. Until that is one, no separation or mandate over people can work — and four recorded limitations share it as their root cause. |
+| 0.8b | **Delegated human authority** | ADR-0064 | Still open. Capital allocation is decided by a board, and a board is people, so `approve_capex` has nowhere to land. |
 | 0.9 | **Designer completeness** | WS-032 | The palette authors 16 spec kinds against roughly 30 blocks. M1 closes a contradiction: a UI-authored design cannot declare an evaluation case, which autonomy now requires. |
 
 ## 1. Correctness and safety — do these first

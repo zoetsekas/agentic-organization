@@ -18,7 +18,7 @@
 | [WS-013](WS-013-human-channels-and-hitl.md) | Human channels, approval routing and declared interaction flows | Active | 1.2.0 | Product | ADR-0021, ADR-0024, ADR-0059, ADR-0061 | WS-005, WS-011 |
 | [WS-014](WS-014-enterprise-registry-and-lifecycle.md) | Enterprise governance — registry, lifecycle gates, evaluations, budgets, compliance | Active | 1.1.0 | Security Engineering | ADR-0022, ADR-0060 | WS-004, WS-005, WS-011 |
 | [WS-015](WS-015-knowledge-grounding.md) | Knowledge grounding sources and retrieval | Proposed | 1.0.0 | Data Platform | ADR-0023 | WS-005, WS-011 |
-| [WS-016](WS-016-human-pairing.md) | Human pairing and accountability | Active | 1.1.0 | Product | ADR-0026, ADR-0044 | WS-013 |
+| [WS-016](WS-016-human-pairing.md) | Human pairing and accountability | Active | 1.2.0 | Product | ADR-0026, ADR-0044, ADR-0079 | WS-013 |
 | [WS-017](WS-017-subagents-as-tools.md) | Sub-agents as tools | Active | 1.0.0 | Platform Architecture | ADR-0027 | WS-005 |
 | [WS-018](WS-018-memory-management.md) | Memory management — session and long term | Active | 1.0.0 | Platform Architecture | ADR-0028 | WS-004, WS-005 |
 | [WS-019](WS-019-agent-capability-bundle.md) | Agent capability bundle — skills, plugins, tools and external endpoints | Active | 1.1.0 | Platform Architecture | ADR-0029, ADR-0030, ADR-0058 | WS-005, WS-004 |

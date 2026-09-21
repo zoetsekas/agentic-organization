@@ -12,7 +12,7 @@ scope: [spec, compiler, runtime, security]
 workstreams: [WS-003, WS-009]
 supersedes: []
 superseded_by: []
-related: [ADR-0026, ADR-0060, ADR-0064, ADR-0065, ADR-0070, ADR-0071]
+related: [ADR-0026, ADR-0060, ADR-0064, ADR-0065, ADR-0070, ADR-0071, ADR-0079]
 tags: [autonomy, controls, human-in-the-loop]
 ---
 
@@ -168,6 +168,9 @@ every mutating capability declares a posture, invoice approval is supervised
 with approval required, clerical entry stays autonomous with a decision class,
 every autonomous agent carries evaluation evidence, and capital expenditure
 still reports that no principal can take it.
+
+## Follow-up
+ADR-0079 makes rule 3's check real: with people as principals, an approver's independence is checkable rather than approximated by 'not the agent's own owner'.
 
 ## Changelog
 

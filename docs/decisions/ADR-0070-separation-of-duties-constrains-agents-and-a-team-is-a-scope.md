@@ -12,7 +12,7 @@ scope: [spec, compiler, runtime, security]
 workstreams: [WS-003, WS-009]
 supersedes: []
 superseded_by: []
-related: [ADR-0006, ADR-0007, ADR-0008, ADR-0026, ADR-0065, ADR-0069]
+related: [ADR-0006, ADR-0007, ADR-0008, ADR-0026, ADR-0065, ADR-0069, ADR-0079]
 tags: [authority, controls, org-model]
 ---
 
@@ -162,6 +162,9 @@ returns an agent and never a team id; a leader narrowed under rule 4 is walked
 past rather than returned; `holders` names an out-of-line holder that `holder`
 refuses to route to; and the worked finance example holds every separation it
 declares, with `release_payment` unreachable by escalation from payables.
+
+## Follow-up
+ADR-0079 extends separation to people: a person may not hold two decisions a rule keeps apart, and may not approve an action raised by an agent they own.
 
 ## Changelog
 

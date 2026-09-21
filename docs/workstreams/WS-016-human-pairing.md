@@ -2,13 +2,13 @@
 id: WS-016
 title: Human pairing and accountability
 status: Active
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Product
 contributors: [Platform Architecture, Compliance]
 scope: [spec, compiler, runtime, ui]
-decisions: [ADR-0026, ADR-0044]
+decisions: [ADR-0026, ADR-0044, ADR-0079]
 depends_on: [WS-013]
 tags: [human-in-the-loop]
 ---
@@ -48,6 +48,7 @@ the organization. Generate the person-centric view, because the question
 | M3 Registry pairing and person views | Phase 2 | Done |
 | M4 Directory integration to detect departed people | Phase 3 | Done |
 | M5 UI pairing editor | Phase 3 | Not started |
+| M5 People as principals for authority — declared once, holding mandates, covered by separations (ADR-0079) | Phase 6 | Not started |
 
 ## Dependencies
 WS-013 for the channels these people are reached on.
@@ -77,5 +78,6 @@ WS-013 for the channels these people are reached on.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-21 | M5: ADR-0079. One human is currently six principals in the worked finance example, which no check over people could survive. |
 | 1.1.0 | 2026-09-20 | M4 done: `Directory` protocol with static, null and injected adapters, pairing reconciliation, and departed/unknown findings (ADR-0044). |
 | 1.0.0 | 2026-09-20 | Opened. Model, validation, gates and registry views landed. |
