@@ -356,6 +356,55 @@ def review_definition(spec: SystemSpec, report: PhaseReport) -> None:
 # --------------------------------------------------------------------------
 
 
+def review_control_ownership(spec: SystemSpec, report: PhaseReport) -> None:
+    """Say plainly which controls this deployment does not enforce itself."""
+    trusted = trusted_controls(spec)
+    unnamed = [t for t in trusted if t[2] == "unnamed system"]
+    _check(
+        report, "definition", not unnamed, "controls_are_attributed",
+        (
+            "Every control names its enforcer"
+            + (
+                f" — {len(trusted)} left to an application: "
+                + "; ".join(f"{w} ({k}) → {sys}" for w, k, sys in trusted)
+                if trusted
+                else " — this deployment enforces all of them itself"
+            )
+        ),
+        "; ".join(f"{w} ({k})" for w, k, _ in unnamed)
+        + " left to an application without saying which",
+        "name the kind of system that enforces it, so a reader can point at it",
+        soft=True,
+    )
+
+
+def trusted_controls(spec: SystemSpec) -> list[tuple[str, str, str]]:
+    """Controls this deployment does not itself enforce (ADR-0073 rule 5).
+
+    Returns `(where, what, system)` for every control left to an application or
+    shared with one. An operator should be able to read which controls this
+    platform checks and which it is relying on somebody else for, without
+    inferring it from the absence of a check.
+    """
+    out: list[tuple[str, str, str]] = []
+
+    def add(enforcement: Any, where: str, what: str) -> None:
+        if enforcement.trusted_elsewhere:
+            out.append((where, what, enforcement.enforced_in or "unnamed system"))
+
+    for cap in spec.capabilities:
+        add(cap.constraints.enforcement, cap.id, "capability constraints")
+    for team in spec.teams():
+        if team.mandate:
+            add(team.mandate.enforcement, team.id, "team mandate conditions")
+    for agent in spec.agents():
+        if agent.mandate:
+            add(agent.mandate.enforcement, agent.id, "agent mandate conditions")
+    for rule in spec.separations:
+        add(rule.enforcement, rule.id, "separation of duties")
+    return sorted(out)
+
+
 def review_implementation(
     spec: SystemSpec, binding: Optional[Binding], target: str, report: PhaseReport,
     catalog: Optional[object] = None,
@@ -527,6 +576,7 @@ def review(
     """Run both phase reviews; the implementation phase needs a target."""
     report = PhaseReport(spec_name=spec.metadata.name, target=target)
     review_definition(spec, report)
+    review_control_ownership(spec, report)
     if target:
         review_implementation(spec, binding, target, report, catalog)
     return report

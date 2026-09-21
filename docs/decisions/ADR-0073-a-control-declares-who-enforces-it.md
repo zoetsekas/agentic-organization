@@ -86,7 +86,8 @@ generated artifacts. It does not change what a mandate, a separation or an
 approval gate *means*, and it does not move any existing enforcement.
 
 ## Implementation
-`enforced_by` on the constructs that carry a control, defaulting to `platform`
+`ControlEnforcement` on capability constraints, mandates and separations,
+defaulting to `platform`
 so an undeclared control is one we are claiming and must therefore evaluate.
 The validator refuses a `platform` control it has no evaluator for, and refuses
 a spec whose own bound is wider than a declared application bound. The phase
@@ -96,8 +97,8 @@ which controls this deployment enforces and which it is relying on somebody
 else for.
 
 ## Timeline
-Phase 5, WS-009. Recorded ahead of implementation, deliberately: the rule
-decides what the next two records may assume.
+Phase 5, WS-009. Implemented with this record; ADR-0074 and ADR-0075 build on
+it and are not.
 
 ## Advantages
 - A reader can tell a bound we evaluate from a bound we describe, which is the
@@ -157,4 +158,4 @@ README lists every control this deployment does not itself enforce.
 
 | Version | Date | Change |
 |---|---|---|
-| 1.0.0 | 2026-09-21 | Accepted. Controls declare `enforced_by`; `platform` must be evaluable, `application` may not be claimed, `both` names an authoritative side and is always reported. |
+| 1.0.0 | 2026-09-21 | Accepted and implemented. Controls declare `enforced_by`; `platform` must be evaluable, `application` may not be claimed, `both` names an authoritative side and is always reported. `rate_per_minute` was the first casualty: declared in the model and enforced nowhere. |

@@ -362,6 +362,9 @@ class CapabilityConstraint(BaseModel):
     resource_scope: list[str] = Field(default_factory=list)
     requires_approval: bool = False
     rate_per_minute: Optional[int] = None
+    # Who enforces these (ADR-0073). The default claims them for the platform,
+    # so claiming a control obliges us to evaluate it.
+    enforcement: "ControlEnforcement" = Field(default_factory=lambda: ControlEnforcement())
 
 
 class DecisionClass(BaseModel):
@@ -375,6 +378,88 @@ class DecisionClass(BaseModel):
     id: str
     title: str = ""
     description: str = ""
+
+
+class ControlEnforcer(str, Enum):
+    """Who actually enforces a control (ADR-0073).
+
+    An agentic organization does not replace its enterprise applications. The
+    ERP owns the ledger, the treasury system owns the sweep, the bank owns the
+    payment, and each carries its own controls. A spec that describes a bound
+    without saying who checks it reads as governed when it may not be.
+    """
+
+    #: This platform evaluates it. It must therefore be evaluable here.
+    PLATFORM = "platform"
+    #: The enterprise application enforces it. We may describe it and may not
+    #: claim it.
+    APPLICATION = "application"
+    #: Both do. A real arrangement, and how a bound gets quietly relaxed on one
+    #: side, so it is always reported and names an authoritative side.
+    BOTH = "both"
+
+
+#: Capability-constraint fields this platform actually evaluates.
+#:
+#: `rate_per_minute` is deliberately absent: it is declared in the model and
+#: enforced nowhere, which is exactly the defect ADR-0073 exists to catch. A
+#: constraint claiming it as a platform control is refused until something
+#: evaluates it.
+PLATFORM_EVALUATED_CONSTRAINTS = frozenset({
+    "requires_approval",
+    "max_rows",
+    "masked_fields",
+    "allowed_operations",
+    "resource_scope",
+})
+
+
+def condition_is_evaluable(key: str) -> bool:
+    """Whether the mandate-condition grammar can check this key (ADR-0071)."""
+    return (
+        (key.startswith("max_") and len(key) > 4)
+        or (key.startswith("min_") and len(key) > 4)
+        or (key.endswith("_in") and len(key) > 3)
+    )
+
+
+def _wider(key: str, ours: Any, theirs: Any) -> bool:
+    """Is our bound looser than the application's claimed bound?"""
+    try:
+        if key.startswith("max_"):
+            return ours > theirs
+        if key.startswith("min_"):
+            return ours < theirs
+        if key.endswith("_in"):
+            return not set(ours) <= set(theirs)
+    except TypeError:
+        return False
+    return False
+
+
+class ControlEnforcement(BaseModel):
+    """Who enforces this control, and what we are trusting them for."""
+
+    enforced_by: ControlEnforcer = ControlEnforcer.PLATFORM
+    #: What kind of system enforces it, for the reader and the report. A
+    #: description, not a product: the binding names the product (ADR-0002).
+    enforced_in: str = ""
+    #: Required when `both`: which side wins a disagreement.
+    authoritative: Optional[ControlEnforcer] = None
+    #: What the application is claimed to enforce. A claim somebody typed, used
+    #: to check our own bound is not wider (ADR-0073 rule 7) and printed in the
+    #: report so a reader can see what is being trusted rather than checked.
+    application_bounds: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def checked_here(self) -> bool:
+        return self.enforced_by in (ControlEnforcer.PLATFORM, ControlEnforcer.BOTH)
+
+    @property
+    def trusted_elsewhere(self) -> bool:
+        return self.enforced_by in (
+            ControlEnforcer.APPLICATION, ControlEnforcer.BOTH
+        )
 
 
 class AutonomyPosture(str, Enum):
@@ -423,6 +508,9 @@ class SeparationRule(BaseModel):
 
     id: str
     decisions: list[str] = Field(default_factory=list)
+    # Segregation is usually enforced by the system that holds the document;
+    # ours is a role-level approximation of it (ADR-0073, ADR-0075).
+    enforcement: ControlEnforcement = Field(default_factory=lambda: ControlEnforcement())
     #: Why this pairing is dangerous, printed in the refusal. A separation
     #: without a reason is a rule nobody will defend when it is inconvenient.
     reason: str = ""
@@ -437,6 +525,8 @@ class Mandate(BaseModel):
     """
 
     decisions: list[str] = Field(default_factory=list)   # DecisionClass ids
+    # Who enforces the conditions below (ADR-0073).
+    enforcement: ControlEnforcement = Field(default_factory=lambda: ControlEnforcement())
     # Bounds that make a decision class finite: a value ceiling, a data class,
     # a reversibility requirement. Conditions accumulate down the tree and all
     # of them must hold, so a child can never loosen its parent's.

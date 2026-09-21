@@ -105,6 +105,13 @@ decisions:
 separations:
   - id: payment_control
     decisions: [raise_payment, approve_invoice, release_payment]
+    # Ours is a role-level approximation. The control an auditor tests is per
+    # document — the same clerk may raise invoice A and approve invoice B, but
+    # not both on A — and the ERP holds the document (ADR-0075 rule 4).
+    enforcement:
+      enforced_by: both
+      authoritative: application
+      enforced_in: the ERP's own segregation rules
     reason: >-
       One principal that can raise an invoice, approve it and instruct the bank
       can pay a supplier that does not exist. Committing the fraud must require
@@ -577,10 +584,20 @@ organization:
               roles: [cash_manager]
               mandate:
                 decisions: [raise_debt, place_investment, execute_hedge]
-                # Declared, and — as it turns out — never evaluated.
+                # Per-transaction ceilings we check. The control that matters
+                # is cumulative — a daily sweep limit — and it lives in the
+                # treasury system, which holds the day's running total. We do
+                # not, so we do not claim it (ADR-0073).
                 conditions:
                   max_facility_gbp: 5000000
                   max_placement_gbp: 2000000
+                enforcement:
+                  enforced_by: both
+                  authoritative: application
+                  enforced_in: the treasury management system
+                  application_bounds:
+                    max_facility_gbp: 25000000
+                    max_placement_gbp: 10000000
               humans:
                 - user_id: u_cash
                   name: Eero Lindqvist
