@@ -18,6 +18,8 @@ spec (what)  +  binding (how)  →  IR (resolved)  →  target plugins  →  art
 | `capabilities` | What external access agents need, with constraints (ADR-0010) |
 | `environments` | What isolation their work needs (ADR-0009) |
 | `roles` | Responsibilities + capabilities + permissions, as one contract (ADR-0007) |
+| `decisions` | The decision vocabulary a mandate draws from (ADR-0065) |
+| `separations` | Decisions no single agent may hold together (ADR-0070) |
 | `policies` | Explicit allow/deny with attribute conditions (ADR-0008) |
 | `organization` | The recursive team tree, one leader each (ADR-0006) |
 | `workflows` | Processes that must be auditable |
@@ -150,6 +152,114 @@ design and the refusal names its replacement.
 
 A capability granted with no responsibility describing it is a warning; a
 wildcard resource is a warning in development and an **error** in production.
+
+## Authority: what a unit may *decide*
+
+Permission is whether the door opens. A **mandate** is whether you were the one
+to open it. They are different questions and they fail differently: a missing
+permission is a dead end, while a decision above your authority belongs to
+somebody (ADR-0065).
+
+```yaml
+decisions:
+  - {id: approve_invoice, title: Approve an invoice for payment}
+  - {id: release_payment, title: Release a payment to the bank}
+
+organization:
+  id: northwind
+  # No mandate here: the root holds the declared vocabulary. Enumerating it
+  # would mean editing this list every time a leaf gains a function (ADR-0071).
+  leader: ceo
+  members:
+    - id: ceo
+      # A principal's authority is never silent. `[]` says it decides nothing.
+      mandate: {decisions: []}
+  teams:
+    - id: treasury
+      mandate:
+        decisions: [release_payment]
+```
+
+Four rules carry most of the weight:
+
+* **A team is a scope; an agent is a principal.** A unit's mandate bounds what
+  its members may hold and nobody exercises it, so a team may hold both sides
+  of a control while no agent may (ADR-0070).
+* **Authority narrows downward.** An agent's effective mandate is the
+  intersection with every unit above it, resolved once at the phase gate.
+  Claiming what your line does not hold is an **error**, not a warning: an
+  agent that silently decides nothing is the worst outcome.
+* **Silence inherits.** An empty mandate means *the parent's*, never
+  *unlimited* — with the root's leader the one principal that must declare.
+* **Conditions are evaluated**, with a small grammar: `max_<field>`,
+  `min_<field>`, `<field>_in`, checked against the arguments a call supplies. A
+  condition naming a field the call omits is a refusal, and so is one this
+  platform cannot parse.
+
+## Separation of duties
+
+```yaml
+separations:
+  - id: payment_control
+    decisions: [raise_payment, approve_invoice, release_payment]
+    reason: >-
+      One principal that can raise an invoice, approve it and instruct the
+      bank can pay a supplier that does not exist.
+    enforcement:
+      enforced_by: both
+      authoritative: application
+      enforced_in: the ERP's own segregation rules
+```
+
+Narrowing and separation are contradictory constraints — narrowing requires a
+parent to hold the union of its children, separation requires that no principal
+hold both sides — which is why the first applies to units and the second to
+agents. A leader that inherits its unit's mandate into a violation must declare
+a narrower one.
+
+The check also runs against the **binding**: two decisions a rule keeps apart
+may not resolve to one MCP server under one credential, because segregation is
+enforced by the ERP and the bank, not by our mandate table.
+
+## Autonomy: what an agent does without a person
+
+Every capability declares how much of it runs unattended (ADR-0072):
+
+| Posture | Means |
+|---|---|
+| `advisory` | Reads and models. **May not change a system of record.** |
+| `human_decides` | Prepares and recommends; the decision is not the agent's. |
+| `supervised` | Decides, and a person confirms before it takes effect. |
+| `autonomous` | Decides and acts alone. |
+
+The default is `advisory`, the most restrictive, so a mutation nobody has
+thought about cannot ship. The gate checks the mechanics against the
+declaration: autonomy needs a decision class the agent holds **and** evaluation
+evidence behind it; supervision needs approval required and an approver who is
+not the agent's own owner; `human_decides` needs the agent *not* to hold the
+decision. An assignment may tighten a posture and never loosen it.
+
+## Who enforces a control
+
+An agentic organization does not replace its enterprise applications. The ERP
+owns the ledger, the treasury system owns the sweep, the bank owns the payment.
+So every control says who checks it (ADR-0073):
+
+```yaml
+enforcement:
+  enforced_by: both          # platform | application | both
+  authoritative: application  # required when both
+  enforced_in: the treasury management system
+  application_bounds: {max_facility_gbp: 25000000}
+```
+
+* `platform` — ours, and it **must be evaluable here** or the spec is refused.
+  The default, so claiming a control obliges us to evaluate it.
+* `application` — theirs. We may describe it and may not claim it.
+* `both` — names an authoritative side, and is always reported.
+
+Our bound may narrow what the application permits and never widen it. A bound
+that reads as enforced and is not is worse than no bound.
 
 ## Policies: `conditions` vs `unless`
 
