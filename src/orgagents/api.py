@@ -968,6 +968,87 @@ def create_app(
             "findings": findings,
         }
 
+    @app.get("/api/designer/systems/{system_id}/placements")
+    def designer_placements(system_id: str,
+                            user: Principal = Depends(principal)) -> dict:
+        """Where each agent's work lives, and what may cross. Reads only.
+
+        A placement is an org unit crossed with an environment class
+        (ADR-0069) — the namespace model an enterprise already has. What is
+        drawn from this is a *region*, so it must be the thing that compiles:
+        `agents` is who shares a volume and a process namespace, and `rules` is
+        the whole of what crosses. Everything absent is denied.
+
+        A placement is **not** a security boundary. The tenant is (ADR-0050).
+        The response says so rather than leaving a reader to infer it from a
+        picture of boxes.
+        """
+        from .placements import resolve as resolve_placements
+        from .spec.validate import validate_spec
+
+        raw, _binding, _version = _guard(designer.spec_at, user, system_id)
+        spec = _designer_spec(raw)
+        resolved = resolve_placements(spec)
+
+        codes = {
+            "single_placement", "placement_denies_delegation",
+            "separated_agents_co_resident", "placement_violation",
+            "egress_on_isolated_env", "environment_widened",
+        }
+        environments = {e.id: e for e in spec.environments}
+
+        return {
+            "is_a_security_boundary": False,
+            "note": (
+                "A placement is a naming and policy scope. The tenant is the "
+                "absolute boundary; namespaces share a kernel."
+            ),
+            "declared": list(resolved.declared),
+            "placements": [
+                {
+                    "id": placement.id,
+                    "unit": placement.unit,
+                    "environment": placement.environment,
+                    "network": (
+                        environments[placement.environment].network.value
+                        if placement.environment in environments else "none"
+                    ),
+                    "egress_allowlist": (
+                        list(environments[placement.environment].egress_allowlist)
+                        if placement.environment in environments else []
+                    ),
+                    "agents": list(placement.agents),
+                    "groups": list(placement.groups),
+                    # What the shared volume carries. Never a grant.
+                    "data_classes": list(placement.data_classes),
+                    "shares_a_volume": placement.shares_a_volume,
+                    "reaches": sorted(
+                        r.target for r in resolved.rules
+                        if r.source == placement.id
+                    ),
+                }
+                for placement in sorted(
+                    resolved.placements.values(), key=lambda p: p.id
+                )
+            ],
+            "rules": [
+                {"source": r.source, "target": r.target, "via": r.via,
+                 "reason": r.reason}
+                for r in resolved.rules
+            ],
+            # Agents with no environment class have no sandbox environment, so
+            # they sit in no region. Saying which is better than a picture that
+            # quietly omits them.
+            "unplaced": sorted(
+                a.id for a in spec.agents() if a.id not in resolved.home
+            ),
+            "findings": [
+                {"severity": f.severity, "code": f.code, "where": f.where,
+                 "message": f.message}
+                for f in validate_spec(spec) if f.code in codes
+            ],
+        }
+
     @app.get("/api/designer/systems/{system_id}/diff")
     def designer_diff(system_id: str,
                       from_version: Optional[int] = Query(default=None, alias="from"),
@@ -1632,6 +1713,12 @@ PALETTE: dict[str, Any] = {
                       "help": "what this unit may decide; empty inherits its "
                               "parent's, never everything"},
                      {"name": "groups", "type": "list"},
+                     {"name": "placement", "type": "bool",
+                      "help": "make this unit a placement boundary: its own "
+                              "sandbox environment, shared volume and network "
+                              "policy. Off means it sits in the nearest "
+                              "ancestor that is one — and if nothing is, the "
+                              "whole organisation shares one place"},
                  ]},
                 {"kind": "skill", "label": "Skill", "icon": "◇",
                  "help": "instructions plus resources. Changes how an agent "

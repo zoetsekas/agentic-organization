@@ -172,3 +172,49 @@ def test_capital_allocation_is_visible_as_a_persons(client, northwind):
     assert "approve_capex" in data["people"]["p_ceo"]["decisions"]
     assert not [a for a in data["agents"].values()
                 if "approve_capex" in a["decisions"]]
+
+
+def _placements(client, system_id):
+    res = client.get(f"/api/designer/systems/{system_id}/placements",
+                     headers=ALICE)
+    assert res.status_code == 200
+    return res.json()
+
+
+def test_the_designer_can_see_where_each_agents_work_lives(client, northwind):
+    """Placement is what a region on the canvas is drawn from (ADR-0069)."""
+    data = _placements(client, northwind)
+    by_id = {p["id"]: p for p in data["placements"]}
+    assert "internal_audit--analysis" in by_id
+    audit = by_id["internal_audit--analysis"]
+    assert audit["agents"] == ["audit_lead"]
+    assert audit["unit"] == "internal_audit"
+    # Audit reports to the audit committee, not to the function it tests.
+    assert "controllership--analysis" not in audit["reaches"]
+
+
+def test_the_placement_view_refuses_to_read_as_a_security_boundary(client,
+                                                                   northwind):
+    """A picture of boxes reads as a wall, so the payload says otherwise."""
+    data = _placements(client, northwind)
+    assert data["is_a_security_boundary"] is False
+    assert "tenant" in data["note"].lower()
+
+
+def test_what_crosses_a_placement_is_enumerated_and_nothing_else(client,
+                                                                 northwind):
+    data = _placements(client, northwind)
+    ids = {p["id"] for p in data["placements"]}
+    for rule in data["rules"]:
+        assert rule["source"] in ids and rule["target"] in ids
+        assert rule["via"], "a rule with no origin is a rule nobody can audit"
+        assert "mission" not in rule["via"], (
+            "a generated rule does not expire and a mission window does"
+        )
+
+
+def test_the_placement_view_carries_the_findings_about_placement(client,
+                                                                 northwind):
+    """Northwind's accepted residual: separation and co-residency."""
+    codes = {f["code"] for f in _placements(client, northwind)["findings"]}
+    assert "separated_agents_co_resident" in codes

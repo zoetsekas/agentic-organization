@@ -1216,6 +1216,19 @@ class Team(BaseModel):
     teams: list["Team"] = Field(default_factory=list)
     roles: list[RoleAssignment] = Field(default_factory=list)   # team roles
     groups: list[str] = Field(default_factory=list)             # protected-data reach
+    #: Whether this team is a **placement boundary** (ADR-0069). Its agents get
+    #: their own sandbox environment per environment class, with their own
+    #: shared volume and their own network policy — the namespace an enterprise
+    #: already reasons about. A team that declares nothing is placed in its
+    #: nearest declaring ancestor, and the root always declares, so every agent
+    #: has exactly one answer.
+    #:
+    #: The default is therefore the *widest* arrangement: declare nothing
+    #: anywhere and the whole organization shares one sandbox environment and
+    #: one volume. That is the price of not forcing a namespace per team of two
+    #: on a small organization, and it is the thing an author ships by not
+    #: deciding.
+    placement: bool = False
     # Instructions every member of this team carries (ADR-0038).
     shared_instructions: list[str] = Field(default_factory=list)
     labels: dict[str, str] = Field(default_factory=dict)

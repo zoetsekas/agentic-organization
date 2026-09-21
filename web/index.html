@@ -144,6 +144,9 @@
              on is noise. -->
         <div id="validation-strip" class="validation-strip" role="status"></div>
         <div id="canvas" class="canvas-surface">
+          <!-- Placement regions sit under the edges and the nodes: a region is
+               the ground a node stands on, not a thing drawn over it. -->
+          <div id="canvas-regions" class="canvas-regions"></div>
           <svg id="canvas-edges" class="canvas-edges"></svg>
           <div id="canvas-nodes"></div>
           <div id="canvas-empty" class="canvas-empty">

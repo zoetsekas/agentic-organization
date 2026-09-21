@@ -338,6 +338,34 @@ legend {
   background-position: -1px -1px;
 }
 .canvas-surface.drag-over { outline: 2px dashed var(--accent); outline-offset: -6px; }
+/* ----------------------------------------------- placement regions (ADR-0069)
+   A region is the ground a node stands on, so it is drawn under everything and
+   takes no pointer events. Its border says the network posture of the
+   environment class it came from; the fill is one wash, because a region is a
+   *scope* and not a state — the semantic four stay free to mean what they mean
+   everywhere else.
+
+   Deliberately not a hard, bright box. A placement is a naming and policy
+   scope and not a security boundary, and a picture that looked like a wall
+   would say otherwise. */
+.canvas-regions { position: absolute; inset: 0; pointer-events: none; }
+.region {
+  position: absolute;
+  border: 1px dashed var(--line-dashed);
+  border-radius: var(--r-lg);
+  background: var(--raised);
+  opacity: .5;
+}
+.region[data-network="none"] { border-style: solid; border-color: var(--line-strong); }
+.region[data-network="open"] { border-color: var(--amber-line); }
+.region-label {
+  position: absolute; top: var(--s2); left: var(--s4);
+  display: flex; align-items: center; gap: var(--s2);
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  letter-spacing: .08em; color: var(--ink-dim);
+}
+.region-missing { color: var(--amber-ink-2); }
+
 .canvas-edges { position: absolute; inset: 0; width: 3000px; height: 2000px; pointer-events: none; }
 .canvas-empty[hidden] { display: none; }
 .canvas-empty {

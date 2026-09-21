@@ -246,12 +246,46 @@ class LocalTarget:
         ):
             # An isolated network with no gateway: services on it reach nothing.
             networks[ir.qualified("isolated")] = {"internal": True}
+        # One internal network per placement (ADR-0069). This is what makes
+        # rule 7's default deny real in Compose: Docker routes only between
+        # containers that share a network, so an agent reaches another
+        # placement exactly when a standing rule attached it to that
+        # placement's network, and not otherwise.
+        for placement in self._placements(ir):
+            networks[self._placement_network(ir, placement.id)] = {"internal": True}
         return networks
 
     def _used_environments(self, ir: SystemIR) -> list[Any]:
-        """Environment classes some agent actually runs in."""
+        """Environment classes some agent actually runs in.
+
+        Still per class, because the *image* is a property of the profile: two
+        placements sharing `analysis` build the same Dockerfile. What is no
+        longer keyed this way is the sandbox *environment* — see `_placements`.
+        """
         used = {a.environment.id: a.environment for a in ir.agents if a.environment}
         return [used[k] for k in sorted(used)]
+
+    def _placements(self, ir: SystemIR) -> list[Any]:
+        """Sandbox environments, keyed by whose work it is (ADR-0069).
+
+        This is the keying change the record names. `_used_environments` put an
+        HR agent and a Finance agent that both need `analysis` on one key,
+        because an environment class says what an agent needs and not whose
+        work it is.
+        """
+        return sorted(ir.placements, key=lambda p: p.id)
+
+    def _placement_network(self, ir: SystemIR, placement_id: str) -> str:
+        """The Compose network standing in for one placement's namespace."""
+        return ir.qualified(f"place-{placement_id}")
+
+    def _environment_of(self, ir: SystemIR, placement_id: str) -> Any:
+        wanted = next(
+            (p.environment for p in ir.placements if p.id == placement_id), None
+        )
+        return next(
+            (e for e in self._used_environments(ir) if e.id == wanted), None
+        )
 
     def _requirements(self, ir: SystemIR) -> str:
         """What the runtime image installs. Pin these for a reproducible build."""
@@ -317,6 +351,45 @@ HEALTHCHECK --interval=30s --timeout=3s --retries=3 \\
 EXPOSE 8000
 CMD ["orgagents", "serve", "--host", "0.0.0.0"]
 '''
+
+    def _placement_section(self, ir: SystemIR) -> str:
+        """The boundary statement for each placement (ADR-0069 rule 7).
+
+        Traffic *within* a placement is permitted, and that is a widening, so
+        the co-resident agents are named here rather than left implicit. What
+        is not listed is denied: a placement reaches another only where
+        standing structure put a rule in, and never from a mission grant.
+        """
+        if not ir.placements:
+            return (
+                "No agent declares an environment class, so this system has no "
+                "sandbox environments and nothing to place."
+            )
+        rows = ["| Placement | Unit | Environment | Co-resident agents | Reaches |",
+                "|---|---|---|---|---|"]
+        for placement in self._placements(ir):
+            reaches = sorted(
+                r.target for r in ir.placement_rules if r.source == placement.id
+            )
+            rows.append(
+                f"| `{placement.id}` | {placement.unit} | "
+                f"`{placement.environment}` | "
+                f"{', '.join(f'`{a}`' for a in placement.agents)} | "
+                f"{', '.join(f'`{r}`' for r in reaches) or '— nothing'} |"
+            )
+        shared = [p for p in self._placements(ir) if p.shares_a_volume]
+        note = ""
+        if shared:
+            note = (
+                "\n\nAgents inside one placement share a volume at "
+                "`/srv/shared` and a process namespace, and reach each other "
+                "without a rule. That is the widening; the table above is who "
+                "it covers. The volume carries only the data classes the "
+                "unit's groups already share and is **never a new grant** — an "
+                "agent without a grant on a class does not acquire it by "
+                "sharing a disk with somebody who has one."
+            )
+        return "\n".join(rows) + note
 
     def _environment_dockerfile(self, ir: SystemIR, env) -> str:
         """One image per environment class — the isolation boundary, built."""
@@ -394,6 +467,13 @@ WORKDIR /workspace
         networks.append(
             ir.qualified("isolated" if posture == "none" else "egress")
         )
+        # Its own placement, then every placement standing structure permits it
+        # to reach (ADR-0069 rules 6 and 7). `reaches` is resolved at the phase
+        # gate and already excludes mission-lent reach, which must never become
+        # a rule: a generated rule does not expire and a mission window does.
+        networks.extend(
+            self._placement_network(ir, pid) for pid in agent.reaches
+        )
         service: dict[str, Any] = {
             # The agent process runs on the platform runtime image; the
             # environment class is the image its *code execution* happens in
@@ -424,6 +504,7 @@ WORKDIR /workspace
                 # running container can tell whose it is without the manifest.
                 "org.agentic.tenant": ir.tenant.id if ir.tenant else "",
                 "org.agentic.team": agent.team_id,
+                "org.agentic.placement": agent.placement,
                 "org.agentic.network_posture": posture,
                 "org.agentic.identity": agent.identity.id if agent.identity else "",
             },
@@ -499,17 +580,29 @@ WORKDIR /workspace
         living only in the platform's head.
         """
         out: dict[str, Any] = {}
-        for env in self._used_environments(ir):
+        for placement in self._placements(ir):
+            env = self._environment_of(ir, placement.id)
+            if env is None:
+                continue
             posture = env.network.value
             service: dict[str, Any] = {
                 "profiles": ["sandboxes"],
+                # The image is still per environment class — that is what a
+                # profile is — but the sandbox *environment* is per placement,
+                # so HR and Finance sharing `analysis` build one image and get
+                # two places (ADR-0069 rule 1).
                 "build": {"context": ".", "dockerfile": f"docker/Dockerfile.{env.id}"},
                 "image": f"{ir.name}/sandbox-{env.id}:{ir.spec_version}",
                 "labels": {
                     "org.agentic.tenant": ir.tenant.id if ir.tenant else "",
+                    "org.agentic.placement": placement.id,
+                    "org.agentic.unit": placement.unit,
                     "org.agentic.environment": env.id,
                     "org.agentic.network_posture": posture,
                     "org.agentic.sandbox_image": self._sandbox_image(ir, env),
+                    # Traffic between these is permitted, which is a widening,
+                    # so the co-resident set is on the object (rule 7).
+                    "org.agentic.co_resident": ",".join(placement.agents),
                 },
             }
             if posture == "none":
@@ -517,8 +610,19 @@ WORKDIR /workspace
                 # sandbox that can still resolve its neighbours is not one.
                 service["network_mode"] = "none"
             else:
-                service["networks"] = [ir.qualified("egress")]
-            out[f"sandbox-{env.id}"] = service
+                service["networks"] = [
+                    ir.qualified("egress"),
+                    self._placement_network(ir, placement.id),
+                ]
+            if placement.shares_a_volume:
+                # The PROTECTED plane made concrete (rule 4). It carries what
+                # the unit's groups already share and is never a new grant:
+                # read-only here, and the permission resolver still decides
+                # what an agent may open.
+                service["volumes"] = [
+                    f"{ir.qualified('place-' + placement.id)}:/srv/shared:ro"
+                ]
+            out[f"sandbox-{placement.id}"] = service
         return out
 
     def _sandbox_image(self, ir: SystemIR, env) -> str:
@@ -705,6 +809,13 @@ WORKDIR /workspace
                             ir.qualified(f"{product}-data"),
                             ir.qualified(f"{product}-db-data"),
                         )
+                    },
+                    # One shared volume per placement that has somebody to
+                    # share it with (ADR-0069 rule 4).
+                    **{
+                        ir.qualified(f"place-{p.id}"): {}
+                        for p in self._placements(ir)
+                        if p.shares_a_volume
                     },
                 },
             },
@@ -917,6 +1028,7 @@ or version: it can change under a system that was already reviewed."""
             f"{len(a.permissions)} |"
             for a in ir.agents
         )
+        placement_section = self._placement_section(ir)
         tenant_section = (
             f"""This stack belongs to tenant **{ir.tenant.id}** (isolation domain
 `{ir.tenant.isolation_domain}`). Every Compose project name, network, named
@@ -973,6 +1085,10 @@ interactive work.
 |---|---|---|---|---|
 {channels}
 
+## Placements
+
+{placement_section}
+
 ## Tenant isolation
 
 {tenant_section}
@@ -986,6 +1102,14 @@ interactive work.
 {engine_section}
 
 ## Caveats
+
+A placement is **not** a security boundary. The tenant is. Borrowing the
+namespace model means borrowing its caveat: namespaces on an application
+platform share a kernel, and so do these.
+
+Generated network policy is a snapshot. A reorganisation changes who may
+delegate to whom immediately and these rules only at the next apply; for that
+window the two disagree and nothing at run time says so.
 
 Compose approximates network posture with attached networks and cannot
 represent cloud IAM at all. Isolated (`none`) environments are placed on an

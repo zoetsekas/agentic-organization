@@ -347,6 +347,12 @@ class AgentIR(BaseModel):
     description: str = ""
     team_id: str
     team_path: list[str] = Field(default_factory=list)
+    #: The sandbox environment this agent runs in (ADR-0069), or "" when it
+    #: declares no environment class and so has none.
+    placement: str = ""
+    #: Placements this agent may reach, its own included. Everything absent is
+    #: denied.
+    reaches: list[str] = Field(default_factory=list)
     leader_of: Optional[str] = None
     reports_to: Optional[str] = None
     escalates_to: Optional[str] = None
@@ -556,6 +562,49 @@ class PlatformPolicyStampIR(BaseModel):
         return f"{self.id}/{self.version}" if self.version else self.id
 
 
+class PlacementIR(BaseModel):
+    """A sandbox environment: one unit's agents in one environment class.
+
+    Resolved once at the phase gate (ADR-0069) so the targets never re-derive
+    it. `agents` is what the boundary statement names, because traffic between
+    them is permitted and that is a widening.
+
+    A placement is **not** a security boundary. The tenant is (ADR-0050). This
+    is a naming and policy scope whose isolation strength is whatever the
+    provider reports, and namespaces on an application platform share a kernel
+    too.
+    """
+
+    id: str
+    unit: str
+    environment: str
+    agents: list[str] = Field(default_factory=list)
+    #: The unit's inherited groups, which scope the shared volume.
+    groups: list[str] = Field(default_factory=list)
+    #: What the volume may carry: exactly the classes those groups already
+    #: share. Never a new grant — an agent without a grant on a class does not
+    #: acquire it by sharing a disk with somebody who has one.
+    data_classes: list[str] = Field(default_factory=list)
+
+    @property
+    def shares_a_volume(self) -> bool:
+        return len(self.agents) > 1
+
+
+class PlacementRuleIR(BaseModel):
+    """Cross-placement traffic standing structure permits.
+
+    Everything absent is denied. Nothing here is derived from a mission grant:
+    a generated rule does not expire and a mission window does (ADR-0069
+    rule 6).
+    """
+
+    source: str
+    target: str
+    via: str
+    reason: str = ""
+
+
 class PersonIR(BaseModel):
     """A human principal, resolved once (ADR-0079).
 
@@ -594,6 +643,9 @@ class SystemIR(BaseModel):
     agents: list[AgentIR] = Field(default_factory=list)
     # The humans this organization routes authority to (ADR-0079).
     people: list[PersonIR] = Field(default_factory=list)
+    # Sandbox environments, keyed by whose work it is (ADR-0069).
+    placements: list[PlacementIR] = Field(default_factory=list)
+    placement_rules: list[PlacementRuleIR] = Field(default_factory=list)
     data_classes: list[DataClass] = Field(default_factory=list)
     environments: list[EnvironmentClass] = Field(default_factory=list)
     capabilities: list[Capability] = Field(default_factory=list)
@@ -1052,6 +1104,23 @@ def build_ir(
     mandates = resolve_mandates(
         spec.organization, [d.id for d in spec.decisions], spec.people
     )
+    from ..placements import resolve as resolve_placements
+
+    placed = resolve_placements(spec)
+    placements_ir = [
+        PlacementIR(
+            id=p.id, unit=p.unit, environment=p.environment,
+            agents=list(p.agents), groups=list(p.groups),
+            data_classes=list(p.data_classes),
+        )
+        for p in sorted(placed.placements.values(), key=lambda p: p.id)
+    ]
+    placement_rules_ir = [
+        PlacementRuleIR(
+            source=r.source, target=r.target, via=r.via, reason=r.reason
+        )
+        for r in placed.rules
+    ]
     people_ir = [
         PersonIR(
             id=person.id,
@@ -1246,6 +1315,13 @@ def build_ir(
                 ),
                 shared_service=agent.shared_service,
                 mandate=_mandate_ir(mandates.for_agent(agent.id)),
+                placement=placed.home.get(agent.id, ""),
+                reaches=sorted(
+                    {placed.home[agent.id]} | {
+                        r.target for r in placed.rules
+                        if r.source == placed.home.get(agent.id)
+                    }
+                ) if agent.id in placed.home else [],
                 humans=list(agent.humans),
                 responsibilities=responsibilities,
                 role_ids=role_ids,
@@ -1324,6 +1400,8 @@ def build_ir(
         teams=teams,
         agents=agents,
         people=people_ir,
+        placements=placements_ir,
+        placement_rules=placement_rules_ir,
         data_classes=spec.data_classes,
         environments=spec.environments,
         capabilities=spec.capabilities,

@@ -2,7 +2,7 @@
 id: ADR-0069
 title: A sandbox environment is a placement scoped to an org unit
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-21
 updated: 2026-09-21
 deciders: [Platform Architecture, Security Engineering]
@@ -99,13 +99,25 @@ permission resolver, delegation, mandates, the data planes' semantics, or what
 an execution sandbox does.
 
 ## Implementation
-**Not implemented.** A team gains a placement declaration naming an environment
-class; the IR carries resolved placements and their members; the phase gate
-checks tenancy and resolves each agent's placement by inheritance; the local
-target emits one sandbox environment per placement with a volume scoped to the
-unit's groups, plus network rules from standing structure only; and the
-boundary statement names the co-resident agents. The `_used_environments`
-keying in `compiler/targets/local.py` is what changes shape.
+**Implemented** (v1.1.0). `Team.placement` is a boolean rather than a
+declaration naming an environment class, which the first draft of this section
+asked for: a unit's agents may sit in several classes, so naming one would
+force a second placement mechanism for the rest. The cross product falls out
+of rule 1 instead.
+
+`orgagents.placements` resolves membership, the group-scoped volume and the
+network rules; `build_ir` writes `PlacementIR`, `PlacementRuleIR` and each
+agent's `placement`/`reaches`; the local target gives every placement its own
+internal Compose network and, where anyone shares it, one named volume at
+`/srv/shared`, and its README carries the boundary statement. The
+`_used_environments` keying still decides the sandbox *image*, because that is
+a property of the profile; `_placements` decides the sandbox *environment*.
+
+The manager chain had to be generated **transitively**. A Docker network is
+not transitive, so permitting only leader-to-adjacent-leader left a chief
+executive unable to reach a unit two levels down while `can_delegate` said
+otherwise — the drift this record lists as a disadvantage, found by making it
+a check rather than by reading.
 
 ## Timeline
 Phase 5, WS-028, after the alpha, and after ADR-0068's spec concepts land.
@@ -178,4 +190,5 @@ boundary statement for a placement names the agents co-resident in it.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-21 | Implemented. `Team.placement` is a boolean, not a declaration naming an environment class — a unit's agents may sit in several classes. The manager chain generates its transitive closure, because a Docker network is not transitive. Three findings ship with it: the widest default is reported, org-chart/policy drift is reported, and two agents a separation keeps apart sharing a process namespace is reported. Northwind gained four placement boundaries and keeps two accepted residual warnings. |
 | 1.0.0 | 2026-09-21 | Accepted. Placement is (org unit × environment class), opt-in and inherited; co-residency is membership, replacing ADR-0068 rule 5; the shared volume is the PROTECTED plane made concrete; only standing structure becomes network policy. |

@@ -333,6 +333,32 @@ Alongside it:
 A design mid-edit legitimately does not resolve. That renders as an empty view
 with a line saying so, not an error somebody has to dismiss.
 
+### Drawing where the work lives
+
+The canvas draws **placement regions** (ADR-0069): a dashed area behind the
+nodes, one per org unit × environment class, labelled with the placement id.
+The agents inside it share a volume, a process namespace and a network and
+reach each other without a rule. The border carries the environment class's
+network posture, so a reader sees which places can reach out at all.
+
+Two deliberate choices. The region is derived from the spec, not stored in the
+layout — the same contract the edges follow, so the picture always matches what
+would compile, and a test runs the canvas's derivation under node against the
+Python resolver so the two cannot drift apart quietly. And it is not a hard,
+bright box: a placement is a naming and policy scope, not a security boundary,
+and a picture that looked like a wall would say otherwise.
+
+A team declares itself a boundary with `placement` in its form. Off means it
+sits in the nearest ancestor that is one — and if nothing is, the whole
+organisation shares one place, which the validation strip reports rather than
+leaving quiet.
+
+`GET /api/designer/systems/{id}/placements` carries the rest: what each
+placement's volume may hold, what crosses to where and what permits it, which
+agents are placed nowhere because they declare no environment class, and the
+placement findings. It states `is_a_security_boundary: false` in the payload,
+because a list of boxes invites the opposite reading.
+
 ### Editing authority
 
 The palette gained `decision`, `separation` and `person` kinds, `mandate` on

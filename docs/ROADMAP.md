@@ -44,7 +44,6 @@ Recorded as decisions, implemented in none. In dependency order.
 |---|---|---|---|
 | 0.1 | An agent operates an application as a **named principal** | ADR-0074 · WS-033 M1–M3 | Our mandate and the ERP's role model are two permission systems with nothing between them. A spec can grant authority an account does not have, or miss authority it does. |
 | 0.2 | **Enterprise processes** as ordered steps with owners | ADR-0075 · WS-033 M4–M7 | Procure-to-pay spans the ERP and the bank; today it exists here only as a scatter of unrelated capabilities. |
-| 0.3 | Sandbox **placement** keyed by org unit | ADR-0069 · WS-028 M8 | Sandboxes are still keyed by environment class, so two departments sharing a profile share a key. |
 | 0.4 | **Agent vocabulary** refactor | ADR-0063 · WS-003 M6 | Accepted and not implemented: service reach is still encoded twice and `AgentKind.SUBAGENT` is still vestigial. |
 | 0.5 | A boundary for **legal entities** | — | Consolidation and transfer pricing need controlled crossing. We have self-declared groups a design can widen, and fabric-assigned tenants nothing may cross. Neither is it. |
 | 0.6 | **Calendar-fresh** control evidence | ADR-0060 | Staleness is fingerprint-based by design, which is right for "did the design change" and wrong for "has this been tested this quarter". |

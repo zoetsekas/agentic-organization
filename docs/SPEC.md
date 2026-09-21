@@ -320,6 +320,65 @@ An agent selects an environment class and may only make it stricter. A longer
 timeout, a broader network posture or extra egress is rejected at validation —
 not silently ignored.
 
+## Placements: where the work lives
+
+An environment class is a *profile* — toolchain, tier, network posture,
+egress. It says what an agent needs, not whose work it is, so keying sandbox
+environments by it puts an HR agent and a Finance agent that both need
+`analysis` in one place.
+
+A **placement** is an org unit crossed with an environment class (ADR-0069).
+It is the namespace model an enterprise already has: a name scope, a network
+policy and storage; things inside share freely, things outside reach in only
+over something declared.
+
+```yaml
+organization:
+  id: northwind
+  teams:
+    - id: finance
+      placement: true          # its own sandbox environment, volume, network
+      teams:
+        - id: controllership
+          placement: true      # opts out of Finance's
+        - id: tax              # declares nothing, so it is Finance's
+```
+
+**Opt-in, and it inherits.** A team that declares nothing sits in its nearest
+declaring ancestor, and the root always declares, so every agent has exactly
+one answer. Declaring nothing anywhere therefore gives the *widest*
+arrangement — one place for the whole organization — which is what a design
+gets by not deciding. The validator says so (`single_placement`) rather than
+letting it pass quietly.
+
+**What a placement gives its members.** One internal network, one shared
+volume at `/srv/shared`, and one process namespace. Traffic between them is
+permitted without a rule, which is a widening, so the generated README names
+the co-resident agents.
+
+**What the volume may carry is bounded and is never a grant.** It holds
+exactly the data classes the unit's groups already share (`SharingScope.PROTECTED`).
+An agent without a grant on a class does not acquire it by sharing a disk with
+somebody who has one — the permission resolver still decides what may be
+opened.
+
+**Across placements, deny by default.** A path exists only where standing
+structure put one: the manager chain (transitively — a network is not
+transitive, so the closure is generated), declared peers, declared interaction
+flows, shared services, and a channel with members on both sides. **A mission
+grant never becomes a rule**, because a generated rule does not expire and a
+mission window does; temporary reach travels over the bus, where the org-chart
+check runs per message.
+
+**A placement is not a security boundary.** The tenant is. Borrowing the
+namespace model means borrowing its caveat — namespaces on an application
+platform share a kernel, and so do these. Two further honest limits: generated
+policy is a snapshot, so a reorganisation and the deployed rules disagree until
+the next apply (reported as `placement_denies_delegation` when the design
+already shows it); and two agents a separation rule keeps apart may still share
+a process namespace, which is reported as `separated_agents_co_resident` and
+may legitimately be accepted when the control is `authoritative: application`.
+
 ## Triggers: unattended work
 
 ```yaml

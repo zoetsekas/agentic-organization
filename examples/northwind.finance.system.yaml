@@ -557,6 +557,10 @@ organization:
     - id: finance
       name: Finance
       description: The CFO's organization.
+      # The finance function is one namespace (ADR-0069 rule 2): its
+      # sub-teams inherit this rather than each getting one they never asked
+      # for. Treasury and Internal Audit opt out below.
+      placement: true
       leader: cfo
       groups: [finance]
       roles: [finance_leadership]
@@ -576,6 +580,15 @@ organization:
         - id: controllership
           name: Controllership
           description: Close, controls and the payables ledger.
+          # Its own place, so the ledger side does not share a volume and a
+          # process namespace with the CFO. The residual that `placement:
+          # true` cannot fix: the Controller approves and Accounts Payable
+          # raises, and AP reports to the Controller, so separation
+          # 'payment_control' keeps two co-resident agents apart. The
+          # validator warns and the warning is accepted — that control is
+          # `authoritative: application`, and the ERP holds the document
+          # (ADR-0069 rule 5: a placement is not a security boundary).
+          placement: true
           mandate:
             decisions: [raise_payment, approve_invoice, change_vendor_master,
                         post_journal_entry, close_period, write_off_receivable,
@@ -641,6 +654,9 @@ organization:
         - id: treasury
           name: Treasury
           description: Cash, liquidity and the bank relationship.
+          # Its own place: Treasury instructs the bank, and the blast radius of
+          # that should not include everyone who can read the ledger.
+          placement: true
           mandate:
             decisions: [release_payment, raise_debt, place_investment,
                         execute_hedge]
@@ -746,6 +762,10 @@ organization:
     - id: internal_audit
       name: Internal Audit
       description: Independent assurance over the finance function's controls.
+      # Its own place (ADR-0069). Audit tests the controls the finance
+      # function relies on; co-residency with the function it audits would
+      # share a volume and a process namespace with it.
+      placement: true
       mandate:
         decisions: [open_audit_finding]
       leader: audit_lead

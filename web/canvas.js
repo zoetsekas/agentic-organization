@@ -311,6 +311,7 @@ function renderCanvas() {
   nodes.replaceChildren(
     ...Object.values(layout.nodes).map((node) => renderNode(node)));
   $("#canvas-empty").hidden = Object.keys(layout.nodes).length > 0;
+  renderRegions();
   renderEdges();
 }
 
@@ -430,6 +431,102 @@ const EDGE_STYLES = {
   egress: { stroke: "--edge-egress", dash: "2 5" },
 };
 
+/* Placement regions (ADR-0069).
+
+   Mirrors `orgagents.placements.resolve`'s membership rule, and only that:
+   a team that declares `placement: true` is a boundary, a team that does not
+   sits in its nearest declaring ancestor, and the root always declares. The
+   network rules are the server's — they need the whole spec and they are not
+   a shape on a canvas.
+
+   Derived from the spec rather than stored in the layout, for the same reason
+   the edges are: the picture always matches what would compile. A test runs
+   this function under node against the Python resolver so the two cannot
+   drift apart quietly. */
+function derivedPlacements() {
+  const root = spec()?.organization;
+  if (!root) return [];
+  const members = new Map();          // "unit--env" -> {unit, environment, agents}
+  const walk = (team, inherited) => {
+    const unit = team.placement ? team.id : inherited;
+    for (const agent of team.members || []) {
+      const environment = agent.environment?.environment;
+      if (!environment) continue;     // no environment class, so no place
+      const id = `${unit}--${environment}`;
+      if (!members.has(id)) members.set(id, { id, unit, environment, agents: [] });
+      members.get(id).agents.push(agent.id);
+    }
+    for (const child of team.teams || []) walk(child, unit);
+  };
+  walk(root, root.id);
+  /* The posture comes off the environment class, because that is where it is
+     declared. A region's border says it, so a reader sees which places can
+     reach out at all without opening anything. */
+  const postures = new Map(
+    (spec()?.environments || []).map((e) => [e.id, e.network || "none"]));
+  return [...members.values()]
+    .map((p) => ({
+      ...p,
+      agents: p.agents.sort(),
+      network: postures.get(p.environment) || "none",
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/* The rectangle a region draws: the bounding box of its members' nodes, with
+   room for the label. A placement whose agents are not on the canvas has no
+   box, which is honest — there is nothing placed to draw around. */
+const REGION_PAD = 22;
+const REGION_LABEL = 26;
+
+function regionBoxes() {
+  const layout = canvas.record?.layout;
+  if (!layout) return [];
+  const out = [];
+  for (const placement of derivedPlacements()) {
+    const boxes = placement.agents
+      .map((id) => layout.nodes[id])
+      .filter(Boolean);
+    if (!boxes.length) continue;
+    const x = Math.min(...boxes.map((b) => b.x)) - REGION_PAD;
+    const y = Math.min(...boxes.map((b) => b.y)) - REGION_PAD - REGION_LABEL;
+    const right = Math.max(...boxes.map((b) => b.x + (b.width || 200)));
+    const bottom = Math.max(...boxes.map((b) => b.y + (b.height || 80)));
+    out.push({
+      ...placement,
+      x, y,
+      width: right - x + REGION_PAD,
+      height: bottom - y + REGION_PAD,
+      drawn: boxes.length,
+      missing: placement.agents.length - boxes.length,
+    });
+  }
+  /* Largest first, so a small region nested inside a big one stays clickable
+     and readable rather than being painted over. */
+  return out.sort((a, b) => b.width * b.height - a.width * a.height);
+}
+
+function renderRegions() {
+  const host = $("#canvas-regions");
+  if (!host) return;
+  host.replaceChildren(...regionBoxes().map((region) =>
+    el("div", {
+      class: "region",
+      "data-network": region.network || "",
+      style: `left:${region.x}px; top:${region.y}px; `
+        + `width:${region.width}px; height:${region.height}px`,
+      title: `${region.unit} × ${region.environment} — `
+        + `${region.agents.length} agent(s) share a volume and a process `
+        + `namespace here. A placement is not a security boundary.`,
+    },
+      el("span", { class: "region-label" },
+        el("code", {}, region.id),
+        region.missing
+          ? el("span", { class: "region-missing" },
+              `${region.missing} not on the canvas`)
+          : null))));
+}
+
 function derivedEdges() {
   /* Edges come from the spec, not from the layout: the picture always matches
      what would compile. */
@@ -464,6 +561,7 @@ function startDrag(event, node, box) {
     box.style.left = `${node.x}px`;
     box.style.top = `${node.y}px`;
     renderEdges();
+    renderRegions();
   }
   function end() {
     window.removeEventListener("mousemove", move);
@@ -1526,6 +1624,9 @@ async function initCanvas() {
   wireCanvas();
   await loadWorkspaces();
 }
+/* Guarded so node can load this file for the placement drift test; the
+   browser path is unchanged. */
+if (typeof window !== "undefined") {
 window.initCanvas = initCanvas;
 
 /* The one door onto the open design. Everything else in the bundle goes
@@ -1552,3 +1653,10 @@ window.designer = {
   classificationOf,
   effectivePermissions,
 };
+}
+
+/* Node loads this file to check `derivedPlacements` against the Python
+   resolver it mirrors. Browsers have no `module`. */
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { derivedPlacements, regionBoxes, __canvas: canvas };
+}
