@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from orgagents.api import create_app
+from orgagents.api import create_app, palette_kinds
 from orgagents.spec.model import AUTONOMY_ORDER
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,7 +33,7 @@ def styles() -> str:
 def palette() -> dict:
     client = TestClient(create_app(":memory:"))
     body = client.get("/api/designer/palette", headers={"X-User": "a"}).json()
-    return {k["kind"]: k for g in body["groups"] for k in g["kinds"]}
+    return {k["kind"]: k for k in palette_kinds(body["groups"])}
 
 
 # --------------------------------------------------------------------------

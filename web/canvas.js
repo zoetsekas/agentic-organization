@@ -267,20 +267,32 @@ function removeComponent(kind, id) {
 async function loadPalette() {
   canvas.palette = await dapi("/palette");
   const root = $("#palette-groups");
+
+  /* A nested entry is a component the parent *contains* in the spec: a Tool
+     under an Agent is `agent.tools`. The indent is the model, not styling,
+     so it is rendered from the tree the server sends rather than guessed. */
+  const item = (kind, depth) => el("div", {
+    class: "drag-item", draggable: "true",
+    style: depth ? `margin-left:${depth * 14}px` : null,
+    title: kind.help || kind.label,
+    ondragstart: (e) => {
+      e.dataTransfer.setData("text/kind", kind.kind);
+      e.dataTransfer.effectAllowed = "copy";
+    },
+  }, el("span", { class: "ic" }, kind.icon || "▫"), kind.label);
+
+  const branch = (kind, depth) => [
+    item(kind, depth),
+    ...(kind.children || []).flatMap((c) => branch(c, depth + 1)),
+  ];
+
   root.replaceChildren(
     ...canvas.palette.groups.map((group) => el("div", { class: "group" },
-      el("h4", {}, group.label),
-      ...group.kinds.map((kind) =>
-        el("div", {
-          class: "drag-item", draggable: "true",
-          ondragstart: (e) => {
-            e.dataTransfer.setData("text/kind", kind.kind);
-            e.dataTransfer.effectAllowed = "copy";
-          },
-        }, el("span", { class: "ic" }, kind.icon || "▫"), kind.label)))),
+      el("h4", { title: group.help || "" }, group.label),
+      ...group.kinds.flatMap((kind) => branch(kind, 0)))),
     el("p", { class: "note" },
-      "Dropping near a team joins it. Edges are derived from the spec, "
-      + "never drawn by hand."));
+      "An indented component is one the component above it contains. "
+      + "Drop to place, then draw the links the model allows."));
 }
 
 /* The node vocabulary the design fixes: shape carries the kind, so a reader
@@ -327,10 +339,18 @@ function classificationOf(agent) {
    one dialog away: `none · allowlist · internal · open`. */
 const postureOf = (environment) => environment?.network || "none";
 
+function paletteKinds() {
+  const out = [];
+  const walk = (kinds) => {
+    for (const k of kinds) { out.push(k); walk(k.children || []); }
+  };
+  for (const group of canvas.palette?.groups || []) walk(group.kinds || []);
+  return out;
+}
+
 function kindSpec(kind) {
-  for (const group of canvas.palette?.groups || [])
-    for (const k of group.kinds) if (k.kind === kind) return k;
-  return { kind, label: kind, fields: [] };
+  return paletteKinds().find((k) => k.kind === kind)
+    || { kind, label: kind, fields: [] };
 }
 
 /* ---------------------------------------------------------------- canvas */
@@ -686,6 +706,20 @@ function applyLink(rule, from, target) {
     trigger.agent = target.id;
     return;
   }
+  if (rule.relationship === "holds") {
+    /* A reference, not a move: a skill, a plugin or a tool may be held by
+       several agents at once, and linking it to a second does not take it
+       from the first. The spec stores the id on each holder. */
+    const field = rule.writes.split(".")[1];
+    const agent = findComponent("agent", from.id);
+    if (!agent) throw new Error("that agent is no longer in the spec");
+    const held = (agent[field] = agent[field] || []);
+    if (held.includes(target.id)) {
+      throw new Error(`${from.id} already holds ${target.id}`);
+    }
+    held.push(target.id);
+    return;
+  }
   /* The structural links move the component: a team or an agent belongs in
      exactly one place, so linking it somewhere is detaching it from where it
      was. Re-parenting, not duplication. */
@@ -727,6 +761,21 @@ function unlink(node) {
     alert("A sub-agent belongs to the agent that calls it; delete it instead.");
     return;
   }
+  if (HELD_KINDS[node.kind]) {
+    /* Held by any number of agents, so unlinking releases it from all of
+       them; it stays declared at the top level. */
+    const field = HELD_KINDS[node.kind];
+    let released = 0;
+    for (const { agent } of allAgents()) {
+      const held = agent[field] || [];
+      const at = held.indexOf(node.id);
+      if (at >= 0) { held.splice(at, 1); released += 1; }
+    }
+    if (!released) return alert(`Nothing holds ${node.id}.`);
+    markDirty(`released ${node.id}`);
+    setStatus(`${node.id} released from ${released} agent`
+      + (released === 1 ? "" : "s"));
+  }
   const flows = s.interaction_flows || [];
   const kept = flows.filter((f) => f.source !== node.id && f.target !== node.id);
   if (kept.length !== flows.length) {
@@ -749,6 +798,12 @@ function nodeSubtitle(kind, component, node) {
   if (kind === "environment") return `${component.tier || "minimal"} · network ${postureOf(component)}`;
   if (kind === "subagent") return `${component.kind || "custom"} · tool`;
   if (kind === "note") return node.note || "note";
+  if (HELD_KINDS[kind]) {
+    const holders = holdersOf(kind, component.id);
+    return holders.length === 0 ? "held by nobody"
+      : holders.length === 1 ? `in ${holders[0]}`
+      : `shared by ${holders.length} agents`;
+  }
   if (kind === "capability") return component.action || "";
   if (kind === "trigger") return component.kind || "";
   return component.description ? String(component.description).slice(0, 40) : "";
@@ -888,6 +943,25 @@ function renderRegions() {
           : null))));
 }
 
+/* The components an agent *holds* rather than contains, and the spec field
+   each is stored in. Held is many-to-one: the same tool may be on several
+   agents, which is what makes "inside the box" the wrong picture for it once
+   a second agent reaches for it. */
+const HELD_KINDS = { skill: "skills", plugin: "plugins", tool: "tools" };
+
+function holdersByComponent(field) {
+  const out = {};
+  for (const { agent } of allAgents())
+    for (const id of agent[field] || []) (out[id] = out[id] || []).push(agent.id);
+  return out;
+}
+
+/* Who holds this component, by id, across every held field. */
+function holdersOf(kind, id) {
+  const field = HELD_KINDS[kind];
+  return field ? (holdersByComponent(field)[id] || []) : [];
+}
+
 function derivedEdges() {
   /* Edges come from the spec, not from the layout: the picture always matches
      what would compile. */
@@ -901,6 +975,16 @@ function derivedEdges() {
       (m.subagents || []).forEach((sub) =>
         out.push({ source: m.id, target: sub.id, kind: "uses" })));
   });
+  /* A held component drawn twice would say two different things. One holder
+     means the thing lives inside that agent's box, so no edge is drawn; two
+     or more means it is shared, and sharing is exactly what an edge is for. */
+  for (const [kind, field] of Object.entries(HELD_KINDS)) {
+    for (const [id, holders] of Object.entries(holdersByComponent(field))) {
+      if (holders.length < 2) continue;
+      holders.forEach((agentId) =>
+        out.push({ source: agentId, target: id, kind: `holds:${kind}` }));
+    }
+  }
   (spec()?.interaction_flows || []).forEach((f) =>
     out.push({ source: f.source, target: f.target, kind: f.kind }));
   (spec()?.triggers || []).forEach((t) =>

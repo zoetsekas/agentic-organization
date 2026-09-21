@@ -1268,7 +1268,7 @@ def create_app(
         of fact: a canvas that decided for itself which components connect
         could draw a relationship the spec has no field for.
         """
-        return {**PALETTE, "links": LINK_RULES}
+        return {"groups": palette_tree(), "links": LINK_RULES}
 
     # -- fabric: the command centre's namespace (ADR-0049, ADR-0051) -------
     #
@@ -1943,6 +1943,30 @@ LINK_RULES: list[dict[str, Any]] = [
                 "are not otherwise connected: membership is what puts them in "
                 "an organisation, not a line between them",
     },
+    # A skill, a plugin and a tool are each *held* by an agent, and the same
+    # one may be held by several: the spec stores the reference on every
+    # agent that holds it, so sharing is many-to-one, not a move.
+    {
+        "source": "agent", "target": "skill", "relationship": "holds",
+        "writes": "agent.skills",
+        "label": "holds",
+        "help": "a named competence this agent may exercise. Shared freely: "
+                "declaring it on a second agent does not take it from the "
+                "first",
+    },
+    {
+        "source": "agent", "target": "plugin", "relationship": "holds",
+        "writes": "agent.plugins",
+        "label": "holds",
+        "help": "a packaged extension this agent loads",
+    },
+    {
+        "source": "agent", "target": "tool", "relationship": "holds",
+        "writes": "agent.tools",
+        "label": "holds",
+        "help": "a tool this agent may call. A tool held by one agent is "
+                "drawn inside it; one held by several is drawn shared",
+    },
     {
         "source": "trigger", "target": "agent", "relationship": "fires",
         "writes": "trigger.agent",
@@ -2404,3 +2428,127 @@ def get_app() -> FastAPI:  # pragma: no cover - uvicorn entrypoint
     if app is None:
         app = create_app()
     return app
+
+
+# How the palette reads, and what nests under what (ADR-0034).
+#
+# The groups above were the order things were added in: Team, then skills and
+# plugins, then guardrails, then a person, then finally Agent — fifteen kinds
+# in one list with no shape. A palette is the first thing somebody meets, and
+# a jumble teaches nothing about the model.
+#
+# The nesting is not decoration: a child is a component the parent *contains*
+# in the spec. A Tool nested under Agent says `agent.tools`, the same fact
+# `LINK_RULES` states for linking. Where both speak they agree, and a test
+# holds them to it.
+PALETTE_TREE: list[dict[str, Any]] = [
+    {
+        "id": "organisation",
+        "label": "Organisation",
+        "help": "the standing structure: who exists and who they answer to",
+        "kinds": [
+            {"kind": "team", "children": [
+                {"kind": "agent", "children": [
+                    {"kind": "subagent"},
+                    {"kind": "skill"},
+                    {"kind": "plugin"},
+                    {"kind": "tool"},
+                ]},
+            ]},
+            # Declared once at the top level and referenced by the agents they
+            # are paired with, so a person is not nested under one (ADR-0079).
+            {"kind": "person"},
+            {"kind": "role"},
+        ],
+    },
+    {
+        "id": "authority",
+        "label": "Authority",
+        "help": "what may be decided, and what may not be decided together",
+        "kinds": [
+            {"kind": "decision"},
+            {"kind": "separation"},
+            {"kind": "policy"},
+        ],
+    },
+    {
+        "id": "access",
+        "label": "Access",
+        "help": "what may be reached, and from where",
+        "kinds": [
+            {"kind": "capability"},
+            {"kind": "data_class"},
+            {"kind": "environment"},
+            {"kind": "endpoint"},
+        ],
+    },
+    {
+        "id": "work",
+        "label": "Work",
+        "help": "what actually happens, and what wakes it",
+        "kinds": [
+            {"kind": "mission"},
+            {"kind": "workflow"},
+            {"kind": "trigger"},
+            {"kind": "channel"},
+            {"kind": "knowledge"},
+            {"kind": "memory_namespace"},
+        ],
+    },
+    {
+        "id": "assurance",
+        "label": "Assurance",
+        "help": "what must hold before this runs unattended",
+        "kinds": [
+            {"kind": "guardrail"},
+            {"kind": "output_contract"},
+            {"kind": "evaluation"},
+        ],
+    },
+    {
+        "id": "canvas",
+        "label": "Canvas",
+        "help": "annotation; nothing here reaches the spec",
+        "kinds": [{"kind": "note"}],
+    },
+]
+
+
+def _palette_definitions() -> dict[str, dict[str, Any]]:
+    """Every kind's fields, by kind, from the flat groups above."""
+    return {k["kind"]: k for group in PALETTE["groups"] for k in group["kinds"]}
+
+
+def _compose(node: dict[str, Any],
+             defs: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    definition = defs.get(node["kind"])
+    if definition is None:                      # a tree entry with no fields
+        raise KeyError(f"the palette tree names '{node['kind']}', "
+                       "which no group defines")
+    composed = dict(definition)
+    if node.get("children"):
+        composed["children"] = [_compose(c, defs) for c in node["children"]]
+    return composed
+
+
+def palette_tree() -> list[dict[str, Any]]:
+    """The palette as a tree, in a deliberate order."""
+    defs = _palette_definitions()
+    return [
+        {**group, "kinds": [_compose(k, defs) for k in group["kinds"]]}
+        for group in PALETTE_TREE
+    ]
+
+
+def palette_kinds(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every kind in a palette, nested ones included."""
+    out: list[dict[str, Any]] = []
+
+    def walk(kinds: list[dict[str, Any]]) -> None:
+        for kind in kinds:
+            out.append(kind)
+            walk(kind.get("children") or [])
+
+    for group in groups:
+        walk(group["kinds"])
+    return out

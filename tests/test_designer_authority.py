@@ -13,7 +13,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from orgagents.api import create_app
+from orgagents.api import create_app, palette_kinds
 
 ALICE = {"X-User": "alice"}
 
@@ -139,8 +139,7 @@ def test_a_design_that_does_not_compile_is_absent_not_broken(client):
 def test_the_palette_offers_the_authority_fields(client):
     """A field the UI cannot edit is a field nobody will set."""
     palette = client.get("/api/designer/palette", headers=ALICE).json()
-    kinds = {k["kind"]: k
-             for group in palette["groups"] for k in group["kinds"]}
+    kinds = {k["kind"]: k for k in palette_kinds(palette["groups"])}
     agent_fields = {f["name"]: f for f in kinds["agent"]["fields"]}
     assert agent_fields["mandate"]["type"] == "decisions"
     assert agent_fields["autonomy"]["type"] == "autonomy"

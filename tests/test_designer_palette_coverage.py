@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from orgagents.api import create_app
+from orgagents.api import create_app, palette_kinds
 from orgagents.spec.model import SystemSpec
 from orgagents.spec.validate import validate_spec
 
@@ -30,7 +30,7 @@ def canvas_js() -> str:
 def kinds() -> dict:
     client = TestClient(create_app(":memory:"))
     body = client.get("/api/designer/palette", headers={"X-User": "a"}).json()
-    return {k["kind"]: k for g in body["groups"] for k in g["kinds"]}
+    return {k["kind"]: k for k in palette_kinds(body["groups"])}
 
 
 def _codes(spec: dict) -> set[str]:
@@ -283,7 +283,7 @@ def test_every_palette_kind_survives_a_save(tmp_path):
     client = TestClient(create_app(str(tmp_path / "drift.db")))
     headers = {"X-User": "alice"}
     palette = client.get("/api/designer/palette", headers=headers).json()
-    kinds = [k["kind"] for group in palette["groups"] for k in group["kinds"]]
+    kinds = [k["kind"] for k in palette_kinds(palette["groups"])]
     assert len(kinds) > 15, "the palette shrank; this test assumes it grew"
 
     workspace = client.post("/api/designer/workspaces", json={"name": "w"},
@@ -382,3 +382,39 @@ def test_a_mission_form_can_declare_the_authority_it_lends():
     assert fields["mandate"]["type"] == "decisions"
     assert fields["ends_on"]["required"] is True, "a mission always ends"
     assert "internal_delegation" in fields
+
+
+# ---------------------------------------------------------------------------
+# The palette's nesting and the link rules are the same fact
+# ---------------------------------------------------------------------------
+#
+# A component nested under another in the palette says the parent contains it
+# in the spec. `LINK_RULES` says the same thing for drawing. Two statements of
+# one fact drift, so where both speak they are held to agreeing.
+
+
+def test_the_palette_tree_offers_every_kind_exactly_once():
+    from orgagents.api import PALETTE, palette_kinds, palette_tree
+
+    flat = [k["kind"] for group in PALETTE["groups"] for k in group["kinds"]]
+    tree = [k["kind"] for k in palette_kinds(palette_tree())]
+    assert sorted(tree) == sorted(flat)
+    assert len(tree) == len(set(tree))
+
+
+def test_nesting_in_the_palette_agrees_with_the_link_rules():
+    from orgagents.api import LINK_RULES, palette_tree
+
+    linkable = {(r["source"], r["target"]) for r in LINK_RULES}
+
+    def walk(parent, kinds):
+        for kind in kinds:
+            if parent is not None:
+                pair = (parent, kind["kind"])
+                assert pair in linkable, (
+                    f"the palette nests {pair[1]} under {pair[0]}, "
+                    "but no link rule allows that relationship")
+            walk(kind["kind"], kind.get("children") or [])
+
+    for group in palette_tree():
+        walk(None, group["kinds"])
