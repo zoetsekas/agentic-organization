@@ -452,6 +452,34 @@ The server kept exactly what was chosen.
 **`lock.break` is held by the owner and not the editor**, which is the
 permission table doing its job rather than the UI hiding a button.
 
+### Breaking a lock
+
+Driving the break flow — Ben takes the lock, Ana takes it off him — found two
+defects and one gap that is not a defect.
+
+**The prompt showed a person raw JSON.** A 409 carries `{error, lock}`, and
+`dapi` stringified the whole object into the message, so the confirm read
+`{"error":"'*' is locked by ben until 2026-…","lock":{"id":"lck_…` followed by
+"Break the lock?". A structured refusal carries its sentence in `error`; that
+is the message now, and the object stays on `detail` for code. The same fix
+improves every other structured refusal, the publish path included.
+
+**Breaking a lock did not take it.** Ana clicks **Lock**, is refused, and
+agrees to break — and ended up holding nothing, because the handler broke and
+reopened without acquiring. She had to click again, and in that gap the holder
+could take it straight back. Breaking now takes, and says so on the prompt
+("Break the lock and take it?"); if somebody wins the race in between, it says
+that rather than leaving the badge to imply otherwise.
+
+**The person who loses a lock is not told.** Their page goes on saying "you
+hold the lock" and their inspector stays editable, because there is no
+heartbeat and nothing pushed. They find out when they save — now with an
+honest sentence naming who holds it, but after doing the work. That is
+architectural, not a bug to patch: it needs polling or a push channel, and it
+is on the roadmap rather than hidden behind a nicer message. The break itself
+is audited with the actor and the person it was taken from, which is the only
+durable record that it happened.
+
 ### The harness lied twice before it told the truth
 
 Worth recording, because the first run produced a headline that was false and
@@ -472,9 +500,7 @@ passing, so that status is allowed by name.
 
 Undo, which does not exist (WS-032 M5). Accessibility beyond the contract
 tests, keyboard navigation, and behaviour on a large organization remain
-unassessed, and no view has been opened at a narrow viewport. Lock *breaking*
-is permitted and tested at the permission level, and the flow itself — Ana
-breaking Ben's lock and Ben discovering it — has not been driven.
+unassessed, and no view has been opened at a narrow viewport.
 
 ## Authority
 

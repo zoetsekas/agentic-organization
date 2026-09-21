@@ -2,7 +2,7 @@
 id: WS-032
 title: Designer completeness — authoring the whole spec
 status: Active
-version: 1.7.0
+version: 1.8.0
 date: 2026-09-21
 updated: 2026-09-21
 owner: Product
@@ -62,6 +62,7 @@ small enough that failing it is a prompt rather than a permanent red mark.
 | M6 Keyboard node creation and a focus treatment | Phase 6 | Not started |
 | M7 A drift check between the palette and the spec model | Phase 6 | Done |
 | M8 Wire the placements route into the view — volumes, what crosses, who is placed nowhere | Phase 6 | Done |
+| M10 Tell a person when their lock is taken — polling or a push channel | Phase 6 | Not started |
 | M9 The publish path: validate → compile → request deployment, with the gate's refusal as the reason | Phase 6 | Done |
 
 ## Dependencies
@@ -100,6 +101,7 @@ in `docs/DESIGNER.md` no longer lists coverage as the largest gap.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.8.0 | 2026-09-21 | The break flow driven: breaking now takes the lock rather than leaving the breaker with nothing, and a structured refusal shows its sentence instead of raw JSON. M10 opened for the gap that is architectural — the person who loses a lock is not told, because there is no heartbeat and nothing pushed. |
 | 1.7.0 | 2026-09-21 | `scripts/concurrency_check.py`: two browser contexts through the locks and the three-way merge, seventeen checks, all passing with nothing to fix. The lock expiry DESIGNER.md claimed is now verified. |
 | 1.6.0 | 2026-09-21 | M7 done, by finding what it was for: a palette kind added after `CanvasNode.kind`'s enum was written could be dropped and edited and then lost on save with a 500. `kind` is open now and a check places every palette kind and saves them. `scripts/interaction_check.py` drives drag-and-drop, the forms and the save in a browser. |
 | 1.5.0 | 2026-09-21 | M9 done. `preflight` validates and compiles into a discarded directory under the fabric's platform policy; `publish` requires `system.publish`, names a revision, and creates a deployment in `requested` for the fabric to compile. The refusal is the deliverable and the bar renders the gate's findings. |

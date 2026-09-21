@@ -357,6 +357,84 @@ async def main() -> None:
         check("the chosen value is what the server kept",
               final == "ANA'S VERSION", repr(final))
 
+        # -- 5. Breaking a lock ---------------------------------------------
+        # The permission was checked above; this drives the flow. Ben takes
+        # the lock, Ana takes it off him, and then the question nobody had
+        # asked: what does Ben see?
+        await ana.reload(wait_until="networkidle"); await ana.wait_for_timeout(1200)
+        await become(ana, "ana")
+        await ben.reload(wait_until="networkidle"); await ben.wait_for_timeout(1200)
+        await become(ben, "ben")
+
+        await ben.click("#btn-lock")
+        await ben.wait_for_timeout(1200)
+        check("the editor can take a lock",
+              "you hold" in (await ben.text_content("#lock-badge") or "").lower(),
+              repr((await ben.text_content("#lock-badge") or "").strip()))
+
+        said = len(dialogs)
+        await ana.click("#btn-lock")          # refused, then offered the break
+        await ana.wait_for_timeout(1800)
+        offer = " ".join(dialogs[said:])
+        check("the owner is offered the break, and it names the holder",
+              "break" in offer.lower() and "ben" in offer.lower(), repr(offer[:120]))
+        # The prompt is for a person, so it must read like one. A 409's detail
+        # is `{error, lock}`, and stringifying the object showed raw JSON.
+        check("the prompt is a sentence, not a JSON blob",
+              '{"error"' not in offer and "lck_" not in offer, repr(offer[:160]))
+
+        broken = await ana.evaluate("""async () => {
+          const d = window.designer;
+          const r = await d.dapi(`/systems/${d.state.systemId}`);
+          return { locks: r.locks.map((l) => l.holder) };
+        }""")
+        check("breaking it releases the holder's lock",
+              "ben" not in broken["locks"], json.dumps(broken))
+        # The person clicked **Lock**. Breaking alone left the design unlocked
+        # and them holding nothing, so they had to click again — and in that
+        # gap the holder could take it straight back.
+        check("breaking a lock hands it to the person who asked for it",
+              broken["locks"] == ["ana"], json.dumps(broken))
+
+        # The audit is the only record that it happened at all.
+        events = await ana.evaluate("""async () => {
+          const rows = await window.designer.dapi("/audit?limit=50");
+          return rows.filter((e) => e.action === "lock.break")
+                     .map((e) => ({ actor: e.actor, from: e.lock_holder,
+                                    reason: e.reason }));
+        }""")
+        check("the break is written down, with who lost it",
+              bool(events) and events[0]["from"] == "ben"
+              and events[0]["actor"] == "ana", json.dumps(events[:2]))
+
+        # -- 6. What the person who lost it sees -----------------------------
+        stale = await ben.evaluate("""() => ({
+          believes_mine: window.designer.state.locks
+            .some((l) => l.holder === window.designer.state.user),
+          badge: document.querySelector("#lock-badge").textContent.trim(),
+        })""")
+        check("the loser is not told — their page still believes it holds it",
+              stale["believes_mine"] is True, json.dumps(stale)
+              + "  (there is no heartbeat and no push; this is the cost)")
+
+        # Ben keeps working on a design he no longer holds. Now that breaking
+        # also takes, his save is refused — which is the honest outcome, and
+        # the cost of there being no heartbeat: he did the work first.
+        await edit_description(ben, "payables", "Ben after losing the lock")
+        await ben.click("#btn-save")
+        await ben.wait_for_timeout(2000)
+        ben_after = (await ben.text_content("#status") or "").strip()
+        check("their save is refused, naming the person who now holds it",
+              "lock" in ben_after.lower() and "ana" in ben_after.lower(),
+              f"status={ben_after!r}")
+        check("and the refusal reads as a sentence",
+              '{"error"' not in ben_after, f"status={ben_after!r}")
+
+        await ben.reload(wait_until="networkidle"); await ben.wait_for_timeout(1200)
+        await become(ben, "ben")
+        truth = (await ben.text_content("#lock-badge") or "").strip()
+        check("a reload tells the truth", "ana" in truth.lower(), repr(truth))
+
         await ben.screenshot(path="/tmp/conflict-bar.png")
         await browser.close()
 

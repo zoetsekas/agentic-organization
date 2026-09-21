@@ -153,11 +153,13 @@ There is also the [org chart](docs/images/designer-org-chart.png).
 > with `scripts/screenshots.py`; drive the UI with
 > `scripts/interaction_check.py`, which drags a component off the palette,
 > edits its form, moves a node and saves; and `scripts/concurrency_check.py`,
-> which runs two people at once through the locks and the three-way merge.
+> which runs two people at once through the locks, the three-way merge and
+> breaking a lock.
 > Between them those scripts found six defects that 1,400 passing tests did
 > not — one data loss on every keystroke, one a 500 that ate a save — and
 > established that locking and conflict resolution are correct. See
-> `docs/DESIGNER.md`.
+> `docs/DESIGNER.md`, which also records the one gap they could not close: a
+> person is not told when their lock is taken.
 
 `http://localhost:8000/ui/#/canvas` is a drag-and-drop canvas: drop a **Team**,
 drop **Agents** onto it, fill in the inspector forms, and watch validation

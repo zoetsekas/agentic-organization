@@ -54,7 +54,17 @@ async function dapi(path, options = {}) {
   }
   if (!res.ok) {
     const detail = body && body.detail ? body.detail : res.statusText;
-    const err = new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    /* A structured refusal carries its sentence in `error` — a lock conflict
+       sends `{error, lock}`. Stringifying the whole object put raw JSON in
+       front of a person: the "Break the lock?" prompt read
+       `{"error":"'*' is locked by ben until 2026-…","lock":{"id":"lck_…`.
+       The sentence is the message; the object stays on `detail` for code. */
+    const message = typeof detail === "string"
+      ? detail
+      : (detail && typeof detail.error === "string"
+          ? detail.error
+          : JSON.stringify(detail));
+    const err = new Error(message);
     err.status = res.status;
     err.detail = detail;
     throw err;
@@ -1668,10 +1678,23 @@ function wireCanvas() {
       await openSystem(canvas.systemId);
     } catch (err) {
       if (err.status === 409 && canvas.permissions.includes("lock.break")) {
-        if (window.confirm(`${err.message}\n\nBreak the lock?`)) {
+        if (window.confirm(`${err.message}\n\nBreak the lock and take it?`)) {
           await dapi(`/systems/${canvas.systemId}/lock/break`, {
             method: "POST", body: JSON.stringify({ target: "*" }),
           });
+          /* Take it. The person clicked **Lock**: breaking alone left the
+             design unlocked and them holding nothing, so they had to click
+             again — and in the gap the holder could simply take it back. */
+          try {
+            await dapi(`/systems/${canvas.systemId}/lock`, {
+              method: "POST",
+              body: JSON.stringify({ target: "*", scope: "system" }),
+            });
+          } catch (takeErr) {
+            /* Somebody got there first. Say so plainly rather than leaving
+               the badge to imply it worked. */
+            alert(`The lock was broken, and ${takeErr.message}`);
+          }
           await openSystem(canvas.systemId);
         }
       } else alert(err.message);
