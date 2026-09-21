@@ -111,7 +111,10 @@ def validate_spec(
     team_ids = [t.id for t in teams]
 
     # -- uniqueness --------------------------------------------------------
-    for label, ids in (
+    # Every kind with an id belongs here. The list used to name eight of them,
+    # so a spec could declare two tools called the same thing and the second
+    # simply won by being second — a silent overwrite of a declaration.
+    kinds: tuple[tuple[str, list[str]], ...] = (
         ("agent", agent_ids),
         ("team", team_ids),
         ("role", [r.id for r in spec.roles]),
@@ -120,12 +123,42 @@ def validate_spec(
         ("environment", [e.id for e in spec.environments]),
         ("data class", [d.id for d in spec.data_classes]),
         ("workflow", [w.id for w in spec.workflows]),
-    ):
+        ("person", [p.id for p in spec.people]),
+        ("separation", [x.id for x in spec.separations]),
+        ("policy", [x.id for x in spec.policies]),
+        ("skill", [x.id for x in spec.skills]),
+        ("plugin", [x.id for x in spec.plugins]),
+        ("tool", [x.id for x in spec.tools]),
+        ("endpoint", [x.id for x in spec.endpoints]),
+        ("knowledge source", [x.id for x in spec.knowledge]),
+        ("channel", [x.id for x in spec.channels]),
+        ("trigger", [x.id for x in spec.triggers]),
+        ("guardrail", [x.id for x in spec.guardrails]),
+    )
+    for label, ids in kinds:
         seen: set[str] = set()
         for i in ids:
             if i in seen:
                 err("duplicate_id", f"duplicate {label} id '{i}'")
             seen.add(i)
+
+    # The same id on two *different* kinds resolves — references are looked up
+    # per kind — but nothing that draws a spec can show both, because a
+    # picture has one box per id. A warning rather than an error: it is a
+    # legibility problem, not a correctness one.
+    by_id: dict[str, set[str]] = {}
+    for label, ids in kinds:
+        for i in ids:
+            by_id.setdefault(i, set()).add(label)
+    for i, labels in sorted(by_id.items()):
+        if len(labels) > 1:
+            warn(
+                "id_used_by_two_kinds",
+                f"'{i}' names both a {' and a '.join(sorted(labels))}. It "
+                "resolves, because references are looked up per kind, but "
+                "nothing can draw or diff the two apart",
+                where=i,
+            )
 
     # -- authority: mandates (ADR-0065) ------------------------------------
     declared_decisions = {d.id for d in spec.decisions}

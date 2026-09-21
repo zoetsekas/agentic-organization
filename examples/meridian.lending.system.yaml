@@ -46,7 +46,7 @@ data_classes:
     scope: protected
     groups: [lending, risk]
     allowed_environments: [casework, modelling]
-  - id: financial_crime
+  - id: fincrime_case
     description: Alerts, investigations and suspicious activity reports.
     scope: private
     groups: [fincrime]
@@ -257,7 +257,7 @@ capabilities:
     action: write
     autonomy: supervised
     resource_class: fincrime
-    data_classes: [financial_crime, applicant_pii]
+    data_classes: [fincrime_case, applicant_pii]
     decision: close_fincrime_alert
     constraints: {requires_approval: true}
   - id: complaint_assessment
@@ -298,7 +298,7 @@ environments:
     toolchains: [data_analysis]
     tier: minimal
     network: none
-    mounts: [financial_crime]
+    mounts: [fincrime_case]
     persistence: ephemeral
 
 roles:
@@ -357,7 +357,7 @@ roles:
     capabilities: [alert_triage]
     permissions:
       - {action: write, resource_kind: capability, resource: alert_triage}
-      - {action: read, resource_kind: data_class, resource: financial_crime}
+      - {action: read, resource_kind: data_class, resource: fincrime_case}
   - id: complaints_handler
     title: Complaints handler
     responsibilities:
@@ -599,7 +599,7 @@ observability:
   retention_days: 180
   sample_rate: 1.0
   # Identity documents and alert material never reach a trace.
-  redact_data_classes: [applicant_pii, financial_crime, bureau_data]
+  redact_data_classes: [applicant_pii, fincrime_case, bureau_data]
 
 guardrails:
   - id: no_pii_outbound
@@ -614,7 +614,7 @@ guardrails:
       customer they are under investigation is an offence.
     applies_to: [output, tool_output]
     checks: [data_class]
-    data_classes: [financial_crime]
+    data_classes: [fincrime_case]
     on_violation: block
   - id: no_credentials_out
     description: Nothing credential-shaped leaves an agent, ever.

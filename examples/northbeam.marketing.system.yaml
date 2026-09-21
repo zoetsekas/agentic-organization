@@ -38,13 +38,13 @@ data_classes:
     description: On-site behaviour, engagement and inferred interest.
     scope: protected
     groups: [crm, analytics]
-    allowed_environments: [audience, analytics]
+    allowed_environments: [audience, analytics_workbench]
     may_appear_in_traces: false
   - id: spend_data
     description: Budgets, bids, invoices and what each channel actually cost.
     scope: protected
     groups: [performance]
-    allowed_environments: [analytics, activation]
+    allowed_environments: [analytics_workbench, activation]
   - id: brand_assets
     description: The brand book, approved copy and licensed imagery.
     scope: protected
@@ -54,7 +54,7 @@ data_classes:
     description: Market and competitor research, some of it under NDA.
     scope: private
     groups: [insight]
-    allowed_environments: [analytics]
+    allowed_environments: [analytics_workbench]
     may_appear_in_traces: false
 
 decisions:
@@ -308,7 +308,7 @@ environments:
                        "ads.linkedin.com"]
     mounts: [spend_data]
     persistence: ephemeral
-  - id: analytics
+  - id: analytics_workbench
     description: Measurement, attribution and research.
     toolchains: [data_analysis]
     tier: large
@@ -419,7 +419,7 @@ organization:
           roles: [owner]
         - person: p_privacy
           roles: [approver]
-      environment: {environment: analytics}
+      environment: {environment: analytics_workbench}
   teams:
     - id: growth
       name: Growth
@@ -562,7 +562,7 @@ organization:
               roles: [owner]
             - person: p_finance_partner
               roles: [approver]
-          environment: {environment: analytics}
+          environment: {environment: analytics_workbench}
         - id: insight_agent
           name: insight-analyst
           description: Reads and summarises market and competitor research.
@@ -574,7 +574,7 @@ organization:
               roles: [owner]
             - person: p_cmo
               roles: [approver]
-          environment: {environment: analytics}
+          environment: {environment: analytics_workbench}
     - id: partnerships
       name: Partnerships
       description: Sponsorships, influencers and co-marketing.
@@ -596,7 +596,7 @@ organization:
               roles: [owner]
             - person: p_cmo
               roles: [approver]
-          environment: {environment: analytics}
+          environment: {environment: analytics_workbench}
     - id: governance
       name: Marketing Governance
       description: >-

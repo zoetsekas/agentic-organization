@@ -91,3 +91,17 @@ def test_a_separation_actually_bites_on_a_principal(path):
             f"{path.name}: separation '{separation.id}' keeps "
             f"{separation.decisions} apart, but the declared people hold only "
             f"{covered} between them, so nothing is being kept apart")
+
+
+@pytest.mark.parametrize("path", ORGANISATIONS, ids=lambda p: p.stem)
+def test_no_two_components_share_an_id(path):
+    """One id, one component — including across kinds.
+
+    References are looked up per kind, so a data class and a team sharing an
+    id resolves. Nothing that *draws* a spec can resolve it: a picture has one
+    box per id, and the designer's layout is keyed by id, so one of the two is
+    invisible. Two of these examples had it, and both were accidents.
+    """
+    findings = validate_spec(load_spec(path))
+    clashes = [str(f) for f in findings if f.code == "id_used_by_two_kinds"]
+    assert not clashes, "\n".join(clashes)

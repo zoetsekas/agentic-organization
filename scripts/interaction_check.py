@@ -306,6 +306,84 @@ async def main() -> None:
         check("the edit survives a round trip to the server",
               persisted["edited"], json.dumps(persisted["kinds"]))
 
+        # -- 6. An inspector edit reaches the canvas -----------------------
+        #
+        # Reported from a browser: "changing the details of a component
+        # doesn't sync to the canvas". Renaming is the case that shows it,
+        # and renaming the *id* is the case that breaks it — the layout node
+        # is keyed by id, so the picture and the spec come apart.
+        await page.click('#canvas-nodes [data-id="payables"]')
+        await page.wait_for_timeout(400)
+        name_field = page.locator("#inspector input[name='name']").first
+        await name_field.fill("accounts-payable-renamed")
+        await name_field.dispatch_event("change")
+        await page.wait_for_timeout(500)
+        title = await page.text_content('#canvas-nodes [data-id="payables"] .n-title')
+        check("renaming a component updates its node on the canvas",
+              (title or "").strip() == "accounts-payable-renamed", repr(title))
+
+        id_field = page.locator("#inspector input[name='id']").first
+        await id_field.fill("payables_renamed")
+        await id_field.dispatch_event("change")
+        await page.wait_for_timeout(600)
+        after_rename = await page.evaluate("""() => {
+          const d = window.designer;
+          const nodes = d.state.record.layout.nodes;
+          const ids = Object.keys(nodes);
+          const walk = (t, out) => {
+            (t.members || []).forEach((m) => out.push(m.id));
+            (t.teams || []).forEach((c) => walk(c, out));
+            return out;
+          };
+          return { layoutHasNew: ids.includes("payables_renamed"),
+                   layoutHasOld: ids.includes("payables"),
+                   specIds: walk(d.spec().organization, []),
+                   selected: d.state.selected };
+        }""")
+        check("renaming an id moves its layout node with it",
+              after_rename["layoutHasNew"] and not after_rename["layoutHasOld"],
+              json.dumps(after_rename))
+        check("the renamed component is still on the canvas",
+              await page.locator('#canvas-nodes [data-id="payables_renamed"]').count() == 1)
+
+        # -- 7. Ids are unique -------------------------------------------
+        #
+        # Reported from a browser: "each component must have a unique id and
+        # name". Two components sharing an id is not a cosmetic problem — the
+        # layout is keyed by id and `findComponent` returns the first match,
+        # so the second one is invisible and un-editable.
+        dropped = []
+        for _ in range(3):
+            await page.locator(".drag-item", has_text="Data class").first.drag_to(
+                page.locator("#canvas"), target_position={"x": 980, "y": 240})
+            await page.wait_for_timeout(500)
+        dropped = await page.evaluate("""() => {
+          const d = window.designer;
+          const classes = d.spec().data_classes || [];
+          return { ids: classes.map((c) => c.id),
+                   names: classes.map((c) => c.name || c.id) };
+        }""")
+        check("dropping the same kind three times gives three distinct ids",
+              len(set(dropped["ids"])) == len(dropped["ids"]),
+              json.dumps(dropped["ids"]))
+        check("dropping the same kind three times gives three distinct names",
+              len(set(dropped["names"])) == len(dropped["names"]),
+              json.dumps(dropped["names"]))
+
+        clash = await page.evaluate("""() => {
+          const d = window.designer;
+          const classes = d.spec().data_classes || [];
+          if (classes.length < 2) return { refused: null };
+          const target = classes[1];
+          const before = target.id;
+          // What a person does in the form: type an id another component has.
+          try { d.renameComponent("data_class", before, classes[0].id); }
+          catch (e) { return { refused: true, why: e.message }; }
+          return { refused: false, now: target.id };
+        }""")
+        check("an id another component already holds is refused",
+              clash.get("refused") is True, json.dumps(clash))
+
         await page.screenshot(path="/tmp/interaction-final.png")
         await browser.close()
 

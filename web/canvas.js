@@ -1271,17 +1271,114 @@ function handleCanvasKey(e) {
   }
 }
 
+/* Every id declared anywhere in the open spec, plus every layout node.
+   An id is the spec's only handle on a component — references are ids, and
+   `findComponent` returns the first match — so two components sharing one
+   means the second is invisible and un-editable. */
+function declaredIds() {
+  const found = new Set(Object.keys(canvas.record?.layout?.nodes || {}));
+  const walk = (node) => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (!node || typeof node !== "object") return;
+    if (typeof node.id === "string") found.add(node.id);
+    Object.values(node).forEach(walk);
+  };
+  walk(spec());
+  return found;
+}
+
+/* Every name in use, by kind: two teams called "Finance" is a legible design
+   mistake rather than a broken one, but it is still one — a reader cannot
+   tell the boxes apart, and neither can a reviewer reading a diff. */
+function namesInUse(kind, exceptId = null) {
+  const out = new Set();
+  const add = (c) => {
+    if (c && c.id !== exceptId && typeof c.name === "string" && c.name) {
+      out.add(c.name);
+    }
+  };
+  if (kind === "team") allTeams().forEach(add);
+  else if (kind === "agent") allAgents().forEach(({ agent }) => add(agent));
+  else if (kind === "subagent") {
+    for (const { agent } of allAgents()) (agent.subagents || []).forEach(add);
+  } else if (NESTED[kind]) nestedList(spec(), kind).forEach(add);
+  else if (COLLECTIONS[kind]) (spec()[COLLECTIONS[kind]] || []).forEach(add);
+  return out;
+}
+
+/* A fresh id, and a fresh name to go with it. The id counter used to consult
+   only the layout, so a component declared in the spec with no node — which
+   is every component of an imported spec until it is laid out — could have
+   its id handed to a second one. */
 function nextId(kind) {
   const base = kind === "memory_namespace" ? "namespace" : kind;
+  const taken = declaredIds();
   let n = 1;
-  while (canvas.record.layout.nodes[`${base}_${n}`]) n += 1;
+  while (taken.has(`${base}_${n}`)) n += 1;
   return `${base}_${n}`;
+}
+
+function nextName(kind, id) {
+  const taken = namesInUse(kind);
+  if (!taken.has(id)) return id;
+  let n = 2;
+  while (taken.has(`${id}_${n}`)) n += 1;
+  return `${id}_${n}`;
+}
+
+/* ------------------------------------------------------------- renaming */
+
+/* Renaming an id is not editing a field. The layout is keyed by id and every
+   reference in the spec is an id, so writing a new one into the form left the
+   component with no node, no references and no way back — the canvas showed
+   the old name on a box that pointed at nothing.
+
+   Refuses a duplicate, because two components sharing an id is not something
+   to repair afterwards. */
+function renameComponent(kind, oldId, newId) {
+  const id = String(newId || "").trim();
+  if (!id) throw new Error("an id cannot be empty: it is how everything else refers to this");
+  if (id === oldId) return;
+  if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(id)) {
+    throw new Error(`'${id}' is not a usable id: start with a letter, then `
+      + "letters, digits, underscore, dot or hyphen");
+  }
+  if (declaredIds().has(id)) {
+    throw new Error(`'${id}' is already taken by another component. An id is `
+      + "how the spec refers to a component, so it has to be unique");
+  }
+
+  /* Ids are unique across the document, so a string equal to the old one is a
+     reference to it wherever it appears. Rewriting them all is what keeps a
+     rename from silently detaching a team from its leader. */
+  const rewrite = (node) => {
+    if (Array.isArray(node)) {
+      node.forEach((value, i) => {
+        if (value === oldId) node[i] = id; else rewrite(value);
+      });
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    for (const [key, value] of Object.entries(node)) {
+      if (value === oldId) node[key] = id; else rewrite(value);
+    }
+  };
+  rewrite(spec());
+
+  const nodes = canvas.record.layout.nodes;
+  if (nodes[oldId]) {
+    nodes[id] = { ...nodes[oldId], id };
+    delete nodes[oldId];
+  }
+  if (canvas.selected?.id === oldId) canvas.selected = { kind, id };
+  markDirty(`renamed ${oldId} to ${id}`);
 }
 
 function placeComponent(kind, x, y) {
   const id = nextId(kind);
   try {
-    addComponent(kind, id, { x, y });
+    const made = addComponent(kind, id, { x, y });
+    if (made && typeof made.name === "string") made.name = nextName(kind, id);
   } catch (err) {
     setStatus(err.message);
     return;
@@ -1322,8 +1419,31 @@ function renderInspector() {
   for (const field of definition.fields) {
     const value = kind === "note" ? node.note : (component || {})[field.name];
     form.appendChild(fieldControl(field, value, readOnly, (v) => {
-      if (kind === "note") node.note = v;
-      else if (component) component[field.name] = v;
+      if (kind === "note") {
+        node.note = v;
+      } else if (field.name === "id" && kind !== "note") {
+        /* An id is the spec's handle on this component, not a label: the
+           layout is keyed by it and every reference is one. Renaming goes
+           through the rename, which moves both and refuses a duplicate. */
+        try {
+          renameComponent(kind, id, v);
+        } catch (err) {
+          setStatus(err.message);
+          renderInspector();          // put the old id back in the box
+          return;
+        }
+        renderCanvas();
+        renderInspector();
+        return;
+      } else if (component) {
+        if (field.name === "name" && namesInUse(kind, id).has(v)) {
+          /* Not fatal the way a duplicate id is — the design still compiles —
+             but two boxes with one name is a picture nobody can read. */
+          setStatus(`another ${definition.label.toLowerCase()} is already `
+            + `called '${v}'`);
+        }
+        component[field.name] = v;
+      }
       markDirty();
       renderCanvas();
     }, kind, component));
@@ -1868,6 +1988,7 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
     input.value = value ?? "";
     input.addEventListener("input", () => onChange(input.value));
   }
+  if (input && input.tagName !== "DIV") input.setAttribute("name", field.name);
   const label = el("label", {},
     `${field.name}${field.required ? " *" : ""}`, input);
   if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
@@ -2292,6 +2413,9 @@ window.designer = {
   find: findComponent,
   add: addComponent,
   remove: removeComponent,
+  renameComponent,
+  declaredIds,
+  namesInUse,
   markDirty,
   save: saveSystem,
   reopen: () => (canvas.systemId ? openSystem(canvas.systemId) : null),

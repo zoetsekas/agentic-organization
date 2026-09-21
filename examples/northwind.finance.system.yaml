@@ -490,7 +490,7 @@ roles:
     permissions:
       - {action: write, resource_kind: capability, resource: statement_production}
       - {action: query, resource_kind: capability, resource: ledger_query}
-  - id: cash_manager
+  - id: cash_manager_role
     title: Cash manager
     responsibilities:
       - Hold the daily cash position and keep the company liquid.
@@ -511,7 +511,7 @@ roles:
       - {action: write, resource_kind: capability, resource: scenario_model}
       - {action: write, resource_kind: capability, resource: forecast_model}
       - {action: query, resource_kind: capability, resource: ledger_query}
-  - id: corporate_development
+  - id: corporate_development_role
     title: Corporate development
     responsibilities:
       - Analyse acquisitions, disposals and capital projects.
@@ -676,7 +676,7 @@ organization:
             - id: cash_manager
               name: cash-manager
               description: Holds the daily position; draws, places and hedges.
-              roles: [cash_manager]
+              roles: [cash_manager_role]
               mandate:
                 decisions: [raise_debt, place_investment, execute_hedge]
                 # Per-transaction ceilings we check. The control that matters
@@ -754,7 +754,7 @@ organization:
         - id: corpdev_lead
           name: head-of-corporate-development
           description: Models acquisitions, disposals and capital projects.
-          roles: [corporate_development]
+          roles: [corporate_development_role]
           humans:
             - person: p_corpdev
               roles: [owner]
