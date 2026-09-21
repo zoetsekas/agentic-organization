@@ -351,3 +351,40 @@ already at `advisory` says *already the tightest*.
 A separation's `decisions` is a plain reference list over the declared
 vocabulary, not a mandate: there is no inherit-or-empty question to ask, so the
 two use different field types.
+
+## Review, 2026-09-21 — where this stands
+
+A holistic pass over the component: ~2,800 lines of front end, 2,400 of
+designer service, 23 routes, nine test files. Recorded here rather than in a
+ticket because most of it is a judgement about scope, not a defect list.
+
+**What is solid.** The design/runtime separation is real and tested from the
+outside — design views reach `/api/designer` and never a runtime endpoint for
+a design fact. Concurrency is properly handled: locks with heartbeats, a break
+path, three-way merge and revisions with restore. The consequence rail, the
+validation strip and the authority view mean a designer sees what a change
+*does*, not only what it says. RBAC, audit and OIDC are in place.
+
+**The largest gap is coverage.** The palette offers 16 spec kinds against
+roughly 30 authored blocks. Missing, in rough order of how often somebody
+needs them: `guardrails`, `lifecycle` (gates and evaluation cases), `policies`,
+`skills`/`plugins`/`tools`, `output_contracts`, `model_policy`, `budgets`,
+`operating_principles`, `artifact_stores`/`context`, `observability`. A design
+authored entirely in the UI cannot declare a guardrail — and cannot declare an
+evaluation case, which autonomy now *requires* (ADR-0072 rule 5), so the
+designer can set a posture it cannot satisfy.
+
+**The platform policy is invisible here.** A design is judged by house rules
+(ADR-0076) whose verdict the designer never shows, so the first anybody learns
+of a refusal is at compile. The `authority` route already carries findings;
+the same shape would carry the policy's stamp, its strictness and what it
+lowered.
+
+**Accessibility is thin.** Fourteen `aria-` attributes and two `:focus` rules
+across the bundle. The canvas has a keyboard path for selection and nudging,
+which is more than most canvases manage, and creating a node still needs a
+pointer.
+
+**No undo.** Revisions cover the catastrophic case; a misdrag has no
+one-keystroke answer, which is the most-used affordance in every comparable
+tool.
