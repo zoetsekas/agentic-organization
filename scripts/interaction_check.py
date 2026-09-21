@@ -228,8 +228,20 @@ async def main() -> None:
                 page.locator("#canvas"), target_position={"x": x, "y": y})
             await page.wait_for_timeout(600)
 
+        # Empty ground first: a drop onto an existing box now *links* (checked
+        # below), so a test about proximity has to aim at nothing.
+        await page.evaluate("""() => {
+          const d = window.designer;
+          const nodes = Object.values(d.state.record.layout.nodes);
+          const bottom = Math.max(...nodes.map((n) => n.y + (n.height || 80)));
+          document.querySelector("#canvas").scrollTo({ left: 0, top: bottom + 40 });
+        }""")
+        await page.wait_for_timeout(500)
         await drop("Team", 500, 300)
-        await drop("Team", 560, 340)          # deliberately close together
+        # Close enough that the old proximity rule would have nested it, and
+        # outside the first team's box — which is now the distinction that
+        # matters: *near* links nothing, *inside* links (checked below).
+        await drop("Team", 560, 430)
         siblings = await page.evaluate("""() => {
           const root = window.designer.spec().organization;
           const dropped = (root.teams || [])
@@ -237,7 +249,7 @@ async def main() -> None:
           return { atRoot: dropped.map((t) => t.id),
                    nested: dropped.some((t) => (t.teams || []).length) };
         }""")
-        check("two teams dropped near each other are not linked",
+        check("two teams dropped near but not inside are not linked",
               len(siblings["atRoot"]) == 2 and not siblings["nested"],
               json.dumps(siblings))
 
@@ -431,6 +443,89 @@ async def main() -> None:
         await page.wait_for_timeout(300)
         check("the palette is still one tab away",
               await page.locator("#left-palette .drag-item").count() > 10)
+
+        # -- 9. Dropping inside a box links it there ----------------------
+        #
+        # "Drop items inside other items to create a link between them", and
+        # a Tool drawn inside the Agent that holds it — or as an edge once a
+        # second agent holds it too.
+        await page.click('#left-tabs button[data-left="palette"]')
+        await page.wait_for_timeout(300)
+        # The worked example is wider than the window, so bring the target
+        # into view before aiming at it: a drop onto a node under the
+        # inspector lands on the inspector.
+        await page.evaluate("""() => {
+          const d = window.designer;
+          const n = d.state.record.layout.nodes["controller"];
+          const surface = document.querySelector("#canvas");
+          surface.scrollTo({ left: Math.max(0, n.x - 200),
+                             top: Math.max(0, n.y - 200) });
+        }""")
+        await page.wait_for_timeout(500)
+        agent_box = await page.locator(
+            '#canvas-nodes [data-id="controller"]').bounding_box()
+        canvas_box = await page.locator("#canvas").bounding_box()
+        await page.locator(".drag-item", has_text="Tool").first.drag_to(
+            page.locator("#canvas"),
+            target_position={
+                "x": agent_box["x"] - canvas_box["x"] + agent_box["width"] / 2,
+                "y": agent_box["y"] - canvas_box["y"] + agent_box["height"] / 2,
+            })
+        await page.wait_for_timeout(700)
+        held = await page.evaluate("""() => {
+          const d = window.designer;
+          const controller = d.find("agent", "controller");
+          return { tools: controller?.tools || [],
+                   toolsDeclared: (d.spec().tools || []).map((t) => t.id) };
+        }""")
+        check("a component dropped inside an agent is held by it",
+              len(held["tools"]) == 1, json.dumps(held))
+
+        tool_id = held["tools"][0] if held["tools"] else "tool_1"
+        check("a tool held by one agent is drawn inside it, not beside it",
+              await page.locator(f'#canvas-nodes [data-id="{tool_id}"]').count() == 0
+              and await page.locator(
+                  '#canvas-nodes [data-id="controller"] .n-held').count() == 1)
+
+        # Share it with a second agent: now it is a node with edges.
+        await page.evaluate("""(id) => {
+          const d = window.designer;
+          d.find("agent", "payables_renamed").tools = [id];
+          d.markDirty("shared");
+          d.renderCanvas();
+        }""", tool_id)
+        await page.wait_for_timeout(500)
+        shared = await page.evaluate("""(id) => ({
+          node: document.querySelectorAll(
+            `#canvas-nodes [data-id="${id}"]`).length,
+          chips: document.querySelectorAll('#canvas-nodes .n-held').length,
+        })""", tool_id)
+        check("a tool two agents hold becomes a node of its own",
+              shared["node"] == 1 and shared["chips"] == 0,
+              json.dumps(shared))
+
+        # Dropping inside something that cannot hold it says so.
+        await page.evaluate("""() => {
+          const d = window.designer;
+          const n = d.state.record.layout.nodes["treasury"];
+          const surface = document.querySelector("#canvas");
+          surface.scrollTo({ left: Math.max(0, n.x - 200),
+                             top: Math.max(0, n.y - 200) });
+        }""")
+        await page.wait_for_timeout(500)
+        canvas_box = await page.locator("#canvas").bounding_box()
+        team_box = await page.locator(
+            '#canvas-nodes [data-id="treasury"]').bounding_box()
+        await page.locator(".drag-item", has_text="Data class").first.drag_to(
+            page.locator("#canvas"),
+            target_position={
+                "x": team_box["x"] - canvas_box["x"] + team_box["width"] / 2,
+                "y": team_box["y"] - canvas_box["y"] + team_box["height"] / 2,
+            })
+        await page.wait_for_timeout(600)
+        said = (await page.text_content("#status") or "")
+        check("dropping inside something that cannot hold it says so",
+              "does not hold" in said, said.strip()[:90])
 
         await page.screenshot(path="/tmp/interaction-final.png")
         await browser.close()

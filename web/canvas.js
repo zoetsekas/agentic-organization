@@ -380,8 +380,15 @@ function rememberViewport() {
 function renderCanvas() {
   const nodes = $("#canvas-nodes");
   const layout = canvas.record?.layout || { nodes: {}, edges: [] };
+  /* A component one agent holds lives inside that agent's box (below), so
+     drawing it a second time as its own node would say two different things
+     about one fact. Held by two or more, it is shared, it keeps its node, and
+     the edges are the point. */
+  const inlined = inlinedComponents();
   nodes.replaceChildren(
-    ...Object.values(layout.nodes).map((node) => renderNode(node)));
+    ...Object.values(layout.nodes)
+      .filter((node) => !inlined.has(node.id))
+      .map((node) => renderNode(node)));
   $("#canvas-empty").hidden = Object.keys(layout.nodes).length > 0;
   renderRegions();
   renderEdges();
@@ -393,6 +400,52 @@ function renderCanvas() {
 function lockOn(id) {
   return canvas.locks.find(
     (l) => (l.scope === "system" || l.target === id) && l.holder !== canvas.user);
+}
+
+/* Ids of the components drawn inside an agent rather than beside it: held,
+   and held by exactly one agent. Two holders makes it shared, and sharing is
+   what an edge is for. */
+function inlinedComponents() {
+  const out = new Set();
+  for (const [kind, field] of Object.entries(HELD_KINDS)) {
+    for (const [id, holders] of Object.entries(holdersByComponent(field))) {
+      if (holders.length === 1) out.add(id);
+    }
+  }
+  return out;
+}
+
+/* The held components drawn inside this agent's box, as chips. */
+function heldChips(agent, readOnly) {
+  if (!agent) return [];
+  const chips = [];
+  for (const [kind, field] of Object.entries(HELD_KINDS)) {
+    const holders = holdersByComponent(field);
+    for (const id of agent[field] || []) {
+      if ((holders[id] || []).length !== 1) continue;   // shared: it has a node
+      const component = findComponent(kind, id);
+      const chip = el("span", {
+        class: "n-held", "data-kind": kind,
+        title: `${kindSpec(kind).label} ${id} — held only by ${agent.id}. `
+          + "Link it to a second agent and it becomes a shared component with "
+          + "an edge of its own.",
+      },
+        el("span", { class: "ic" }, kindSpec(kind).icon || "\u25ab"),
+        component?.name || id);
+      chip.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (canvas.linking) return;
+        canvas.selected = { kind, id };
+        showSide("details");
+        renderCanvas();
+        renderInspector();
+      });
+      chips.push(chip);
+    }
+  }
+  return chips.length
+    ? [el("div", { class: "n-held-row" }, ...chips)]
+    : [];
 }
 
 function renderNode(node) {
@@ -440,7 +493,8 @@ function renderNode(node) {
       : el("span", { class: "n-icon" }, kindSpec(node.kind).icon || "▫"),
     el("div", { class: "n-kind" }, kindSpec(node.kind).label),
     titleEl,
-    el("div", { class: "n-sub" }, nodeSubtitle(node.kind, component, node)));
+    el("div", { class: "n-sub" }, nodeSubtitle(node.kind, component, node)),
+    ...(node.kind === "agent" ? heldChips(component, readOnly) : []));
   box.addEventListener("mousedown", (e) => {
     if (e.target === delBtn) return;
     /* While a link is being drawn, a press is aiming at a target rather than
@@ -1641,8 +1695,42 @@ function renameComponent(kind, oldId, newId) {
   markDirty(`renamed ${oldId} to ${id}`);
 }
 
+/* The innermost node whose box contains a point, or null.
+
+   Innermost, because a team's box encloses its agents' boxes and dropping on
+   an agent means the agent. This is not the proximity guess that used to
+   nest whatever you dropped *near* whatever was nearest — "inside a box" is
+   a gesture somebody made on purpose. */
+function nodeAt(x, y) {
+  const nodes = Object.values(canvas.record?.layout?.nodes || {});
+  const hits = nodes.filter((n) =>
+    x >= n.x && x <= n.x + n.width
+    && y >= n.y && y <= n.y + (n.height || 80));
+  if (!hits.length) return null;
+  return hits.reduce((best, n) =>
+    (n.width * (n.height || 80)) < (best.width * (best.height || 80)) ? n : best);
+}
+
+/* Which rule a *drop* means, when several could apply.
+
+   Dropping inside a box says containment and nothing else: it is a statement
+   about where the thing sits, not about how two units relate. So an
+   association — which needs a kind and a reason — is never what a drop meant,
+   and neither is a flow. */
+const DROP_RELATIONSHIPS = ["contains", "member", "holds", "uses"];
+
+function dropRule(hostKind, kind) {
+  const rules = linkRules(hostKind, kind);
+  for (const relationship of DROP_RELATIONSHIPS) {
+    const rule = rules.find((r) => r.relationship === relationship);
+    if (rule) return rule;
+  }
+  return null;
+}
+
 function placeComponent(kind, x, y) {
   const id = nextId(kind);
+  const host = nodeAt(x, y);
   try {
     const made = addComponent(kind, id, { x, y });
     if (made && typeof made.name === "string") made.name = nextName(kind, id);
@@ -1653,6 +1741,24 @@ function placeComponent(kind, x, y) {
   canvas.record.layout.nodes[id] = {
     id, kind, x, y, width: 200, height: 80, collapsed: false, note: "",
   };
+
+  /* Dropped inside something that can hold it → linked, there and then.
+     Dropped inside something that cannot → still placed, and told why, rather
+     than silently landing on top of a box it has no relationship with. */
+  if (host && host.id !== id) {
+    const rule = dropRule(host.kind, kind);
+    if (rule) {
+      try {
+        applyLink(rule, { kind: host.kind, id: host.id }, { kind, id });
+        setStatus(`${host.id} ${rule.label} ${id}`);
+      } catch (err) {
+        setStatus(err.message);
+      }
+    } else {
+      setStatus(`${an(host.kind, true)} does not hold ${an(kind)}, so `
+        + `${id} was placed on its own`);
+    }
+  }
   markDirty();
   renderCanvas();
   selectNode(canvas.record.layout.nodes[id]);
@@ -2712,6 +2818,7 @@ window.designer = {
   add: addComponent,
   remove: removeComponent,
   renameComponent,
+  renderCanvas,
   renderExplorer,
   renderOutline,
   showLeft,

@@ -986,3 +986,21 @@ textarea.json.invalid { border-color: var(--clay); }
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   pointer-events: none;
 }
+
+/* A component held by exactly one agent is drawn inside it (ADR-0081's
+   sibling rule): one holder means it belongs to that agent and an edge to it
+   would be noise; two or more means it is shared, and then the edge is the
+   whole point. */
+.n-held-row {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  margin-top: var(--s2); padding-top: var(--s2);
+  border-top: 1px dashed var(--line);
+}
+.n-held {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 6px; border: 1px solid var(--line); border-radius: 10px;
+  font-size: var(--t-tiny); color: var(--ink-muted); cursor: pointer;
+  white-space: nowrap;
+}
+.n-held:hover { border-color: var(--accent); color: var(--ink); }
+.n-held .ic { color: var(--ink-dim); }
