@@ -361,10 +361,148 @@ assume a fabric somebody operates. A single-user local tenant is a coherent
 thing to want, and nothing in the architecture forbids it — but nothing
 supports it either, and pretending otherwise would be easy.
 
+## 9. Microsoft Agent Framework, read directly
+
+[microsoft/agent-framework](https://github.com/microsoft/agent-framework) at
+`d91e44e` — MIT, Python and .NET (Go in a sibling repo), the merged successor
+to Semantic Kernel and AutoGen. Read from the source tree, not the marketing.
+
+The short answer to "how do we compare": **we are not the same kind of thing,
+and the comparison that matters is not feature-for-feature.** MAF is a runtime
+SDK — how one agent runs, how several are orchestrated, how a tool call is
+intercepted. This platform is a design and compile layer — who may decide what,
+who may reach what, and what is refused before anything runs. MAF's own
+`declarative-agents/` tree is the closest it comes to our territory, and it
+stops well short of it.
+
+### What it has that we do not
+
+**1. An information-flow control model.** `python/packages/core/agent_framework/security.py`
+is 4,511 lines of prompt-injection defence built on labels rather than rules:
+`IntegrityLabel` (trusted / untrusted), `ConfidentialityLabel` (public <
+private < user_identity), labels combined along a dataflow, and
+`check_confidentiality_allowed` refusing at the exfiltration boundary.
+Untrusted content never reaches the model as text — it is replaced by a
+`var_<id>` handle in a `ContentVariableStore`, and a quarantined LLM inspects
+it. MCP tool results are labelled from the server's own annotations.
+
+This is a genuinely different axis from ours and we have nothing like it. Our
+`DataClass` plus permissions answers *may this agent read this class*; it does
+not track what happened to a value after it was read, so an agent that may read
+PII and may call an external endpoint can carry one into the other and no rule
+we have notices. That is a real hole, and labels are the known answer to it.
+Recorded as a gap, not a plan.
+
+**2. A well-specified fail-closed seam.** `MiddlewareFailure`
+(`_middleware.py:86`) is the framework's explicit fail-closed escape, and its
+docstring is unusually honest about why one is needed: ordinary exceptions from
+function middleware "are converted into tool-error results by the
+function-invocation loop, which then keeps running — appropriate for
+recoverable tool failures, but **fail-open for enforcement layers and
+guardrails**." It cancels the concurrent batch, starts no further call, and
+must not be caught. Three seams — agent, chat, function — with matching
+contexts.
+
+**3. An approval protocol that survives a remote agent.** ADR-0006 in their
+tree works through why a callback does not: the agent must suspend, a network
+response must reach the client, and the run must resume. The result is approval
+*content types* on the wire plus session-persisted state, with anti-TOCTOU
+machinery — if middleware mutates arguments after approval, a replacement
+approval is forced (`_tools.py:944`). We have the authority model for approvals
+and a weaker story about the round trip.
+
+**4. Micro-VM sandboxing that ships.** Hyperlight gives per-run snapshot and
+restore, file mounts and an outbound domain allow-list, with `LocalCodeAct` as
+the un-isolated sibling that says so. ADR-0054 chose a pluggable sandbox
+preferring a kernel boundary; Hyperlight is a concrete provider for it.
+
+### What we have that it does not
+
+**No organizational model at all.** This is the headline, and I checked rather
+than assumed: there is no role, no permission, no capability grant attached to
+an agent, no mandate, no separation of duties, no autonomy posture, and no
+person. Searching the core package for a role or permission type returns file
+permissions and a `PermissionError` retry on Windows.
+
+What looks like identity is not:
+
+| Their thing | What it actually is |
+|---|---|
+| `_Principal(tenant_id, user_id)` (`security.py:113`) | A **data label**, unioned along a dataflow and subset-checked at exfiltration. Not an actor. |
+| `AgentIsolationKeyProvider` (.NET hosting) | A **storage partition key** off an OIDC claim, with a warning that a non-unique claim collides two principals. Not an authorization subject. |
+| `OnBehalfOf` (`LoopAgentOptions`) | Message **relabelling**. Not an OAuth OBO flow; there is none. |
+| `ApprovalMode` (`_tools.py:215`) | `always_require` \| `never_require`, defaulting to never. Says *whether*, never *who*. |
+
+Set that last row against ADR-0072's four postures and ADR-0079's checked
+approver, and the difference is the whole point of this platform: MAF can ask a
+human; it cannot say which human, whether that human holds the decision, or
+whether they are the same person who owns the agent that raised it.
+
+**Their declarative layer cannot describe an organization.** `kind: Prompt` is
+strictly one agent — name, instructions, model, tools, schemas. `kind: Workflow`
+is the multi-agent dialect, and it is Copilot Studio's bot object model with
+Power Fx expressions: an imperative action list (`InvokeAzureAgent`,
+`ConditionGroup`, `GotoAction`, `SetVariable`) with an `agents:` map. Their
+`CustomerSupport.yaml` expresses a five-agent escalation as nested branches on
+a string variable. And the first-class topologies — handoff, group chat,
+magentic, concurrent — have **zero** declarative surface; grep the declarative
+packages for `HandoffBuilder` and you get nothing. So nothing about a
+multi-agent organization is reviewable as a spec artifact, which is the
+artifact this platform exists to produce.
+
+There is also no published schema for either dialect. The Python grammar is the
+class hierarchy in `_models.py`; the .NET grammar lives in an out-of-repo NuGet
+(`Microsoft.Agents.ObjectModel`). Two implementations, no shared contract.
+
+**Two fail-open behaviours to know about.** An unknown action `kind` in a
+declarative workflow is logged and **skipped**, not rejected
+(`_declarative_builder.py:478`; their own tests assert the log line) — so a
+workflow authored against a newer action set silently loses steps. And the
+function-middleware default described above converts an enforcement error into
+a tool result unless the author knew to raise `MiddlewareFailure`.
+
+### Are we compatible?
+
+**At the design layer, no, and that is the right answer.** Their declarative
+format is a sibling of ours in syntax and a different thing in purpose: it
+describes how work flows, ours describes who may do it. Neither can be
+generated from the other without inventing the half it does not have. Adopting
+theirs would mean giving up the org model; adopting ours would mean giving up
+Power Fx and the Foundry action catalogue. They should stay separate.
+
+**At the implementation layer, yes — it is a clean fit for a supported
+binding.** ADR-0067 makes deep agents the reference runtime and keeps the spec
+free of framework names, and MAF slots into that seam exactly as the OpenAI
+Agents SDK does. `FunctionMiddleware` + `MiddlewareFailure` is a better
+documented version of the boundary our `HarnessBuilder.guarded()` already
+binds, `ContextProvider` is where a filesystem or sandbox policy attaches, and
+`AgentSkillsProvider` maps onto our skills.
+
+The place the two agree most is the one that matters. ADR-0067 rule 5 says
+governance never delegates to framework middleware as its only enforcement.
+MAF's own agent-hooks record
+(`docs/decisions/0035-dotnet-agent-hooks-enforcement.md`) closes with: *"The
+trust model is the spec's: cooperative contract, not a security boundary."*
+Two independent designs, same conclusion — the framework seam is defence in
+depth, and the gate is somewhere else.
+
+**Take:** a MAF binding is worth building as a *supported binding* (ADR-0067
+rule 3 obligations: build against the installed SDK, assert structurally, no
+claim of parity). It is the most likely runtime in a Microsoft shop, and
+refusing to bind to it would cost us those organizations for no design reason.
+
+**Decline:** MAF as the reference runtime, its declarative format as an input
+or output of our compiler, and any arrangement where a middleware verdict is
+the only thing standing between an agent and a tool.
+
+**Take, separately and more urgently:** information-flow labels. That gap is
+ours whatever runtime we bind to.
+
 ---
 
 ## Sources
 
+- Fourth pass, read directly: [microsoft/agent-framework](https://github.com/microsoft/agent-framework) at `d91e44e` — `python/packages/core/agent_framework/{security.py,_middleware.py,_tools.py,_harness/}`, `python/packages/declarative/`, `python/packages/orchestrations/`, `declarative-agents/`, `dotnet/src/Microsoft.Agents.AI.{Harness,Hyperlight,Declarative,Hosting}`, and their `docs/decisions/` (0006 user approvals, 0031 per-user session isolation, 0035 agent-hooks enforcement)
 - Third pass, read directly: [OpenClaw](https://github.com/openclaw/openclaw) · [NVIDIA OpenShell](https://github.com/NVIDIA/openshell) · [Docker Sandboxes](https://www.docker.com/products/docker-sandboxes/)
 - [OpenClaw documentation](https://docs.openclaw.ai/) · [OpenClaw overview](https://openclaw.ai/) · [Milvus: complete guide to OpenClaw](https://milvus.io/blog/openclaw-formerly-clawdbot-moltbot-explained-a-complete-guide-to-the-autonomous-ai-agent.md) · [Yowox: the self-hosted AI gateway](https://yowox.com/posts/openclaw-guide-ai-gateway/)
 - [Microsoft Agent 365: the control plane for AI agents](https://www.microsoft.com/en-us/microsoft-365/blog/2025/11/18/microsoft-agent-365-the-control-plane-for-ai-agents/) · [Agent 365 GA announcement](https://www.microsoft.com/en-us/security/blog/2026/05/01/microsoft-agent-365-now-generally-available-expands-capabilities-and-integrations/) · [Governing agent identities — Entra ID Governance](https://learn.microsoft.com/en-us/entra/id-governance/agent-id-governance-overview) · [Manage Entra Agent IDs in Copilot Studio](https://learn.microsoft.com/en-us/microsoft-copilot-studio/admin-use-entra-agent-identities) · [Copilot Studio security and governance](https://learn.microsoft.com/en-us/microsoft-copilot-studio/security-and-governance)

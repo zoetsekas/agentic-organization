@@ -50,7 +50,10 @@ Recorded as decisions, implemented in none. In dependency order.
 | 0.6 | **Calendar-fresh** control evidence | ADR-0060 | Staleness is fingerprint-based by design, which is right for "did the design change" and wrong for "has this been tested this quarter". |
 | 0.7 | **Spec composition** | — | 748 lines for twelve agents, one document, no includes. A group with hundreds of entities cannot be one file, and Treasury cannot own its own. |
 | 0.8 | **Delegated human authority** | ADR-0064 | Still open, and now narrower. People hold mandates (ADR-0079), so `approve_capex` lands on the chief executive rather than nobody. What remains is whether an agent may act *as* the person it is paired with. |
-| 0.9 | **Designer completeness** | WS-032 | The palette authors 16 spec kinds against roughly 30 blocks. M1 closes a contradiction: a UI-authored design cannot declare an evaluation case, which autonomy now requires. |
+| 0.9 | **Information-flow labels on data in motion** | — · LANDSCAPE §9 | Our permissions answer *may this agent read this class*. Nothing tracks what happened to the value afterwards, so an agent that may read PII and may call an external endpoint can carry one into the other and no rule notices. Microsoft Agent Framework's `security.py` is the worked answer (integrity/confidentiality labels, combined along a dataflow, checked at the exfiltration boundary). The gap is ours whatever runtime we bind to. |
+| 0.10 | **Who may address an agent** | — · LANDSCAPE §8 | Approval routing governs what an agent does, not who may speak to it. An unpaired human messaging an agent is an authorization question we have never asked. |
+| 0.11 | **A Microsoft Agent Framework binding** | ADR-0067 rule 3 · LANDSCAPE §9 | The likeliest runtime in a Microsoft shop, and a clean fit for the adapter seam: `FunctionMiddleware` + `MiddlewareFailure` is a better-documented version of the boundary we already bind. A *supported* binding, never the reference. |
+| 0.12 | **Designer completeness** | WS-032 | The palette authors 16 spec kinds against roughly 30 blocks. M1 closes a contradiction: a UI-authored design cannot declare an evaluation case, which autonomy now requires. |
 
 ## 1. Correctness and safety — do these first
 
