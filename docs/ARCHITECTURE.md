@@ -1205,6 +1205,10 @@ product's habits.
 
 ## 18. How this maps onto LangChain and deep agents
 
+**Deep agents is the reference runtime; the OpenAI Agents SDK is a supported
+binding; the spec still names no framework (ADR-0067).** What follows is the
+comparison that decision rests on.
+
 The spec describes agents, harnesses, tools, MCP mounts and sandboxes. So does
 the framework underneath, in its own vocabulary, and the two are not the same
 shape. Reading them side by side is the fastest way to see which of our
@@ -1307,6 +1311,12 @@ a permission, and no framework models who should have decided something), and
 **the boundary statement** — a provider saying in writing what it enforces and
 what it does not, with `verified=False` until somebody measures it.
 
+ADR-0067 rule 5 makes this a standing constraint rather than a preference:
+permission, delegation legality, mandate and approval decisions stay in the
+tools and at the seam. Framework middleware may be layered on top, and may
+never be the only check — a check that holds for one framework and means
+nothing to the next is not a control, it is a coincidence.
+
 ### Where the two layers are different levels, not competitors
 
 Their sandbox is a backend for shell and file tools: a place to `execute()`. Our
@@ -1356,6 +1366,7 @@ the design describes and the code does not do yet.
 | Harness limits on LangChain | `max_turns` means turns | Translated to a `recursion_limit` of `2n+1`, which is a graph-depth backstop; `ModelCallLimitMiddleware(run_limit=n)` says it exactly and is not wired (§18) |
 | Deep agents' virtual filesystem | Governed like any other agent material | Ungoverned: its file tools bypass the artifact store and the data planes. `FilesystemPermission` is the route in and is not wired (§18) |
 | MCP | One mounting path | Two: ours in `harness/mcp.py`, and `langchain-mcp-adapters` for the LangChain runtimes. Never reconciled; the adapter package is not a dependency |
+| Reference runtime | Deep agents carries the deep integrations (ADR-0067) | Decided, not yet delivered: the filesystem permissions, the MCP reconciliation and the limit middleware named in ADR-0067's Implementation are all still to do |
 | Runtime adapters | Deep agents, OpenAI SDK, LangGraph | **deep agents executes in CI** against the real framework with a scripted chat model — real graph, real middleware, real tool binding — so the seam and the limit translations are exercised. No live model has answered. The OpenAI adapter is asserted against the installed SDK but `Runner` has never run; LangGraph is still untouched |
 | Authority: mandates | A declared scope of decision per unit, narrowing down the tree, escalating when exceeded | **Built** (ADR-0065): declared on teams, agents and missions, resolved once at the phase gate, enforced at the tool boundary, escalating to the smallest unit that holds the decision. A capability declares which decision class it constitutes, and most declare none — so an organization gets the checks it wires up, and an unwired capability decides nothing |
 | Authority: the designer | Editing a mandate with reference pickers | The palette declares decision classes; the mandate editor itself is not built, so mandates are authored in the spec (ADR-0066) |
