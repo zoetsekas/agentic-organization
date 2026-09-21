@@ -496,7 +496,14 @@ or output of our compiler, and any arrangement where a middleware verdict is
 the only thing standing between an agent and a tool.
 
 **Take, separately and more urgently:** information-flow labels. That gap is
-ours whatever runtime we bind to.
+ours whatever runtime we bind to, and it is worse than reading their code
+suggested. Our egress check takes the data classes as a *parameter* defaulting
+to empty, so the same PII payload is refused when annotated and passes when
+not. ADR-0080 decides the shape: confidentiality is the set of data classes a
+value derives from rather than a new taxonomy, integrity is two-valued, labels
+join and only widen, the tool boundary produces them, and declassification is
+a decision under the mandate model rather than a flag. We take the mechanism
+and decline the quarantine-behind-handles half of theirs for now.
 
 ---
 
