@@ -1275,6 +1275,25 @@ anybody reading both will conflate them.
   `ModelFallbackMiddleware` cover ground our guardrails and model policy
   describe.
 
+### The OpenAI Agents SDK is not the thinner option
+
+It is worth saying plainly, because the middleware list above invites the
+opposite conclusion. The OpenAI Agents SDK carries `InputGuardrail`,
+`ToolInputGuardrail`, `ToolOutputGuardrail` and `OutputGuardrail` — **the same
+four boundaries ADR-0035 declares**, matched one for one, which no LangChain
+construct does. It also has native MCP with a per-tool approval hook
+(`HostedMCPTool`, `MCPToolApprovalFunction`), `Session` for conversation
+state, built-in tracing, and a `max_turns` that means turns.
+
+Where it is genuinely narrower is the harness surface: no filesystem
+permission model, no execution-policy seam, no context-editing or
+summarization layer. And its hosted tools — `HostedMCPTool`,
+`CodeInterpreterTool`, `ComputerTool`, `ApplyPatchTool` — are one vendor's
+platform features rather than SDK features, so using them binds a deployment
+to that platform and not merely to that library. That is a different kind of
+cost from an API that churns, and it is the one that bears on which runtime
+should be the reference.
+
 ### Where we are ahead, and why the duplication is deliberate
 
 Every middleware above binds to one framework. A permission decided inside
