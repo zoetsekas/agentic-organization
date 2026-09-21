@@ -116,3 +116,72 @@ def test_the_nested_blocks_share_one_shape(canvas_js):
     assert "const NESTED = {" in canvas_js
     assert "memory_namespace: {" in canvas_js and "evaluation: {" in canvas_js
     assert "function nestedList(" in canvas_js
+
+
+# --------------------------------------------------------------------------
+# M2: guardrails, output contracts and model policy
+# --------------------------------------------------------------------------
+
+
+def test_guardrails_can_be_authored(kinds):
+    """Permissions decide what an agent may reach; a guardrail decides what
+    may pass, and the UI could express only the first."""
+    fields = {f["name"]: f for f in kinds["guardrail"]["fields"]}
+    assert fields["applies_to"]["options"] == [
+        "input", "output", "tool_input", "tool_output"
+    ]
+    assert fields["applies_to"]["required"] and fields["checks"]["required"]
+
+
+def test_a_closed_vocabulary_is_offered_rather_than_typed(kinds, canvas_js):
+    """A text box over a fixed list turns a typo into an unknown-value
+    finding, which is a worse way to learn what the boundaries are called."""
+    assert kinds["guardrail"]["fields"][2]["type"] == "multi"
+    assert 'if (field.type === "multi")' in canvas_js
+
+
+def test_a_guardrail_authored_in_the_ui_validates():
+    spec = {
+        **AUTONOMOUS,
+        "lifecycle": {"evaluations": [
+            {"id": "c", "given": "g", "expect": "contains: x",
+             "applies_to": ["a"]}]},
+        "guardrails": [{
+            "id": "no_secrets_out", "applies_to": ["output", "tool_output"],
+            "checks": ["secrets"], "on_violation": "block",
+        }],
+    }
+    assert "no_guardrails" not in _codes(spec)
+
+
+def test_an_escalating_guardrail_picks_a_channel_from_the_design(canvas_js):
+    """The validator refuses an escalation with no channel, and a free-text
+    field would let somebody name one that does not exist."""
+    assert 'escalate_channel: { mode: "ref",     col: "channels" }' in canvas_js
+
+
+def test_output_contracts_can_be_authored(kinds, canvas_js):
+    fields = {f["name"]: f for f in kinds["output_contract"]["fields"]}
+    assert fields["schema"]["type"] == "json"
+    assert 'if (field.type === "json")' in canvas_js
+
+
+def test_invalid_json_keeps_the_text_and_does_not_reach_the_spec(canvas_js):
+    """Discarding what somebody typed mid-keystroke is how a schema gets
+    silently emptied."""
+    assert "not valid JSON yet" in canvas_js
+
+
+def test_a_model_policy_is_a_field_not_a_kind(kinds):
+    """It has no id, so it is not a thing you place on a canvas."""
+    assert "model_policy" not in kinds
+    agent = {f["name"]: f for f in kinds["agent"]["fields"]}
+    assert agent["model_policy"]["type"] == "object"
+    subs = {f["name"] for f in agent["model_policy"]["fields"]}
+    assert {"classes", "allow", "deny", "allow_fallback"} <= subs
+
+
+def test_an_unset_model_policy_inherits_rather_than_permitting_nothing(canvas_js):
+    """Absent and empty differ here the way they do for a mandate."""
+    assert 'if (field.type === "object")' in canvas_js
+    assert "Not set: inherits the system's." in canvas_js

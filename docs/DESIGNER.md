@@ -365,14 +365,20 @@ path, three-way merge and revisions with restore. The consequence rail, the
 validation strip and the authority view mean a designer sees what a change
 *does*, not only what it says. RBAC, audit and OIDC are in place.
 
-**The largest gap is coverage.** The palette offers 16 spec kinds against
-roughly 30 authored blocks. Missing, in rough order of how often somebody
-needs them: `guardrails`, `lifecycle` (gates and evaluation cases), `policies`,
-`skills`/`plugins`/`tools`, `output_contracts`, `model_policy`, `budgets`,
-`operating_principles`, `artifact_stores`/`context`, `observability`. A design
-authored entirely in the UI cannot declare a guardrail — and cannot declare an
-evaluation case, which autonomy now *requires* (ADR-0072 rule 5), so the
-designer can set a posture it cannot satisfy.
+**Coverage was the largest gap.** The palette offered 16 spec kinds against
+roughly 30 authored blocks. WS-032 M1 and M2 closed the sharp end: evaluation
+cases (which autonomy requires, so the designer could set a posture it had no
+way to satisfy), guardrails, output contracts and model policy. Still missing:
+`policies`, `skills`/`plugins`/`tools`, `budgets`, `operating_principles`,
+`artifact_stores`/`context`, `observability`.
+
+Three field types arrived with M2 and are worth knowing about when adding the
+rest. `multi` renders a closed vocabulary as checkboxes, because a text box
+over a fixed list turns a typo into an unknown-value finding. `json` keeps
+invalid text in the field rather than letting it reach the spec, since
+discarding a half-typed schema is how one gets silently emptied. `object`
+edits a nested block — model policy — and asks the absent-or-empty question
+outright, as the mandate control does.
 
 **The platform policy is invisible here.** A design is judged by house rules
 (ADR-0076) whose verdict the designer never shows, so the first anybody learns

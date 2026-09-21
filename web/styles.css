@@ -785,3 +785,19 @@ dialog::backdrop { background: rgba(0,0,0,.55); }
 .autonomy-row .hint { grid-column: 1 / -1; }
 
 label.stacked { display: flex; flex-direction: column; gap: 4px; }
+
+/* Closed vocabularies get checkboxes, not a text box: a typo over a fixed
+   list becomes an unknown-value finding, which is a worse way to learn what
+   the four guardrail boundaries are called. */
+.multi-wrap { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.multi-wrap label.inline {
+  display: flex; align-items: center; gap: 5px;
+  font-size: .78rem; color: var(--ink-muted);
+}
+textarea.json { font-family: var(--mono); font-size: .76rem; }
+textarea.json.invalid { border-color: var(--clay); }
+
+.object-wrap {
+  display: flex; flex-direction: column; gap: 6px;
+  border-left: 2px solid var(--rule); padding-left: 10px;
+}

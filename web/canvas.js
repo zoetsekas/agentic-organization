@@ -70,6 +70,8 @@ const COLLECTIONS = {
   workflow: "workflows",
   decision: "decisions",
   separation: "separations",
+  guardrail: "guardrails",
+  output_contract: "output_contracts",
 };
 
 /* Blocks that are not a top-level list. Each needs its container built on the
@@ -784,6 +786,10 @@ function fieldContext(componentKind, fieldName) {
     evaluation: {
       applies_to: { mode: "reflist", fn: agentIds },
     },
+    guardrail: {
+      data_classes:     { mode: "reflist", col: "data_classes" },
+      escalate_channel: { mode: "ref",     col: "channels" },
+    },
     team: {
       leader: {
         mode: "ref",
@@ -1038,6 +1044,90 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
       : renderAutonomy(field, value, readOnly, onChange, component);
     const label = el("label", { class: "stacked" },
       `${field.name}${field.required ? " *" : ""}`, input);
+    if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
+    return label;
+  }
+
+  /* ---- a nested object with its own fields ---- */
+  if (field.type === "object") {
+    // Absent and empty differ here the way they do for a mandate: an agent
+    // with no model policy inherits the system's, and one with an empty
+    // policy permits nothing at all.
+    let current = value && typeof value === "object" ? { ...value } : null;
+    const wrap = el("div", { class: "object-wrap" });
+
+    function redraw() {
+      const box = el("input", { type: "checkbox", ...attrs });
+      box.checked = current !== null;
+      box.addEventListener("change", () => {
+        current = box.checked ? {} : null;
+        onChange(current);
+        redraw();
+      });
+      const toggle = el("label", { class: "inline" }, box,
+                        `set ${field.name} on this agent`);
+      const body = current
+        ? (field.fields || []).map((sub) =>
+            fieldControl(sub, current[sub.name], readOnly, (v) => {
+              current = { ...current, [sub.name]: v };
+              onChange(current);
+            }))
+        : [el("small", { class: "hint" },
+              "Not set: inherits the system's.")];
+      wrap.replaceChildren(toggle, ...body);
+    }
+    redraw();
+    const label = el("label", { class: "stacked" },
+      `${field.name}${field.required ? " *" : ""}`, wrap);
+    if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
+    return label;
+  }
+
+  /* ---- closed vocabularies and structured values ---- */
+  if (field.type === "multi") {
+    // A set from a fixed list. A text box over a closed vocabulary invites a
+    // typo the validator then reports as an unknown value, which is a worse
+    // way to learn the four boundaries are named.
+    const chosen = new Set(Array.isArray(value) ? value : []);
+    input = el("div", { class: "multi-wrap" },
+      ...(field.options || []).map((option) => {
+        const box = el("input", { type: "checkbox", ...attrs });
+        box.checked = chosen.has(option);
+        box.addEventListener("change", () => {
+          if (box.checked) chosen.add(option); else chosen.delete(option);
+          onChange((field.options || []).filter((o) => chosen.has(o)));
+        });
+        return el("label", { class: "inline" }, box, option);
+      }));
+    const label = el("label", { class: "stacked" },
+      `${field.name}${field.required ? " *" : ""}`, input);
+    if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
+    return label;
+  }
+
+  if (field.type === "json") {
+    // Invalid JSON keeps the text and does not reach the spec: discarding
+    // what somebody typed mid-keystroke is how a schema gets silently
+    // emptied. The field says it is not valid yet instead.
+    input = el("textarea", { rows: "6", class: "json", ...attrs });
+    input.value = value == null ? "" : JSON.stringify(value, null, 2);
+    const note = el("small", { class: "hint" }, "");
+    input.addEventListener("input", () => {
+      const raw = input.value.trim();
+      if (!raw) { note.textContent = ""; input.classList.remove("invalid");
+                  return onChange(null); }
+      try {
+        const parsed = JSON.parse(raw);
+        input.classList.remove("invalid");
+        note.textContent = "";
+        onChange(parsed);
+      } catch (e) {
+        input.classList.add("invalid");
+        note.textContent = `not valid JSON yet — ${e.message}`;
+      }
+    });
+    const label = el("label", { class: "stacked" },
+      `${field.name}${field.required ? " *" : ""}`, input, note);
     if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
     return label;
   }
