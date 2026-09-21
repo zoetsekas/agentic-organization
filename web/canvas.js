@@ -377,11 +377,28 @@ function renderNode(node) {
 }
 
 
+/* A pairing that names a declared person carries no name of its own
+   (ADR-0079), so reading `human.name` inline printed `undefined` on every
+   agent in a migrated design. The reference resolves here the way it resolves
+   in the IR — and the fallbacks matter, because a pairing may legitimately be
+   inline, or name somebody the spec has not declared yet while it is being
+   edited. */
+function personLabel(human) {
+  if (!human) return "";
+  if (human.person) {
+    const person = (spec()?.people || []).find((p) => p.id === human.person);
+    if (person) return person.name || person.id;
+    return human.person;
+  }
+  return human.name || human.contact || "";
+}
+
 function nodeSubtitle(kind, component, node) {
   if (kind === "team") return `leader: ${component.leader || "—"}`;
   if (kind === "agent") {
     const owner = (component.humans || []).find((h) => (h.roles || []).includes("owner"));
-    return `${classificationOf(component)}${owner ? ` · ${owner.name}` : ""}`;
+    const who = owner ? personLabel(owner) : "";
+    return `${classificationOf(component)}${who ? ` · ${who}` : ""}`;
   }
   /* A mission always carries its end date: that is what makes it a mission. */
   if (kind === "mission") return `ends ${component.ends_on || "— undated"}`;

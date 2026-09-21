@@ -391,7 +391,7 @@ function agentNode(agent) {
     /* Every agent needs exactly one accountable owner; an agent without one
        is a state worth seeing from the tree, not from a detail panel. */
     el("span", { class: `badge ${owner ? "" : "err"}` },
-      owner ? owner.name : "no accountable owner"));
+      owner ? personLabel(owner) : "no accountable owner"));
 }
 
 /* A role may be written as an id or as an assignment object; both are valid. */
@@ -447,7 +447,7 @@ function agentDetail(agent, id) {
     el("h3", {}, "Human counterparts"),
     el("div", { class: "list" }, (agent.humans || []).map((h) =>
       el("div", {},
-        el("span", { class: "grow" }, `${h.name} · ${h.contact}`),
+        el("span", { class: "grow" }, `${personLabel(h)}${humanContact(h) ? ` · ${humanContact(h)}` : ""}`),
         ...(h.roles || []).map((r) => el("span", { class: "badge" }, r)),
         ...(h.approves || []).map((a) =>
           el("span", { class: "badge warn" }, `approves ${a}`))))),
@@ -494,9 +494,7 @@ function renderAgentView() {
   form.elements.leader.checked = !!team && team.leader === agent.id;
   form.elements.shared_service.checked = !!agent.shared_service;
   form.elements.max_delegation_depth.value = agent.max_delegation_depth ?? 3;
-  form.elements.humans.value = (agent.humans || []).map((h) =>
-    [h.name, h.contact, (h.roles || []).join(","), (h.approves || []).join(",")]
-      .join(" | ")).join("\n");
+  form.elements.humans.value = (agent.humans || []).map(humanToLine).join("\n");
 
   /* Every binding is chosen from what this spec declares: an agent cannot
      reach a capability the document does not define. */
@@ -626,11 +624,19 @@ const POSTURE_WORDS = {
 };
 
 async function loadAuthority() {
+  /* The open design lives on the canvas's state and is reached through
+     `design()`, the way every other view here reaches it. This function used
+     to read a bare `state.systemId` — a field the local `state` object does
+     not have and never had — so the view reported "open an organisation" with
+     one open, for as long as it has existed. Nothing caught it because the
+     tests call the routes directly and assert on JSON; a browser found it in
+     the first minute. */
+  const systemId = design()?.state.systemId;
   const host = $("#authority-agents");
   const sepHost = $("#authority-separations");
   const findHost = $("#authority-findings");
   if (!host) return;
-  if (!state.systemId) {
+  if (!systemId) {
     host.replaceChildren(el("p", { class: "hint" },
       "Open an organisation to resolve its authority."));
     sepHost?.replaceChildren();
@@ -640,8 +646,8 @@ async function loadAuthority() {
   // Two questions, one view: what an agent may *decide* and what it may
   // *reach*. Fetched together so a reader never sees half a picture.
   const [data, places] = await Promise.all([
-    consequence(`/systems/${state.systemId}/authority`),
-    consequence(`/systems/${state.systemId}/placements`),
+    consequence(`/systems/${systemId}/authority`),
+    consequence(`/systems/${systemId}/placements`),
   ]);
   if (!data) {
     // A design mid-edit legitimately does not compile, and that is an empty
@@ -898,14 +904,51 @@ const picked = (id) =>
   [...document.querySelectorAll(`${id} input:checked`)].map((i) => i.value);
 const csv = (s) => (s || "").split(",").map((x) => x.trim()).filter(Boolean);
 
+/* A pairing that names a declared person carries no name or contact of its
+   own (ADR-0079). Reading them inline printed blanks — and, far worse, the
+   agent form writes every field back on each keystroke, so rendering a
+   reference as an empty name and parsing it back produced a pairing that
+   named nobody. Opening a migrated agent and typing one character destroyed
+   every person reference on it.
+
+   The form therefore shows a reference as `person:<id>` and parses it back to
+   one, so the round trip is lossless and the editor can see which it is. */
+function personOf(human) {
+  if (!human?.person) return null;
+  return (openSpec()?.people || []).find((p) => p.id === human.person) || null;
+}
+
+function personLabel(human) {
+  if (!human) return "";
+  if (human.person) {
+    const person = personOf(human);
+    return person ? (person.name || person.id) : human.person;
+  }
+  return human.name || human.contact || "";
+}
+
+function humanContact(human) {
+  return human?.contact || personOf(human)?.contact || "";
+}
+
+function humanToLine(human) {
+  const who = human.person ? `person:${human.person}` : (human.name || "");
+  return [who, human.person ? "" : (human.contact || ""),
+          (human.roles || []).join(","),
+          (human.approves || []).join(",")].join(" | ");
+}
+
 function parseHumans(text) {
   return (text || "").split("\n").filter((line) => line.trim()).map((line) => {
-    const [name, contact, roles, approves] = line.split("|").map((x) => (x || "").trim());
-    return {
-      name, contact: contact || "",
+    const [who, contact, roles, approves] = line.split("|").map((x) => (x || "").trim());
+    const base = {
       roles: csv(roles).length ? csv(roles) : ["owner"],
       approves: csv(approves),
     };
+    if (who.startsWith("person:")) {
+      return { person: who.slice("person:".length).trim(), ...base };
+    }
+    return { name: who, contact: contact || "", ...base };
   });
 }
 

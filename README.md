@@ -134,6 +134,25 @@ from drifting from the application, but that is not the same as a successful
 
 ## The designer
 
+[![The canvas: an organisation laid out, with placement regions behind it](docs/images/designer-canvas.png)](docs/images/designer-canvas.png)
+
+*The canvas. Teams and agents as the spec defines them, dashed **placement
+regions** behind the nodes (ADR-0069), edges derived from the spec rather than
+stored, and live validation — 0 errors, 27 warnings — with the findings in the
+inspector.*
+
+| | |
+|---|---|
+| [![Authority](docs/images/designer-authority.png)](docs/images/designer-authority.png) | [![Publish](docs/images/designer-publish.png)](docs/images/designer-publish.png) |
+| **Authority** — what each agent may *decide*, resolved the way the phase gate resolves it, with autonomy postures, separation rules, placements and people. | **Publish** — validate, compile, request. The verdict names the stage, and the refusal is the deliverable. |
+
+There is also the [org chart](docs/images/designer-org-chart.png).
+
+> These were captured from the running application with a real browser, against
+> the worked finance example in `examples/northwind.finance.system.yaml`. They
+> are the first renders this UI has ever had, and taking them found four
+> defects that 1,400 passing tests did not — see `docs/DESIGNER.md`.
+
 `http://localhost:8000/ui/#/canvas` is a drag-and-drop canvas: drop a **Team**,
 drop **Agents** onto it, fill in the inspector forms, and watch validation
 update as you work. Edges are **derived from the spec**, so the picture cannot

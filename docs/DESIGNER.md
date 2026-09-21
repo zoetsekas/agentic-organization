@@ -348,15 +348,54 @@ temporary-authority model (ADR-0039) and can only be written in YAML. And
 `conditions`/`unless` keys have no closed vocabulary — that is still true, and
 it is a spec problem wearing a UI problem's clothes.
 
-## What this review did not check
+## The first browser render, and what it cost
 
-Nothing here was exercised in a browser: there is no daemon in this
-environment, so the UI has not been loaded since the SPA landed, and that
-includes the changes described above — organisation management among them,
-which is asserted from outside the bundle and has never been clicked. The tests assert which routes the bundle
-calls and which it must not; they say nothing about whether a single pixel
-renders. Accessibility, keyboard navigation, undo/redo and behaviour on a large
-organization remain unassessed.
+For most of this project's life nothing here had been loaded in a browser. It
+has now: `scripts/screenshots.py` seeds the worked finance example, serves the
+app, drives Chromium over it and writes `docs/images/*.png`. The screenshots in
+the README are the output.
+
+The first run found **four defects that 1,400 passing tests did not**, and the
+order of severity is the point.
+
+**1. Every visitor was greeted by a form nobody opened.** `hidden` is a
+UA-level `display: none`, so any author rule setting `display` on the same
+element beats it — and `.form` is flex. The "New organisation" form rendered on
+load, above the org tree, on every visit. Two elements had already been patched
+for this one at a time (`.canvas-empty[hidden]`, `#ctx-menu[hidden]`), which is
+the tell: the bug had been met twice and fixed locally both times. There is now
+one `[hidden] { display: none !important }` covering the elements nobody has
+looked at yet.
+
+**2. The Authority view had never worked.** `loadAuthority` read
+`state.systemId` — a field the local `state` object does not have and never
+had; the open design lives on `window.designer.state`. So the view reported
+"open an organisation to resolve its authority" with one open, for as long as
+it has existed. Every test passed, because they all call the routes directly
+and assert on JSON. A lint now fails on any bare `state.systemId`.
+
+**3. Agent nodes read `unclassified · undefined`.** ADR-0079 moved pairings to
+a `person` reference, and the canvas still read `human.name` inline.
+
+**4. Opening a migrated agent and typing one character destroyed its people.**
+The same ADR-0079 regression in the agent form, where it is not cosmetic: the
+form writes every field back on each keystroke, so a pairing rendered as a
+blank name was parsed back as a blank name and the `person` reference was
+gone. The form now renders a reference as `person:<id>` and parses it back,
+and a node test asserts the round trip is lossless for both shapes.
+
+Three of the four are one mistake made twice — a reference rendered as though
+it were an inline value — which is the cost of a migration that the type system
+does not check.
+
+## What is still unchecked
+
+The captures prove these four views render and carry real data. They say
+nothing about interaction: drag-and-drop, the inspector forms, conflict
+resolution and the lock flow have still never been exercised by a person or a
+script. Accessibility beyond the contract tests, keyboard navigation, undo and
+behaviour on a large organization remain unassessed, and no view has been
+opened at a narrow viewport.
 
 ## Authority
 

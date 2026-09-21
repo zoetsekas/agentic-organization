@@ -8,7 +8,10 @@ each one exists on the app, that no design view reaches a runtime endpoint for
 a design fact, that the runtime views still do, and that the designer stays
 clear of the command centre's application (ADR-0051).
 """
+import pathlib
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -312,3 +315,56 @@ def test_the_placements_route_reaches_the_view(app_js):
     assert "function renderPlacements" in app_js
     # And its honest caveat travels with it: a list of boxes reads as a wall.
     assert "places.note" in app_js
+
+
+def test_no_view_reads_a_system_id_the_local_state_does_not_have(app_js):
+    """The open design lives on `window.designer.state`, not on this file's.
+
+    `loadAuthority` read a bare `state.systemId` — a field the local `state`
+    object has never had — so the Authority view reported "open an
+    organisation" with one open, for as long as it existed. Every test passed,
+    because they all call the routes directly and assert on JSON. A browser
+    found it in the first minute.
+
+    `state` is declared here with its fields, so any bare `state.systemId` is
+    reading something that does not exist.
+    """
+    declared = re.search(r"^const state = \{([^}]*)\}", app_js, re.M)
+    assert declared, "app.js no longer declares its local state object"
+    assert "systemId" not in declared.group(1), (
+        "if `state` gained a systemId, this test needs rewriting rather than "
+        "deleting: the point is that two state objects must not drift"
+    )
+    # Comments talk *about* the bug, so they are stripped before the check:
+    # a lint over source should not read prose.
+    code = re.sub(r"/\*.*?\*/", "", app_js, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+    # `d.state.systemId` and `design()?.state.systemId` are the correct forms.
+    bare = re.findall(r"(?<![.\w])state\.systemId", code)
+    assert not bare, (
+        f"{len(bare)} read(s) of a `systemId` the local state does not have; "
+        "reach the open design through `design()`"
+    )
+
+
+def test_a_person_reference_survives_the_agent_form(tmp_path):
+    """The agent form writes every field back on each keystroke.
+
+    So a pairing rendered as a blank name and parsed back as a blank name is
+    not a display bug — it is data loss. Before ADR-0079 a pairing carried its
+    own name; now it may carry a `person` reference instead, and opening a
+    migrated agent and typing one character destroyed every reference on it.
+
+    This runs the form's own `humanToLine`/`parseHumans` under node and
+    asserts the round trip is lossless for both shapes.
+    """
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    script = pathlib.Path(__file__).parent / "humans_roundtrip.mjs"
+    out = subprocess.run([node, str(script)], capture_output=True, text=True,
+                         cwd=pathlib.Path(__file__).resolve().parents[1],
+                         timeout=60)
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "LOSS" not in out.stdout
+    assert "Marcus Oyelaran" in out.stdout, "a reference must resolve to a name"

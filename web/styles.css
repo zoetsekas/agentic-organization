@@ -108,6 +108,14 @@
 
 * { box-sizing: border-box; }
 
+/* `hidden` is a UA-level `display: none`, so ANY author rule that sets
+   `display` on the same element beats it — and several here do (`.form` is
+   flex, `.split` is grid). The result is an element the markup says is hidden
+   rendering anyway, which is how the "New organisation" form greeted every
+   visitor on first load. Two elements had already been patched one at a time;
+   this is the rule that covers the ones nobody has looked at yet. */
+[hidden] { display: none !important; }
+
 /* The shell is a full-height flex column so the canvas can take the rest of
    the viewport instead of a fixed 640px box. */
 html, body { height: 100%; }
@@ -367,7 +375,6 @@ legend {
 .region-missing { color: var(--amber-ink-2); }
 
 .canvas-edges { position: absolute; inset: 0; width: 3000px; height: 2000px; pointer-events: none; }
-.canvas-empty[hidden] { display: none; }
 .canvas-empty {
   position: absolute; inset: 0; display: flex; align-items: center;
   justify-content: center; color: var(--ink-dim); font-size: var(--t-body);
@@ -451,7 +458,6 @@ legend {
   border-radius: var(--r-md); box-shadow: 0 4px 16px rgba(0, 0, 0, .45);
   padding: var(--s1) 0; min-width: 160px;
 }
-#ctx-menu[hidden] { display: none; }
 #ctx-menu hr { border: none; border-top: 1px solid var(--line); margin: 3px 0; }
 .ctx-item {
   display: block; width: 100%; text-align: left;
