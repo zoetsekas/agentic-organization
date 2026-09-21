@@ -1262,15 +1262,17 @@ anybody reading both will conflate them.
 ### Where the framework is ahead of us
 
 - **Limits.** `ModelCallLimitMiddleware(run_limit=n, exit_behavior="end")` is
-  `max_turns`, exactly, in the framework's own terms. Our adapter translates
-  `max_turns` into a `recursion_limit` of `2n+1`, which is a graph-depth
-  backstop rather than a turn limit and is only approximately right.
-  `ToolCallLimitMiddleware` bounds tool calls, per tool if wanted.
+  `max_turns`, exactly, in the framework's own terms — now what the adapter
+  uses, with the `2n+1` `recursion_limit` demoted to a structural backstop.
+  `ToolCallLimitMiddleware` bounds tool calls, per tool if wanted, and is not
+  wired.
 - **Filesystem governance.** `FilesystemPermission` is
   `{operations: [read|write], paths: [...], mode: allow|deny|interrupt}` — a
   real permission model over the virtual filesystem, with a human-interrupt
-  mode. This is the answer to the gap where deep agents' built-in file tools
-  bypass our artifact store and data planes entirely.
+  mode. The adapter now derives a rule set from the agent's data grants, and
+  the order matters: the first matching rule wins and **an unmatched path is
+  allowed**, which is the opposite of ADR-0008, so the deny floor on `/**` is
+  written down rather than assumed.
 - **Execution policies.** `DockerExecutionPolicy`, `CodexSandboxExecutionPolicy`
   and `HostExecutionPolicy` behind `ShellToolMiddleware` are a working provider
   seam for shell execution, with timeouts and output caps.
@@ -1363,10 +1365,8 @@ the design describes and the code does not do yet.
 | Divergence signals | Disagreement reaches somebody | Computed on demand and returned to the caller; nothing routes or stores them (ALPHA B6) |
 | Sandbox providers | Prefer a kernel boundary | `container` is the portable floor and the only one available here; `microvm_sbx` and `openshell` are contracts with no binary behind them, and every boundary statement carries `verified=False` |
 | Workflow engines | Pluggable, out-of-process engines are egress events | `native` exercised; the Langflow path exercised through a fake transport; LangGraph, LangChain and ADK are binding entries only |
-| Harness limits on LangChain | `max_turns` means turns | Translated to a `recursion_limit` of `2n+1`, which is a graph-depth backstop; `ModelCallLimitMiddleware(run_limit=n)` says it exactly and is not wired (§18) |
-| Deep agents' virtual filesystem | Governed like any other agent material | Ungoverned: its file tools bypass the artifact store and the data planes. `FilesystemPermission` is the route in and is not wired (§18) |
-| MCP | One mounting path | Two: ours in `harness/mcp.py`, and `langchain-mcp-adapters` for the LangChain runtimes. Never reconciled; the adapter package is not a dependency |
-| Reference runtime | Deep agents carries the deep integrations (ADR-0067) | Decided, not yet delivered: the filesystem permissions, the MCP reconciliation and the limit middleware named in ADR-0067's Implementation are all still to do |
+| Reference runtime | Deep agents carries the deep integrations (ADR-0067) | Delivered: limits as `ModelCallLimitMiddleware`, a deny-by-default filesystem permission set, and MCP over the adapter transport behind our own allowlist. A live model still has not answered (ALPHA A5) |
+| MCP transport | One mounting path | One policy path, two transports: `langchain-mcp-adapters` carries stdio/SSE/streamable-HTTP and its tools return through our resolution, so the allowlist and `read_only` still apply. The in-process backend remains for tests and the bundled relational server |
 | Runtime adapters | Deep agents, OpenAI SDK, LangGraph | **deep agents executes in CI** against the real framework with a scripted chat model — real graph, real middleware, real tool binding — so the seam and the limit translations are exercised. No live model has answered. The OpenAI adapter is asserted against the installed SDK but `Runner` has never run; LangGraph is still untouched |
 | Authority: mandates | A declared scope of decision per unit, narrowing down the tree, escalating when exceeded | **Built** (ADR-0065): declared on teams, agents and missions, resolved once at the phase gate, enforced at the tool boundary, escalating to the smallest unit that holds the decision. A capability declares which decision class it constitutes, and most declare none — so an organization gets the checks it wires up, and an unwired capability decides nothing |
 | Authority: the designer | Editing a mandate with reference pickers | The palette declares decision classes; the mandate editor itself is not built, so mandates are authored in the spec (ADR-0066) |

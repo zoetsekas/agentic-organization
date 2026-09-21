@@ -113,6 +113,21 @@ class MCPRegistry:
             proxies.append(MCPToolProxy(ref.name, name, make(name), ref.read_only))
         return proxies
 
+    def mount_langchain(self, ref: MCPServerRef) -> None:
+        """Mount a server over `langchain-mcp-adapters`' transport.
+
+        Their transport, our policy (ADR-0067 rule 5). The adapter package
+        handles stdio/SSE/streamable-HTTP better than we would, and it returns
+        tools ready to hand straight to a LangChain agent — which is exactly
+        what we must not do, because a tool handed directly to the framework
+        never passes the allowlist, the `read_only` flag, or the permission,
+        mandate and approval checks in `HarnessBuilder`.
+
+        So the tools come back through `register_remote` and the ordinary
+        resolution path, and nothing about the agent definition changes.
+        """
+        self.register_remote(ref.name, LangChainMCPClient(ref))
+
     def bindings(self, ref: MCPServerRef) -> list[ToolBinding]:
         return [
             ToolBinding(
@@ -128,3 +143,71 @@ class MCPRegistry:
             )
             for p in self.resolve(ref)
         ]
+
+
+# --------------------------------------------------------------------------
+# langchain-mcp-adapters as a transport backend
+# --------------------------------------------------------------------------
+
+
+def connection_for(ref: MCPServerRef) -> dict[str, Any]:
+    """Translate an `MCPServerRef` into an adapter connection config.
+
+    Kept separate from the client so the mapping is testable without the
+    package installed — the translation is ours and is where a mistake would
+    silently mount the wrong server.
+    """
+    if ref.transport == "stdio":
+        if not ref.command:
+            raise ValueError(f"stdio server '{ref.name}' declares no command")
+        return {"transport": "stdio", "command": ref.command, "args": list(ref.args)}
+    if not ref.url:
+        raise ValueError(f"{ref.transport} server '{ref.name}' declares no url")
+    # `http` in our model is streamable HTTP, which is the adapter's own
+    # default for a URL-addressed server; `sse` stays distinct because the
+    # wire protocols differ.
+    transport = "sse" if ref.transport == "sse" else "streamable_http"
+    return {"transport": transport, "url": ref.url}
+
+
+class LangChainMCPClient:
+    """Adapts `MultiServerMCPClient` to the small client shape we resolve.
+
+    `get_tools` is async and everything above here is synchronous, so the
+    coroutine is driven on a private loop. A caller already inside a running
+    loop gets a clear error rather than a deadlock.
+    """
+
+    def __init__(self, ref: MCPServerRef) -> None:
+        self.ref = ref
+        self._tools: Optional[dict[str, Any]] = None
+
+    def _load(self) -> dict[str, Any]:
+        if self._tools is not None:
+            return self._tools
+        import asyncio
+
+        from langchain_mcp_adapters.client import MultiServerMCPClient  # type: ignore
+
+        client = MultiServerMCPClient({self.ref.name: connection_for(self.ref)})
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError(
+                "LangChainMCPClient cannot load tools from inside a running "
+                "event loop; mount the server before the loop starts"
+            )
+        tools = asyncio.run(client.get_tools(server_name=self.ref.name))
+        self._tools = {t.name: t for t in tools}
+        return self._tools
+
+    def list_tools(self) -> list[Any]:
+        return list(self._load().values())
+
+    def call_tool(self, name: str, kwargs: dict[str, Any]) -> Any:
+        tool = self._load().get(name)
+        if tool is None:
+            raise KeyError(f"MCP server '{self.ref.name}' exposes no tool '{name}'")
+        return tool.invoke(kwargs)

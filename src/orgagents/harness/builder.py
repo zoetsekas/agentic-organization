@@ -251,20 +251,19 @@ class HarnessBuilder:
                 return binding.decision
         return None
 
-    def call(self, agent: Agent, tool_name: str, **kwargs: Any) -> ToolCallResult:
-        """Invoke a tool with policy enforcement and structured errors.
+    def refusal(self, agent: Agent, tool_name: str) -> Optional[ToolCallResult]:
+        """Why this call may not proceed, or `None` if it may.
 
-        The order is permission, then mandate, then approval (ADR-0065). A
-        tool the agent was never granted is simply absent, which is the
-        permission refusal — and it stops here rather than escalating, because
-        sending a human an action the agent could never perform spends their
-        attention on nothing.
+        One implementation, used by both `call` and the wrappers handed to a
+        runtime framework — because a policy that holds on one path and not
+        the other is not a policy (ADR-0067 rule 5).
+
+        The order is mandate, then approval (ADR-0065). Permission is already
+        settled: a tool the agent was never granted is simply absent from the
+        assembled toolset, and that refusal stops there rather than escalating,
+        because sending a human an action the agent could never perform spends
+        their attention on nothing.
         """
-        tools = self.build(agent)
-        fn = tools.get(tool_name)
-        if fn is None:
-            return ToolCallResult(tool_name, False, error=f"no such tool '{tool_name}'")
-
         decision = self.decision_class(agent, tool_name)
         if decision and decision not in agent.mandate:
             holder = self.org.mandate_holder(agent.id, decision)
@@ -299,6 +298,47 @@ class HarnessBuilder:
                 requires_approval=True,
                 meta={"approver": agent.human.email if agent.human else None},
             )
+        return None
+
+    def guarded(
+        self, agent: Agent, tools: dict[str, Callable[..., Any]]
+    ) -> dict[str, Callable[..., Any]]:
+        """Wrap an assembled toolset so a framework cannot route around policy.
+
+        The runtime hands these callables to deep agents or the OpenAI SDK,
+        which invoke them directly — never through `call`. Without this
+        wrapper every mandate and approval check is enforced only against
+        callers that were already being careful, which is the wrong half.
+        """
+
+        def wrap(name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
+            def guarded_tool(**kwargs: Any) -> Any:
+                refused = self.refusal(agent, name)
+                if refused is not None:
+                    return {
+                        "ok": False,
+                        "error": refused.error,
+                        "requires_approval": refused.requires_approval,
+                        "decision": refused.decision,
+                        "escalate_to": refused.escalate_to,
+                    }
+                return fn(**kwargs)
+
+            guarded_tool.__name__ = getattr(fn, "__name__", name)
+            guarded_tool.__doc__ = fn.__doc__
+            return guarded_tool
+
+        return {name: wrap(name, fn) for name, fn in tools.items()}
+
+    def call(self, agent: Agent, tool_name: str, **kwargs: Any) -> ToolCallResult:
+        """Invoke a tool with policy enforcement and structured errors."""
+        tools = self.build(agent)
+        fn = tools.get(tool_name)
+        if fn is None:
+            return ToolCallResult(tool_name, False, error=f"no such tool '{tool_name}'")
+        refused = self.refusal(agent, tool_name)
+        if refused is not None:
+            return refused
         try:
             return ToolCallResult(tool_name, True, value=fn(**kwargs))
         except AccessDenied as e:

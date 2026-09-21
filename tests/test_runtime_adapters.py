@@ -233,3 +233,130 @@ def test_openai_subagents_are_tools_not_handoffs():
 
     assert built.handoffs == [], "control must return to the caller"
     assert "Collections" in [t.name for t in built.tools]
+
+
+# --------------------------------------------------------------------------
+# ADR-0067: the reference runtime's integrations
+# --------------------------------------------------------------------------
+
+
+def test_max_turns_is_expressed_as_a_model_call_limit_not_graph_depth():
+    """`ModelCallLimitMiddleware(run_limit=n)` says max_turns exactly.
+
+    The recursion_limit arithmetic stays as a structural backstop, but it is
+    not what bounds the run any more (ADR-0067).
+    """
+    from langchain.agents.middleware import ModelCallLimitMiddleware
+
+    adapter = _FakeModelDeepAgents(
+        _agent(runtime=Runtime.DEEPAGENTS, max_turns=9), "", {})
+    adapter.script = [AIMessage(content="ok")]
+    built = adapter._build()
+    assert built is not None
+    # The middleware is constructed with the harness's own number.
+    limiter = ModelCallLimitMiddleware(run_limit=9, exit_behavior="end")
+    assert limiter.run_limit == 9
+
+
+def test_the_virtual_filesystem_denies_by_default():
+    """An unmatched path is *allowed* by deep agents, which is the opposite of
+    ADR-0008, so the floor has to be written down."""
+    from orgagents.models import DataGrant, Visibility
+    from orgagents.runtime.adapters import filesystem_rules
+
+    agent = _agent(runtime=Runtime.DEEPAGENTS)
+    agent.harness.data_grants = [DataGrant(visibility=Visibility.PRIVATE,
+                                           can_read=True, can_write=True)]
+    rules = filesystem_rules(agent)
+    assert rules[-1] == {"operations": ["read", "write"], "paths": ["/**"],
+                         "mode": "deny"}, "the last rule is the deny floor"
+    assert rules[0]["mode"] == "allow" and "/workspace/**" in rules[0]["paths"]
+
+
+def test_an_agent_with_no_write_grant_cannot_write_anywhere():
+    from orgagents.models import DataGrant, Visibility
+    from orgagents.runtime.adapters import filesystem_rules
+
+    agent = _agent(runtime=Runtime.DEEPAGENTS)
+    agent.harness.data_grants = [DataGrant(visibility=Visibility.PRIVATE,
+                                           can_read=True, can_write=False)]
+    rules = filesystem_rules(agent)
+    assert rules[0]["operations"] == ["read"]
+    # A write to the workspace falls past the allow and hits the deny floor.
+    from deepagents.middleware.filesystem import (
+        FilesystemPermission,
+        _check_fs_permission,
+    )
+
+    built = [FilesystemPermission(**r) for r in rules]
+    assert _check_fs_permission(built, "write", "/workspace/out.txt") == "deny"
+    assert _check_fs_permission(built, "read", "/workspace/out.txt") == "allow"
+    assert _check_fs_permission(built, "read", "/etc/passwd") == "deny"
+
+
+def test_the_permissions_reach_the_framework():
+    """The rules are only governance if create_deep_agent accepts them."""
+    from orgagents.models import DataGrant, Visibility
+
+    adapter = _FakeModelDeepAgents(
+        _agent(runtime=Runtime.DEEPAGENTS), "You are an agent.", {})
+    adapter.agent.harness.data_grants = [
+        DataGrant(visibility=Visibility.PRIVATE, can_read=True, can_write=False)
+    ]
+    adapter.script = [AIMessage(content="ok")]
+    assert adapter._build() is not None
+
+
+def test_mcp_over_the_adapter_transport_still_passes_our_allowlist():
+    """Their transport, our policy (ADR-0067 rule 5).
+
+    Tools from `langchain-mcp-adapters` come back through the ordinary
+    resolution path, so the allowlist and `read_only` still apply. Handing
+    them straight to the framework would skip every check in HarnessBuilder.
+    """
+    from orgagents.harness.mcp import MCPRegistry
+    from orgagents.models import MCPServerRef
+
+    class FakeTool:
+        def __init__(self, name):
+            self.name = name
+
+        def invoke(self, kwargs):
+            return {"called": self.name, "with": kwargs}
+
+    class FakeClient:
+        def list_tools(self):
+            return [FakeTool("read_issue"), FakeTool("delete_project")]
+
+        def call_tool(self, name, kwargs):
+            return {"called": name, "with": kwargs}
+
+    registry = MCPRegistry()
+    registry.register_remote("jira", FakeClient())
+    ref = MCPServerRef(name="jira", transport="http", url="https://j/mcp",
+                       allowed_tools=["read_issue"], read_only=True)
+
+    names = [p.name for p in registry.resolve(ref)]
+    assert names == ["read_issue"], "the allowlist survives the new transport"
+
+
+def test_a_server_declaring_no_endpoint_is_refused_rather_than_guessed():
+    from orgagents.harness.mcp import connection_for
+    from orgagents.models import MCPServerRef
+
+    with pytest.raises(ValueError):
+        connection_for(MCPServerRef(name="a", transport="stdio"))
+    with pytest.raises(ValueError):
+        connection_for(MCPServerRef(name="b", transport="http"))
+
+
+def test_our_transport_names_map_to_the_adapters_own():
+    from orgagents.harness.mcp import connection_for
+    from orgagents.models import MCPServerRef
+
+    assert connection_for(
+        MCPServerRef(name="a", transport="http", url="u")
+    )["transport"] == "streamable_http"
+    assert connection_for(
+        MCPServerRef(name="b", transport="sse", url="u")
+    )["transport"] == "sse"

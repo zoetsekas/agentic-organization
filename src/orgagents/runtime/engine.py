@@ -142,6 +142,11 @@ class AgentRuntime:
         tools.update(self._workflow_tools(agent, session.id))
         tools.update(self._messaging_tools(agent, session.id))
         tools.update(self._escalation_tools(agent, session.id))
+        # The framework invokes these callables directly, never through
+        # `HarnessBuilder.call`, so the policy checks are wrapped around them
+        # here. Without this the mandate and approval gates bind only callers
+        # that were already going through the front door (ADR-0067 rule 5).
+        tools = self.harness.guarded(agent, tools)
 
         adapter_cls = adapter_for(agent)
         adapter: RuntimeAdapter = adapter_cls(

@@ -14,7 +14,8 @@ dependencies = [
 [project.optional-dependencies]
 # Pinned to the 1.x line: deep agents took `system_prompt`/`subagents` in
 # their current shape from 0.7, and the adapter targets that API.
-langgraph = ["langgraph>=1.0", "langchain-core>=1.0", "deepagents>=0.7"]
+langgraph = ["langgraph>=1.0", "langchain-core>=1.0", "deepagents>=0.7",
+             "langchain-mcp-adapters>=0.1"]
 # `Agent.as_tool` is how a sub-agent returns to its caller (ADR-0027).
 openai = ["openai-agents>=0.2"]
 anthropic = ["anthropic>=0.40"]

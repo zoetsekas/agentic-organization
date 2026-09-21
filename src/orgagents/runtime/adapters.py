@@ -78,6 +78,34 @@ class TurnBudget:
         self.tokens_spent += max(0, tokens)
 
 
+#: Where an agent's material belongs (ADR-0036). Everything else on the
+#: framework's virtual filesystem is outside what the platform governs.
+WORKSPACE = "/workspace"
+
+
+def filesystem_rules(agent: Agent) -> list[dict[str, Any]]:
+    """Permission rules for a framework-provided virtual filesystem.
+
+    deep agents' file tools are real tools an agent can reach, and until this
+    existed they bypassed the artifact store and the data planes entirely — an
+    agent that may not write anywhere could still write everywhere, inside the
+    framework.
+
+    Two properties matter. `_check_fs_permission` takes the **first matching
+    rule**, so specific allows come before the floor. And an unmatched path is
+    **allowed** by default, which is the opposite of ADR-0008 — so the deny
+    floor is written down explicitly rather than assumed.
+    """
+    writable = any(g.can_write for g in agent.harness.data_grants)
+    operations = ["read", "write"] if writable else ["read"]
+    return [
+        {"operations": operations, "paths": [f"{WORKSPACE}/**"], "mode": "allow"},
+        # An agent with no write grant reaches this rule for a write, which is
+        # the intended refusal rather than an oversight.
+        {"operations": ["read", "write"], "paths": ["/**"], "mode": "deny"},
+    ]
+
+
 def recursion_limit(max_turns: int) -> int:
     """Translate harness turns into LangGraph super-steps.
 
@@ -86,9 +114,10 @@ def recursion_limit(max_turns: int) -> int:
     ReAct turn is two of them (the model node, then the tool node), plus one
     step to enter the graph.
 
-    Passing `max_turns` straight through, as this adapter used to, gave an
-    agent on deep agents roughly half the turns the same spec gave it on the
-    OpenAI Agents SDK, where `max_turns` does mean turns.
+    This is a **backstop**, not the turn limit. `ModelCallLimitMiddleware`
+    expresses `max_turns` exactly in the framework's own terms and is what
+    actually bounds the run (ADR-0067); `recursion_limit` remains as the graph
+    depth beyond which something has gone wrong structurally.
     """
     return 2 * max(1, max_turns) + 1
 
@@ -179,6 +208,9 @@ class DeepAgentsAdapter(RuntimeAdapter):
             StructuredTool.from_function(func=fn, name=name)
             for name, fn in self.tools.items()
         ]
+        from deepagents import FilesystemPermission  # type: ignore
+        from langchain.agents.middleware import ModelCallLimitMiddleware  # type: ignore
+
         return create_deep_agent(
             model=self.model(),
             tools=tools,
@@ -187,6 +219,20 @@ class DeepAgentsAdapter(RuntimeAdapter):
             # The harness already says which actions stop for a human; the
             # framework can hold the interrupt rather than us re-inventing it.
             interrupt_on={name: True for name in self.agent.harness.interrupt_on},
+            # The virtual filesystem is governed like anything else the agent
+            # can reach (ADR-0067).
+            permissions=[
+                FilesystemPermission(**rule)
+                for rule in filesystem_rules(self.agent)
+            ],
+            middleware=[
+                # `max_turns` means turns, and this says so in the framework's
+                # own terms. `end` stops the run cleanly rather than raising:
+                # an agent that used its turns did not fail.
+                ModelCallLimitMiddleware(
+                    run_limit=self.agent.harness.max_turns, exit_behavior="end"
+                )
+            ],
         )
 
     def model(self) -> Any:

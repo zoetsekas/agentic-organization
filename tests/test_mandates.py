@@ -234,3 +234,63 @@ def test_a_mission_mandate_is_bounded_by_the_unit_accountable_for_it():
     mission = Mission(id="m1", mandate=Mandate(decisions=["spend", "deploy"]))
     lent = mission_mandate(mission, leader)
     assert lent.decisions == {"spend"}, "a mission cannot create authority"
+
+
+# --------------------------------------------------------------------------
+# The framework must not be able to route around the policy (ADR-0067 rule 5)
+# --------------------------------------------------------------------------
+
+
+def test_the_toolset_handed_to_a_framework_carries_the_policy_with_it(platform):
+    """The runtime hands callables to deep agents or the OpenAI SDK, which
+    invoke them directly and never through `HarnessBuilder.call`.
+
+    Until these were wrapped, every mandate and approval gate bound only
+    callers that were already going through the front door — so an actual
+    agent run enforced nothing.
+    """
+    analyst = _wire(platform, "agt_fin_analyst", "db_warehouse__query",
+                    "close_period", [])
+    raw = platform.harness.build(analyst)["db_warehouse__query"]
+    guarded = platform.harness.guarded(
+        analyst, {"db_warehouse__query": raw}
+    )["db_warehouse__query"]
+
+    out = guarded(sql="SELECT name FROM customers")
+    assert out["ok"] is False
+    assert out["decision"] == "close_period"
+
+
+def test_a_guarded_tool_still_works_when_policy_allows_it(platform):
+    analyst = _wire(platform, "agt_fin_analyst", "db_warehouse__query",
+                    "close_period", ["close_period"])
+    tools = platform.harness.guarded(analyst, platform.harness.build(analyst))
+    out = tools["db_warehouse__query"](sql="SELECT name FROM customers")
+    assert "rows" in out
+
+
+def test_an_approval_gate_also_survives_the_framework_path(platform):
+    analyst = platform.org.agent("agt_fin_analyst")
+    analyst.harness.interrupt_on = ["db_warehouse__query"]
+    _save(platform, analyst)
+    tools = platform.harness.guarded(analyst, platform.harness.build(analyst))
+    out = tools["db_warehouse__query"](sql="SELECT name FROM customers")
+    assert out["ok"] is False and out["requires_approval"] is True
+
+
+def test_no_generated_artifact_names_a_framework():
+    """ADR-0067 rule 1: the spec names no framework, and neither does the IR.
+
+    `Runtime` is a binding concern. A framework name reaching the IR would
+    mean a design had been made to depend on one.
+    """
+    import pathlib
+
+    from orgagents.compiler.ir import build_ir
+    from orgagents.spec.loader import load_spec
+
+    ir = build_ir(load_spec(pathlib.Path("examples/acme.system.yaml")))
+    blob = ir.model_dump_json()
+    for name in ("deepagents", "deep_agents", "langchain", "langgraph",
+                 "openai_agents", "agents_sdk"):
+        assert name not in blob.lower(), f"the IR names {name}"
