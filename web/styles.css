@@ -758,3 +758,30 @@ dialog::backdrop { background: rgba(0,0,0,.55); }
 .separation p, .finding p { margin: 0; font-size: .8rem; }
 .finding[data-severity="error"] code { color: var(--clay); }
 .finding[data-severity="warning"] code { color: var(--amber); }
+
+/* --------------------------------------------------- authority form controls
+   The mandate control asks its question outright — "declare a mandate here" —
+   because an absent mandate inherits and an empty one decides nothing, and a
+   picker that shows an empty list cannot tell you which of those it means. */
+.mandate-wrap,
+.autonomy-wrap { display: flex; flex-direction: column; gap: 6px; }
+
+.mandate-wrap > label.inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .8rem;
+  color: var(--ink-muted);
+}
+
+.autonomy-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+.autonomy-row code { font-size: .78rem; }
+.autonomy-row select { font-size: .78rem; }
+.autonomy-row .hint { grid-column: 1 / -1; }
+
+label.stacked { display: flex; flex-direction: column; gap: 4px; }

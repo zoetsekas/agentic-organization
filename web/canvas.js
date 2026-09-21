@@ -657,7 +657,7 @@ function renderInspector() {
       else if (component) component[field.name] = v;
       markDirty();
       renderCanvas();
-    }, kind));
+    }, kind, component));
   }
   const actions = el("div", { class: "actions" },
     el("button", {
@@ -876,7 +876,108 @@ function renderReflist(field, value, readOnly, onChange, options) {
   return wrap;
 }
 
-function fieldControl(field, value, readOnly, onChange, componentKind = null) {
+/* ------------------------------------------- authority pickers (ADR-0065/72)
+
+   Two fields the org model gained that the inspector could not edit, and both
+   carry a distinction a plain control would flatten.
+
+   A mandate that is *absent* inherits its parent's; one that is present and
+   empty decides nothing. Those are opposite meanings, and writing an empty
+   list where the author meant "not set here" is how a unit written as advisory
+   ends up holding every decision in the company — which is exactly what
+   happened to Corporate Development in the worked finance example. So the
+   control asks the question outright instead of inferring it from emptiness.
+
+   An autonomy posture may only ever be tightened from what the capability
+   declares, so the loosening options are not offered at all. A control that
+   looks available and is then refused by the gate is the bug. */
+
+const POSTURE_RANK = ["autonomous", "supervised", "human_decides", "advisory"];
+
+function renderMandate(field, value, readOnly, onChange) {
+  const options = (spec()?.decisions || []).map((d) => d.id).filter(Boolean);
+  const wrap = el("div", { class: "mandate-wrap" });
+  let current = value && typeof value === "object" ? { ...value } : null;
+
+  function redraw() {
+    const box = el("input", { type: "checkbox",
+                              ...(readOnly ? { disabled: "" } : {}) });
+    box.checked = current !== null;
+    box.addEventListener("change", () => {
+      current = box.checked ? { decisions: [] } : null;
+      onChange(current);
+      redraw();
+    });
+    const toggle = el("label", { class: "inline" }, box,
+                      "declare a mandate here");
+
+    const body = [];
+    if (current) {
+      body.push(renderReflist(
+        { ...field, name: "decisions" }, current.decisions || [], readOnly,
+        (v) => {
+          current = { ...current, decisions: v };
+          onChange(current);
+          redraw();
+        }, options));
+      body.push(el("small", { class: "hint" },
+        (current.decisions || []).length
+          ? "Narrowed to these, and only where the line above already holds them."
+          : "Declared and empty: this unit decides nothing."));
+      if (!options.length) {
+        body.push(el("small", { class: "hint" },
+          "No decision classes declared yet — add them from the palette."));
+      }
+    } else {
+      body.push(el("small", { class: "hint" },
+        "Not declared: inherits its parent's mandate. Never everything."));
+    }
+    wrap.replaceChildren(toggle, ...body);
+  }
+  redraw();
+  return wrap;
+}
+
+function renderAutonomy(field, value, readOnly, onChange, component) {
+  const s = spec();
+  const caps = new Map((s?.capabilities || []).map((c) => [c.id, c]));
+  const roles = new Map((s?.roles || []).map((r) => [r.id, r]));
+  const held = new Set(component?.capabilities || []);
+  for (const assignment of component?.roles || []) {
+    const role = roles.get(
+      typeof assignment === "string" ? assignment : assignment.role);
+    (role?.capabilities || []).forEach((c) => held.add(c));
+  }
+  const rows = [...held].filter((c) => caps.has(c)).sort();
+  if (!rows.length) {
+    return el("p", { class: "hint" },
+      "No capabilities yet. A posture is per activity, so there is nothing " +
+      "to tighten until this agent holds one.");
+  }
+  const map = { ...(value || {}) };
+  return el("div", { class: "autonomy-wrap" }, ...rows.map((id) => {
+    const declared = caps.get(id).autonomy || "advisory";
+    const floor = POSTURE_RANK.indexOf(declared);
+    const tighter = POSTURE_RANK.slice(floor < 0 ? 0 : floor + 1);
+    const select = el("select", readOnly ? { disabled: "" } : {},
+      el("option", { value: "" }, `as declared — ${declared}`),
+      ...tighter.map((p) => el("option", { value: p }, p)));
+    select.value = map[id] || "";
+    select.addEventListener("change", () => {
+      if (select.value) map[id] = select.value;
+      else delete map[id];
+      onChange({ ...map });
+    });
+    return el("div", { class: "autonomy-row" },
+      el("code", {}, id),
+      select,
+      tighter.length ? null
+        : el("small", { class: "hint" }, "already the tightest"));
+  }));
+}
+
+function fieldControl(field, value, readOnly, onChange, componentKind = null,
+                      component = null) {
   const attrs = readOnly ? { disabled: "" } : {};
   let input;
 
@@ -891,6 +992,24 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null) {
       if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
       return label;
     }
+  }
+
+  /* ---- authority (ADR-0065, ADR-0072) ---- */
+  if (field.type === "decisions" || field.type === "decision_refs"
+      || field.type === "autonomy") {
+    const decisionIds = () =>
+      (spec()?.decisions || []).map((d) => d.id).filter(Boolean);
+    input = field.type === "decisions"
+      // A mandate: absent inherits, present-and-empty decides nothing.
+      ? renderMandate(field, value, readOnly, onChange)
+      : field.type === "decision_refs"
+      // A plain reference list, with no inherit-or-empty question to ask.
+      ? renderReflist(field, value, readOnly, onChange, decisionIds())
+      : renderAutonomy(field, value, readOnly, onChange, component);
+    const label = el("label", { class: "stacked" },
+      `${field.name}${field.required ? " *" : ""}`, input);
+    if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
+    return label;
   }
 
   /* ---- generic field renderers (unchanged) ---- */

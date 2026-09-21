@@ -325,6 +325,29 @@ Alongside it:
 A design mid-edit legitimately does not resolve. That renders as an empty view
 with a line saying so, not an error somebody has to dismiss.
 
-The palette gained `decision` and `separation` kinds, and `mandate` on teams and
-agents plus `autonomy` on an agent — a field the UI cannot edit is a field
-nobody will set.
+### Editing authority
+
+The palette gained `decision` and `separation` kinds, `mandate` on teams and
+agents, and `autonomy` on an agent. Two of those needed real controls rather
+than a text box, because each carries a distinction a plain field would
+flatten.
+
+**The mandate control asks its question outright.** A mandate that is *absent*
+inherits its parent's; one that is present and empty decides nothing. Those are
+opposite meanings, and a picker showing an empty list cannot tell you which it
+means — which is how Corporate Development, written as advisory in the worked
+finance example, inherited the root's entire authority. So the control carries
+a `declare a mandate here` toggle: off writes `null` and says *inherits its
+parent's mandate*; on writes `{decisions: []}` and says *this unit decides
+nothing* until decisions are picked.
+
+**The posture selector offers only tighter options.** An assignment may tighten
+what a capability declares and never loosen it (ADR-0072 rule 6), so the
+loosening options are not offered at all — a control that looks available and is
+then refused by the gate is the bug. Each row shows the capability, an
+`as declared — <posture>` default, and the postures below it; a capability
+already at `advisory` says *already the tightest*.
+
+A separation's `decisions` is a plain reference list over the declared
+vocabulary, not a mandate: there is no inherit-or-empty question to ask, so the
+two use different field types.

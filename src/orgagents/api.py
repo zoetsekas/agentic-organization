@@ -1611,7 +1611,10 @@ PALETTE: dict[str, Any] = {
                  "help": "decisions no single agent may hold together",
                  "fields": [
                      {"name": "id", "type": "string", "required": True},
-                     {"name": "decisions", "type": "decisions", "required": True},
+                     # A plain list of decision ids, not a mandate: a
+                     # separation has no inherit-or-empty question to ask.
+                     {"name": "decisions", "type": "decision_refs",
+                      "required": True},
                      {"name": "reason", "type": "text",
                       "help": "a rule without one is a rule nobody defends"},
                  ]},
