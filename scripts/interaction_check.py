@@ -87,7 +87,15 @@ CHROME = os.environ.get(
     "ORGAGENTS_CHROME",
     "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
 )
-ALLOWED_CONSOLE = ("fonts.googleapis", "ERR_CERT_AUTHORITY_INVALID")
+ALLOWED_CONSOLE = (
+    "fonts.googleapis",
+    "ERR_CERT_AUTHORITY_INVALID",
+    # The review routes (`/gate`, `/diff`) answer 422 while a design does not
+    # compile, and `consequence()` turns that into an empty rail rather than
+    # an error to dismiss. This script leaves two deliberately unlinked teams
+    # behind, so a design that does not compile is the expected state.
+    "status of 422",
+)
 
 problems: list[str] = []
 results: list[tuple[bool, str, str]] = []
@@ -102,6 +110,7 @@ async def main() -> None:
         browser = await pw.chromium.launch(executable_path=CHROME)
         page = await browser.new_page(viewport={"width": 1680, "height": 1050})
         page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
+        page.on("dialog", lambda d: asyncio.ensure_future(d.dismiss()))
         page.on(
             "console",
             lambda m: problems.append(f"console {m.type}: {m.text}")
@@ -209,6 +218,75 @@ async def main() -> None:
                   controls["mandate"] > 0, json.dumps(controls))
             check("an agent form offers a posture per activity",
                   controls["autonomy"] > 0, json.dumps(controls))
+
+        # -- 4b. Linking: explicit, and only where the model allows --------
+        # A drop used to nest whatever you dropped near whatever was nearest,
+        # so two teams dropped close together came out linked and the only
+        # way to see it was to read the YAML.
+        async def drop(label, x, y):
+            await page.locator(".drag-item", has_text=label).first.drag_to(
+                page.locator("#canvas"), target_position={"x": x, "y": y})
+            await page.wait_for_timeout(600)
+
+        await drop("Team", 500, 300)
+        await drop("Team", 560, 340)          # deliberately close together
+        siblings = await page.evaluate("""() => {
+          const root = window.designer.spec().organization;
+          const dropped = (root.teams || [])
+            .filter((t) => /^team_\\d+$/.test(t.id));
+          return { atRoot: dropped.map((t) => t.id),
+                   nested: dropped.some((t) => (t.teams || []).length) };
+        }""")
+        check("two teams dropped near each other are not linked",
+              len(siblings["atRoot"]) == 2 and not siblings["nested"],
+              json.dumps(siblings))
+
+        newest = siblings["atRoot"][-1]
+        await page.click(f'#canvas-nodes [data-id="{newest}"]', button="right")
+        await page.wait_for_timeout(400)
+        await page.get_by_role("button", name="Link from here").first.click()
+        await page.wait_for_timeout(400)
+        marks = await page.evaluate("""() => ({
+          source: document.querySelectorAll(".node.link-source").length,
+          targets: document.querySelectorAll(".node.link-target").length,
+        })""")
+        check("starting a link marks the source and the legal targets",
+              marks["source"] == 1 and marks["targets"] > 0, json.dumps(marks))
+
+        await page.click('#canvas-nodes [data-kind="agent"]')
+        await page.wait_for_timeout(700)
+        took = await page.evaluate("""(id) => {
+          const find = (t) => t.id === id ? t
+            : (t.teams || []).map(find).find(Boolean);
+          const team = find(window.designer.spec().organization);
+          return (team?.members || []).length;
+        }""", newest)
+        check("linking a team to an agent re-parents the agent", took == 1,
+              f"{newest} now has {took} member(s)")
+
+        # From an agent, a team is not a legal target: two agents are related
+        # by a declared flow or by belonging to the same organisation, never
+        # by a line between them.
+        agents = await page.evaluate("""() => Object.values(
+          window.designer.state.record.layout.nodes)
+          .filter((n) => n.kind === "agent").map((n) => n.id)""")
+        await page.click(f'#canvas-nodes [data-id="{agents[0]}"]', button="right")
+        await page.wait_for_timeout(400)
+        await page.get_by_role("button", name="Link from here").first.click()
+        await page.wait_for_timeout(400)
+        kinds = await page.evaluate("""() => ({
+          legal: [...new Set([...document.querySelectorAll(".node.link-target")]
+                    .map((n) => n.dataset.kind))],
+          illegal: [...new Set([...document.querySelectorAll(".node.link-no")]
+                    .map((n) => n.dataset.kind))],
+        })""")
+        check("from an agent, a team is not a target",
+              "team" in kinds["illegal"] and "agent" in kinds["legal"],
+              json.dumps(kinds))
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(400)
+        check("escape cancels a link in progress",
+              await page.evaluate("() => window.designer.state.linking") is None)
 
         # -- 5. It saves ---------------------------------------------------
         await page.click("#btn-save")

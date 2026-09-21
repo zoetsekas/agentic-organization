@@ -637,6 +637,24 @@ class Permission(BaseModel):
         return f"{self.action.value}:{self.resource_kind.value}:{self.resource}"
 
 
+#: The condition keys `security.rbac` can actually evaluate (ADR-0008).
+#:
+#: This lived in the evaluator's docstring, which is why the designer had no
+#: form for a policy — a vocabulary a human can read is not one a picker can
+#: offer. Worse, an unknown key was silently ignored, so a single transposed
+#: letter in an `unless` guard disapplied a deny rule and a PII write went
+#: through. The vocabulary is declared here so the form can offer it, the
+#: validator can refuse what is not in it, and the evaluator can fail closed.
+POLICY_CONDITION_KEYS: frozenset[str] = frozenset({
+    "max_delegation_depth",   # request depth must not exceed the value
+    "requires_approval",      # context must carry an approval
+    "environments",           # request environment must be in the list
+    "data_classes",           # request data class must be in the list
+    "groups",                 # subject must hold one of the groups
+    "time_window",            # request hour must fall inside [start, end)
+})
+
+
 class PolicyRule(BaseModel):
     """An explicit allow or deny; deny always wins and cannot be overridden."""
 

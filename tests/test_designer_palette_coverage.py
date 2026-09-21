@@ -323,3 +323,62 @@ def test_a_node_must_still_say_what_kind_it_is(tmp_path):
 
     with pytest.raises(ValidationError):
         CanvasNode(id="x", kind="   ")
+
+
+def test_the_palette_offers_each_kind_once():
+    """A duplicate entry is a silent winner-takes-all.
+
+    `mission` was in the palette twice for a while — the older entry and a
+    richer one — and which fields a person got depended on iteration order.
+    """
+    from orgagents.api import PALETTE
+
+    kinds = [k["kind"] for group in PALETTE["groups"] for k in group["kinds"]]
+    duplicates = sorted({k for k in kinds if kinds.count(k) > 1})
+    assert not duplicates, f"the palette offers these twice: {duplicates}"
+
+
+def test_policies_and_missions_can_be_placed():
+    """Both were unreachable for different reasons.
+
+    `mission` was in the palette and not in the canvas's `COLLECTIONS`, so it
+    could be dragged and landed nowhere. `policy` was in neither, because its
+    conditions had no vocabulary a form could offer.
+    """
+    import pathlib
+
+    from orgagents.api import PALETTE
+
+    kinds = {k["kind"] for group in PALETTE["groups"] for k in group["kinds"]}
+    assert {"policy", "mission"} <= kinds
+
+    canvas = (pathlib.Path(__file__).resolve().parents[1]
+              / "web" / "canvas.js").read_text()
+    collections = canvas.split("const COLLECTIONS = {")[1].split("};")[0]
+    assert 'policy: "policies"' in collections
+    assert 'mission: "missions"' in collections
+
+
+def test_the_condition_keys_offered_come_from_the_model():
+    """A form with its own list could offer one nothing evaluates."""
+    from orgagents.api import PALETTE
+    from orgagents.spec.model import POLICY_CONDITION_KEYS
+
+    policy = next(k for group in PALETTE["groups"] for k in group["kinds"]
+                  if k["kind"] == "policy")
+    for name in ("conditions", "unless"):
+        field = next(f for f in policy["fields"] if f["name"] == name)
+        assert field["type"] == "conditions"
+        assert set(field["options"]) == set(POLICY_CONDITION_KEYS)
+
+
+def test_a_mission_form_can_declare_the_authority_it_lends():
+    """Without it a mission is an authority hole (ADR-0065 rule 8)."""
+    from orgagents.api import PALETTE
+
+    mission = next(k for group in PALETTE["groups"] for k in group["kinds"]
+                   if k["kind"] == "mission")
+    fields = {f["name"]: f for f in mission["fields"]}
+    assert fields["mandate"]["type"] == "decisions"
+    assert fields["ends_on"]["required"] is True, "a mission always ends"
+    assert "internal_delegation" in fields

@@ -19,6 +19,8 @@ const canvas = {
   permissions: [],
   locks: [],
   conflicts: [],
+  //: `{id, kind}` while a link is being drawn from a node, else null.
+  linking: null,
   mergedSpec: null,
   resolutions: {},
   dirty: false,
@@ -96,6 +98,8 @@ const COLLECTIONS = {
   decision: "decisions",
   separation: "separations",
   person: "people",
+  policy: "policies",
+  mission: "missions",
   guardrail: "guardrails",
   output_contract: "output_contracts",
   skill: "skills",
@@ -169,16 +173,20 @@ function findComponent(kind, id) {
   return collection ? (s[collection] || []).find((x) => x.id === id) || null : null;
 }
 
-function nearestNode(kinds, x, y) {
-  /* The parent a person means is the one they dropped it near. */
-  const layout = canvas.record.layout;
-  let best = null, bestDistance = Infinity;
-  for (const node of Object.values(layout.nodes)) {
-    if (!kinds.includes(node.kind)) continue;
-    const distance = Math.hypot(node.x - x, node.y - y);
-    if (distance < bestDistance) { best = node; bestDistance = distance; }
-  }
-  return best;
+/* A dropped component lands **unlinked**, at the top of the organisation.
+
+   It used to land wherever it was dropped *near*: `nearestNode` had no
+   distance limit, so "near" meant "the nearest one anywhere", and dropping a
+   second Team silently nested it under the first. The line you then saw was
+   real — the drop had written a parent into the spec that nobody asked for,
+   and the only way to see it was to read the YAML.
+
+   The spec is a tree and has nowhere to put a free-floating team or an agent
+   in no team, so "unlinked" means "at the root": valid, visible, and
+   obviously not where you want it yet. Linking is then an explicit act, and
+   `LINK_RULES` says what is legal. */
+function rootTeam() {
+  return spec()?.organization || null;
 }
 
 function addComponent(kind, id, at = null) {
@@ -194,15 +202,12 @@ function addComponent(kind, id, at = null) {
       // invisible root nobody asked for.
       s.organization = team;
     } else {
-      const host = at ? nearestNode(["team"], at.x, at.y) : null;
-      const parent = host ? findComponent("team", host.id) : s.organization;
-      (parent.teams = parent.teams || []).push(team);
+      (s.organization.teams = s.organization.teams || []).push(team);
     }
     return team;
   }
   if (kind === "agent") {
-    const host = at ? nearestNode(["team"], at.x, at.y) : null;
-    const team = host ? findComponent("team", host.id) : allTeams()[0];
+    const team = rootTeam();
     if (!team) throw new Error("drop a Team onto the canvas first");
     const agent = { id, name: id, roles: [], humans: [] };
     (team.members = team.members || []).push(agent);
@@ -210,8 +215,7 @@ function addComponent(kind, id, at = null) {
     return agent;
   }
   if (kind === "subagent") {
-    const host = at ? nearestNode(["agent"], at.x, at.y) : null;
-    const parent = host ? findComponent("agent", host.id) : allAgents()[0]?.agent;
+    const parent = allAgents()[0]?.agent;
     if (!parent) throw new Error("add an Agent before adding a sub-agent");
     const sub = { id, name: id, kind: "research", purpose: "", returns: "" };
     (parent.subagents = parent.subagents || []).push(sub);
@@ -371,6 +375,7 @@ function lockOn(id) {
 
 function renderNode(node) {
   const component = findComponent(node.kind, node.id) || {};
+  const linking = canvas.linking;
   const blocked = lockOn(node.id);
   const readOnly = !canvas.permissions.includes("system.edit") || !!blocked;
 
@@ -394,7 +399,12 @@ function renderNode(node) {
   }
 
   const box = el("div", {
-    class: `node${canvas.selected?.id === node.id ? " selected" : ""}${blocked ? " locked" : ""}`,
+    class: `node${canvas.selected?.id === node.id ? " selected" : ""}`
+      + `${blocked ? " locked" : ""}`
+      + (linking
+          ? (linking.id === node.id ? " link-source"
+             : linkRule(linking.kind, node.kind) ? " link-target" : " link-no")
+          : ""),
     "data-kind": node.kind, "data-id": node.id,
     "data-shape": shapeOf(node.kind),
     "data-classification": node.kind === "agent"
@@ -411,10 +421,14 @@ function renderNode(node) {
     el("div", { class: "n-sub" }, nodeSubtitle(node.kind, component, node)));
   box.addEventListener("mousedown", (e) => {
     if (e.target === delBtn) return;
+    /* While a link is being drawn, a press is aiming at a target rather than
+       picking the node up. */
+    if (canvas.linking) return;
     startDrag(e, node, box);
   });
   box.addEventListener("click", (e) => {
     if (e.target === delBtn) return;
+    if (canvas.linking) return completeLink(node);
     selectNode(node);
   });
   box.addEventListener("contextmenu", (e) => {
@@ -440,6 +454,287 @@ function personLabel(human) {
     return human.person;
   }
   return human.name || human.contact || "";
+}
+
+/* A policy's `conditions` and `unless` (ADR-0008).
+
+   The keys come from the palette, which takes them from the model's
+   `POLICY_CONDITION_KEYS` — a form that offered its own list could offer one
+   nothing evaluates, which is the defect this control exists to prevent. A
+   single transposed letter in `unless` used to disapply the whole rule, so a
+   deny on PII became an allow.
+
+   Values are typed per key because the evaluator expects shapes: a list for
+   the `_in`-style keys, a number for a depth, a flag for an approval, and a
+   pair of hours for a window. */
+const CONDITION_SHAPES = {
+  max_delegation_depth: "number",
+  requires_approval: "bool",
+  environments: "list",
+  data_classes: "list",
+  groups: "list",
+  time_window: "hours",
+};
+
+function conditionValueControl(key, value, readOnly, onValue) {
+  const shape = CONDITION_SHAPES[key] || "list";
+  if (shape === "bool") {
+    const box = el("input", { type: "checkbox", ...(readOnly ? { disabled: "" } : {}) });
+    box.checked = value === true;
+    box.addEventListener("change", () => onValue(box.checked));
+    return box;
+  }
+  if (shape === "number") {
+    const input = el("input", { type: "number", min: "0",
+                                ...(readOnly ? { disabled: "" } : {}) });
+    input.value = value ?? "";
+    input.addEventListener("input", () =>
+      onValue(input.value === "" ? null : Number(input.value)));
+    return input;
+  }
+  if (shape === "hours") {
+    const [from, to] = Array.isArray(value) ? value : ["", ""];
+    const start = el("input", { type: "number", min: "0", max: "23",
+                                placeholder: "from",
+                                ...(readOnly ? { disabled: "" } : {}) });
+    const end = el("input", { type: "number", min: "0", max: "24",
+                              placeholder: "to",
+                              ...(readOnly ? { disabled: "" } : {}) });
+    start.value = from ?? ""; end.value = to ?? "";
+    const push = () => onValue([Number(start.value || 0), Number(end.value || 0)]);
+    start.addEventListener("input", push);
+    end.addEventListener("input", push);
+    return el("span", { class: "hours" }, start, "–", end);
+  }
+  const input = el("input", { type: "text", placeholder: "one or more, comma separated",
+                              ...(readOnly ? { disabled: "" } : {}) });
+  input.value = Array.isArray(value) ? value.join(", ") : (value ?? "");
+  input.addEventListener("input", () =>
+    onValue(input.value.split(",").map((v) => v.trim()).filter(Boolean)));
+  return input;
+}
+
+function renderConditions(field, value, readOnly, onChange) {
+  const keys = field.options || [];
+  const current = { ...(value || {}) };
+  const wrap = el("div", { class: "conditions-wrap" });
+
+  const redraw = () => {
+    const rows = Object.keys(current).sort().map((key) => {
+      const drop = el("button", { class: "chip-x", type: "button",
+                                  title: `remove ${key}`,
+                                  ...(readOnly ? { disabled: "" } : {}) }, "×");
+      drop.addEventListener("click", () => {
+        delete current[key];
+        onChange({ ...current });
+        redraw();
+      });
+      return el("div", { class: "condition-row" },
+        el("code", {}, key),
+        conditionValueControl(key, current[key], readOnly, (v) => {
+          current[key] = v;
+          onChange({ ...current });
+        }),
+        drop);
+    });
+    const unused = keys.filter((k) => !(k in current));
+    const add = el("select", { ...(readOnly || !unused.length ? { disabled: "" } : {}) },
+      el("option", { value: "" },
+        unused.length ? "add a condition…" : "every condition is set"),
+      ...unused.map((k) => el("option", { value: k }, k)));
+    add.addEventListener("change", () => {
+      if (!add.value) return;
+      current[add.value] = CONDITION_SHAPES[add.value] === "bool" ? true
+        : CONDITION_SHAPES[add.value] === "number" ? 0
+        : CONDITION_SHAPES[add.value] === "hours" ? [9, 17] : [];
+      onChange({ ...current });
+      redraw();
+    });
+    wrap.replaceChildren(
+      ...(rows.length ? rows
+        : [el("p", { class: "hint" }, "No conditions: this rule always applies.")]),
+      add);
+  };
+  redraw();
+  return wrap;
+}
+
+/* ------------------------------------------------------------- linking */
+
+/* What may be linked to what comes from the server with the palette, so the
+   canvas cannot offer a relationship the spec has no field for. */
+/* "a agent" reads as carelessness in a message whose job is to explain a
+   refusal, so the article follows the word. */
+function an(kind, capitalise = false) {
+  const article = /^[aeiou]/i.test(kind) ? "an" : "a";
+  return `${capitalise ? article[0].toUpperCase() + article.slice(1) : article} ${kind}`;
+}
+
+function linkRule(sourceKind, targetKind) {
+  return (canvas.palette?.links || []).find(
+    (r) => r.source === sourceKind && r.target === targetKind) || null;
+}
+
+function legalTargetsFrom(sourceKind) {
+  return (canvas.palette?.links || [])
+    .filter((r) => r.source === sourceKind).map((r) => r.target);
+}
+
+function beginLink(node) {
+  canvas.linking = { id: node.id, kind: node.kind };
+  const targets = legalTargetsFrom(node.kind);
+  setStatus(targets.length
+    ? `linking from ${node.id} — click ${targets.map((t) => an(t)).join(" or ")},`
+      + " or press Escape"
+    : `nothing links from ${an(node.kind)}`);
+  renderCanvas();
+}
+
+function cancelLink(quiet = false) {
+  canvas.linking = null;
+  if (!quiet) setStatus("link cancelled");
+  renderCanvas();
+}
+
+/* Detach a component from wherever it sits, without deleting it. The spec is
+   a tree, so "unlinked" is the root: there is no other place to be. */
+function detach(kind, id) {
+  const s = spec();
+  if (kind === "team") {
+    let moved = null;
+    walkTeams(s.organization, (team) => {
+      const at = (team.teams || []).findIndex((t) => t.id === id);
+      if (at >= 0) moved = (team.teams.splice(at, 1))[0];
+    });
+    return moved;
+  }
+  if (kind === "agent") {
+    let moved = null;
+    walkTeams(s.organization, (team) => {
+      const at = (team.members || []).findIndex((m) => m.id === id);
+      if (at >= 0) {
+        moved = (team.members.splice(at, 1))[0];
+        if (team.leader === id) team.leader = (team.members[0] || {}).id || "";
+      }
+    });
+    return moved;
+  }
+  if (kind === "subagent") {
+    let moved = null;
+    for (const { agent } of allAgents()) {
+      const at = (agent.subagents || []).findIndex((x) => x.id === id);
+      if (at >= 0) moved = (agent.subagents.splice(at, 1))[0];
+    }
+    return moved;
+  }
+  return null;
+}
+
+function completeLink(target) {
+  const from = canvas.linking;
+  if (!from) return;
+  if (from.id === target.id) return cancelLink();
+  const rule = linkRule(from.kind, target.kind);
+  if (!rule) {
+    /* The refusal names the model, not the UI: two agents are not connected
+       by a line, they are connected by a declared flow or by belonging to the
+       same organisation. */
+    const legal = legalTargetsFrom(from.kind);
+    alert(`${an(from.kind, true)} does not link to ${an(target.kind)}.\n\n`
+      + (legal.length
+          ? `From ${an(from.kind)} you can link to: ${legal.join(", ")}.`
+          : `Nothing links from ${an(from.kind)}.`));
+    return cancelLink(true);
+  }
+  try {
+    applyLink(rule, from, target);
+    markDirty(`linked ${from.id} → ${target.id}`);
+    setStatus(`${from.id} ${rule.label} ${target.id}`);
+  } catch (err) {
+    alert(err.message);
+  }
+  canvas.linking = null;
+  renderCanvas();
+  renderInspector();
+}
+
+function applyLink(rule, from, target) {
+  const s = spec();
+  if (rule.relationship === "flow") {
+    const kinds = rule.kinds || [];
+    const kind = window.prompt(
+      `How may ${from.id} reach ${target.id}?\n\n`
+      + `One of: ${kinds.join(", ")}\n\n`
+      + "A flow is directional: 'consult' lets the source ask without being "
+      + "able to instruct, and the reverse does not follow.",
+      kinds[0] || "consult");
+    if (!kind) throw new Error("a flow needs a kind; nothing was linked");
+    if (!kinds.includes(kind)) {
+      throw new Error(`'${kind}' is not one of ${kinds.join(", ")}`);
+    }
+    const flows = (s.interaction_flows = s.interaction_flows || []);
+    if (flows.some((f) => f.source === from.id && f.target === target.id
+                          && f.kind === kind)) {
+      throw new Error("that flow is already declared");
+    }
+    flows.push({ source: from.id, target: target.id, kind });
+    return;
+  }
+  if (rule.relationship === "fires") {
+    const trigger = findComponent("trigger", from.id);
+    if (!trigger) throw new Error("that trigger is no longer in the spec");
+    trigger.agent = target.id;
+    return;
+  }
+  /* The structural links move the component: a team or an agent belongs in
+     exactly one place, so linking it somewhere is detaching it from where it
+     was. Re-parenting, not duplication. */
+  const moved = detach(target.kind, target.id);
+  if (!moved) throw new Error(`${target.id} is not in the organisation`);
+  if (rule.relationship === "contains") {
+    const parent = findComponent("team", from.id);
+    (parent.teams = parent.teams || []).push(moved);
+  } else if (rule.relationship === "member") {
+    const parent = findComponent("team", from.id);
+    (parent.members = parent.members || []).push(moved);
+    if (!parent.leader) parent.leader = moved.id;
+  } else if (rule.relationship === "uses") {
+    const parent = findComponent("agent", from.id);
+    (parent.subagents = parent.subagents || []).push(moved);
+  }
+}
+
+/* Unlinking is defined for what a link created. A structural link put the
+   component somewhere, so undoing it returns it to the root; a flow is a
+   declaration, so undoing it removes the declaration. */
+function unlink(node) {
+  const s = spec();
+  if (node.kind === "team" || node.kind === "agent") {
+    if (node.id === s.organization?.id) {
+      return alert("The organisation itself has nowhere to be unlinked to.");
+    }
+    const moved = detach(node.kind, node.id);
+    if (!moved) return;
+    if (node.kind === "team") {
+      (s.organization.teams = s.organization.teams || []).push(moved);
+    } else {
+      (s.organization.members = s.organization.members || []).push(moved);
+      if (!s.organization.leader) s.organization.leader = moved.id;
+    }
+    markDirty(`unlinked ${node.id}`);
+    setStatus(`${node.id} moved to ${s.organization.id}`);
+  } else if (node.kind === "subagent") {
+    alert("A sub-agent belongs to the agent that calls it; delete it instead.");
+    return;
+  }
+  const flows = s.interaction_flows || [];
+  const kept = flows.filter((f) => f.source !== node.id && f.target !== node.id);
+  if (kept.length !== flows.length) {
+    s.interaction_flows = kept;
+    markDirty(`removed flows on ${node.id}`);
+  }
+  renderCanvas();
+  renderInspector();
 }
 
 function nodeSubtitle(kind, component, node) {
@@ -823,6 +1118,15 @@ function showContextMenu(clientX, clientY, node, readOnly) {
     }, readOnly),
     ctxItem("⧉ Duplicate", () => duplicateNode(node), readOnly),
     el("hr", {}),
+    ctxItem(
+      legalTargetsFrom(node.kind).length
+        ? `🔗 Link from here → ${legalTargetsFrom(node.kind).join(" / ")}`
+        : "🔗 Nothing links from this",
+      () => beginLink(node),
+      readOnly || !legalTargetsFrom(node.kind).length),
+    ctxItem("⛓ Unlink — move to the top", () => unlink(node),
+            readOnly || node.kind === "subagent"),
+    el("hr", {}),
     ctxItem("🗑 Delete", () => deleteNode(node.kind, node.id), readOnly),
   );
   /* position relative to viewport */
@@ -847,6 +1151,10 @@ function handleCanvasKey(e) {
   /* ignore when typing in an input/textarea/select */
   const tag = document.activeElement?.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (e.key === "Escape" && canvas.linking) {
+    e.preventDefault();
+    return cancelLink();
+  }
 
   if (e.key === "Escape") {
     hideContextMenu();
@@ -1300,6 +1608,14 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
       if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
       return label;
     }
+  }
+
+  /* ---- policy conditions (ADR-0008) ---- */
+  if (field.type === "conditions") {
+    const input = renderConditions(field, value, readOnly, onChange);
+    const label = el("label", { class: "stacked" }, field.name, input);
+    if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
+    return label;
   }
 
   /* ---- authority (ADR-0065, ADR-0072) ---- */
@@ -1784,6 +2100,7 @@ function wireCanvas() {
   $( "#canvas").addEventListener("click", (e) => {
     hideContextMenu();
     if (e.target.id === "canvas" || e.target.id === "canvas-nodes") {
+      if (canvas.linking) return cancelLink();
       canvas.selected = null;
       renderCanvas();
       renderInspector();

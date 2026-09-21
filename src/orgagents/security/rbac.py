@@ -18,7 +18,7 @@ import fnmatch
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from ..spec.model import Action, Effect, Permission, PolicyRule, ResourceKind
+from ..spec.model import POLICY_CONDITION_KEYS, Action, Effect, Permission, PolicyRule, ResourceKind
 
 
 @dataclass(frozen=True)
@@ -62,6 +62,20 @@ def _matches(pattern: str, value: str) -> bool:
     return pattern == "*" or fnmatch.fnmatch(value, pattern)
 
 
+class UnevaluableCondition(ValueError):
+    """A condition names a key this evaluator cannot check.
+
+    Raised rather than ignored. Ignoring it is not neutral: on an `unless`
+    guard it disapplies the rule, so one transposed letter
+    (`reqiures_approval`) turned a deny on PII into an allow.
+    """
+
+
+def unknown_condition_keys(conditions: dict[str, Any]) -> list[str]:
+    """Keys in a condition set that nothing here evaluates."""
+    return sorted(set(conditions or {}) - POLICY_CONDITION_KEYS)
+
+
 def _conditions_hold(conditions: dict[str, Any], subject: Subject,
                      request: Request) -> bool:
     """Evaluate attribute conditions against the subject and the request.
@@ -76,6 +90,16 @@ def _conditions_hold(conditions: dict[str, Any], subject: Subject,
     ``groups``                subject must hold one of the groups
     ``time_window``           request hour must fall inside ``[start, end)``
     """
+    unknown = unknown_condition_keys(conditions)
+    if unknown:
+        # Not `False`: the safe direction differs by effect — an ignored
+        # condition under-applies an allow and over-applies a deny, and an
+        # ignored `unless` switches a deny off. The only answer that is safe
+        # whatever it guards is "this rule cannot be evaluated".
+        raise UnevaluableCondition(
+            f"condition key(s) {unknown} are not evaluated by this platform; "
+            f"it understands {sorted(POLICY_CONDITION_KEYS)}"
+        )
     ctx = request.context
     if "max_delegation_depth" in conditions:
         if int(ctx.get("delegation_depth", 0)) > int(conditions["max_delegation_depth"]):
@@ -114,6 +138,17 @@ class PolicyEngine:
     # -- evaluation --------------------------------------------------------
 
     def decide(self, subject: Subject, request: Request) -> Decision:
+        try:
+            return self._decide(subject, request)
+        except UnevaluableCondition as exc:
+            # A rule we cannot evaluate is a rule we cannot honour, and the
+            # phase gate should have refused this spec long before here
+            # (`unknown_policy_condition`). Reaching it at run time means a
+            # rule arrived from somewhere the gate did not see, so the request
+            # is refused rather than decided on a partial reading.
+            return Decision(False, f"policy cannot be evaluated: {exc}")
+
+    def _decide(self, subject: Subject, request: Request) -> Decision:
         # 1. An explicit deny ends the evaluation, whoever is asking.
         for rule in self.rules:
             if rule.effect is Effect.DENY and self._rule_matches(rule, subject, request):

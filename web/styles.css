@@ -357,6 +357,14 @@ legend {
    scope and not a security boundary, and a picture that looked like a wall
    would say otherwise. */
 .canvas-regions { position: absolute; inset: 0; pointer-events: none; }
+
+/* Drawing a link. The accent marks the source because selection is what the
+   accent means everywhere here; a legal target gets a moss ring because it is
+   a state ("you may drop this here"), and an illegal one simply recedes
+   rather than turning red — it is not an error, it is not applicable. */
+.node.link-source { outline: 2px solid var(--accent); outline-offset: 2px; }
+.node.link-target { border-color: var(--moss-line); box-shadow: 0 0 0 2px var(--moss-ground); }
+.node.link-no { opacity: .45; }
 .region {
   position: absolute;
   border: 1px dashed var(--line-dashed);
@@ -820,7 +828,19 @@ dialog::backdrop { background: rgba(0,0,0,.55); }
    because an absent mandate inherits and an empty one decides nothing, and a
    picker that shows an empty list cannot tell you which of those it means. */
 .mandate-wrap,
-.autonomy-wrap { display: flex; flex-direction: column; gap: 6px; }
+.autonomy-wrap,
+.conditions-wrap { display: flex; flex-direction: column; gap: 6px; }
+/* A condition is a key the platform evaluates and a value shaped for it, so
+   the key is set in mono (it is an identifier the evaluator matches) and the
+   control beside it is whatever that key expects. */
+.condition-row {
+  display: flex; align-items: center; gap: var(--s2);
+  border-bottom: 1px solid var(--line); padding: var(--s1) 0;
+}
+.condition-row code { flex: 0 0 auto; font-size: var(--t-micro); }
+.condition-row input[type="text"] { flex: 1; min-width: 0; }
+.condition-row .hours { display: flex; align-items: center; gap: var(--s1); }
+.condition-row .hours input { width: 56px; }
 
 .mandate-wrap > label.inline {
   display: flex;

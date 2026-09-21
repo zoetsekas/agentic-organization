@@ -1261,8 +1261,14 @@ def create_app(
 
     @app.get("/api/designer/palette")
     def designer_palette() -> dict:
-        """What the canvas can place, and the fields each kind needs."""
-        return PALETTE
+        """What the canvas can place, the fields each kind needs, and what
+        may be linked to what.
+
+        The link rules travel with the palette because they are the same kind
+        of fact: a canvas that decided for itself which components connect
+        could draw a relationship the spec has no field for.
+        """
+        return {**PALETTE, "links": LINK_RULES}
 
     # -- fabric: the command centre's namespace (ADR-0049, ADR-0051) -------
     #
@@ -1887,6 +1893,65 @@ def create_app(
 
 # What the canvas can place, and the form each component needs (ADR-0034).
 # Derived from the spec model so the palette cannot drift from what validates.
+from .spec.model import (  # noqa: E402  (the palette is data, built below)
+    POLICY_CONDITION_KEYS,
+    Action,
+    Effect,
+    FlowKind,
+    MissionStatus,
+    ResourceKind,
+)
+
+# Which components may be linked to which, and what the spec calls it
+# (ADR-0006, ADR-0024). The canvas asks rather than guesses: a drop used to
+# nest whatever you dropped near whatever was nearest, which wrote a parent
+# into the spec nobody asked for, and `nearestNode` had no distance limit so
+# "near" meant "anywhere".
+#
+# Every rule names the spec field it writes, because a link a reader cannot
+# trace to a field is a link the compiler will not see.
+LINK_RULES: list[dict[str, Any]] = [
+    {
+        "source": "team", "target": "team", "relationship": "contains",
+        "writes": "team.teams",
+        "label": "contains",
+        "help": "the target becomes a sub-team of the source. Authority and "
+                "permissions narrow downward from here (ADR-0008, ADR-0065)",
+    },
+    {
+        "source": "team", "target": "agent", "relationship": "member",
+        "writes": "team.members",
+        "label": "has member",
+        "help": "an agent belongs to exactly one team, which is what bounds "
+                "what it may hold",
+    },
+    {
+        "source": "agent", "target": "subagent", "relationship": "uses",
+        "writes": "agent.subagents",
+        "label": "uses",
+        "help": "a tool-shaped worker this agent may call (ADR-0027)",
+    },
+    {
+        "source": "agent", "target": "agent", "relationship": "flow",
+        "writes": "interaction_flows",
+        "label": "may…",
+        # This is the one the model permits between two agents, and only in a
+        # named direction with a named kind: an agent may *consult* compliance
+        # without being able to instruct it, and the reverse does not hold.
+        "kinds": [k.value for k in FlowKind],
+        "help": "a declared, directional interaction (ADR-0024). Two agents "
+                "are not otherwise connected: membership is what puts them in "
+                "an organisation, not a line between them",
+    },
+    {
+        "source": "trigger", "target": "agent", "relationship": "fires",
+        "writes": "trigger.agent",
+        "label": "fires",
+        "help": "unattended work: the trigger wakes this agent (ADR-0018)",
+    },
+]
+
+
 PALETTE: dict[str, Any] = {
     "groups": [
         {
@@ -2028,6 +2093,40 @@ PALETTE: dict[str, Any] = {
                      {"name": "reason", "type": "text",
                       "help": "a rule without one is a rule nobody defends"},
                  ]},
+                {"kind": "policy", "label": "Policy rule", "icon": "⊙",
+                 "help": "an explicit allow or deny on top of the roles. A "
+                         "deny always wins and cannot be overridden",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "effect", "type": "enum",
+                      "options": [e.value for e in Effect], "required": True},
+                     {"name": "description", "type": "text",
+                      "help": "shown in the refusal, so write the sentence "
+                              "somebody refused should read"},
+                     {"name": "actions", "type": "multi",
+                      "options": [a.value for a in Action],
+                      "help": "empty means every action"},
+                     {"name": "resource_kinds", "type": "multi",
+                      "options": [r.value for r in ResourceKind],
+                      "help": "empty means every kind"},
+                     {"name": "resources", "type": "list",
+                      "help": "ids or globs within the kind; `*` is all"},
+                     {"name": "subjects", "type": "list",
+                      "help": "agent, team or role ids; `*` is everyone"},
+                     # The keys come from the model, not from the UI: a form
+                     # that offered its own list could offer one nothing
+                     # evaluates, which is the defect these fields exist to
+                     # make impossible.
+                     {"name": "conditions", "type": "conditions",
+                      "options": sorted(POLICY_CONDITION_KEYS),
+                      "help": "all of these must hold for the rule to apply"},
+                     {"name": "unless", "type": "conditions",
+                      "options": sorted(POLICY_CONDITION_KEYS),
+                      "help": "where this holds, the rule does not apply — "
+                              "how 'deny everywhere except the clean room' is "
+                              "written. A key nothing evaluates would switch "
+                              "the whole rule off, so only these are offered"},
+                 ]},
                 {"kind": "person", "label": "Person", "icon": "☺",
                  "help": "a human principal: what they may decide, never "
                          "what they may reach. A person's access is their "
@@ -2109,19 +2208,33 @@ PALETTE: dict[str, Any] = {
                 # required because a mission that never ends is a
                 # reorganization and belongs in the org chart.
                 {"kind": "mission", "label": "Mission", "icon": "◍",
+                 "help": "a short-lived team drawn from the standing "
+                         "organisation. It always ends (ADR-0039)",
                  "fields": [
                      {"name": "id", "type": "string", "required": True},
                      {"name": "name", "type": "string"},
                      {"name": "objective", "type": "text", "required": True},
                      {"name": "deliverables", "type": "list"},
+                     {"name": "success_criteria", "type": "list"},
+                     {"name": "status", "type": "enum",
+                      "options": [m.value for m in MissionStatus]},
                      {"name": "leader", "type": "string",
                       "help": "agent id; must also be a member"},
                      {"name": "members", "type": "list",
-                      "help": "agent ids drawn from the standing organization"},
+                      "help": "agent ids drawn from the standing organization. "
+                              "They keep their home team and their own "
+                              "permissions"},
                      {"name": "starts_on", "type": "string", "help": "ISO date"},
                      {"name": "ends_on", "type": "string", "required": True,
                       "help": "ISO date; a mission always ends"},
-                     {"name": "success_criteria", "type": "list"},
+                     {"name": "internal_delegation", "type": "bool",
+                      "help": "members may hand work to each other for the "
+                              "mission's duration — declared, not assumed"},
+                     {"name": "mandate", "type": "decisions",
+                      "help": "authority lent for the window, bounded by the "
+                              "line it is drawn from and expiring with it "
+                              "(ADR-0065 rule 8). Without it a mission is an "
+                              "authority hole"},
                  ]},
                 {"kind": "subagent", "label": "Sub-agent", "icon": "◇",
                  "fields": [
