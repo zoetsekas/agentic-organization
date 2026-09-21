@@ -632,9 +632,13 @@ def _starter_spec(name: str) -> dict[str, Any]:
     return {
         "metadata": {"name": name, "spec_version": "1.1.0", "version": "0.1.0",
                      "environment": "development"},
-        "organization": {"id": "root", "name": name, "leader": "", "mandate": [],
+        # No mandate: a new organization has not said what it may decide, and
+        # validation says so rather than defaulting it to unlimited
+        # (ADR-0065 rule 5).
+        "organization": {"id": "root", "name": name, "leader": "",
                          "members": [], "teams": []},
-        "data_classes": [], "capabilities": [], "environments": [], "roles": [],
+        "data_classes": [], "capabilities": [], "decisions": [],
+        "environments": [], "roles": [],
         "policies": [], "channels": [], "triggers": [], "knowledge": [],
         "skills": [], "plugins": [], "tools": [], "endpoints": [],
     }

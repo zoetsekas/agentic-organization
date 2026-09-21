@@ -34,8 +34,10 @@ SPEC = {
          "permissions": [{"action": "read", "resource_kind": "data_class",
                           "resource": "public_knowledge"}]},
     ],
+    "decisions": [{"id": "answer_publicly", "title": "Answer publicly"}],
     "organization": {
-        "id": "root", "name": "Root", "leader": "analyst", "mandate": [],
+        "id": "root", "name": "Root", "leader": "analyst",
+        "mandate": {"decisions": ["answer_publicly"]},
         "members": [{"id": "analyst", "name": "Analyst", "roles": ["analyst_role"],
                      "description": "reads things"}],
         "teams": [],

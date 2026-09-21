@@ -142,6 +142,30 @@ class OrgChart:
         dst = self.agent(to_agent_id)
         return bool(dst and dst.kind is AgentKind.SERVICE)
 
+    def mandate_holder(self, agent_id: str, decision: str) -> Optional[Agent]:
+        """The nearest agent from here upward whose mandate covers `decision`.
+
+        Authority narrows downward (ADR-0065), so a manager's effective
+        mandate is a superset of its reports'. Walking up therefore finds the
+        *smallest* unit that may take this decision, which is who it should be
+        escalated to.
+
+        `None` means nobody in the line holds it. That is a refusal, not a
+        promotion to the top: silence never grants authority.
+        """
+        seen: set[str] = set()
+        current = self.agent(agent_id)
+        while current and current.id not in seen:
+            seen.add(current.id)
+            if decision in current.mandate:
+                return current
+            current = (
+                self.agent(current.manager_agent_id)
+                if current.manager_agent_id
+                else None
+            )
+        return None
+
     def escalation_target(self, agent_id: str) -> Optional[Agent]:
         a = self.agent(agent_id)
         if not a or not a.manager_agent_id:

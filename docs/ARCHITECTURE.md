@@ -270,9 +270,10 @@ are free-form prose**, so a role can promise work it holds no permission to do
 and nothing notices.
 
 A **mandate** is not a description of work — it is a scope of decision: what a
-unit may settle without asking. It exists today on teams only, as a free-form
-list that the validator warns about, the IR carries, the loader parks in
-metadata, and nothing reads. Agents have no mandate at all.
+unit may settle without asking. It is declared on teams, agents and missions,
+references a decision class the spec declares, and is resolved once at the
+phase gate into the IR (ADR-0065). What binds is never the declaration: it is
+the intersection with every unit above.
 
 **Positional kind** — executive, manager, individual — is derived from the tree
 and stored anyway, which lets a stored label contradict the structure it came
@@ -280,9 +281,10 @@ from. Of the five `AgentKind` values only `SERVICE` changes any behaviour, and
 that one property is encoded twice: `shared_service` in the spec and
 `AgentKind.SERVICE` in the runtime (ADR-0063).
 
-ADR-0065 proposes the fix for mandate: a structured scope, declared on teams
-and agents, resolved once at the phase gate as an **intersection up the tree**,
-so authority narrows downward exactly as permission already does.
+Authority narrows downward exactly as permission already does, and conditions
+**chain** rather than merge — every condition in the line applies, so a child
+tightens a bound by adding one and dropping a parent's is not an operation the
+structure has.
 
 ```mermaid
 flowchart TB
@@ -300,11 +302,10 @@ flowchart TB
     ap -.-> note
 ```
 
-Nothing in this subsection below the role contract is built. It is recorded
-here because the gap is structural rather than a missing feature: the system
-models *structure* and *permission* rigorously and *authority* not at all, and
-that is the kind of thing that is expensive to retrofit once specs exist in the
-wild.
+Mandates are built (ADR-0065). Responsibilities are not: they remain prose
+beside checkable capabilities, and ADR-0066 holds the question of what they
+should reference instead — deliberately unscheduled, because a forced
+vocabulary that fits nobody is worse than the prose it replaces.
 
 ---
 
@@ -397,7 +398,14 @@ authority is not a failure; it is the ordinary case escalation was invented
 for, and routing it anywhere else is what produces either a silent overstep or
 a refusal nobody can act on.
 
-This is ADR-0065 and it is **proposed, not built**.
+This is ADR-0065, and it is built. Two limits are worth stating plainly. A
+mission's mandate is bounded by its **leader** rather than by the human
+sponsor the record names, because people do not carry mandates — the hybrid
+gap ADR-0064 holds open — and the leader's authority is already narrowed by
+the standing tree, so it is the stricter available bound. And the root is the
+one place authority is granted rather than inherited, so a root declaring no
+mandate is a spec error: silence there would mean either "everything" or
+"nothing", and a reader could not tell which.
 
 ---
 
@@ -1217,7 +1225,8 @@ the design describes and the code does not do yet.
 | Sandbox providers | Prefer a kernel boundary | `container` is the portable floor and the only one available here; `microvm_sbx` and `openshell` are contracts with no binary behind them, and every boundary statement carries `verified=False` |
 | Workflow engines | Pluggable, out-of-process engines are egress events | `native` exercised; the Langflow path exercised through a fake transport; LangGraph, LangChain and ADK are binding entries only |
 | Runtime adapters | Deep agents, OpenAI SDK, LangGraph | **deep agents executes in CI** against the real framework with a scripted chat model — real graph, real middleware, real tool binding — so the seam and the limit translations are exercised. No live model has answered. The OpenAI adapter is asserted against the installed SDK but `Runner` has never run; LangGraph is still untouched |
-| Authority: mandates | A declared scope of decision per unit, narrowing down the tree, escalating when exceeded | **Nothing.** `mandate` is a free-form list on teams that the IR carries and no code reads; agents have no mandate field. ADR-0065 is proposed, not accepted |
+| Authority: mandates | A declared scope of decision per unit, narrowing down the tree, escalating when exceeded | **Built** (ADR-0065): declared on teams, agents and missions, resolved once at the phase gate, enforced at the tool boundary, escalating to the smallest unit that holds the decision. A capability declares which decision class it constitutes, and most declare none — so an organization gets the checks it wires up, and an unwired capability decides nothing |
+| Authority: the designer | Editing a mandate with reference pickers | The palette declares decision classes; the mandate editor itself is not built, so mandates are authored in the spec (ADR-0066) |
 | Role responsibilities | A promise anchored to the capabilities that keep it | Free-form prose beside checkable capabilities and permissions; a role can promise what it cannot do |
 | Agent vocabulary | Kind derived from the tree, service reach encoded once | Five `AgentKind` values of which one changes behaviour, encoded twice; `SUBAGENT` vestigial since ADR-0027. ADR-0063 is accepted and **not yet implemented** |
 | Delegated human authority | Undecided | ADR-0064 holds the question open: an agent acts as itself or not at all (ADR-0057 rule 2), which leaves a personal assistant unable to act for the person it is paired to |

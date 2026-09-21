@@ -106,6 +106,7 @@ def validate_spec(
         ("team", team_ids),
         ("role", [r.id for r in spec.roles]),
         ("capability", [c.id for c in spec.capabilities]),
+        ("decision class", [d.id for d in spec.decisions]),
         ("environment", [e.id for e in spec.environments]),
         ("data class", [d.id for d in spec.data_classes]),
         ("workflow", [w.id for w in spec.workflows]),
@@ -115,6 +116,53 @@ def validate_spec(
             if i in seen:
                 err("duplicate_id", f"duplicate {label} id '{i}'")
             seen.add(i)
+
+    # -- authority: mandates (ADR-0065) ------------------------------------
+    declared_decisions = {d.id for d in spec.decisions}
+
+    def check_mandate(mandate, where: str, what: str) -> None:
+        if mandate is None:
+            return
+        for decision in mandate.decisions:
+            if decision not in declared_decisions:
+                err(
+                    "undeclared_decision",
+                    f"{what} '{where}' claims decision class '{decision}', "
+                    "which the spec does not declare",
+                    where,
+                )
+
+    # The root is where authority enters the system. Nothing above it narrows
+    # it, so silence there would mean either "unlimited" or "nothing at all" —
+    # and a reader could not tell which. It is written down or it is an error.
+    if spec.organization.mandate is None or not spec.organization.mandate.decisions:
+        err(
+            "root_without_mandate",
+            f"organization '{spec.organization.id}' declares no mandate; the "
+            "root is the one place authority is granted rather than inherited, "
+            "so it must say what this organization may decide (ADR-0065)",
+            spec.organization.id,
+        )
+
+    for team in teams:
+        check_mandate(team.mandate, team.id, "team")
+    for agent in agents:
+        check_mandate(agent.mandate, agent.id, "agent")
+    for mission in spec.missions:
+        check_mandate(mission.mandate, mission.id, "mission")
+
+    # Claiming authority your line does not hold is narrowed, not honoured —
+    # so it is reported rather than refused. A spec that reads as if a team may
+    # decide something it cannot is a spec somebody will act on.
+    from ..mandates import resolve as _resolve_mandates
+
+    for unit_id, over in _resolve_mandates(spec.organization).overreach.items():
+        warn(
+            "mandate_overreach",
+            f"'{unit_id}' claims {sorted(over)}, which its line does not hold; "
+            "authority narrows downward, so the claim has no effect",
+            unit_id,
+        )
 
     # -- organization structure (ADR-0006) ---------------------------------
     for team in teams:
@@ -139,8 +187,9 @@ def validate_spec(
                     "membership is implicit",
                     child.id,
                 )
-        if not team.mandate:
-            warn("team_without_mandate", f"team '{team.id}' declares no mandate", team.id)
+        # A team declaring nothing inherits its parent's authority, which is
+        # a legitimate and common choice (ADR-0065 rule 5), so silence here is
+        # no longer worth a warning. What matters is the root, checked below.
 
     # An agent must have exactly one home team.
     homes: dict[str, list[str]] = {}

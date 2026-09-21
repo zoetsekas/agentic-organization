@@ -158,6 +158,7 @@ def _harness(agent: dict[str, Any], ir: dict[str, Any]) -> Harness:
                 source="mcp",
                 ref=bound["server_name"] if bound else cap["id"],
                 requires_approval=bool(constraints.get("requires_approval")),
+                decision=cap.get("decision"),
             )
         )
 
@@ -304,6 +305,10 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
                     if p not in (agent.get("reports_to"),)
                 ],
                 mission_grants=list(agent.get("mission_grants", [])),
+                mandate=list((agent.get("mandate") or {}).get("decisions", [])),
+                mandate_conditions=list(
+                    (agent.get("mandate") or {}).get("conditions", [])
+                ),
                 human=_counterpart(owner, agent) if owner else None,
                 humans=[_counterpart(h, agent) for h in humans],
                 subagents=agent.get("subagents", []),

@@ -1496,8 +1496,16 @@ PALETTE: dict[str, Any] = {
                      {"name": "name", "type": "string"},
                      {"name": "leader", "type": "string",
                       "help": "agent id; must also be a member"},
-                     {"name": "mandate", "type": "list"},
+                     {"name": "description", "type": "text",
+                      "help": "the unit's charter, in prose"},
                      {"name": "groups", "type": "list"},
+                 ]},
+                {"kind": "decision", "label": "Decision class", "icon": "§",
+                 "help": "what a unit may decide, referenced by a mandate",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "title", "type": "string"},
+                     {"name": "description", "type": "text"},
                  ]},
                 {"kind": "agent", "label": "Agent", "icon": "◆",
                  "fields": [

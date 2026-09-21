@@ -27,6 +27,10 @@ class ToolCallResult:
     value: Any = None
     error: str = ""
     requires_approval: bool = False
+    #: Set when the call was outside the agent's mandate: the decision class
+    #: it would have taken, and the agent it belongs to (ADR-0065).
+    decision: Optional[str] = None
+    escalate_to: Optional[str] = None
     meta: dict[str, Any] = field(default_factory=dict)
 
 
@@ -240,12 +244,53 @@ class HarnessBuilder:
             b.name == tool_name and b.requires_approval for b in agent.harness.tools
         )
 
+    def decision_class(self, agent: Agent, tool_name: str) -> Optional[str]:
+        """The decision class this tool constitutes, if it constitutes one."""
+        for binding in agent.harness.tools:
+            if binding.name == tool_name:
+                return binding.decision
+        return None
+
     def call(self, agent: Agent, tool_name: str, **kwargs: Any) -> ToolCallResult:
-        """Invoke a tool with policy enforcement and structured errors."""
+        """Invoke a tool with policy enforcement and structured errors.
+
+        The order is permission, then mandate, then approval (ADR-0065). A
+        tool the agent was never granted is simply absent, which is the
+        permission refusal — and it stops here rather than escalating, because
+        sending a human an action the agent could never perform spends their
+        attention on nothing.
+        """
         tools = self.build(agent)
         fn = tools.get(tool_name)
         if fn is None:
             return ToolCallResult(tool_name, False, error=f"no such tool '{tool_name}'")
+
+        decision = self.decision_class(agent, tool_name)
+        if decision and decision not in agent.mandate:
+            holder = self.org.mandate_holder(agent.id, decision)
+            if holder is None:
+                return ToolCallResult(
+                    tool_name,
+                    False,
+                    error=(
+                        f"'{decision}' is outside every mandate in this line; "
+                        "no unit in the organization may take this decision"
+                    ),
+                    decision=decision,
+                )
+            return ToolCallResult(
+                tool_name,
+                False,
+                error=(
+                    f"'{decision}' is above this agent's mandate; it belongs "
+                    f"to '{holder.name}'"
+                ),
+                decision=decision,
+                escalate_to=holder.id,
+                meta={"holder": holder.id,
+                      "approver": holder.human.email if holder.human else None},
+            )
+
         if self.requires_approval(agent, tool_name):
             return ToolCallResult(
                 tool_name,

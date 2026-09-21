@@ -364,6 +364,52 @@ class CapabilityConstraint(BaseModel):
     rate_per_minute: Optional[int] = None
 
 
+class DecisionClass(BaseModel):
+    """A class of decision a unit may be authorized to take (ADR-0065).
+
+    Declared in the spec, like a capability, so a mandate references a term
+    somebody wrote down rather than inventing one per team. `ADR-0066` holds
+    the open question of whether these should eventually be catalog-owned.
+    """
+
+    id: str
+    title: str = ""
+    description: str = ""
+
+
+class Mandate(BaseModel):
+    """A bounded scope of decision held by a unit (ADR-0065).
+
+    Not a description of work — that is a responsibility. This is what the
+    unit may settle without asking: permission decides whether the door
+    opens, a mandate decides whether you were the one to open it.
+    """
+
+    decisions: list[str] = Field(default_factory=list)   # DecisionClass ids
+    # Bounds that make a decision class finite: a value ceiling, a data class,
+    # a reversibility requirement. Conditions accumulate down the tree and all
+    # of them must hold, so a child can never loosen its parent's.
+    conditions: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_prose(cls, v: Any) -> Any:
+        """A list of sentences used to be a mandate. It never was one.
+
+        Refusing loudly beats coercing: turning "Run the workforce safely"
+        into a decision class would manufacture exactly the machine-readable
+        wrong term ADR-0066 warns about.
+        """
+        if isinstance(v, list):
+            raise ValueError(
+                "mandate is a scope of decision, not a list of statements "
+                "(ADR-0065). Declare `decisions:` with ids from the spec's "
+                "`decisions:` vocabulary, and put the prose in the unit's "
+                "description."
+            )
+        return v
+
+
 class Capability(BaseModel):
     """An abstract access need, bound to an MCP server per target (ADR-0010)."""
 
@@ -374,6 +420,10 @@ class Capability(BaseModel):
     resource_class: str = ""
     data_classes: list[str] = Field(default_factory=list)
     constraints: CapabilityConstraint = Field(default_factory=CapabilityConstraint)
+    # The decision class exercising this capability constitutes, if any
+    # (ADR-0065). Most capabilities are ordinary work and decide nothing;
+    # those leave this unset and never consult a mandate.
+    decision: Optional[str] = None
     # Named reference resolved by the platform at bind time; never a value.
     secret_ref: Optional[str] = None
 
@@ -568,6 +618,12 @@ class Mission(BaseModel):
     # Members may delegate to each other for the mission's duration. This is
     # the point of a task force, and it is declared rather than assumed.
     internal_delegation: bool = True
+    # Authority lent for the mission's duration, bounded by the sponsor's own
+    # and expiring with the window (ADR-0065 rule 8). Without this a mission
+    # is an authority hole: it already lends lateral reach, and a temporary
+    # team with a permanent decision right is how standing authority gets
+    # created by accident.
+    mandate: Optional[Mandate] = None
     # A mission-scoped channel, if the members need one.
     channel: Optional[str] = None
     # Roles assigned for the duration. These may only narrow what a member
@@ -886,6 +942,9 @@ class AgentSpec(BaseModel):
     )
     # Lateral links; delegation otherwise follows the team tree.
     peers: list[str] = Field(default_factory=list)
+    # What this agent may decide without asking; None inherits its team's
+    # (ADR-0065). Effective authority is the intersection up the tree.
+    mandate: Optional[Mandate] = None
     # Shared services are callable from anywhere in the organization.
     shared_service: bool = False
     runtime_requirements: list[RuntimeRequirement] = Field(default_factory=list)
@@ -937,7 +996,11 @@ class Team(BaseModel):
 
     id: str
     name: str = ""
-    mandate: list[str] = Field(default_factory=list)
+    #: The unit's charter in prose. Narrative belongs here; what the unit may
+    #: *decide* is the mandate below (ADR-0066).
+    description: str = ""
+    # None means "inherit the parent's" — never "unlimited" (ADR-0065 rule 5).
+    mandate: Optional[Mandate] = None
     leader: str = ""                      # agent id; must also be a member
     members: list[AgentSpec] = Field(default_factory=list)
     teams: list["Team"] = Field(default_factory=list)
@@ -1195,6 +1258,8 @@ class SystemSpec(BaseModel):
     metadata: Metadata
     data_classes: list[DataClass] = Field(default_factory=list)
     capabilities: list[Capability] = Field(default_factory=list)
+    # The decision vocabulary a mandate draws from (ADR-0065).
+    decisions: list[DecisionClass] = Field(default_factory=list)
     environments: list[EnvironmentClass] = Field(default_factory=list)
     roles: list[Role] = Field(default_factory=list)
     policies: list[PolicyRule] = Field(default_factory=list)

@@ -1,8 +1,8 @@
 ---
 id: ADR-0065
 title: A mandate is a bounded scope of decision and acting outside it escalates
-status: Proposed
-version: 1.0.0
+status: Accepted
+version: 1.1.0
 date: 2026-09-21
 updated: 2026-09-21
 deciders: [Platform Architecture]
@@ -122,7 +122,30 @@ each line was inherited from — a reader must not have to walk the tree to
 learn what an agent may decide.
 
 ## Timeline
-Phase 5, WS-003, after the ADR-0063 refactor lands.
+Accepted and implemented in Phase 5, WS-003, ahead of the ADR-0063 refactor.
+
+## Decisions taken while implementing
+Four things the record left open, settled by building it:
+
+1. **The decision vocabulary is declared in the spec**, as `decisions:`,
+   beside capabilities — not in the catalog. That keeps ADR-0066's open
+   question genuinely open: spec-declared terms can move to catalog ownership
+   later, while catalog ownership could not be undone.
+2. **Conditions are a chain, not a merge.** Every condition from every unit in
+   the line applies. This makes narrowing correct by construction — a child
+   tightens by adding one, and dropping a parent's is not an operation the
+   structure has — and avoids inventing a general "is this condition narrower"
+   comparison, which is not decidable over free-form maps.
+3. **A prose mandate is refused, not coerced.** `Team.mandate` was a list of
+   sentences; turning "Run the workforce safely" into a decision class would
+   have manufactured exactly the machine-readable wrong term ADR-0066 warns
+   about. The error names the replacement, and the prose moved to a new
+   `Team.description`.
+4. **A mission is bounded by its leader, not its sponsor.** Rule 8 says the
+   accountable *human*, and people do not carry mandates — that is the hybrid
+   gap ADR-0064 holds open. The leader's effective mandate is already narrowed
+   by the standing tree, so it is the stricter available bound. This is a
+   substitution, and it reverts to the sponsor if humans ever carry authority.
 
 ## Advantages
 - Answers the question a real organization asks: *what may this team decide
@@ -204,4 +227,5 @@ the runtime never re-derives it; and every escalation is recorded.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-21 | **Accepted and implemented.** Vocabulary declared in the spec; conditions chain rather than merge; a prose mandate is refused rather than coerced; a mission is bounded by its leader until people carry mandates. |
 | 1.0.0 | 2026-09-21 | Proposed. Mandate as a structured, inherited, narrowing scope of decision; outside it escalates rather than refuses; permission checked first. |

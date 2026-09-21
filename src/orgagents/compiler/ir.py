@@ -14,6 +14,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
+from ..mandates import EffectiveMandate, MandateMap
+from ..mandates import resolve as resolve_mandates
 from ..spec.binding import TargetBinding, default_binding
 from ..spec.model import (
     Action,
@@ -107,6 +109,31 @@ class TenantIR(BaseModel):
 class ResponsibilityIR(BaseModel):
     text: str
     source_role: str
+
+
+def _mandate_ir(effective: Optional["EffectiveMandate"]) -> "MandateIR":
+    if effective is None:
+        return MandateIR()
+    return MandateIR(
+        decisions=sorted(effective.decisions),
+        conditions=[dict(c) for c in effective.conditions],
+        line=list(effective.line),
+    )
+
+
+class MandateIR(BaseModel):
+    """Effective authority, resolved once at the phase gate (ADR-0065).
+
+    This is never what a unit declared — it is the intersection of the
+    declaration with every unit above it. The runtime reads it and does not
+    re-derive it, for the same reason permissions are resolved exactly once.
+    """
+
+    decisions: list[str] = Field(default_factory=list)
+    #: Every condition in the line applies; a child cannot drop a parent's.
+    conditions: list[dict[str, Any]] = Field(default_factory=list)
+    #: The units that produced it, root first, for explaining a refusal.
+    line: list[str] = Field(default_factory=list)
 
 
 class DataAccessIR(BaseModel):
@@ -325,6 +352,7 @@ class AgentIR(BaseModel):
     escalates_to: Optional[str] = None
     delegates_to: list[str] = Field(default_factory=list)
     shared_service: bool = False
+    mandate: MandateIR = Field(default_factory=MandateIR)
     humans: list[HumanCounterpart] = Field(default_factory=list)
     responsibilities: list[ResponsibilityIR] = Field(default_factory=list)
     role_ids: list[str] = Field(default_factory=list)
@@ -494,7 +522,7 @@ class TeamIR(BaseModel):
     leader_agent_id: str = ""
     member_ids: list[str] = Field(default_factory=list)
     child_team_ids: list[str] = Field(default_factory=list)
-    mandate: list[str] = Field(default_factory=list)
+    mandate: MandateIR = Field(default_factory=MandateIR)
     groups: list[str] = Field(default_factory=list)
     permissions: list[Permission] = Field(default_factory=list)
 
@@ -589,7 +617,9 @@ def _role_permissions(spec: SystemSpec, assignments, kind: str) -> tuple[
     return perms, caps, role_ids, responsibilities
 
 
-def _build_teams(spec: SystemSpec) -> tuple[list[TeamIR], dict[str, TeamIR]]:
+def _build_teams(
+    spec: SystemSpec, mandates: Optional[MandateMap] = None
+) -> tuple[list[TeamIR], dict[str, TeamIR]]:
     teams: list[TeamIR] = []
     index: dict[str, TeamIR] = {}
 
@@ -604,7 +634,7 @@ def _build_teams(spec: SystemSpec) -> tuple[list[TeamIR], dict[str, TeamIR]]:
             leader_agent_id=team.leader,
             member_ids=[m.id for m in team.members],
             child_team_ids=[c.id for c in team.teams],
-            mandate=team.mandate,
+            mandate=_mandate_ir((mandates or MandateMap()).teams.get(team.id)),
             groups=sorted({*team.groups, *(index[parent].groups if parent in index else [])})
             if parent
             else list(team.groups),
@@ -957,7 +987,11 @@ def build_ir(
     # needs, and that secret belongs to the identity of the agent that reads it.
     knowledge = _resolve_knowledge(spec, bound)
     knowledge_by_id = {k.id: k for k in knowledge}
-    teams, index = _build_teams(spec)
+    # Authority is resolved exactly once, here, for the same reason
+    # permissions are: a runtime that re-derives it can disagree with the
+    # artifact somebody reviewed (ADR-0065).
+    mandates = resolve_mandates(spec.organization)
+    teams, index = _build_teams(spec, mandates)
     team_by_agent: dict[str, Team] = {
         m.id: t for t in spec.teams() for m in t.members
     }
@@ -1130,6 +1164,7 @@ def build_ir(
                     )
                 ),
                 shared_service=agent.shared_service,
+                mandate=_mandate_ir(mandates.for_agent(agent.id)),
                 humans=list(agent.humans),
                 responsibilities=responsibilities,
                 role_ids=role_ids,

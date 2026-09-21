@@ -36,6 +36,28 @@ data_classes:
     groups: [engineering]
     allowed_environments: [build, integration]
 
+# What this organization's units may decide, as opposed to what they may
+# reach (ADR-0065). A mandate references these ids; permission is separate.
+decisions:
+  - id: approve_spend
+    title: Approve spend
+    description: Commit Acme money to a supplier or a contract.
+  - id: close_period
+    title: Close an accounting period
+    description: Declare a period final, after which figures do not move.
+  - id: publish_forecast
+    title: Publish a revenue forecast
+    description: Put a forecast in front of anyone outside the team that made it.
+  - id: deploy_to_production
+    title: Deploy to production
+    description: Put a change in front of live traffic.
+  - id: declare_incident_severity
+    title: Declare an incident severity
+    description: Set or change the severity that decides who gets woken up.
+  - id: grant_data_access
+    title: Grant access to a protected data class
+    description: Widen who may read a protected data class.
+
 capabilities:
   - id: warehouse_query
     description: Read-only analytical queries against the finance warehouse.
@@ -49,6 +71,9 @@ capabilities:
       allowed_operations: [select]
   - id: pii_reconciliation
     description: Reconcile customer identities inside the clean room.
+    # Reaching the clean room is a permission; widening who may read it is a
+    # decision, and this capability does both.
+    decision: grant_data_access
     action: query
     resource_class: customer_master
     data_classes: [customer_pii]
@@ -273,8 +298,16 @@ policies:
 organization:
   id: acme
   name: Acme Corp
+  description: Run Acme's agentic workforce safely and usefully.
+  # The root is where authority enters: nothing above it narrows this.
   mandate:
-    - Run Acme's agentic workforce safely and usefully.
+    decisions:
+      - approve_spend
+      - close_period
+      - publish_forecast
+      - deploy_to_production
+      - declare_incident_severity
+      - grant_data_access
   leader: ceo
   groups: [all_hands]
   roles: [executive_team]
@@ -303,9 +336,11 @@ organization:
   teams:
     - id: finance
       name: Finance
+      description: Close the books accurately and on time, and forecast with stated confidence.
       mandate:
-        - Close the books accurately and on time.
-        - Forecast revenue and cost with stated confidence.
+        decisions: [approve_spend, close_period, grant_data_access]
+        conditions:
+          max_value_gbp: 250000
       shared_instructions:
         - Every figure names the period and the source table it came from.
         - Never move customer identifiers outside the clean room.
@@ -432,8 +467,9 @@ organization:
               channel: finance_approvals
     - id: technology
       name: Technology
+      description: Deliver and operate the platform Acme runs on.
       mandate:
-        - Deliver and operate the platform Acme runs on.
+        decisions: [deploy_to_production, declare_incident_severity, grant_data_access]
       shared_instructions:
         - A change without a test is a change that has not been made.
         - Declare a severity before doing anything else in an incident.
@@ -460,8 +496,9 @@ organization:
       teams:
         - id: platform
           name: Platform Engineering
+          description: Ship platform changes safely and keep services healthy.
           mandate:
-            - Ship platform changes safely and keep services healthy.
+            decisions: [deploy_to_production, declare_incident_severity]
           leader: platform_lead
           groups: [engineering]
           roles: [engineering_team]
@@ -576,8 +613,11 @@ organization:
                   channel: incidents
     - id: revenue
       name: Revenue
+      description: Own pipeline and forecast accuracy.
       mandate:
-        - Own pipeline and forecast accuracy.
+        decisions: [publish_forecast, approve_spend]
+        conditions:
+          max_value_gbp: 50000
       leader: cro
       groups: [revenue]
       roles: [revenue_team]

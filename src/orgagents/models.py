@@ -203,6 +203,9 @@ class ToolBinding(BaseModel):
     # Reference into the source, e.g. mcp server name, workflow id, agent id.
     ref: str = ""
     requires_approval: bool = False
+    # The decision class calling this constitutes, if any (ADR-0065). Most
+    # tools are ordinary work and decide nothing.
+    decision: Optional[str] = None
 
 
 class ModelSpec(BaseModel):
@@ -371,6 +374,11 @@ class Agent(BaseModel):
     # Reach lent by a mission, each with the window it is good for. Kept apart
     # from `peer_agent_ids` because it expires (ADR-0039 v1.1.0).
     mission_grants: list[dict[str, Any]] = Field(default_factory=list)
+    # Effective authority, resolved at the phase gate and never re-derived
+    # here (ADR-0065): which decision classes this agent may take alone.
+    mandate: list[str] = Field(default_factory=list)
+    # Bounds that travel with it; every one in the line applies.
+    mandate_conditions: list[dict[str, Any]] = Field(default_factory=list)
     # The accountable owner, kept for callers that want one person.
     human: Optional[HumanCounterpart] = None
     # Everyone paired with this agent, in their named capacities (ADR-0026).
