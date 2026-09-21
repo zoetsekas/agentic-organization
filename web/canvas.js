@@ -155,6 +155,158 @@ function allAgents() {
   return out;
 }
 
+/* ------------------------------------------------------------ diagrams */
+/*
+   A design has one model and many diagrams. That split is what makes an
+   organisation of any size drawable: a single canvas holding every team,
+   agent, capability, policy and endpoint is not a diagram, it is a haystack.
+
+   `diagram()` is the one open. Every reader of node positions goes through
+   it, because a second way to reach "the nodes" is a second thing to keep in
+   step with the first.
+*/
+function diagram() {
+  const layout = canvas.record?.layout;
+  if (!layout) return null;
+  if (!layout.diagrams || !Object.keys(layout.diagrams).length) {
+    /* A record saved before diagrams existed. The server migrates one on
+       read, so this is belt and braces for a hand-made payload. */
+    layout.diagrams = { main: { id: "main", name: "Organisation", root: "",
+                                nodes: {}, viewport: { x: 0, y: 0, zoom: 1 } } };
+    layout.active = "main";
+  }
+  if (!layout.diagrams[layout.active]) {
+    layout.active = Object.keys(layout.diagrams)[0];
+  }
+  return layout.diagrams[layout.active];
+}
+
+function diagramList() {
+  const layout = canvas.record?.layout;
+  if (!layout) return [];
+  return Object.values(layout.diagrams || {});
+}
+
+function newDiagramId() {
+  const taken = canvas.record?.layout?.diagrams || {};
+  let n = 1;
+  while (taken[`dia_${n}`]) n += 1;
+  return `dia_${n}`;
+}
+
+function openDiagram(id) {
+  const layout = canvas.record?.layout;
+  if (!layout?.diagrams?.[id]) return;
+  rememberViewport();          // leave the one you were on where you left it
+  layout.active = id;
+  canvas.selected = null;
+  renderDiagramBar();
+  renderCanvas();
+  renderInspector();
+  setStatus(`diagram: ${layout.diagrams[id].name}`);
+}
+
+/* A new diagram of a unit: the unit, what it holds, and nothing else.
+
+   This is the drill-down a tree view gives you and a single canvas cannot.
+   The nodes are laid out rather than dropped one at a time, because a
+   diagram you have to rebuild by hand is one nobody makes. */
+function addDiagram(root = "", name = "") {
+  const layout = canvas.record?.layout;
+  if (!layout) return null;
+  const team = root ? findComponent("team", root) : null;
+  if (root && !team) {
+    setStatus(`'${root}' is not a team, so it has no diagram of its own`);
+    return null;
+  }
+  const id = newDiagramId();
+  const nodes = {};
+  let row = 0;
+  const put = (componentId, kind, column) => {
+    nodes[componentId] = {
+      id: componentId, kind, x: 40 + column * 300, y: 60 + row * 110,
+      width: 200, height: 80, collapsed: false, note: "",
+    };
+    row += 1;
+  };
+  if (team) {
+    put(team.id, "team", 0);
+    (team.members || []).forEach((m) => put(m.id, "agent", 1));
+    (team.teams || []).forEach((t) => put(t.id, "team", 1));
+  }
+  layout.diagrams[id] = {
+    id, root, nodes,
+    name: name || (team ? (team.name || team.id) : `Diagram ${diagramList().length + 1}`),
+    viewport: { x: 0, y: 0, zoom: 1 },
+    updated_at: new Date().toISOString(),
+  };
+  markDirty(`added the diagram '${layout.diagrams[id].name}'`);
+  openDiagram(id);
+  return layout.diagrams[id];
+}
+
+function removeDiagram(id) {
+  const layout = canvas.record?.layout;
+  if (!layout?.diagrams?.[id]) return;
+  if (diagramList().length === 1) {
+    return alert("A design has at least one diagram. Rename this one, or add "
+      + "another before removing it.");
+  }
+  const name = layout.diagrams[id].name;
+  if (!window.confirm(
+      `Remove the diagram '${name}'?\n\nOnly the picture goes: every `
+      + "component on it stays declared in the model, and the Explorer still "
+      + "lists them.")) return;
+  delete layout.diagrams[id];
+  if (layout.active === id) layout.active = Object.keys(layout.diagrams)[0];
+  markDirty(`removed the diagram '${name}'`);
+  renderDiagramBar();
+  renderCanvas();
+  renderInspector();
+}
+
+/* The tabs above the canvas, and the breadcrumb that says what a nested
+   diagram is *of* — a diagram called "Treasury" showing four boxes is
+   otherwise indistinguishable from a design that has only four boxes. */
+function renderDiagramBar() {
+  const bar = $("#diagram-bar");
+  if (!bar) return;
+  const layout = canvas.record?.layout;
+  if (!layout) return bar.replaceChildren();
+  const readOnly = !canvas.permissions.includes("system.edit");
+  bar.replaceChildren(
+    ...diagramList().map((d) => {
+      const tab = el("button", {
+        class: `dia-tab${d.id === layout.active ? " active" : ""}`,
+        title: d.root ? `a diagram of ${d.root}` : "the whole organisation",
+      }, d.root ? el("span", { class: "ic" }, "\u21b3") : null, d.name);
+      tab.addEventListener("click", () => openDiagram(d.id));
+      tab.addEventListener("dblclick", () => {
+        if (readOnly) return;
+        const name = window.prompt("Name this diagram", d.name);
+        if (!name) return;
+        d.name = name;
+        markDirty("renamed a diagram");
+        renderDiagramBar();
+      });
+      tab.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        if (!readOnly) removeDiagram(d.id);
+      });
+      return tab;
+    }),
+    el("button", {
+      class: "dia-add", title: "a new, empty diagram of this design",
+      disabled: readOnly ? "" : null,
+      onclick: () => addDiagram(""),
+    }, "+"));
+}
+
+/* The nodes of the diagram currently open, always an object. */
+function layoutNodes() {
+  return diagram()?.nodes || {};
+}
+
 function findComponent(kind, id) {
   const s = spec();
   if (!s) return null;
@@ -168,7 +320,7 @@ function findComponent(kind, id) {
     return null;
   }
   if (NESTED[kind]) return nestedList(s, kind).find((x) => x.id === id) || null;
-  if (kind === "note") return canvas.record.layout.nodes[id] || null;
+  if (kind === "note") return layoutNodes()[id] || null;
   const collection = COLLECTIONS[kind];
   return collection ? (s[collection] || []).find((x) => x.id === id) || null : null;
 }
@@ -196,7 +348,7 @@ function addComponent(kind, id, at = null) {
     const empty = !s.organization?.id
       || (!(s.organization.members || []).length
           && !(s.organization.teams || []).length
-          && !canvas.record.layout.nodes[s.organization.id]);
+          && !layoutNodes()[s.organization.id]);
     if (empty) {
       // The first team dropped *is* the organization, rather than a child of an
       // invisible root nobody asked for.
@@ -258,9 +410,7 @@ function removeComponent(kind, id) {
   } else if (COLLECTIONS[kind]) {
     s[COLLECTIONS[kind]] = (s[COLLECTIONS[kind]] || []).filter((x) => x.id !== id);
   }
-  delete canvas.record.layout.nodes[id];
-  canvas.record.layout.edges = canvas.record.layout.edges.filter(
-    (e) => e.source !== id && e.target !== id);
+  delete layoutNodes()[id];
 }
 
 /* --------------------------------------------------------------- palette */
@@ -368,7 +518,7 @@ function restoreViewport() {
 
 function rememberViewport() {
   const surface = $("#canvas");
-  const layout = canvas.record?.layout;
+  const layout = diagram();
   if (!surface || !layout) return;
   const view = layout.viewport || (layout.viewport = { x: 0, y: 0, zoom: 1 });
   /* Scrolling is not an edit: it must not mark the design dirty or take a
@@ -379,7 +529,7 @@ function rememberViewport() {
 
 function renderCanvas() {
   const nodes = $("#canvas-nodes");
-  const layout = canvas.record?.layout || { nodes: {}, edges: [] };
+  const layout = diagram() || { nodes: {} };
   /* A component one agent holds lives inside that agent's box (below), so
      drawing it a second time as its own node would say two different things
      about one fact. Held by two or more, it is shared, it keeps its node, and
@@ -395,6 +545,7 @@ function renderCanvas() {
   restoreViewport();
   renderExplorer();
   renderOutline();
+  renderDiagramBar();
 }
 
 function lockOn(id) {
@@ -934,7 +1085,7 @@ function nodeSubtitle(kind, component, node) {
 
 function renderEdges() {
   const svg = $("#canvas-edges");
-  const layout = canvas.record?.layout;
+  const layout = diagram();
   if (!layout) return svg.replaceChildren();
   const edges = derivedEdges();
   const ns = "http://www.w3.org/2000/svg";
@@ -1042,7 +1193,7 @@ const REGION_PAD = 22;
 const REGION_LABEL = 26;
 
 function regionBoxes() {
-  const layout = canvas.record?.layout;
+  const layout = diagram();
   if (!layout) return [];
   const out = [];
   for (const placement of derivedPlacements()) {
@@ -1220,7 +1371,7 @@ function renderExplorer() {
   const host = $("#explorer-tree");
   if (!host) return;
   const needle = ($("#explorer-filter")?.value || "").trim().toLowerCase();
-  const laidOut = canvas.record?.layout?.nodes || {};
+  const laidOut = layoutNodes();
 
   const row = (node, depth) => {
     if (!matchesFilter(node, needle)) return [];
@@ -1271,7 +1422,7 @@ function renderOutline() {
   const svg = $("#outline-svg");
   const surface = $("#canvas");
   if (!svg || !surface) return;
-  const nodes = Object.values(canvas.record?.layout?.nodes || {});
+  const nodes = Object.values(layoutNodes());
   if (!nodes.length) {
     svg.replaceChildren();
     $("#outline-viewport").style.display = "none";
@@ -1468,7 +1619,7 @@ function duplicateNode(node) {
         dest[k] = v;
     }
   }
-  canvas.record.layout.nodes[id] = {
+  layoutNodes()[id] = {
     id, kind: node.kind,
     x: node.x + 30, y: node.y + 30,
     width: node.width, height: node.height,
@@ -1476,7 +1627,7 @@ function duplicateNode(node) {
   };
   markDirty();
   renderCanvas();
-  selectNode(canvas.record.layout.nodes[id]);
+  selectNode(layoutNodes()[id]);
 }
 
 function startInlineRename(node, component, titleEl) {
@@ -1522,6 +1673,9 @@ function showContextMenu(clientX, clientY, node, readOnly) {
       if (box) startInlineRename(node, component, box);
     }, readOnly),
     ctxItem("⧉ Duplicate", () => duplicateNode(node), readOnly),
+    ctxItem("⤷ Open a diagram of this team",
+            () => addDiagram(node.id),
+            readOnly || node.kind !== "team"),
     el("hr", {}),
     ctxItem(
       legalTargetsFrom(node.kind).length
@@ -1571,7 +1725,7 @@ function handleCanvasKey(e) {
 
   if (!canvas.selected || !canvas.record) return;
   const { kind, id } = canvas.selected;
-  const node = canvas.record.layout.nodes[id];
+  const node = layoutNodes()[id];
   if (!node) return;
 
   if (e.key === "Delete" || e.key === "Backspace") {
@@ -1597,7 +1751,7 @@ function handleCanvasKey(e) {
    `findComponent` returns the first match — so two components sharing one
    means the second is invisible and un-editable. */
 function declaredIds() {
-  const found = new Set(Object.keys(canvas.record?.layout?.nodes || {}));
+  const found = new Set(Object.keys(layoutNodes()));
   const walk = (node) => {
     if (Array.isArray(node)) return node.forEach(walk);
     if (!node || typeof node !== "object") return;
@@ -1686,7 +1840,7 @@ function renameComponent(kind, oldId, newId) {
   };
   rewrite(spec());
 
-  const nodes = canvas.record.layout.nodes;
+  const nodes = layoutNodes();
   if (nodes[oldId]) {
     nodes[id] = { ...nodes[oldId], id };
     delete nodes[oldId];
@@ -1702,7 +1856,7 @@ function renameComponent(kind, oldId, newId) {
    nest whatever you dropped *near* whatever was nearest — "inside a box" is
    a gesture somebody made on purpose. */
 function nodeAt(x, y) {
-  const nodes = Object.values(canvas.record?.layout?.nodes || {});
+  const nodes = Object.values(layoutNodes());
   const hits = nodes.filter((n) =>
     x >= n.x && x <= n.x + n.width
     && y >= n.y && y <= n.y + (n.height || 80));
@@ -1738,7 +1892,7 @@ function placeComponent(kind, x, y) {
     setStatus(err.message);
     return;
   }
-  canvas.record.layout.nodes[id] = {
+  layoutNodes()[id] = {
     id, kind, x, y, width: 200, height: 80, collapsed: false, note: "",
   };
 
@@ -1761,7 +1915,7 @@ function placeComponent(kind, x, y) {
   }
   markDirty();
   renderCanvas();
-  selectNode(canvas.record.layout.nodes[id]);
+  selectNode(layoutNodes()[id]);
 }
 
 /* ------------------------------------------------------------- inspector */
@@ -1783,7 +1937,7 @@ function renderInspector() {
   }
   const { kind, id } = canvas.selected;
   const component = findComponent(kind, id);
-  const node = canvas.record.layout.nodes[id];
+  const node = layoutNodes()[id];
   const definition = kindSpec(kind);
   $("#inspector-title").textContent = `${definition.label} · ${id}`;
   host.className = "";
@@ -2449,6 +2603,8 @@ function updateBadges() {
 function markDirty(reason = "edited") {
   canvas.dirty = true;
   canvas.record.layout.updated_at = new Date().toISOString();
+  const open = diagram();
+  if (open) open.updated_at = canvas.record.layout.updated_at;
   updateBadges();
   announce(reason);
 }
@@ -2534,7 +2690,7 @@ function renderValidation(validation) {
   const row = (finding) => {
     const where = findingWhere(finding);
     const known = finding.component
-      && canvas.record?.layout?.nodes?.[finding.component];
+      && layoutNodes()[finding.component];
     return el("li", { class: finding.severity === "error" ? "v-err" : "v-warn" },
       el("div", { class: "v-head" },
         where
@@ -2559,7 +2715,7 @@ function renderValidation(validation) {
 /* Take the reader to the component a finding names: select it, and scroll it
    into view, which is the whole point of attributing a finding at all. */
 function selectAndReveal(id) {
-  const node = canvas.record?.layout?.nodes?.[id];
+  const node = layoutNodes()[id];
   if (!node) return;
   canvas.selected = { kind: node.kind, id };
   showSide("details");
@@ -2820,6 +2976,10 @@ window.designer = {
   renameComponent,
   renderCanvas,
   renderExplorer,
+  diagram,
+  addDiagram,
+  openDiagram,
+  removeDiagram,
   renderOutline,
   showLeft,
   declaredIds,

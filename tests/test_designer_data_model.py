@@ -117,7 +117,9 @@ def test_the_viewport_is_restored_rather_than_only_stored(tmp_path):
 
     Reopening a large design always put you back at the origin.
     """
-    assert "viewport" in dm.Layout.model_fields
+    # It moved onto the diagram when a design gained more than one of them:
+    # where you were looking is a property of the picture, not of the design.
+    assert "viewport" in dm.Diagram.model_fields
     canvas_js = (ROOT / "web" / "canvas.js").read_text()
     assert "function restoreViewport" in canvas_js
     assert "function rememberViewport" in canvas_js
@@ -135,8 +137,9 @@ def test_the_viewport_is_restored_rather_than_only_stored(tmp_path):
                json={"layout": {"nodes": {},
                                 "viewport": {"x": 420.0, "y": 90.0, "zoom": 1.0}},
                      "version": made["version"]}, headers=ALICE)
-    stored = client.get(f"/api/designer/systems/{made['id']}",
-                        headers=ALICE).json()["record"]["layout"]["viewport"]
+    layout = client.get(f"/api/designer/systems/{made['id']}",
+                        headers=ALICE).json()["record"]["layout"]
+    stored = layout["diagrams"][layout["active"]]["viewport"]
     assert stored["x"] == 420.0 and stored["y"] == 90.0
 
 

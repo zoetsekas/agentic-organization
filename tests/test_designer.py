@@ -79,8 +79,11 @@ def test_layout_is_persisted_but_kept_out_of_the_spec(service, system):
     """ADR-0034: node positions are presentation, never part of the design."""
     layout = Layout(nodes={"team_1": CanvasNode(id="team_1", kind=NodeKind.TEAM,
                                                 x=120, y=80)})
+    # A layout written the old way — nodes at the top — still reads: it
+    # becomes the one diagram every design used to have.
     saved = service.save_system(ANA, system.id, layout=layout, base_version=1).record
-    assert saved.layout.nodes["team_1"].x == 120
+    assert saved.layout.diagram.nodes["team_1"].x == 120
+    assert saved.layout.diagram.name == "Organisation"
     assert "layout" not in saved.spec
     assert "nodes" not in str(saved.spec)
 

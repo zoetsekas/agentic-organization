@@ -310,7 +310,8 @@ def test_every_palette_kind_survives_a_save(tmp_path):
         f"a layout using the palette's own kinds was refused: {saved.text[:400]}"
     )
     stored = client.get(f"/api/designer/systems/{created['id']}",
-                        headers=headers).json()["record"]["layout"]["nodes"]
+                        headers=headers).json()["record"]["layout"]
+    stored = stored["diagrams"][stored["active"]]["nodes"]
     assert set(stored) == set(nodes), "kinds were dropped on the way through"
 
 

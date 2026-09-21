@@ -711,16 +711,27 @@ class DesignerService:
 
 
 def _merge_layout(theirs: Layout, ours: Layout) -> Layout:
-    """Keep our positions, adopt theirs for nodes we do not have.
+    """Keep our positions, adopt theirs for nodes and diagrams we do not have.
 
-    Nodes only. Edges are derived from the spec by whatever draws the picture,
-    so there is nothing here to reconcile — and merging two stored edge lists
-    was reconciling something neither side had ever written.
+    Nodes only, per diagram. Edges are derived from the spec by whatever draws
+    the picture, so there is nothing here to reconcile — and merging two
+    stored edge lists was reconciling something neither side had ever written.
+
+    A diagram the other side added is kept whole: two people working on one
+    design are usually looking at two different parts of it, and dropping
+    somebody's new diagram because you did not have it is the worst possible
+    resolution.
     """
     merged = ours.model_copy(deep=True)
-    for node_id, node in theirs.nodes.items():
-        merged.nodes.setdefault(node_id, node)
-    return merged
+    for diagram_id, theirs_diagram in theirs.diagrams.items():
+        ours_diagram = merged.diagrams.get(diagram_id)
+        if ours_diagram is None:
+            merged.diagrams[diagram_id] = theirs_diagram.model_copy(deep=True)
+            continue
+        for node_id, node in theirs_diagram.nodes.items():
+            ours_diagram.nodes.setdefault(node_id, node)
+    # `active` is where *this* reader is looking, so it is never merged.
+    return Layout.model_validate(merged.model_dump())
 
 
 def _starter_spec(name: str) -> dict[str, Any]:

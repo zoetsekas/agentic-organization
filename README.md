@@ -155,7 +155,9 @@ from drifting from the application, but that is not the same as a successful
 
 [![The canvas: an organisation laid out, with placement regions behind it](docs/images/designer-canvas.png)](docs/images/designer-canvas.png)
 
-*The designer's four views. **Explorer** — what the model contains, including
+*The designer. **Diagram tabs** across the top — one model, many diagrams,
+and a `↳` marks one that is a drill-down of a single unit. Below them the four
+views.**Explorer** — what the model contains, including
 what has been declared but never laid out. **Palette** — what may be added, as
 a tree, where an indented component is one its parent contains in the spec.
 **Outline** — the whole diagram with the viewport on it. **Properties** — what

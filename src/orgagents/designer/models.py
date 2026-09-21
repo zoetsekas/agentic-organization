@@ -15,7 +15,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..ids import new_id, now_iso
 
@@ -99,23 +99,91 @@ class CanvasNode(BaseModel):
         return str(v)
 
 
-class Layout(BaseModel):
-    """The canvas: where each node sits, and where the reader was looking.
+#: The id every migrated design's single diagram gets. Named rather than
+#: generated, so a document migrated twice does not grow a second copy.
+MAIN_DIAGRAM = "main"
 
-    **No edges.** The canvas derives every edge from the spec, so that the
-    picture always matches what would compile — a stored edge is a second
-    source that can disagree with the first, which is the thing the
-    derivation exists to prevent. There *was* a `CanvasEdge` model and a
-    `Layout.edges` list; nothing but the seeder ever wrote one, and the canvas
-    never read them. Two mechanisms for one thing that never met.
+
+class Diagram(BaseModel):
+    """One view onto the model: where each node sits, and what it is about.
+
+    A design has many of these and one model. That is the split Sirius makes
+    between a semantic model and its representations, and it is the reason
+    an organisation of any size is drawable at all: a single canvas holding
+    every team, agent, capability, policy and endpoint is not a diagram, it
+    is a haystack.
+
+    **No edges.** Every edge is derived from the spec, so the picture always
+    matches what would compile — a stored edge is a second source that can
+    disagree with the first, which is what the derivation exists to prevent.
     """
 
+    id: str = Field(default_factory=lambda: new_id("dia"))
+    name: str = "Organisation"
+    #: The component this diagram is *about*. Empty means the whole
+    #: organisation. Set to a team's id, it is that team's own diagram —
+    #: which is what makes diagrams nest.
+    root: str = ""
     nodes: dict[str, CanvasNode] = Field(default_factory=dict)
-    #: Where the canvas was scrolled to, restored when the design is reopened.
+    #: Where the reader was looking, restored when the diagram is reopened.
     viewport: dict[str, float] = Field(
         default_factory=lambda: {"x": 0.0, "y": 0.0, "zoom": 1.0}
     )
     updated_at: str = Field(default_factory=now_iso)
+
+
+class Layout(BaseModel):
+    """Every diagram of one design, and which one is open.
+
+    This was a single canvas — `nodes` and `viewport` on the layout itself —
+    and a design could therefore have exactly one picture of itself. The old
+    shape still loads: a document with `nodes` at the top is migrated into one
+    diagram called Organisation, which is what every design that existed
+    before this had.
+    """
+
+    diagrams: dict[str, Diagram] = Field(default_factory=dict)
+    #: The diagram the reader has open. Always names one that exists.
+    active: str = MAIN_DIAGRAM
+    updated_at: str = Field(default_factory=now_iso)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_single_canvas(cls, data: Any) -> Any:
+        """Read a pre-diagram layout as a design with one diagram."""
+        if not isinstance(data, dict):
+            return data
+        if data.get("diagrams"):
+            return data
+        data = dict(data)
+        nodes = data.pop("nodes", None)
+        viewport = data.pop("viewport", None)
+        # `edges` was removed before diagrams existed; a stored document may
+        # still carry the key, and it is not an error to have one.
+        data.pop("edges", None)
+        main: dict[str, Any] = {"id": MAIN_DIAGRAM, "name": "Organisation",
+                                "root": "", "nodes": nodes or {}}
+        if viewport:
+            main["viewport"] = viewport
+        data["diagrams"] = {MAIN_DIAGRAM: main}
+        data.setdefault("active", MAIN_DIAGRAM)
+        return data
+
+    @model_validator(mode="after")
+    def _active_names_a_real_diagram(self) -> "Layout":
+        if not self.diagrams:
+            self.diagrams = {MAIN_DIAGRAM: Diagram(id=MAIN_DIAGRAM)}
+        if self.active not in self.diagrams:
+            # A diagram can be deleted while somebody has it open; landing on
+            # a blank canvas that names nothing is worse than landing on the
+            # first one.
+            self.active = next(iter(self.diagrams))
+        return self
+
+    @property
+    def diagram(self) -> Diagram:
+        """The diagram currently open. There is always one."""
+        return self.diagrams[self.active]
 
 
 class SystemRecord(BaseModel):

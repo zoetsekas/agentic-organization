@@ -1004,3 +1004,25 @@ textarea.json.invalid { border-color: var(--clay); }
 }
 .n-held:hover { border-color: var(--accent); color: var(--ink); }
 .n-held .ic { color: var(--ink-dim); }
+
+/* One model, many diagrams. The tabs say which you are looking at, and the
+   arrow on a tab says it is a diagram *of* something — a diagram called
+   "Treasury" showing four boxes is otherwise indistinguishable from a design
+   that only has four boxes. */
+.diagram-bar {
+  display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line);
+}
+.dia-tab, .dia-add {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: none; border: 1px solid transparent; border-radius: var(--r-sm);
+  color: var(--ink-muted); font-size: var(--t-small);
+  padding: 2px var(--s3); cursor: pointer;
+}
+.dia-tab:hover, .dia-add:hover { border-color: var(--line); color: var(--ink); }
+.dia-tab.active {
+  color: var(--ink); border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.dia-tab .ic { color: var(--ink-dim); }
+.dia-add { color: var(--ink-dim); font-size: var(--t-body); line-height: 1; }

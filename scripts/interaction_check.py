@@ -133,7 +133,7 @@ async def main() -> None:
 
         made = await page.evaluate("""() => {
           const d = window.designer;
-          const nodes = Object.values(d.state.record.layout.nodes);
+          const nodes = Object.values(d.diagram().nodes);
           return { node: nodes[nodes.length - 1],
                    guardrails: (d.spec().guardrails || []).length };
         }""")
@@ -177,7 +177,7 @@ async def main() -> None:
         await page.mouse.up()
         await page.wait_for_timeout(500)
         moved = await page.evaluate(
-            "(id) => window.designer.state.record.layout.nodes[id]", nid)
+            "(id) => window.designer.diagram().nodes[id]", nid)
         spec_after = await page.evaluate(
             "() => JSON.stringify(window.designer.spec())")
         check("dragging a node moves it", moved["x"] != round(rect["x"]),
@@ -232,7 +232,7 @@ async def main() -> None:
         # below), so a test about proximity has to aim at nothing.
         await page.evaluate("""() => {
           const d = window.designer;
-          const nodes = Object.values(d.state.record.layout.nodes);
+          const nodes = Object.values(d.diagram().nodes);
           const bottom = Math.max(...nodes.map((n) => n.y + (n.height || 80)));
           document.querySelector("#canvas").scrollTo({ left: 0, top: bottom + 40 });
         }""")
@@ -280,7 +280,7 @@ async def main() -> None:
         # by a declared flow or by belonging to the same organisation, never
         # by a line between them.
         agents = await page.evaluate("""() => Object.values(
-          window.designer.state.record.layout.nodes)
+          window.designer.diagram().nodes)
           .filter((n) => n.kind === "agent").map((n) => n.id)""")
         await page.click(f'#canvas-nodes [data-id="{agents[0]}"]', button="right")
         await page.wait_for_timeout(400)
@@ -309,7 +309,8 @@ async def main() -> None:
         persisted = await page.evaluate("""async () => {
           const d = window.designer;
           const rec = await d.dapi(`/systems/${d.state.systemId}`);
-          const nodes = rec.record.layout.nodes;
+          const layout = rec.record.layout;
+          const nodes = layout.diagrams[layout.active].nodes;
           const g = (rec.record.spec.guardrails || [])
             .find((x) => (x.description || "").includes("Edited in a browser"));
           return { kinds: [...new Set(Object.values(nodes).map((n) => n.kind))],
@@ -340,7 +341,7 @@ async def main() -> None:
         await page.wait_for_timeout(600)
         after_rename = await page.evaluate("""() => {
           const d = window.designer;
-          const nodes = d.state.record.layout.nodes;
+          const nodes = d.diagram().nodes;
           const ids = Object.keys(nodes);
           const walk = (t, out) => {
             (t.members || []).forEach((m) => out.push(m.id));
@@ -456,7 +457,7 @@ async def main() -> None:
         # inspector lands on the inspector.
         await page.evaluate("""() => {
           const d = window.designer;
-          const n = d.state.record.layout.nodes["controller"];
+          const n = d.diagram().nodes["controller"];
           const surface = document.querySelector("#canvas");
           surface.scrollTo({ left: Math.max(0, n.x - 200),
                              top: Math.max(0, n.y - 200) });
@@ -507,7 +508,7 @@ async def main() -> None:
         # Dropping inside something that cannot hold it says so.
         await page.evaluate("""() => {
           const d = window.designer;
-          const n = d.state.record.layout.nodes["treasury"];
+          const n = d.diagram().nodes["treasury"];
           const surface = document.querySelector("#canvas");
           surface.scrollTo({ left: Math.max(0, n.x - 200),
                              top: Math.max(0, n.y - 200) });
@@ -526,6 +527,75 @@ async def main() -> None:
         said = (await page.text_content("#status") or "")
         check("dropping inside something that cannot hold it says so",
               "does not hold" in said, said.strip()[:90])
+
+        # -- 10. One model, many diagrams --------------------------------
+        #
+        # A design used to have exactly one picture of itself, so an
+        # organisation of any size was one canvas holding every team, agent,
+        # capability, policy and endpoint. A diagram of a unit is the
+        # drill-down that makes it readable.
+        tabs_before = await page.locator("#diagram-bar .dia-tab").count()
+        check("the design opens on a named diagram", tabs_before == 1,
+              (await page.text_content("#diagram-bar .dia-tab") or "").strip())
+
+        made = await page.evaluate("""() => {
+          const d = window.designer;
+          const dia = d.addDiagram("treasury");
+          return { name: dia.name, root: dia.root,
+                   nodes: Object.keys(dia.nodes),
+                   active: d.state.record.layout.active === dia.id };
+        }""")
+        check("a diagram of a team holds that team and what it holds",
+              made["root"] == "treasury" and "treasury" in made["nodes"]
+              and len(made["nodes"]) > 1, json.dumps(made))
+        check("opening a new diagram makes it the one you are on",
+              made["active"])
+        check("the canvas draws the new diagram and not the old one",
+              await page.locator("#canvas-nodes > *").count() == len(made["nodes"]),
+              f"{await page.locator('#canvas-nodes > *').count()} node(s)")
+        check("both diagrams are offered",
+              await page.locator("#diagram-bar .dia-tab").count() == tabs_before + 1)
+
+        # A node placed on one diagram does not appear on the other: that is
+        # what makes them different views rather than one canvas twice.
+        await page.locator(".drag-item", has_text="Guardrail").first.drag_to(
+            page.locator("#canvas"), target_position={"x": 820, "y": 160})
+        await page.wait_for_timeout(600)
+        split = await page.evaluate("""() => {
+          const d = window.designer;
+          const layout = d.state.record.layout;
+          const counts = Object.fromEntries(Object.values(layout.diagrams)
+            .map((x) => [x.name, Object.keys(x.nodes).length]));
+          return { counts, guardrails: (d.spec().guardrails || []).length };
+        }""")
+        check("a node placed on one diagram stays on it",
+              len(set(split["counts"].values())) > 1, json.dumps(split["counts"]))
+
+        # …but the *model* is one, so the component is declared once and the
+        # explorer lists it whichever diagram is open.
+        await page.click('#left-tabs button[data-left="explorer"]')
+        await page.fill("#explorer-filter", "guardrail")
+        await page.wait_for_timeout(400)
+        check("one model behind both diagrams",
+              await page.locator("#explorer-tree .ex-row:not(.group)").count() > 0,
+              f"{split['guardrails']} guardrail(s) declared")
+        await page.fill("#explorer-filter", "")
+        await page.click('#left-tabs button[data-left="palette"]')
+
+        # Diagrams survive the round trip, which is the whole point of them
+        # living on the layout rather than in the page.
+        await page.click("#btn-save")
+        await page.wait_for_timeout(1500)
+        persisted = await page.evaluate("""async () => {
+          const d = window.designer;
+          const rec = await d.dapi(`/systems/${d.state.systemId}`);
+          const layout = rec.record.layout;
+          return { names: Object.values(layout.diagrams).map((x) => x.name),
+                   roots: Object.values(layout.diagrams).map((x) => x.root) };
+        }""")
+        check("diagrams survive a round trip to the server",
+              len(persisted["names"]) == 2 and "treasury" in persisted["roots"],
+              json.dumps(persisted))
 
         await page.screenshot(path="/tmp/interaction-final.png")
         await browser.close()

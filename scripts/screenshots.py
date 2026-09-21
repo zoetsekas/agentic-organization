@@ -65,8 +65,28 @@ def walk(team, depth, slot):
     for t in team.get("teams", []):
         walk(t, depth + 1, slot)
 walk(spec["organization"], 0, [0])
+# One model, many diagrams: the whole organisation, plus a drill-down of one
+# unit, so the captures show what the diagram tabs are for.
+treasury = spec["organization"]["teams"][0]["teams"][2]
+finance_nodes = {}
+row = 0
+for item, kind in ([(treasury, "team")]
+                   + [(m, "agent") for m in treasury.get("members", [])]):
+    finance_nodes[item["id"]] = {
+        "id": item["id"], "kind": kind, "x": 60 + (0 if kind == "team" else 300),
+        "y": 70 + row * 110, "width": 220, "height": 80,
+        "collapsed": False, "note": "",
+    }
+    row += 1
 c.put(f"/api/designer/systems/{sys_['id']}",
-      json={"layout": {"nodes": nodes, "edges": []},
+      json={"layout": {
+                "active": "main",
+                "diagrams": {
+                    "main": {"id": "main", "name": "Organisation", "root": "",
+                             "nodes": nodes},
+                    "dia_1": {"id": "dia_1", "name": treasury["name"],
+                              "root": treasury["id"], "nodes": finance_nodes},
+                }},
             "version": opened["version"]}, headers=A)
 print("LAID OUT", len(nodes), flush=True)
 

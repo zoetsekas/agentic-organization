@@ -361,6 +361,9 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
             spec_obj = load_spec(str(acme_spec_path))
             spec_dict = spec_obj.model_dump(mode="json")
             layout = Layout()
+            # A design has many diagrams and one model; the seeder lays
+            # out the one every design starts with.
+            main = layout.diagram
 
             # Auto-layout tree for canvas nodes
             col_x = 40
@@ -370,7 +373,7 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
                 nonlocal col_x, row_y
                 t_id = team_dict.get("id")
                 if t_id:
-                    layout.nodes[t_id] = CanvasNode(
+                    main.nodes[t_id] = CanvasNode(
                         id=t_id, kind=NodeKind.TEAM, x=col_x, y=row_y, width=220, height=80
                     )
                     row_y += 120
@@ -379,13 +382,13 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
                 for m in team_dict.get("members", []):
                     m_id = m.get("id")
                     if m_id:
-                        layout.nodes[m_id] = CanvasNode(
+                        main.nodes[m_id] = CanvasNode(
                             id=m_id, kind=NodeKind.AGENT, x=col_x + 280, y=row_y - 80, width=220, height=80
                         )
                         for sub in m.get("subagents", []):
                             sub_id = sub.get("id")
                             if sub_id:
-                                layout.nodes[sub_id] = CanvasNode(
+                                main.nodes[sub_id] = CanvasNode(
                                     id=sub_id, kind=NodeKind.SUBAGENT, x=col_x + 560, y=row_y - 80, width=200, height=70
                                 )
                         row_y += 110
@@ -402,7 +405,7 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
             for cap in spec_dict.get("capabilities", []):
                 c_id = cap.get("id")
                 if c_id:
-                    layout.nodes[c_id] = CanvasNode(
+                    main.nodes[c_id] = CanvasNode(
                         id=c_id, kind=NodeKind.CAPABILITY, x=misc_x, y=misc_y, width=220, height=80
                     )
                     misc_x += 260
