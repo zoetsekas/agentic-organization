@@ -7,6 +7,8 @@ described through an injected `DetectionContext`.
 
 from pathlib import Path
 
+from dataclasses import replace
+
 import pytest
 
 from orgagents import sandboxes
@@ -307,3 +309,148 @@ def test_resolution_serializes_for_a_mapping_report():
     assert data["degraded"] is True
     assert data["boundary"]["verified"] is False
     assert data["degradation"]["requested"] == "microvm_sbx"
+
+
+# --------------------------------------------------------------------------
+# ADR-0068: the seam answers the two environment-level questions
+# --------------------------------------------------------------------------
+
+
+def test_every_provider_answers_both_capability_questions():
+    """Rules 6 and 8 both turn on these, so an unanswered one is a gap."""
+    from orgagents.sandboxes import provider_names, get_provider
+
+    for name in provider_names():
+        caps = get_provider(name).capabilities()
+        assert caps.hosts_agent_process is not None
+        assert caps.scopes_filesystem_per_agent is not None
+        assert caps.verified is False, "nothing here was measured"
+
+
+def test_a_provider_that_cannot_host_says_so_with_a_reason():
+    from orgagents.sandboxes import Support, get_provider
+
+    caps = get_provider("container").capabilities()
+    assert caps.hosts_agent_process is Support.NO
+    assert caps.notes, "a refusal without a reason is not a report"
+
+
+def test_unknown_is_not_yes_but_is_not_no_either():
+    """OpenShell's filesystem policy is locked at creation; whether it can be
+    partitioned per agent inside one sandbox is not documented.
+
+    Treating that as a yes would be the invented schema `openshell.py` already
+    refuses to write. Treating it as a flat no would lose the fact that it is
+    worth going and finding out.
+    """
+    from orgagents.sandboxes import Support, get_provider
+
+    caps = get_provider("openshell").capabilities()
+    assert caps.scopes_filesystem_per_agent is Support.UNKNOWN
+    assert caps.scopes_filesystem_per_agent.is_affirmative is False
+    assert caps.max_agents_per_sandbox == 1
+
+
+def test_delegated_is_not_a_yes_either():
+    from orgagents.sandboxes import Support, get_provider
+
+    caps = get_provider("target_native").capabilities()
+    assert caps.scopes_filesystem_per_agent is Support.DELEGATED
+    assert caps.max_agents_per_sandbox == 1, "we make no claim on a target's behalf"
+
+
+def test_co_residency_degrades_to_one_agent_when_filesystems_cannot_be_scoped():
+    from orgagents.sandboxes import (
+        DetectionContext,
+        EnvironmentFacts,
+        clear_degradations,
+        degradations,
+        resolve_co_residency,
+        resolve_provider,
+    )
+
+    clear_degradations()
+    facts = EnvironmentFacts(environment_id="analysis", tenant_id="acme")
+    resolution = resolve_provider("container", facts, DetectionContext())
+    out = resolve_co_residency(resolution, ["analyst", "reconciler", "clerk"])
+
+    assert out.degraded is True
+    assert out.groups == (("analyst",), ("reconciler",), ("clerk",))
+    assert out.shares_process_namespace is False
+    assert any("per agent" in d.reason for d in degradations()), \
+        "the degradation must be recorded, not only returned"
+
+
+def test_a_single_agent_is_never_a_degradation():
+    from orgagents.sandboxes import (
+        DetectionContext,
+        EnvironmentFacts,
+        EnvironmentFacts as _F,
+        resolve_co_residency,
+        resolve_provider,
+    )
+
+    resolution = resolve_provider(
+        "container", EnvironmentFacts(environment_id="e"), DetectionContext()
+    )
+    out = resolve_co_residency(resolution, ["analyst"])
+    assert out.degraded is False and out.groups == (("analyst",),)
+
+
+def test_a_provider_that_can_scope_keeps_the_agents_together():
+    """The seam must be able to say yes, or the degradation is unfalsifiable."""
+    from orgagents.sandboxes import (
+        DetectionContext,
+        EnvironmentFacts,
+        ProviderCapabilities,
+        Support,
+        resolve_co_residency,
+        resolve_provider,
+    )
+
+    resolution = resolve_provider(
+        "container", EnvironmentFacts(environment_id="e"), DetectionContext()
+    )
+    permissive = ProviderCapabilities(
+        hosts_agent_process=Support.YES,
+        scopes_filesystem_per_agent=Support.YES,
+    )
+    resolution = replace(resolution, capabilities=permissive)
+
+    out = resolve_co_residency(resolution, ["analyst", "reconciler"])
+    assert out.degraded is False
+    assert out.groups == (("analyst", "reconciler"),)
+    # Rule 7: nothing here partitions a process namespace, so a group of two
+    # is a boundary the statement has to declare in words.
+    assert out.shares_process_namespace is True
+
+
+def test_the_report_states_that_the_agent_runs_beside_its_sandbox():
+    from orgagents.sandboxes import (
+        DetectionContext,
+        EnvironmentFacts,
+        resolve_provider,
+    )
+
+    resolution = resolve_provider(
+        "container", EnvironmentFacts(environment_id="e"), DetectionContext()
+    )
+    text = "\n".join(resolution.report_lines())
+    assert "hosts the agent process: no" in text
+    assert "beside this sandbox" in text
+
+
+def test_co_residency_says_nothing_about_tenancy_or_the_org_chart():
+    """Rules 4 and 5 are decided at the phase gate, not here.
+
+    A permissive answer from this seam is about the provider's mechanics only,
+    and a caller that reads it as approval to co-locate has skipped the checks
+    that matter most.
+    """
+    import inspect
+
+    from orgagents.sandboxes import resolve_co_residency
+
+    doc = inspect.getdoc(resolve_co_residency) or ""
+    assert "rule 6" in doc.lower()
+    assert "phase gate" in doc.lower()

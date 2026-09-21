@@ -24,7 +24,14 @@ from .model import (
     TenantScoping,
 )
 from .openshell import OpenShellAdapter, OpenShellPolicy
+from .model import (
+    CoResidency,
+    ProviderCapabilities,
+    Support,
+)
 from .providers import (
+    capabilities,
+    resolve_co_residency,
     ContainerProvider,
     MicroVMSbxProvider,
     OpenShellProvider,
@@ -54,6 +61,11 @@ __all__ = [
     "EnvironmentFacts",
     "ProviderMapping",
     "SandboxResolution",
+    "ProviderCapabilities",
+    "CoResidency",
+    "Support",
+    "capabilities",
+    "resolve_co_residency",
     "TenantScoping",
     "SandboxProvider",
     "ContainerProvider",

@@ -8,10 +8,14 @@ in this environment.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Callable, Optional, Protocol, runtime_checkable
 
 from . import openshell as openshell_mod
 from .model import (
+    CoResidency,
+    ProviderCapabilities,
+    Support,
     CONTAINER,
     DEFAULT_PROVIDER,
     MICROVM_SBX,
@@ -39,6 +43,8 @@ class SandboxProvider(Protocol):
     def boundary_statement(self) -> BoundaryStatement: ...
 
     def map_environment(self, facts: EnvironmentFacts) -> ProviderMapping: ...
+
+    def capabilities(self) -> ProviderCapabilities: ...
 
 
 class ContainerProvider:
@@ -104,6 +110,23 @@ class ContainerProvider:
             unexpressible=tuple(gaps),
         )
 
+
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(
+            # A container can of course run a process. What it cannot do is put
+            # the agent under a *policy engine*, because there isn't one: the
+            # agent's network posture is enforced by Compose networks outside
+            # the sandbox, which is why ADR-0068 rule 8 names the container
+            # floor as the case where the agent runs beside its sandbox.
+            hosts_agent_process=Support.NO,
+            scopes_filesystem_per_agent=Support.NO,
+            notes=(
+                "the agent's boundary here is a Docker network, not this "
+                "sandbox: there is no policy engine to place it under",
+                "one filesystem per container and no per-agent partition "
+                "within it, so co-resident agents would share everything",
+            ),
+        )
 
 class MicroVMSbxProvider:
     """Docker Sandboxes (`sbx`): a dedicated microVM per agent, driven by a CLI.
@@ -194,6 +217,20 @@ class MicroVMSbxProvider:
         return ["sbx", "exec", sandbox, *command]
 
 
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(
+            # A developer-machine CLI with no documented server-side API is not
+            # something to hand a long-running agent process to.
+            hosts_agent_process=Support.NO,
+            scopes_filesystem_per_agent=Support.NO,
+            notes=(
+                "driven by a CLI with no documented programmatic lifecycle, so "
+                "there is nothing to place a long-running agent process under",
+                "a microVM per agent is the shape on offer; co-residency is not "
+                "something this provider expresses",
+            ),
+        )
+
 class OpenShellProvider:
     """NVIDIA OpenShell: a gateway control plane and a policy engine.
 
@@ -258,6 +295,26 @@ class OpenShellProvider:
         return openshell_mod.map_environment(facts)
 
 
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(
+            # A gateway control plane over sandbox lifecycle is exactly a thing
+            # that runs workloads inside sandboxes it governs.
+            hosts_agent_process=Support.YES,
+            # Filesystem policy is documented as locked at sandbox creation.
+            # Whether it can be partitioned *per agent within* one sandbox is
+            # not something the published SDK says, and inventing an answer
+            # here would be the invented schema `openshell.py` already refuses
+            # to write.
+            scopes_filesystem_per_agent=Support.UNKNOWN,
+            notes=(
+                "the policy engine covers the agent's own egress, filesystem "
+                "and injected credentials, not only the code it executes",
+                "per-agent filesystem partitioning inside one sandbox is "
+                "plausible from the policy model and is not documented; until "
+                "it is confirmed, co-residency degrades to one agent",
+            ),
+        )
+
 class TargetNativeProvider:
     """The cloud target's own isolation. Mostly a declaration, not code."""
 
@@ -315,9 +372,20 @@ class TargetNativeProvider:
             unexpressible=tuple(gaps),
         )
 
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(
+            # The generated infrastructure already runs the agent; that is the
+            # whole point of this provider.
+            hosts_agent_process=Support.YES,
+            scopes_filesystem_per_agent=Support.DELEGATED,
+            notes=(
+                "the generated target owns both answers; this seam makes no "
+                "claim on its behalf, and a delegated answer is not a yes",
+            ),
+        )
+
 
 _REGISTRY: dict[str, SandboxProvider] = {}
-
 
 def register_provider(provider: SandboxProvider) -> None:
     _REGISTRY[provider.name] = provider
@@ -426,8 +494,65 @@ def resolve_provider(
         provider_name=provider.name,
         boundary=provider.boundary_statement(),
         mapping=provider.map_environment(facts),
+        capabilities=provider.capabilities(),
         degradation=degradation,
     )
+
+
+def resolve_co_residency(
+    resolution: SandboxResolution,
+    agents: Sequence[str],
+) -> CoResidency:
+    """Decide how many sandbox environments a set of agents actually gets.
+
+    This answers ADR-0068 **rule 6** only. Rules 4 and 5 — one tenant, and the
+    standing org chart connecting every pair — are decided above this seam, at
+    the phase gate, because they are properties of the organization and not of
+    the provider. A caller that has not checked them must not read a permissive
+    answer here as approval.
+
+    Where the provider cannot scope a filesystem per agent, the request
+    degrades to one agent per sandbox and the degradation is recorded, because
+    two agents sharing an unscoped filesystem is a lateral path the org model
+    does not govern.
+    """
+    requested = tuple(agents)
+    caps = resolution.capabilities
+    limit = caps.max_agents_per_sandbox if caps else 1
+
+    if limit is None or len(requested) <= 1:
+        return CoResidency(
+            environment_id=resolution.mapping.environment_id,
+            requested=requested,
+            groups=(requested,) if requested else (),
+        )
+
+    answer = caps.scopes_filesystem_per_agent if caps else Support.NO
+    reason = (
+        f"provider '{resolution.provider_name}' cannot scope a filesystem per "
+        f"agent ({answer.value}), so {len(requested)} co-resident agents would "
+        "share one"
+    )
+    degradation = Degradation(
+        requested=f"{len(requested)} agents per sandbox",
+        used="1 agent per sandbox",
+        reason=reason,
+        environment_id=resolution.mapping.environment_id,
+        tenant_id=resolution.mapping.tenant_id,
+    )
+    record_degradation(degradation)
+    return CoResidency(
+        environment_id=resolution.mapping.environment_id,
+        requested=requested,
+        groups=tuple((a,) for a in requested),
+        degraded=True,
+        reason=reason,
+    )
+
+
+def capabilities(name: str) -> ProviderCapabilities:
+    """What this provider can do at the environment level (ADR-0068)."""
+    return get_provider(name).capabilities()
 
 
 def boundary_statement(name: str) -> BoundaryStatement:

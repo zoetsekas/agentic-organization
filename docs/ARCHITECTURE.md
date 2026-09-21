@@ -1141,6 +1141,17 @@ The shared process namespace is not closed by any of that. Rule 7 documents it
 rather than fixing it: co-resident agents are declared to share a process
 boundary, in those words, with `verified=False`.
 
+Rules 6 and 8 both turn on two questions the seam can now answer —
+`hosts_agent_process` and `scopes_filesystem_per_agent`. Each has four states
+rather than two, because "we have never confirmed this" is not "this is not
+offered": OpenShell's filesystem policy is locked at sandbox creation and
+whether it partitions *per agent inside* one sandbox is simply not documented,
+so it answers `unknown`, and a cloud target answers `delegated`. Neither reads
+as a yes — the difference is what the report says, not what the platform does.
+Today every provider that can actually be run answers `no` to both, so the
+effective limit is one agent per sandbox everywhere, and the generated report
+states in words that the agent runs beside its sandbox rather than inside it.
+
 What makes the seam worth having is that each provider must state its boundary
 in writing: what it enforces, what it does **not**, and how faithfully it can
 express "this sandbox belongs to one tenant". The container provider says
@@ -1419,7 +1430,7 @@ the design describes and the code does not do yet.
 | Message bus | NATS/JetStream, one per tenant | Subject namespace, adapter, durability and the inbound org-chart re-check built against a fake client; the NATS service is generated and parsed, **never started**, and `nats-py` is not a dependency |
 | Evaluations | A gate backed by evidence | The runner executes declared cases and answers the gate. It runs on the `echo` adapter, so it proves the wiring, not the agent; prose expectations are reported unverifiable rather than judged |
 | Divergence signals | Disagreement reaches somebody | Computed on demand and returned to the caller; nothing routes or stores them (ALPHA B6) |
-| Sandbox environments hosting agents | The agent process runs inside a governed sandbox, and co-residency is declared and scoped (ADR-0068) | **Nothing.** The agent runs beside its sandbox on a Docker network; a sandbox environment is not a spec concept, co-residency cannot be declared, and the provider seam cannot yet answer "can you host an agent process" or "can you scope a filesystem per agent" |
+| Sandbox environments hosting agents | The agent process runs inside a governed sandbox, and co-residency is declared and scoped (ADR-0068) | Partial. The provider seam now answers both questions — `hosts_agent_process` and `scopes_filesystem_per_agent`, in four states where `unknown` and `delegated` are conservatively not-a-yes — and rule 6's degradation to one agent per sandbox is computed and recorded. Every provider we can run answers `no` to both, so the effective limit is one agent everywhere. A sandbox environment is still not a spec concept and co-residency still cannot be declared |
 | Sandbox providers | Prefer a kernel boundary | `container` is the portable floor and the only one available here; `microvm_sbx` and `openshell` are contracts with no binary behind them, and every boundary statement carries `verified=False` |
 | Workflow engines | Pluggable, out-of-process engines are egress events | `native` exercised; the Langflow path exercised through a fake transport; LangGraph, LangChain and ADK are binding entries only |
 | Reference runtime | Deep agents carries the deep integrations (ADR-0067) | Delivered: limits as `ModelCallLimitMiddleware`, a deny-by-default filesystem permission set, and MCP over the adapter transport behind our own allowlist. A live model still has not answered (ALPHA A5) |
