@@ -366,19 +366,27 @@ validation strip and the authority view mean a designer sees what a change
 *does*, not only what it says. RBAC, audit and OIDC are in place.
 
 **Coverage was the largest gap.** The palette offered 16 spec kinds against
-roughly 30 authored blocks. WS-032 M1 and M2 closed the sharp end: evaluation
-cases (which autonomy requires, so the designer could set a posture it had no
-way to satisfy), guardrails, output contracts and model policy. Still missing:
-`policies`, `skills`/`plugins`/`tools`, `budgets`, `operating_principles`,
-`artifact_stores`/`context`, `observability`.
+roughly 30 authored blocks. WS-032 M1–M3 closed most of it: evaluation cases
+(which autonomy requires, so the designer could set a posture it had no way to
+satisfy), guardrails, output contracts, model policy, and the capability
+bundle — skills, plugins and tools. 23 palette kinds. Still missing:
+`policies`, `budgets`, `artifact_stores`/`context`, `observability`.
 
-Three field types arrived with M2 and are worth knowing about when adding the
-rest. `multi` renders a closed vocabulary as checkboxes, because a text box
-over a fixed list turns a typo into an unknown-value finding. `json` keeps
-invalid text in the field rather than letting it reach the spec, since
+Not everything belongs on a canvas. Operating principles are instructions
+every agent in the organisation carries (ADR-0038), so they are edited on the
+organisation form; a model policy has no id, so it is a field on an agent. The
+test that walks every palette kind and asserts the canvas can place it is the
+counterpart — anything that *is* a kind has to be placeable.
+
+Four field types arrived with M2 and M3 and are worth knowing about when
+adding the rest. `multi` renders a closed vocabulary as checkboxes, because a
+text box over a fixed list turns a typo into an unknown-value finding. `json`
+keeps invalid text in the field rather than letting it reach the spec, since
 discarding a half-typed schema is how one gets silently emptied. `object`
 edits a nested block — model policy — and asks the absent-or-empty question
-outright, as the mandate control does.
+outright, as the mandate control does. `map` takes key/value lines, splitting
+on the first `=` only, because a plugin hook's handler and a skill resource's
+contents both legitimately contain one.
 
 **The platform policy is invisible here.** A design is judged by house rules
 (ADR-0076) whose verdict the designer never shows, so the first anybody learns

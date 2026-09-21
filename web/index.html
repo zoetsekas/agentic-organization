@@ -91,6 +91,11 @@
         placeholder="What this organisation is for."></textarea></label>
       <label>Labels<textarea name="labels" rows="2"
         placeholder="one per line: key=value"></textarea></label>
+      <!-- ADR-0038: instructions every agent in this organisation carries.
+           An organisation-wide statement, so it belongs here rather than on
+           a node somebody drops on a canvas. -->
+      <label>Operating principles<textarea name="operating_principles" rows="3"
+        placeholder="one per line — every agent carries these"></textarea></label>
       <div class="actions">
         <button type="submit" class="primary" id="btn-orgform-save">Save</button>
         <button type="button" id="btn-orgform-cancel">Cancel</button>

@@ -72,6 +72,9 @@ const COLLECTIONS = {
   separation: "separations",
   guardrail: "guardrails",
   output_contract: "output_contracts",
+  skill: "skills",
+  plugin: "plugins",
+  tool: "tools",
 };
 
 /* Blocks that are not a top-level list. Each needs its container built on the
@@ -790,6 +793,31 @@ function fieldContext(componentKind, fieldName) {
       data_classes:     { mode: "reflist", col: "data_classes" },
       escalate_channel: { mode: "ref",     col: "channels" },
     },
+    skill: {
+      requires_capabilities: { mode: "reflist", col: "capabilities" },
+    },
+    plugin: {
+      provides_skills:       { mode: "reflist", col: "skills" },
+      provides_tools:        { mode: "reflist", col: "tools" },
+      requires_capabilities: { mode: "reflist", col: "capabilities" },
+    },
+    tool: {
+      // What a tool may wrap depends on what it says it wraps, so the picker
+      // reads the node being edited rather than offering everything.
+      wraps: {
+        mode: "ref",
+        fn: (nodeId) => {
+          const tool = (s.tools || []).find((t) => t.id === nodeId);
+          const kind = tool?.wraps_kind || "capability";
+          if (kind === "subagent") {
+            return allAgents().flatMap(({ agent }) =>
+              (agent.subagents || []).map((x) => x.id));
+          }
+          return ids({ capability: "capabilities", workflow: "workflows",
+                       endpoint: "endpoints" }[kind] || "capabilities");
+        },
+      },
+    },
     team: {
       leader: {
         mode: "ref",
@@ -1099,6 +1127,30 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
         });
         return el("label", { class: "inline" }, box, option);
       }));
+    const label = el("label", { class: "stacked" },
+      `${field.name}${field.required ? " *" : ""}`, input);
+    if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
+    return label;
+  }
+
+  if (field.type === "map") {
+    // Key/value pairs, one per line. A `=` splits on the first occurrence
+    // only, because a plugin hook's handler and a skill resource's contents
+    // both legitimately contain one.
+    input = el("textarea", { rows: "4", placeholder: "one per line: key = value",
+                             ...attrs });
+    input.value = Object.entries(value || {})
+      .map(([k, v]) => `${k} = ${v}`).join("\n");
+    input.addEventListener("input", () => {
+      const out = {};
+      for (const line of input.value.split("\n")) {
+        const at = line.indexOf("=");
+        if (at < 1) continue;
+        const key = line.slice(0, at).trim();
+        if (key) out[key] = line.slice(at + 1).trim();
+      }
+      onChange(out);
+    });
     const label = el("label", { class: "stacked" },
       `${field.name}${field.required ? " *" : ""}`, input);
     if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));

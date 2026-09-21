@@ -184,6 +184,8 @@ function showOrgForm(mode) {
   form.elements.owner.value = metadata.owner || "";
   form.elements.environment.value = metadata.environment || "development";
   form.elements.labels.value = labelsToText(metadata.labels);
+  form.elements.operating_principles.value =
+    (design().state.record?.spec?.operating_principles || []).join("\n");
   form.hidden = false;
   form.elements.name.focus();
 }
@@ -200,6 +202,8 @@ function orgFormValues() {
     owner: form.elements.owner.value.trim(),
     environment: form.elements.environment.value,
     labels: labelsFromText(form.elements.labels.value),
+    operating_principles: form.elements.operating_principles.value
+      .split("\n").map((l) => l.trim()).filter(Boolean),
   };
 }
 
@@ -231,6 +235,9 @@ function applyOrgMetadata(values) {
   metadata.environment = values.environment;
   metadata.labels = values.labels;
   const record = design().state.record;
+  // Principles sit on the spec, not in metadata: they are part of what the
+  // organisation *is*, not a note about it.
+  record.spec.operating_principles = values.operating_principles;
   record.name = values.name;
   record.description = values.description;
   // The organisation node carries the name people read on the chart.

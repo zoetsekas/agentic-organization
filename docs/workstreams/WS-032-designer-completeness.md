@@ -2,7 +2,7 @@
 id: WS-032
 title: Designer completeness — authoring the whole spec
 status: Active
-version: 1.2.0
+version: 1.3.0
 date: 2026-09-21
 updated: 2026-09-21
 owner: Product
@@ -56,7 +56,7 @@ small enough that failing it is a prompt rather than a permanent red mark.
 |---|---|---|
 | M1 Evaluation cases in the palette — close the autonomy contradiction | Phase 5 | Done |
 | M2 Guardrails, output contracts and model policy | Phase 6 | Done |
-| M3 Skills, plugins, tools and operating principles | Phase 6 | Not started |
+| M3 Skills, plugins, tools and operating principles | Phase 6 | Done |
 | M4 The platform policy verdict in the designer | Phase 6 | Not started |
 | M5 Undo for canvas edits | Phase 6 | Not started |
 | M6 Keyboard node creation and a focus treatment | Phase 6 | Not started |
@@ -98,6 +98,7 @@ in `docs/DESIGNER.md` no longer lists coverage as the largest gap.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.3.0 | 2026-09-21 | M3 done. Operating principles went to the organisation form rather than the palette: instructions every agent carries are an organisation-wide statement, not a node. 23 palette kinds. |
 | 1.2.0 | 2026-09-21 | M2 done. It needed three field types the inspector did not have — `multi` for closed vocabularies, `json` for a schema, and `object` for a nested policy — which is the widget cost this workstream's Disadvantages predicted. |
 | 1.1.0 | 2026-09-21 | M1 done. It also surfaced two palette kinds — `decision` and `separation` — that were offered and could not be placed, because they were never wired into the canvas's collection map. |
 | 1.0.0 | 2026-09-21 | Proposed, from the designer review of 2026-09-21. |

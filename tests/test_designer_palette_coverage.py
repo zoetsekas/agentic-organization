@@ -185,3 +185,80 @@ def test_an_unset_model_policy_inherits_rather_than_permitting_nothing(canvas_js
     """Absent and empty differ here the way they do for a mandate."""
     assert 'if (field.type === "object")' in canvas_js
     assert "Not set: inherits the system's." in canvas_js
+
+
+# --------------------------------------------------------------------------
+# M3: skills, plugins, tools and operating principles
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def app_js() -> str:
+    return (BUNDLE / "app.js").read_text()
+
+
+@pytest.fixture(scope="module")
+def index_html() -> str:
+    return (BUNDLE / "index.html").read_text()
+
+
+def test_the_capability_bundle_can_be_authored(kinds):
+    assert {"skill", "plugin", "tool"} <= set(kinds)
+
+
+def test_a_skill_says_it_changes_how_an_agent_works_not_what_it_reaches(kinds):
+    """Declaring `requires_capabilities` grants nothing — it is checked
+    against the holder's own grants (ADR-0029)."""
+    skill = kinds["skill"]
+    assert "never what it may reach" in skill["help"]
+    fields = {f["name"]: f for f in skill["fields"]}
+    assert "grants nothing" in fields["requires_capabilities"]["help"]
+
+
+def test_a_tool_wraps_only_what_the_design_already_has(canvas_js):
+    """And what it may wrap depends on what it says it wraps, so the picker
+    reads the node being edited rather than offering everything."""
+    assert "tool: {" in canvas_js
+    assert "const kind = tool?.wraps_kind" in canvas_js
+
+
+def test_skill_resources_and_plugin_hooks_are_maps(kinds, canvas_js):
+    assert {f["name"]: f for f in kinds["skill"]["fields"]}["resources"]["type"] == "map"
+    assert {f["name"]: f for f in kinds["plugin"]["fields"]}["hooks"]["type"] == "map"
+    assert 'if (field.type === "map")' in canvas_js
+
+
+def test_a_map_value_may_contain_an_equals_sign(canvas_js):
+    """A plugin hook's handler and a skill resource's contents both
+    legitimately do."""
+    assert "line.indexOf(\"=\")" in canvas_js
+    assert "line.slice(at + 1)" in canvas_js
+
+
+def test_operating_principles_belong_to_the_organisation(index_html, app_js):
+    """Instructions every agent carries (ADR-0038) are an organisation-wide
+    statement, not something dropped on a canvas."""
+    assert 'name="operating_principles"' in index_html
+    assert "record.spec.operating_principles = values.operating_principles" in app_js
+
+
+def test_principles_sit_on_the_spec_and_not_in_metadata(app_js):
+    """They are part of what the organisation is, not a note about it."""
+    assert "not in metadata" in app_js
+
+
+def test_a_design_with_the_M3_blocks_validates():
+    spec = {
+        **AUTONOMOUS,
+        "operating_principles": ["Cite the source of every figure."],
+        "skills": [{"id": "reconcile", "instructions": "Match to the order.",
+                    "requires_capabilities": ["filer"]}],
+        "tools": [{"id": "file_return", "wraps_kind": "capability",
+                   "wraps": "filer"}],
+        "plugins": [{"id": "tax_pack", "provides_skills": ["reconcile"],
+                     "provides_tools": ["file_return"]}],
+        "lifecycle": {"evaluations": [
+            {"id": "c", "given": "g", "expect": "contains: x",
+             "applies_to": ["a"]}]},
+    }
+    assert not [c for c in _codes(spec) if c.startswith("unknown_")]
