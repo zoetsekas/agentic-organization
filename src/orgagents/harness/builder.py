@@ -268,12 +268,25 @@ class HarnessBuilder:
         if decision and decision not in agent.mandate:
             holder = self.org.mandate_holder(agent.id, decision)
             if holder is None:
+                # Naming who does hold it is not routing to them: an agent
+                # outside this line is reached through the process that owns
+                # the decision, never by escalating past a control (ADR-0070).
+                elsewhere = [
+                    a.name for a in self.org.mandate_holders(decision)
+                    if a.id != agent.id
+                ]
+                where = (
+                    f"; it is held by {', '.join(elsewhere)}, who are not in "
+                    "this escalation line"
+                    if elsewhere
+                    else "; no agent in the organization holds it"
+                )
                 return ToolCallResult(
                     tool_name,
                     False,
                     error=(
-                        f"'{decision}' is outside every mandate in this line; "
-                        "no unit in the organization may take this decision"
+                        f"'{decision}' is outside every mandate above this "
+                        f"agent{where}"
                     ),
                     decision=decision,
                 )

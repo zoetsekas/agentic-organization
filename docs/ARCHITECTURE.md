@@ -387,6 +387,23 @@ flowchart TB
     approvq -- no --> act
 ```
 
+**Separation of duties is a second kind of constraint, and it contradicts the
+first** (ADR-0070). Narrowing requires every parent to hold at least the union
+of its children; segregation requires that no principal hold both sides of a
+control. Modelling a real CFO organization found the collision empirically:
+every leaf segregated correctly and the CFO held all of it, because authority
+accumulates upward — and an accounts-payable agent attempting `release_payment`
+escalated straight to the unit where the separation dissolved.
+
+The resolution is that **a team is a scope, not a principal**: its mandate
+bounds what its members may hold and nobody exercises it, so a unit may hold
+both sides while no agent may. Separations are declared, checked at the phase
+gate over effective *agent* mandates, and a violation is an error. A leader that
+inherits its unit's mandate into a violation must declare a narrower one.
+Escalation walks leader to leader, tests each leader's own mandate, and returns
+an agent or refuses — and a refusal may name who does hold the decision without
+routing to them, because reaching them is the process's job, not escalation's.
+
 Mandate never widens permission — it is a bound on a grant already held, not a
 grant. The per-action `requires_approval` flag survives alongside it and keeps
 its own meaning: mandate answers *whose decision is this*, approval answers

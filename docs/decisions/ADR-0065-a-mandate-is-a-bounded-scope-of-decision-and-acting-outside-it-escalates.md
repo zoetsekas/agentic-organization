@@ -2,7 +2,7 @@
 id: ADR-0065
 title: A mandate is a bounded scope of decision and acting outside it escalates
 status: Accepted
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-21
 updated: 2026-09-21
 deciders: [Platform Architecture]
@@ -12,7 +12,7 @@ scope: [spec, compiler, runtime, ui]
 workstreams: [WS-003, WS-009]
 supersedes: []
 superseded_by: []
-related: [ADR-0006, ADR-0007, ADR-0026, ADR-0039, ADR-0063]
+related: [ADR-0006, ADR-0007, ADR-0026, ADR-0039, ADR-0063, ADR-0070]
 tags: [authority, org-model, governance]
 ---
 
@@ -73,15 +73,24 @@ within permission but outside mandate escalates; it is not refused.**
    escalating an action the agent could never perform wastes a human's
    attention on an impossible request, so a missing permission is a flat
    refusal with its reason, exactly as today.
-4. **Escalation goes to the smallest unit whose mandate covers the decision**,
-   found by walking up from the agent. It resolves to a person by the existing
+4. **Escalation goes to the nearest *agent* above whose own mandate covers the
+   decision (v1.2.0, ADR-0070)**, found by walking leader to leader from the
+   agent. This originally said "the smallest unit", which named a team — a
+   scope that cannot act — and let a decision escalate to the one principal
+   holding both sides of a control. A leader narrowed for separation of duties
+   is walked past rather than treated as the holder, and a refusal may name a
+   holder elsewhere without routing the decision to them. It resolves to a person by the existing
    precedence (`engine.py:208`): the unit's paired human counterpart if it has
    one, otherwise its manager agent. If nothing up the chain holds the
    mandate, the action is **refused**, with the reason naming the decision
    class nobody in the organization is authorized to take. Silence does not
    promote.
 5. **Silence never means authority.** An empty mandate on an agent or team
-   means *inherit the parent's*, not *unlimited*. The organization root must
+   means *inherit the parent's*, not *unlimited*. Inheritance is unchanged by
+   ADR-0070, with one consequence made explicit there: a leader that inherits
+   its unit's mandate holds the union of everything beneath it, so where that
+   breaks a declared separation the spec is refused until the leader declares
+   a narrower mandate of its own. The organization root must
    declare a mandate explicitly; a root without one is a **spec error**,
    upgrading today's team-level warning. That is the one place authority
    enters the system, and it should be written down.
@@ -227,5 +236,6 @@ the runtime never re-derives it; and every escalation is recorded.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-21 | Rule 4 corrected: escalation returns an agent, not a unit — a team is a scope that cannot act, and the old wording routed decisions to the one principal holding both sides of a control (ADR-0070). Rule 5's inheritance consequence made explicit. |
 | 1.1.0 | 2026-09-21 | **Accepted and implemented.** Vocabulary declared in the spec; conditions chain rather than merge; a prose mandate is refused rather than coerced; a mission is bounded by its leader until people carry mandates. |
 | 1.0.0 | 2026-09-21 | Proposed. Mandate as a structured, inherited, narrowing scope of decision; outside it escalates rather than refuses; permission checked first. |

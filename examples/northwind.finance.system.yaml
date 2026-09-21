@@ -75,6 +75,28 @@ decisions:
   - id: open_audit_finding
     title: Open or close an audit finding
 
+# Decisions no single agent may hold together (ADR-0070). This is the control
+# a finance function is built around, and it is the one thing hierarchical
+# narrowing cannot express on its own: without these, every leader holds the
+# union of everything beneath it.
+separations:
+  - id: payment_control
+    decisions: [raise_payment, approve_invoice, release_payment]
+    reason: >-
+      One principal that can raise an invoice, approve it and instruct the bank
+      can pay a supplier that does not exist. Committing the fraud must require
+      collusion.
+  - id: vendor_and_payment
+    decisions: [change_vendor_master, raise_payment]
+    reason: >-
+      Changing a vendor's bank details and raising a payment to it is the
+      classic pairing; either alone is recoverable.
+  - id: audit_independence
+    decisions: [open_audit_finding, close_period]
+    reason: >-
+      Internal Audit tests the close. An agent that can both close a period and
+      settle the finding against it is auditing itself.
+
 capabilities:
   - id: ledger_query
     description: Read-only queries against the general ledger.
@@ -250,6 +272,11 @@ organization:
     - id: ceo
       name: chief-executive
       description: Arbitrates between functions and owns cross-function escalation.
+      # Not the union of everything beneath: a chief executive who can raise,
+      # approve and release a payment is the control's largest hole, and
+      # separation 'payment_control' refuses the spec that leaves it open.
+      mandate:
+        decisions: [publish_forecast]
       humans:
         - user_id: u_ceo
           name: Ada Whitfield
@@ -278,6 +305,10 @@ organization:
         - id: cfo
           name: chief-financial-officer
           description: Owns the numbers Northwind reports.
+          # A CFO approves; a CFO does not enter invoices or instruct the bank.
+          mandate:
+            decisions: [approve_invoice, close_period, publish_forecast,
+                        file_tax_return]
           humans:
             - user_id: u_cfo
               name: Marcus Oyelaran

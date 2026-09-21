@@ -37,6 +37,7 @@ BASE = {
             {
                 "id": "fin",
                 "name": "Finance",
+                "leader": "cfo",
                 "mandate": {"decisions": ["spend", "close"],
                             "conditions": {"max_value": 250}},
                 "members": [
@@ -86,11 +87,52 @@ def test_conditions_accumulate_so_a_child_cannot_loosen_a_parents():
     assert {"max_value": 250} in m.for_agent("clerk").conditions
 
 
-def test_the_holder_of_a_decision_is_the_smallest_unit_that_has_it():
+def test_the_holder_of_a_decision_is_an_agent_never_a_unit():
+    """A team is a scope, not a principal (ADR-0070).
+
+    This used to return a team id, which named something that cannot act and
+    disagreed with `OrgChart.mandate_holder`, which walks agents. The walk is
+    leader to leader, and what is tested is the leader's own effective
+    mandate — so a leader narrowed for separation of duties does not hold what
+    its unit merely bounds.
+    """
     m = resolve(_org(BASE).organization)
     assert m.holder("clerk", "close") == "clerk"        # holds it itself
-    assert m.holder("clerk", "spend") == "fin"          # nearest unit above
+    assert m.holder("clerk", "spend") == "cfo"          # the unit's leader
     assert m.holder("clerk", "hire") is None            # nobody, at all
+
+
+def test_a_narrowed_leader_is_walked_past_rather_than_treated_as_the_holder():
+    """The whole point of separation: escalation must not find the one
+    principal who holds both sides of a control."""
+    spec = {
+        **BASE,
+        "organization": {
+            **BASE["organization"],
+            "teams": [
+                {
+                    **BASE["organization"]["teams"][0],
+                    # The leader declares less than the unit bounds.
+                    "members": [
+                        {"id": "cfo", "name": "CFO",
+                         "mandate": {"decisions": ["close"]}},
+                        {"id": "clerk", "name": "Clerk",
+                         "mandate": {"decisions": ["close"]}},
+                    ],
+                }
+            ],
+        },
+    }
+    m = resolve(_org(spec).organization)
+    assert "spend" in m.teams["fin"].decisions, "the unit still bounds it"
+    assert m.holder("clerk", "spend") is None, "but no principal in the line holds it"
+
+
+def test_holders_names_who_can_take_a_decision_without_routing_to_them():
+    m = resolve(_org(BASE).organization)
+    assert m.holders("spend") == ["ceo", "cfo"]
+    # Naming a holder is not reaching one: `holder` stays confined to the line.
+    assert m.holder("clerk", "hire") is None
 
 
 # --------------------------------------------------------------------------
@@ -198,7 +240,8 @@ def test_a_decision_nobody_holds_is_refused_rather_than_promoted(platform):
                                 sql="SELECT name FROM customers")
     assert not out.ok
     assert out.escalate_to is None
-    assert "no unit in the organization" in out.error
+    assert "outside every mandate above this agent" in out.error
+    assert "no agent in the organization holds it" in out.error
 
 
 def test_a_missing_permission_is_refused_without_escalating(platform):
@@ -294,3 +337,112 @@ def test_no_generated_artifact_names_a_framework():
     for name in ("deepagents", "deep_agents", "langchain", "langgraph",
                  "openai_agents", "agents_sdk"):
         assert name not in blob.lower(), f"the IR names {name}"
+
+
+# --------------------------------------------------------------------------
+# Separation of duties (ADR-0070)
+# --------------------------------------------------------------------------
+
+
+SEPARATED = {
+    **BASE,
+    "separations": [
+        {"id": "payment_control", "decisions": ["spend", "close"],
+         "reason": "one principal must not do both"},
+    ],
+}
+
+
+def test_a_leader_inheriting_its_units_mandate_violates_separation():
+    """This is the finance case, and it is the whole finding.
+
+    Narrowing requires a parent to hold at least the union of its children.
+    Separation requires that no principal holds both sides. Both cannot govern
+    the same objects, so the leader must declare a narrower mandate and the
+    gate refuses the spec that does not.
+    """
+    found = errors(validate_spec(_org(SEPARATED)))
+    violations = [f for f in found if f.code == "separation_violated"]
+    assert violations, "an inheriting leader holds both sides and nothing noticed"
+    assert any(f.where == "cfo" for f in violations)
+    assert "declare a narrower mandate" in violations[0].message
+
+
+def test_a_narrowed_leader_passes():
+    spec = {
+        **SEPARATED,
+        "organization": {
+            **SEPARATED["organization"],
+            "mandate": {"decisions": ["spend", "close", "deploy"]},
+            "members": [{"id": "ceo", "name": "CEO",
+                         "mandate": {"decisions": ["deploy"]}}],
+            "teams": [
+                {
+                    **SEPARATED["organization"]["teams"][0],
+                    "members": [
+                        {"id": "cfo", "name": "CFO",
+                         "mandate": {"decisions": ["close"]}},
+                        {"id": "clerk", "name": "Clerk",
+                         "mandate": {"decisions": ["spend"]}},
+                    ],
+                }
+            ],
+        },
+    }
+    assert not [f for f in errors(validate_spec(_org(spec)))
+                if f.code == "separation_violated"]
+
+
+def test_a_team_may_hold_both_sides_because_a_team_cannot_act():
+    """A unit's mandate bounds its members; nobody exercises it (ADR-0070)."""
+    spec = {
+        **SEPARATED,
+        "organization": {
+            **SEPARATED["organization"],
+            "members": [{"id": "ceo", "name": "CEO",
+                         "mandate": {"decisions": []}}],
+            "teams": [
+                {
+                    **SEPARATED["organization"]["teams"][0],
+                    "members": [
+                        {"id": "cfo", "name": "CFO",
+                         "mandate": {"decisions": ["close"]}},
+                        {"id": "clerk", "name": "Clerk",
+                         "mandate": {"decisions": ["spend"]}},
+                    ],
+                }
+            ],
+        },
+    }
+    parsed = _org(spec)
+    m = resolve(parsed.organization)
+    assert {"spend", "close"} <= m.teams["fin"].decisions, "the scope holds both"
+    assert not [f for f in errors(validate_spec(parsed))
+                if f.code == "separation_violated"]
+
+
+def test_a_separation_naming_an_undeclared_decision_is_refused():
+    spec = {**BASE, "separations": [{"id": "x", "decisions": ["spend", "hire"]}]}
+    found = errors(validate_spec(_org(spec)))
+    assert any(f.code == "undeclared_decision" for f in found)
+
+
+def test_the_worked_finance_example_holds_its_own_controls():
+    """Northwind exists to be the counterexample, so it must stay one."""
+    import pathlib
+
+    from orgagents.spec.loader import load_spec
+
+    spec = load_spec(pathlib.Path("examples/northwind.finance.system.yaml"))
+    assert spec.separations, "the example must declare the controls it tests"
+    assert not errors(validate_spec(spec))
+
+    m = resolve(spec.organization)
+    for rule in spec.separations:
+        for agent_id, effective in m.agents.items():
+            held = set(rule.decisions) & effective.decisions
+            assert len(held) <= 1, f"{agent_id} holds {sorted(held)}"
+
+    # And escalation cannot route a payment release around the control.
+    assert m.holder("payables", "release_payment") is None
+    assert m.holders("release_payment") == ["treasurer"]

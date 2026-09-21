@@ -151,6 +151,45 @@ def validate_spec(
     for mission in spec.missions:
         check_mandate(mission.mandate, mission.id, "mission")
 
+    # Separation of duties (ADR-0070). Checked over *effective agent*
+    # mandates, because an agent is what acts: a team's mandate bounds its
+    # members and is exercised by nobody.
+    resolved = None
+    if spec.separations:
+        from ..mandates import resolve as _resolve_for_separation
+
+        resolved = _resolve_for_separation(spec.organization)
+        for rule in spec.separations:
+            unknown = [d for d in rule.decisions if d not in declared_decisions]
+            for d in unknown:
+                err(
+                    "undeclared_decision",
+                    f"separation '{rule.id}' names decision class '{d}', which "
+                    "the spec does not declare",
+                    rule.id,
+                )
+            if len(rule.decisions) < 2:
+                warn(
+                    "separation_without_conflict",
+                    f"separation '{rule.id}' names fewer than two decisions, so "
+                    "nothing can violate it",
+                    rule.id,
+                )
+        for agent_id, effective in resolved.agents.items():
+            for rule in spec.separations:
+                held = sorted(set(rule.decisions) & effective.decisions)
+                if len(held) > 1:
+                    err(
+                        "separation_violated",
+                        f"agent '{agent_id}' holds {held}, which separation "
+                        f"'{rule.id}' forbids"
+                        + (f": {rule.reason}" if rule.reason else "")
+                        + ". An agent inheriting its unit's mandate holds "
+                        "everything beneath it, so a leader over both sides of "
+                        "a control must declare a narrower mandate of its own",
+                        agent_id,
+                    )
+
     # Claiming authority your line does not hold is narrowed, not honoured —
     # so it is reported rather than refused. A spec that reads as if a team may
     # decide something it cannot is a spec somebody will act on.

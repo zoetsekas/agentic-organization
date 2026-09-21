@@ -93,6 +93,9 @@ class MandateMap:
     home: dict[str, str] = field(default_factory=dict)
     #: team id -> parent team id.
     parent: dict[str, str] = field(default_factory=dict)
+    #: team id -> its leader's agent id. A unit's authority is exercised by a
+    #: person or an agent, never by the unit, so the walk goes leader to leader.
+    leader: dict[str, str] = field(default_factory=dict)
     #: (unit id, decision) claimed but not held, for reporting.
     overreach: dict[str, list[str]] = field(default_factory=dict)
 
@@ -100,20 +103,41 @@ class MandateMap:
         return self.agents.get(agent_id, EffectiveMandate())
 
     def holder(self, agent_id: str, decision: str) -> Optional[str]:
-        """The smallest unit from this agent upward that holds `decision`.
+        """The nearest **agent** up the line that may take `decision` itself.
 
-        Returns the agent itself when it already holds it, then its home team,
-        then each parent team. `None` means nobody in the line may take this
-        decision — which is a refusal, not a promotion to the root.
+        A team is a scope, not a principal (ADR-0070): its mandate bounds what
+        its members may hold, and nobody exercises it. This used to return a
+        team id, which both named something that cannot act and disagreed with
+        `OrgChart.mandate_holder`, which walks agents. The walk is therefore
+        leader to leader, and what is tested at each step is that agent's own
+        effective mandate — a leader narrowed for separation of duties does not
+        hold what its unit bounds.
+
+        `None` means no principal in this line may take the decision. That is a
+        refusal. It is not a promotion to the root, and it is not a reason to
+        look sideways: an agent elsewhere holding the decision is reached
+        through the process that owns it, not by escalating past a control.
         """
         if self.for_agent(agent_id).covers(decision):
             return agent_id
+        seen: set[str] = set()
         team = self.home.get(agent_id)
-        while team:
-            if self.teams.get(team, EffectiveMandate()).covers(decision):
-                return team
+        while team and team not in seen:
+            seen.add(team)
+            lead = self.leader.get(team)
+            if lead and lead != agent_id and self.for_agent(lead).covers(decision):
+                return lead
             team = self.parent.get(team)
         return None
+
+    def holders(self, decision: str) -> list[str]:
+        """Every agent whose effective mandate covers `decision`.
+
+        For explaining a refusal — "this belongs to Treasury" is a better
+        answer than "nobody" — without routing the decision there. Naming a
+        holder is not reaching one.
+        """
+        return sorted(a for a, eff in self.agents.items() if eff.covers(decision))
 
 
 def resolve(organization: Any) -> MandateMap:
@@ -130,6 +154,8 @@ def resolve(organization: Any) -> MandateMap:
                 out.overreach[team.id] = over
             effective = inherited.narrowed_by(team.id, declared)
         out.teams[team.id] = effective
+        if getattr(team, "leader", ""):
+            out.leader[team.id] = team.leader
 
         for member in getattr(team, "members", []) or []:
             member_declared = getattr(member, "mandate", None)

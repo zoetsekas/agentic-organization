@@ -166,6 +166,20 @@ class OrgChart:
             )
         return None
 
+    def mandate_holders(self, decision: str) -> list[Agent]:
+        """Every agent whose mandate covers `decision`, anywhere in the chart.
+
+        For explaining a refusal — "this belongs to Treasury" beats "nobody" —
+        without routing the decision there. Naming a holder is not reaching
+        one: an agent outside the requester's line is reached through the
+        process that owns the decision, never by escalating past a control
+        (ADR-0070).
+        """
+        return sorted(
+            (a for a in self.agents() if decision in a.mandate),
+            key=lambda a: a.name,
+        )
+
     def escalation_target(self, agent_id: str) -> Optional[Agent]:
         a = self.agent(agent_id)
         if not a or not a.manager_agent_id:

@@ -377,6 +377,23 @@ class DecisionClass(BaseModel):
     description: str = ""
 
 
+class SeparationRule(BaseModel):
+    """Decisions no single principal may hold together (ADR-0070).
+
+    Hierarchical narrowing and separation of duties pull in opposite
+    directions: narrowing requires every parent to hold at least the union of
+    its children, while separation requires that *no one principal* holds both
+    sides of a control. Both cannot govern the same objects, so a team is a
+    scope and this constrains agents.
+    """
+
+    id: str
+    decisions: list[str] = Field(default_factory=list)
+    #: Why this pairing is dangerous, printed in the refusal. A separation
+    #: without a reason is a rule nobody will defend when it is inconvenient.
+    reason: str = ""
+
+
 class Mandate(BaseModel):
     """A bounded scope of decision held by a unit (ADR-0065).
 
@@ -1260,6 +1277,8 @@ class SystemSpec(BaseModel):
     capabilities: list[Capability] = Field(default_factory=list)
     # The decision vocabulary a mandate draws from (ADR-0065).
     decisions: list[DecisionClass] = Field(default_factory=list)
+    # Decisions no single agent may hold together (ADR-0070).
+    separations: list[SeparationRule] = Field(default_factory=list)
     environments: list[EnvironmentClass] = Field(default_factory=list)
     roles: list[Role] = Field(default_factory=list)
     policies: list[PolicyRule] = Field(default_factory=list)
