@@ -223,12 +223,24 @@ def test_every_autonomous_agent_carries_evaluation_evidence(northwind):
                 if f.code == "autonomy_without_evidence"]
 
 
-def test_capital_expenditure_still_has_nowhere_to_land(northwind):
-    """Honest residue: a board is people, and people carry no mandate.
+def test_capital_expenditure_lands_on_a_person(northwind):
+    """A decision only a person holds is held (ADR-0079).
 
-    ADR-0064 holds that question open, and this is what it costs — the agent
-    prepares the case and the decision cannot complete inside the system.
+    This was the honest residue: a board decides capital allocation, people
+    carried no mandate, and `approve_capex` was reported as held by nobody, so
+    the agent prepared the case and the work could not complete inside the
+    system. People are principals for authority now, and it lands.
     """
-    found = [f for f in validate_spec(northwind)
-             if f.code == "human_decides_with_no_holder"]
-    assert found and "capex_register" in found[0].where
+    assert not [f for f in validate_spec(northwind)
+                if f.code == "human_decides_with_no_holder"]
+
+    from orgagents.mandates import resolve
+    resolved = resolve(
+        northwind.organization,
+        [d.id for d in northwind.decisions],
+        northwind.people,
+    )
+    assert resolved.holders("approve_capex") == ["p_ceo"]
+    assert not resolved.agent_holders("approve_capex"), (
+        "no agent holds it, which is the point: it is the chief executive's"
+    )

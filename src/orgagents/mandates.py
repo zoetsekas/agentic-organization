@@ -96,14 +96,30 @@ class MandateMap:
     #: team id -> its leader's agent id. A unit's authority is exercised by a
     #: person or an agent, never by the unit, so the walk goes leader to leader.
     leader: dict[str, str] = field(default_factory=dict)
+    #: person id -> their effective mandate (ADR-0079). A person is a
+    #: principal for authority and never for access, so they appear here and
+    #: in no permission structure anywhere.
+    people: dict[str, EffectiveMandate] = field(default_factory=dict)
+    #: person id -> the org unit that bounds them.
+    person_unit: dict[str, str] = field(default_factory=dict)
     #: (unit id, decision) claimed but not held, for reporting.
     overreach: dict[str, list[str]] = field(default_factory=dict)
 
     def for_agent(self, agent_id: str) -> EffectiveMandate:
         return self.agents.get(agent_id, EffectiveMandate())
 
+    def for_person(self, person_id: str) -> EffectiveMandate:
+        return self.people.get(person_id, EffectiveMandate())
+
+    def is_person(self, principal_id: str) -> bool:
+        return principal_id in self.people
+
     def holder(self, agent_id: str, decision: str) -> Optional[str]:
-        """The nearest **agent** up the line that may take `decision` itself.
+        """The nearest **principal** up the line that may take `decision`.
+
+        Agents first at each step, then the people attached to that unit
+        (ADR-0079), so an escalation prefers something that can act here and
+        reaches a human when nothing here holds the decision.
 
         A team is a scope, not a principal (ADR-0070): its mandate bounds what
         its members may hold, and nobody exercises it. This used to return a
@@ -127,21 +143,42 @@ class MandateMap:
             lead = self.leader.get(team)
             if lead and lead != agent_id and self.for_agent(lead).covers(decision):
                 return lead
+            for person in self.people_on(team):
+                if self.for_person(person).covers(decision):
+                    return person
             team = self.parent.get(team)
         return None
 
+    def people_on(self, team_id: str) -> list[str]:
+        """People attached to one unit, in declaration-stable order."""
+        return sorted(p for p, u in self.person_unit.items() if u == team_id)
+
     def holders(self, decision: str) -> list[str]:
-        """Every agent whose effective mandate covers `decision`.
+        """Every **principal** whose effective mandate covers `decision`.
+
+        Agents and people both (ADR-0079). A decision only a person holds —
+        capital allocation, which a board decides — is held, and reporting it
+        as unheld was the reason such work could not complete here.
 
         For explaining a refusal — "this belongs to Treasury" is a better
         answer than "nobody" — without routing the decision there. Naming a
         holder is not reaching one.
         """
+        return sorted(
+            p
+            for p, eff in list(self.agents.items()) + list(self.people.items())
+            if eff.covers(decision)
+        )
+
+    def agent_holders(self, decision: str) -> list[str]:
+        """Only the agents. For checks that are about what *runs here*."""
         return sorted(a for a, eff in self.agents.items() if eff.covers(decision))
 
 
 def resolve(
-    organization: Any, vocabulary: Optional[Iterable[str]] = None
+    organization: Any,
+    vocabulary: Optional[Iterable[str]] = None,
+    people: Optional[Iterable[Any]] = None,
 ) -> MandateMap:
     """Walk a spec's organization tree and resolve every unit's authority.
 
@@ -188,6 +225,21 @@ def resolve(
             visit(child, effective)
 
     visit(organization, None)
+
+    # People (ADR-0079). A person is bounded by the unit they are attached to,
+    # exactly as an agent is bounded by its team: a finance director's
+    # authority stops at Finance. Attaching them to nothing puts them under the
+    # root, which is the widest bound the organization has and still a bound.
+    root_effective = out.teams.get(getattr(organization, "id", ""), EffectiveMandate())
+    for person in people or ():
+        unit = getattr(person, "unit", "") or getattr(organization, "id", "")
+        bound = out.teams.get(unit, root_effective)
+        declared = getattr(person, "mandate", None)
+        over = bound.overreach(declared)
+        if over:
+            out.overreach[person.id] = over
+        out.people[person.id] = bound.narrowed_by(person.id, declared)
+        out.person_unit[person.id] = unit
     return out
 
 

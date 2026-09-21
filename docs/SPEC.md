@@ -391,6 +391,73 @@ Exactly one paired human holds `owner`. Every gated action must have a paired
 approver who covers it — otherwise the agent stops at its own gate, and the
 validator says so. The pre-1.1 single `human:` field still loads as one owner.
 
+A pairing that names a declared person carries a reference instead of a copy:
+
+```yaml
+humans:
+  - {person: p_director, roles: [owner]}
+  - {person: p_controller, roles: [approver], approves: [pay_supplier]}
+```
+
+The inline form above stays valid, so a spec migrates one agent at a time.
+
+## People are principals for authority, never for access
+
+An agent has the whole apparatus — a role binding responsibilities to
+capabilities and permissions, assignment that may narrow and never widen,
+permissions resolved deny-by-default once at the phase gate, and mandates,
+separations and autonomy postures above it. A person had a five-value pairing
+enum. So a person's *relationship to an agent* was modelled and their
+*position in the organization* was not (ADR-0079).
+
+People are declared once, at the top level:
+
+```yaml
+people:
+  - id: p_director
+    name: Marcus Oyelaran
+    contact: marcus.oyelaran@northwind.example
+    position: Chief Financial Officer
+    unit: finance                 # the org unit that bounds their authority
+    mandate:
+      decisions: [approve_invoice, close_period, file_tax_return]
+```
+
+Four things follow.
+
+**Once, so one human is one principal.** Declared inline on each agent, the
+same finance director appeared six times under six invented ids in the worked
+example. Separation of duties cannot see past that, so it is refused: two
+people sharing a contact address is an error, not a warning.
+
+**A mandate, and never a capability or a permission.** Declaring
+`capabilities` or `permissions` on a person is refused. We do not mediate a
+person's access — they sign into the ERP under their employer's IAM — and a
+permission this platform cannot enforce reads as a bound and is not one, which
+is the rule [Who enforces a control](#who-enforces-a-control) applies to
+controls, applied to principals. What *is* declared is what they may decide,
+because this platform is what routes the escalation to them.
+
+**Bounded by their unit.** A person's mandate narrows against the unit they
+sit in, exactly as an agent's narrows against its team, and claiming past it
+is `mandate_overreach`. A person attached to nothing sits under the root,
+which is the widest bound the organization has and still a bound.
+
+**Reachable, and checked.** The holder search tries the agents on a line first
+and then the people attached to it, so an escalation prefers something that
+can act here and reaches a human when nothing here holds the decision. A
+decision only a person holds — capital allocation, which a board decides — is
+held rather than reported as unheld, which is what let that work complete
+inside the system at all. Separations run over people, and the four-eyes case
+is checkable at last: **a person may not approve an action raised by an agent
+they own.**
+
+What is declared here is a **claim**. The real delegation of authority lives
+in the organization's own approval matrix, which this platform does not read
+and nothing reconciles. Authority is also attached to an individual rather
+than a position, so it rots when they change jobs; positions would be right
+and are an HR system we are not building (ADR-0079).
+
 ## Sub-agents: tools, not hires
 
 ```yaml

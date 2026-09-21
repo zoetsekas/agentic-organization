@@ -101,10 +101,15 @@ def test_separations_say_who_enforces_them(client, northwind):
 
 
 def test_findings_reach_the_view_where_the_thing_is_edited(client, northwind):
-    """Northwind's honest residue: capital expenditure has no holder."""
+    """The authority view carries the authority findings, and no others.
+
+    Northwind used to fail here on `human_decides_with_no_holder`: capital
+    expenditure had no holder because a board is people and people carried no
+    mandate. ADR-0079 gave it one, so the view is clean of errors — which is
+    the state a reviewer should be able to trust.
+    """
     data = _authority(client, northwind)
-    codes = {f["code"] for f in data["findings"]}
-    assert "human_decides_with_no_holder" in codes
+    assert not [f for f in data["findings"] if f["severity"] == "error"]
 
 
 def test_only_authority_findings_are_carried(client, northwind):
@@ -141,3 +146,29 @@ def test_the_palette_offers_the_authority_fields(client):
     assert agent_fields["autonomy"]["type"] == "autonomy"
     assert "mandate" in {f["name"] for f in kinds["team"]["fields"]}
     assert "separation" in kinds and "decision" in kinds
+
+
+def test_the_view_carries_people_and_nothing_they_may_reach(client, northwind):
+    """People are principals for authority and never for access (ADR-0079).
+
+    A reviewer needs to see where an escalation lands. They must not be shown
+    a person's access, because there is none to show: the person signs into
+    those systems under their employer's identity, not ours.
+    """
+    data = _authority(client, northwind)
+    cfo = data["people"]["p_cfo"]
+    assert cfo["position"] == "Chief Financial Officer"
+    assert cfo["unit"] == "finance"
+    assert "approve_invoice" in cfo["decisions"]
+    assert len(cfo["pairings"]) == 6, "one principal, six pairings"
+    assert not any(
+        k in person for person in data["people"].values()
+        for k in ("capabilities", "permissions")
+    )
+
+
+def test_capital_allocation_is_visible_as_a_persons(client, northwind):
+    data = _authority(client, northwind)
+    assert "approve_capex" in data["people"]["p_ceo"]["decisions"]
+    assert not [a for a in data["agents"].values()
+                if "approve_capex" in a["decisions"]]

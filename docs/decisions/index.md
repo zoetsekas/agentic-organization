@@ -81,7 +81,7 @@
 | [ADR-0076](ADR-0076-the-fabric-declares-the-rules-a-design-is-judged-by.md) | The fabric declares the rules a design is judged by | Accepted | 1.1.0 | spec, compiler, security | WS-002, WS-028 | — |
 | [ADR-0077](ADR-0077-a-platform-policy-is-approved-dated-and-fingerprinted.md) | A platform policy is approved, dated and fingerprinted | Accepted | 1.1.0 | compiler, security | WS-028 | — |
 | [ADR-0078](ADR-0078-a-policys-history-is-checked-against-the-policy.md) | A policy's history is checked against the policy | Accepted | 1.0.0 | compiler, security | WS-028 | — |
-| [ADR-0079](ADR-0079-a-person-is-a-principal-for-authority-and-never-for-access.md) | A person is a principal for authority and never for access | Accepted | 1.0.0 | spec, compiler, security | WS-003, WS-016 | — |
+| [ADR-0079](ADR-0079-a-person-is-a-principal-for-authority-and-never-for-access.md) | A person is a principal for authority and never for access | Accepted | 1.1.0 | spec, compiler, security | WS-003, WS-016 | — |
 
 ## By status
 

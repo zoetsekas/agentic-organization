@@ -2,7 +2,7 @@
 id: ADR-0079
 title: A person is a principal for authority and never for access
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-21
 updated: 2026-09-21
 deciders: [Platform Architecture, Security Engineering]
@@ -160,4 +160,5 @@ and Northwind declares one finance director rather than six.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-21 | Implemented. A `people` block with `Person`, pairings by reference, mandates bounded by unit, separations and rule 5's four-eyes case over people, people in the holder search and in `PersonIR`. Two findings the new checks surfaced in the examples: three agents in `acme` were owned and approved by the same person, and Northwind's payables manager held both sides of `vendor_and_payment`. |
 | 1.0.0 | 2026-09-21 | Accepted. People are principals for authority and accountability, declared once, holding mandates and covered by separations — and never holders of capabilities or permissions. |

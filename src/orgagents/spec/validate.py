@@ -172,6 +172,86 @@ def validate_spec(
     for mission in spec.missions:
         check_mandate(mission.mandate, mission.id, "mission")
 
+    # -- people as principals (ADR-0079) -----------------------------------
+    # A person is a principal for authority and never for access. Declared
+    # once, so that one human is one principal — without which no separation
+    # check over people can work.
+    seen_people: set[str] = set()
+    for person in spec.people:
+        if person.id in seen_people:
+            err(
+                "duplicate_person",
+                f"person '{person.id}' is declared more than once. One human is "
+                "one principal, or the checks below are checking copies",
+                person.id,
+            )
+        seen_people.add(person.id)
+        claims = person.claims_access
+        if claims:
+            err(
+                "person_holds_access",
+                f"person '{person.id}' declares {', '.join(claims)}. A person's "
+                "access is not mediated here — they sign in under their "
+                "employer's IAM — so a permission this platform cannot enforce "
+                "is worse than none. Declare what they may *decide* as a "
+                "mandate instead (ADR-0079)",
+                person.id,
+            )
+        if person.unit and not any(t.id == person.unit for t in teams):
+            err(
+                "unknown_reference",
+                f"person '{person.id}' is attached to unit '{person.unit}', "
+                "which the organization does not contain",
+                person.id,
+            )
+        check_mandate(person.mandate, person.id, "person")
+
+    by_contact: dict[str, list[str]] = {}
+    for person in spec.people:
+        if person.contact:
+            by_contact.setdefault(person.contact.lower(), []).append(person.id)
+    for contact, ids in by_contact.items():
+        if len(ids) > 1:
+            err(
+                "duplicate_person",
+                f"{sorted(ids)} share the contact '{contact}', so one human is "
+                "declared as several principals. Separation of duties cannot "
+                "see past that (ADR-0079)",
+                sorted(ids)[0],
+            )
+
+    for agent in agents:
+        for human in agent.humans:
+            if human.person and not any(p.id == human.person for p in spec.people):
+                err(
+                    "unknown_reference",
+                    f"agent '{agent.id}' is paired with person "
+                    f"'{human.person}', which the spec does not declare",
+                    agent.id,
+                )
+
+    # Four-eyes, expressed where it can be checked (ADR-0079 rule 5). The
+    # person accountable for an agent cannot also be the one who approves what
+    # it raises; ADR-0072 rule 3 could only approximate this because a person
+    # was not an identity.
+    for agent in agents:
+        owners = {
+            h.principal() for h in agent.humans if HumanRole.OWNER in h.roles
+        }
+        for human in agent.humans:
+            if HumanRole.APPROVER not in human.roles:
+                continue
+            who = human.principal()
+            if who and who in owners:
+                err(
+                    "owner_approves_own_agent",
+                    f"agent '{agent.id}' is owned and approved by the same "
+                    f"person ('{who}'), so the approval is the raiser's own "
+                    "signature. Name an approver who does not own it "
+                    "(ADR-0079)",
+                    agent.id,
+                )
+
     # Separation of duties (ADR-0070). Checked over *effective agent*
     # mandates, because an agent is what acts: a team's mandate bounds its
     # members and is exercised by nobody.
@@ -180,7 +260,7 @@ def validate_spec(
         from ..mandates import resolve as _resolve_for_separation
 
         resolved = _resolve_for_separation(
-            spec.organization, declared_decisions
+            spec.organization, declared_decisions, spec.people
         )
         for rule in spec.separations:
             unknown = [d for d in rule.decisions if d not in declared_decisions]
@@ -198,6 +278,20 @@ def validate_spec(
                     "nothing can violate it",
                     rule.id,
                 )
+        for person_id, effective in resolved.people.items():
+            for rule in spec.separations:
+                held = sorted(set(rule.decisions) & effective.decisions)
+                if len(held) > 1:
+                    err(
+                        "separation_violated",
+                        f"person '{person_id}' holds {held}, which separation "
+                        f"'{rule.id}' forbids"
+                        + (f": {rule.reason}" if rule.reason else "")
+                        + ". People are the principal in most real frauds, so "
+                        "a rule that does not cover them does not cover the "
+                        "case it was written for (ADR-0079)",
+                        person_id,
+                    )
         for agent_id, effective in resolved.agents.items():
             for rule in spec.separations:
                 held = sorted(set(rule.decisions) & effective.decisions)
@@ -331,7 +425,7 @@ def validate_spec(
     if _mandates is None:
         from ..mandates import resolve as _rm
 
-        _mandates = _rm(spec.organization, declared_decisions)
+        _mandates = _rm(spec.organization, declared_decisions, spec.people)
 
     cap_by_id = {c.id: c for c in spec.capabilities}
     role_by_id = {r.id: r for r in spec.roles}
@@ -475,7 +569,9 @@ def validate_spec(
     # decide something it cannot is a spec somebody will act on.
     from ..mandates import resolve as _resolve_mandates
 
-    _map = resolved or _resolve_mandates(spec.organization, declared_decisions)
+    _map = resolved or _resolve_mandates(
+        spec.organization, declared_decisions, spec.people
+    )
     for unit_id, over in _map.overreach.items():
         # An error, not a warning (ADR-0071). The claim has no effect, so the
         # unit decides less than its author believes — and with the root now
@@ -572,9 +668,11 @@ def validate_spec(
                 "paired human(s) but none is the accountable owner", agent.id)
         elif len(owners) > 1:
             err("multiple_owners", f"agent '{agent.id}' has {len(owners)} owners "
-                f"({', '.join(h.contact for h in owners)}); exactly one is "
+                f"({', '.join(h.principal() for h in owners)}); exactly one is "
                 "accountable", agent.id)
-        contacts = [h.contact for h in agent.humans]
+        # Identity, not the contact field: a pairing that names a declared
+        # `person` carries no contact of its own (ADR-0079).
+        contacts = [h.principal() for h in agent.humans]
         if len(contacts) != len(set(contacts)):
             err("duplicate_pairing", f"agent '{agent.id}' pairs the same person "
                 "twice", agent.id)

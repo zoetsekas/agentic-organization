@@ -556,6 +556,30 @@ class PlatformPolicyStampIR(BaseModel):
         return f"{self.id}/{self.version}" if self.version else self.id
 
 
+class PersonIR(BaseModel):
+    """A human principal, resolved once (ADR-0079).
+
+    Authority only. A person holds no capability and no permission here, so
+    this structure has nowhere to put one: their access is their employer's to
+    mediate and a bound we cannot enforce would be worse than none (ADR-0073).
+
+    What is carried is a **claim** the design makes. The real delegation of
+    authority lives in the organization's own approval matrix, which this
+    platform does not read and nothing reconciles.
+    """
+
+    id: str
+    name: str = ""
+    contact: str = ""
+    position: str = ""
+    #: The org unit that bounds them.
+    unit: str = ""
+    mandate: MandateIR = Field(default_factory=MandateIR)
+    #: "agent_id:capacity" for every pairing, so a runtime routing an
+    #: escalation or an approval can find the person without the spec.
+    pairings: list[str] = Field(default_factory=list)
+
+
 class SystemIR(BaseModel):
     ir_version: str = IR_VERSION
     platform_policy: PlatformPolicyStampIR = Field(
@@ -568,6 +592,8 @@ class SystemIR(BaseModel):
     tenant: Optional[TenantIR] = None
     teams: list[TeamIR] = Field(default_factory=list)
     agents: list[AgentIR] = Field(default_factory=list)
+    # The humans this organization routes authority to (ADR-0079).
+    people: list[PersonIR] = Field(default_factory=list)
     data_classes: list[DataClass] = Field(default_factory=list)
     environments: list[EnvironmentClass] = Field(default_factory=list)
     capabilities: list[Capability] = Field(default_factory=list)
@@ -1024,8 +1050,28 @@ def build_ir(
     # permissions are: a runtime that re-derives it can disagree with the
     # artifact somebody reviewed (ADR-0065).
     mandates = resolve_mandates(
-        spec.organization, [d.id for d in spec.decisions]
+        spec.organization, [d.id for d in spec.decisions], spec.people
     )
+    people_ir = [
+        PersonIR(
+            id=person.id,
+            name=person.name,
+            contact=person.contact,
+            position=person.position,
+            unit=mandates.person_unit.get(person.id, ""),
+            mandate=_mandate_ir(mandates.for_person(person.id)),
+            pairings=sorted(
+                {
+                    f"{a.id}:{r.value}"
+                    for a in spec.agents()
+                    for h in a.humans
+                    if h.principal() == person.id
+                    for r in h.roles
+                }
+            ),
+        )
+        for person in spec.people
+    ]
     teams, index = _build_teams(spec, mandates)
     team_by_agent: dict[str, Team] = {
         m.id: t for t in spec.teams() for m in t.members
@@ -1277,6 +1323,7 @@ def build_ir(
         environment=spec.metadata.environment,
         teams=teams,
         agents=agents,
+        people=people_ir,
         data_classes=spec.data_classes,
         environments=spec.environments,
         capabilities=spec.capabilities,

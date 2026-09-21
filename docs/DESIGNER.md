@@ -318,6 +318,14 @@ Alongside it:
   (ADR-0073).
 * **Separation of duties** lists each rule with its reason, since a rule
   without one is a rule nobody defends when it is inconvenient.
+* **People** shows each declared person, what they may decide, the unit that
+  bounds them and the agents they are paired with (ADR-0079). There is
+  deliberately nothing here about what a person may *reach*: their access is
+  their employer's to mediate, and a panel showing a permission this platform
+  cannot enforce would be worse than an absent one. It is also where an
+  escalation past the top of the org chart is visible as landing somewhere —
+  capital allocation is a board's decision, and before people were principals
+  it landed on nobody.
 * **What the gate says** carries the authority and autonomy findings into the
   view where the thing they refuse is being edited, rather than leaving them in
   a validation log.
@@ -327,9 +335,9 @@ with a line saying so, not an error somebody has to dismiss.
 
 ### Editing authority
 
-The palette gained `decision` and `separation` kinds, `mandate` on teams and
-agents, and `autonomy` on an agent. Two of those needed real controls rather
-than a text box, because each carries a distinction a plain field would
+The palette gained `decision`, `separation` and `person` kinds, `mandate` on
+teams, agents and people, and `autonomy` on an agent. Two of those needed
+real controls rather than a text box, because each carries a distinction a plain field would
 flatten.
 
 **The mandate control asks its question outright.** A mandate that is *absent*

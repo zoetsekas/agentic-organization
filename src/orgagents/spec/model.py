@@ -1029,6 +1029,53 @@ class AgentMemoryOverride(BaseModel):
     may_promote: bool = True
 
 
+class Person(BaseModel):
+    """A named human, declared once, as a principal for authority (ADR-0079).
+
+    A person holds a **mandate** and never a capability or a permission. We do
+    not mediate a person's access — they sign into the ERP under their
+    employer's IAM — and a permission this platform cannot enforce is worse
+    than none (the rule ADR-0073 applies to controls, applied to principals).
+
+    `capabilities` and `permissions` exist here only so the validator can
+    refuse them with that reason. They are read by
+    `validate_spec`'s `person_holds_access` check and by nothing else; a
+    pydantic error would refuse the spec without explaining why.
+
+    What is declared here is a **claim**. The person's real delegation of
+    authority lives in their employer's approval matrix, which this platform
+    does not read and nothing reconciles. We declare it because this platform
+    is what routes the escalation.
+    """
+
+    id: str
+    name: str = ""
+    contact: str = ""
+    #: Job title, as prose. We do not model positions, so authority attaches
+    #: to the individual and rots when they change jobs (ADR-0079).
+    position: str = ""
+    #: The org unit whose mandate bounds theirs. Unset means the root's.
+    unit: str = ""
+    mandate: Optional["Mandate"] = None
+    notify_on: list[ChannelClass] = Field(default_factory=lambda: [ChannelClass.MAIL])
+    channel: Optional[str] = None
+    working_hours: Optional["WorkingHours"] = None
+
+    # -- refused on sight; see the class docstring -------------------------
+    capabilities: list[str] = Field(default_factory=list)
+    permissions: list[Permission] = Field(default_factory=list)
+
+    @property
+    def claims_access(self) -> list[str]:
+        """The access fields this person declares, for the refusal message."""
+        out = []
+        if self.capabilities:
+            out.append("capabilities")
+        if self.permissions:
+            out.append("permissions")
+        return out
+
+
 class HumanCounterpart(BaseModel):
     """A person paired with an agent, in a named capacity (ADR-0026).
 
@@ -1037,8 +1084,13 @@ class HumanCounterpart(BaseModel):
     one person can be the owner of several agents and a reviewer on others.
     """
 
-    name: str
-    contact: str
+    #: The `Person` this pairing is with (ADR-0079). One human is one
+    #: principal, so the pairing points at them rather than carrying a copy.
+    #: The inline fields below stay valid for a pairing that names nobody
+    #: declared, and a spec is free to migrate one agent at a time.
+    person: str = ""
+    name: str = ""
+    contact: str = ""
     role_title: str = ""
     roles: list[HumanRole] = Field(default_factory=lambda: [HumanRole.OWNER])
     approves: list[str] = Field(default_factory=list)   # capability/action ids
@@ -1050,6 +1102,16 @@ class HumanCounterpart(BaseModel):
     @property
     def is_owner(self) -> bool:
         return HumanRole.OWNER in self.roles
+
+    def principal(self) -> str:
+        """The identity this pairing resolves to (ADR-0079).
+
+        A declared `person` is the answer. Failing that we fall back to the
+        contact address, which is what made the defect visible: six invented
+        ids, one mailbox, one human. Falling back to the name would make two
+        people who share one worse than useless.
+        """
+        return self.person or self.contact or self.name
 
 
 class AgentSpec(BaseModel):
@@ -1176,6 +1238,7 @@ class Team(BaseModel):
 
 
 Team.model_rebuild()
+Person.model_rebuild()
 HumanCounterpart.model_rebuild()
 Memory.model_rebuild()
 ToolSpec.model_rebuild()
@@ -1410,6 +1473,8 @@ class SystemSpec(BaseModel):
     decisions: list[DecisionClass] = Field(default_factory=list)
     # Decisions no single agent may hold together (ADR-0070).
     separations: list[SeparationRule] = Field(default_factory=list)
+    # The humans in this organization, declared once (ADR-0079).
+    people: list[Person] = Field(default_factory=list)
     environments: list[EnvironmentClass] = Field(default_factory=list)
     roles: list[Role] = Field(default_factory=list)
     policies: list[PolicyRule] = Field(default_factory=list)
@@ -1462,6 +1527,9 @@ class SystemSpec(BaseModel):
 
     def environment(self, env_id: str) -> Optional[EnvironmentClass]:
         return next((e for e in self.environments if e.id == env_id), None)
+
+    def person(self, person_id: str) -> Optional[Person]:
+        return next((p for p in self.people if p.id == person_id), None)
 
     def capability(self, cap_id: str) -> Optional[Capability]:
         return next((c for c in self.capabilities if c.id == cap_id), None)

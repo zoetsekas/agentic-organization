@@ -368,10 +368,18 @@ organization:
             - name: Priya Raman
               contact: priya@acme.example
               role_title: Chief Financial Officer
-              roles: [owner, approver]
-              approves: [pii_reconciliation]
+              roles: [owner]
               channel: finance_approvals
               working_hours: {timezone: Europe/London, start_hour: 8, end_hour: 18}
+            # Four-eyes (ADR-0079 rule 5): the person accountable for an agent
+            # may not sign off what it raises, so the Controller approves here
+            # and the CFO approves on the Controller's agent.
+            - name: Ana Silva
+              contact: ana@acme.example
+              role_title: Controller
+              roles: [approver]
+              approves: [pii_reconciliation]
+              channel: finance_approvals
             - name: Dana Whitfield
               contact: dana@acme.example
               role_title: Chief Executive Officer
@@ -466,8 +474,7 @@ organization:
             - name: Ana Silva
               contact: ana@acme.example
               role_title: Controller
-              roles: [owner, approver]
-              approves: [pii_reconciliation]
+              roles: [owner]
               channel: finance_approvals
             - name: Priya Raman
               contact: priya@acme.example
@@ -526,13 +533,13 @@ organization:
                 - name: Samir Haddad
                   contact: samir@acme.example
                   role_title: Staff Engineer
-                  roles: [owner, approver]
-                  approves: [code_change]
+                  roles: [owner]
                   channel: change_review
                 - name: Iris Nakamura
                   contact: iris@acme.example
                   role_title: Chief Technology Officer
-                  roles: [escalation]
+                  roles: [approver, escalation]
+                  approves: [code_change]
                   channel: incidents
             - id: platform_engineer
               name: platform-engineer-agent

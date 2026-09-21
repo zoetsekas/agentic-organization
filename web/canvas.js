@@ -70,6 +70,7 @@ const COLLECTIONS = {
   workflow: "workflows",
   decision: "decisions",
   separation: "separations",
+  person: "people",
   guardrail: "guardrails",
   output_contract: "output_contracts",
   skill: "skills",

@@ -2,7 +2,7 @@
 id: WS-016
 title: Human pairing and accountability
 status: Active
-version: 1.2.0
+version: 1.3.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Product
@@ -48,7 +48,7 @@ the organization. Generate the person-centric view, because the question
 | M3 Registry pairing and person views | Phase 2 | Done |
 | M4 Directory integration to detect departed people | Phase 3 | Done |
 | M5 UI pairing editor | Phase 3 | Not started |
-| M5 People as principals for authority — declared once, holding mandates, covered by separations (ADR-0079) | Phase 6 | Not started |
+| M5 People as principals for authority — declared once, holding mandates, covered by separations (ADR-0079) | Phase 6 | Done |
 
 ## Dependencies
 WS-013 for the channels these people are reached on.
@@ -78,6 +78,7 @@ WS-013 for the channels these people are reached on.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.3.0 | 2026-09-21 | M5 done. A `people` block, mandates bounded by unit, separations and four-eyes over people, people in the holder search and the IR. Northwind's six copies of one director collapse to one. |
 | 1.2.0 | 2026-09-21 | M5: ADR-0079. One human is currently six principals in the worked finance example, which no check over people could survive. |
 | 1.1.0 | 2026-09-20 | M4 done: `Directory` protocol with static, null and injected adapters, pairing reconciliation, and departed/unknown findings (ADR-0044). |
 | 1.0.0 | 2026-09-20 | Opened. Model, validation, gates and registry views landed. |

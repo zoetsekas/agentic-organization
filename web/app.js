@@ -649,7 +649,35 @@ async function loadAuthority() {
   }
   renderAuthorityAgents(host, data);
   renderSeparations(sepHost, data);
+  renderPeople($("#authority-people"), data);
   renderAuthorityFindings(findHost, data);
+}
+
+/* People are principals for authority and never for access (ADR-0079), so
+   this reads their decisions and their pairings and has nowhere to show a
+   capability — which is the point, not an omission. */
+function renderPeople(host, data) {
+  if (!host) return;
+  const ids = Object.keys(data.people || {}).sort();
+  if (!ids.length) {
+    host.replaceChildren(el("p", { class: "hint" },
+      "None declared — so an escalation past the top of the org chart has "
+      + "nowhere to land."));
+    return;
+  }
+  host.replaceChildren(...ids.map((id) => {
+    const p = data.people[id];
+    return el("div", { class: "person" },
+      el("code", {}, id),
+      el("p", {}, [p.name, p.position].filter(Boolean).join(" — ")),
+      p.decisions.length
+        ? el("p", { class: "decides" }, p.decisions.join(" · "))
+        : el("p", { class: "hint" }, "Decides nothing here."),
+      p.unit ? el("p", { class: "hint" }, `Bounded by ${p.unit}`) : null,
+      p.pairings.length
+        ? el("p", { class: "hint" }, p.pairings.join(", "))
+        : null);
+  }));
 }
 
 function renderAuthorityAgents(host, data) {

@@ -127,6 +127,118 @@ separations:
       Internal Audit tests the close. An agent that can both close a period and
       settle the finding against it is auditing itself.
 
+# The people (ADR-0079). Declared once, so one human is one principal: this
+# block replaced six copies of the same finance director under six invented
+# ids, against which no separation check could have worked.
+#
+# A person holds a mandate and never a capability or a permission. Marcus does
+# not reach the ERP through this platform — he signs into it under Northwind's
+# own IAM — so declaring his access here would be a bound nothing enforces
+# (ADR-0073 applied to principals). What *is* declared is what he may decide,
+# because this platform is what routes the escalation to him.
+#
+# Every mandate below is a **claim**. Northwind's real delegation of authority
+# lives in a board-approved matrix this platform does not read, and nothing
+# reconciles the two.
+people:
+  - id: p_ceo
+    name: Ada Whitfield
+    contact: ada.whitfield@northwind.example
+    position: Chief Executive Officer
+    unit: northwind
+    # Capital allocation is the board's, and the chief executive carries it
+    # here. Without a person able to hold it, `approve_capex` was held by
+    # nobody and corporate development's work could not complete.
+    mandate:
+      decisions: [approve_capex, raise_debt, approve_budget]
+  - id: p_cfo
+    name: Marcus Oyelaran
+    contact: marcus.oyelaran@northwind.example
+    position: Chief Financial Officer
+    unit: finance
+    mandate:
+      decisions: [approve_invoice, close_period, publish_forecast,
+                  file_tax_return, approve_budget]
+  - id: p_controller
+    name: Reyna Castellanos
+    contact: reyna.castellanos@northwind.example
+    position: Financial Controller
+    unit: controllership
+    # Narrower than Controllership, deliberately: the unit bounds raising a
+    # payment and approving an invoice both, and one person holding both is
+    # what separation 'payment_control' exists to refuse.
+    mandate:
+      decisions: [approve_invoice, change_vendor_master, post_journal_entry,
+                  close_period]
+  - id: p_ap
+    name: Tomas Brandt
+    contact: tomas.brandt@northwind.example
+    position: Accounts Payable Manager
+    unit: controllership
+    # Raising a payment only. Vendor bank details sit with the Controller,
+    # who cannot raise a payment — separation 'vendor_and_payment', which
+    # this example got wrong until the check ran over people.
+    mandate:
+      decisions: [raise_payment]
+  - id: p_ar
+    name: Wen Li
+    contact: wen.li@northwind.example
+    position: Accounts Receivable Manager
+    unit: controllership
+    mandate:
+      decisions: [apply_receipt, write_off_receivable]
+  - id: p_reporting
+    name: Hana Svobodová
+    contact: hana.svobodova@northwind.example
+    position: Head of External Reporting
+    unit: controllership
+    mandate:
+      decisions: [close_period]
+  - id: p_treasurer
+    name: Priya Raghunathan
+    contact: priya.raghunathan@northwind.example
+    position: Group Treasurer
+    unit: treasury
+    mandate:
+      decisions: [release_payment, raise_debt]
+  - id: p_cash
+    name: Eero Lindqvist
+    contact: eero.lindqvist@northwind.example
+    position: Cash Manager
+    unit: treasury
+    mandate:
+      decisions: [place_investment]
+  - id: p_fpa
+    name: Sofia Marchetti
+    contact: sofia.marchetti@northwind.example
+    position: Director of Financial Planning and Analysis
+    unit: fpa
+    mandate:
+      decisions: [publish_forecast, revise_plan]
+  - id: p_tax
+    name: Idris Kovač
+    contact: idris.kovac@northwind.example
+    position: Head of Tax
+    unit: tax
+    mandate:
+      decisions: [file_tax_return]
+  - id: p_corpdev
+    name: Anneke Visser
+    contact: anneke.visser@northwind.example
+    position: Head of Corporate Development
+    unit: corporate_development
+    # Advises. Recommending a capital project is not approving one, which is
+    # why `approve_capex` sits with the chief executive and not here.
+    mandate:
+      decisions: [revise_plan]
+  - id: p_audit
+    name: Grace Nakamura
+    contact: grace.nakamura@northwind.example
+    position: Head of Internal Audit
+    unit: internal_audit
+    mandate:
+      decisions: [open_audit_finding]
+
 capabilities:
   - id: ledger_query
     description: Read-only queries against the general ledger.
@@ -438,10 +550,7 @@ organization:
       mandate:
         decisions: [publish_forecast]
       humans:
-        - user_id: u_ceo
-          name: Ada Whitfield
-          display_name: Ada Whitfield
-          contact: ada.whitfield@northwind.example
+        - person: p_ceo
           roles: [owner]
       environment: {environment: analysis}
   teams:
@@ -460,10 +569,7 @@ organization:
             decisions: [approve_invoice, close_period, publish_forecast,
                         file_tax_return]
           humans:
-            - user_id: u_cfo
-              name: Marcus Oyelaran
-              display_name: Marcus Oyelaran
-              contact: marcus.oyelaran@northwind.example
+            - person: p_cfo
               roles: [owner]
           environment: {environment: analysis}
       teams:
@@ -486,15 +592,9 @@ organization:
                 decisions: [approve_invoice, change_vendor_master,
                             post_journal_entry, close_period]
               humans:
-                - user_id: u_controller
-                  name: Reyna Castellanos
-                  display_name: Reyna Castellanos
-                  contact: reyna.castellanos@northwind.example
+                - person: p_controller
                   roles: [owner]
-                - user_id: u_cfo_appr
-                  name: Marcus Oyelaran
-                  display_name: Marcus Oyelaran
-                  contact: marcus.oyelaran@northwind.example
+                - person: p_cfo
                   roles: [approver]
               environment: {environment: analysis}
             - id: payables
@@ -504,10 +604,7 @@ organization:
               mandate:
                 decisions: [raise_payment]
               humans:
-                - user_id: u_ap
-                  name: Tomas Brandt
-                  display_name: Tomas Brandt
-                  contact: tomas.brandt@northwind.example
+                - person: p_ap
                   roles: [owner]
               environment: {environment: analysis}
             - id: receivables
@@ -517,15 +614,9 @@ organization:
               mandate:
                 decisions: [write_off_receivable, apply_receipt]
               humans:
-                - user_id: u_ar
-                  name: Wen Li
-                  display_name: Wen Li
-                  contact: wen.li@northwind.example
+                - person: p_ar
                   roles: [owner]
-                - user_id: u_ctrl_appr
-                  name: Reyna Castellanos
-                  display_name: Reyna Castellanos
-                  contact: reyna.castellanos@northwind.example
+                - person: p_controller
                   roles: [approver]
               environment: {environment: analysis}
         - id: reporting
@@ -542,15 +633,9 @@ organization:
               description: Assembles and issues the statutory statements.
               roles: [reporting_accountant]
               humans:
-                - user_id: u_report
-                  name: Hana Svobodová
-                  display_name: Hana Svobodová
-                  contact: hana.svobodova@northwind.example
+                - person: p_reporting
                   roles: [owner]
-                - user_id: u_cfo_appr2
-                  name: Marcus Oyelaran
-                  display_name: Marcus Oyelaran
-                  contact: marcus.oyelaran@northwind.example
+                - person: p_cfo
                   roles: [approver]
               environment: {environment: analysis}
         - id: treasury
@@ -567,15 +652,9 @@ organization:
               name: treasurer
               description: Holds the cash position and releases approved runs.
               humans:
-                - user_id: u_treas
-                  name: Priya Raghunathan
-                  display_name: Priya Raghunathan
-                  contact: priya.raghunathan@northwind.example
+                - person: p_treasurer
                   roles: [owner]
-                - user_id: u_cfo_appr3
-                  name: Marcus Oyelaran
-                  display_name: Marcus Oyelaran
-                  contact: marcus.oyelaran@northwind.example
+                - person: p_cfo
                   roles: [approver]
               environment: {environment: payments_isolated}
             - id: cash_manager
@@ -599,15 +678,9 @@ organization:
                     max_facility_gbp: 25000000
                     max_placement_gbp: 10000000
               humans:
-                - user_id: u_cash
-                  name: Eero Lindqvist
-                  display_name: Eero Lindqvist
-                  contact: eero.lindqvist@northwind.example
+                - person: p_cash
                   roles: [owner]
-                - user_id: u_treas_appr
-                  name: Priya Raghunathan
-                  display_name: Priya Raghunathan
-                  contact: priya.raghunathan@northwind.example
+                - person: p_treasurer
                   roles: [approver]
               environment: {environment: payments_isolated}
         - id: fpa
@@ -626,15 +699,9 @@ organization:
               mandate:
                 decisions: [publish_forecast, approve_budget, revise_plan]
               humans:
-                - user_id: u_fpa
-                  name: Sofia Marchetti
-                  display_name: Sofia Marchetti
-                  contact: sofia.marchetti@northwind.example
+                - person: p_fpa
                   roles: [owner]
-                - user_id: u_cfo_appr4
-                  name: Marcus Oyelaran
-                  display_name: Marcus Oyelaran
-                  contact: marcus.oyelaran@northwind.example
+                - person: p_cfo
                   roles: [approver]
               environment: {environment: analysis}
         - id: tax
@@ -650,15 +717,9 @@ organization:
               name: head-of-tax
               description: Prepares and files returns.
               humans:
-                - user_id: u_tax
-                  name: Idris Kovač
-                  display_name: Idris Kovač
-                  contact: idris.kovac@northwind.example
+                - person: p_tax
                   roles: [owner]
-                - user_id: u_cfo_appr5
-                  name: Marcus Oyelaran
-                  display_name: Marcus Oyelaran
-                  contact: marcus.oyelaran@northwind.example
+                - person: p_cfo
                   roles: [approver]
               environment: {environment: analysis}
     # Internal Audit reports to the audit committee, NOT to the CFO. Its
@@ -679,10 +740,7 @@ organization:
           description: Models acquisitions, disposals and capital projects.
           roles: [corporate_development]
           humans:
-            - user_id: u_corpdev
-              name: Anneke Visser
-              display_name: Anneke Visser
-              contact: anneke.visser@northwind.example
+            - person: p_corpdev
               roles: [owner]
           environment: {environment: analysis}
     - id: internal_audit
@@ -698,10 +756,7 @@ organization:
           name: head-of-internal-audit
           description: Tests the controls the finance function relies on.
           humans:
-            - user_id: u_audit
-              name: Grace Nakamura
-              display_name: Grace Nakamura
-              contact: grace.nakamura@northwind.example
+            - person: p_audit
               roles: [owner]
           environment: {environment: analysis}
 

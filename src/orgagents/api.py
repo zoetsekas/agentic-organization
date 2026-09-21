@@ -856,7 +856,7 @@ def create_app(
         raw, _binding, _version = _guard(designer.spec_at, user, system_id)
         spec = _designer_spec(raw)
         vocabulary = [d.id for d in spec.decisions]
-        resolved = resolve_mandates(spec.organization, vocabulary)
+        resolved = resolve_mandates(spec.organization, vocabulary, spec.people)
 
         caps = {c.id: c for c in spec.capabilities}
         roles = {r.id: r for r in spec.roles}
@@ -910,6 +910,8 @@ def create_app(
         codes = {
             "separation_violated", "mandate_overreach", "undeclared_decision",
             "root_leader_without_mandate", "advisory_mutates",
+            "person_holds_access", "duplicate_person",
+            "owner_approves_own_agent",
             "autonomous_without_decision", "autonomous_without_mandate",
             "supervised_without_approval", "human_decides_but_agent_holds",
             "autonomy_widened", "unenforceable_platform_control",
@@ -938,6 +940,31 @@ def create_app(
                 for tid, eff in resolved.teams.items()
             },
             "agents": agents,
+            # People are principals for authority (ADR-0079), so a reader can
+            # see where an escalation lands. No capabilities or permissions
+            # appear here because a person holds none — their access is their
+            # employer's to mediate, not ours.
+            "people": {
+                person.id: {
+                    "name": person.name or person.id,
+                    "position": person.position,
+                    "unit": resolved.person_unit.get(person.id, ""),
+                    "decisions": sorted(resolved.for_person(person.id).decisions),
+                    "line": list(resolved.for_person(person.id).line),
+                    "declared": sorted(person.mandate.decisions)
+                    if person.mandate else None,
+                    "pairings": sorted(
+                        {
+                            f"{a.id}:{r.value}"
+                            for a in spec.agents()
+                            for h in a.humans
+                            if h.principal() == person.id
+                            for r in h.roles
+                        }
+                    ),
+                }
+                for person in spec.people
+            },
             "findings": findings,
         }
 
@@ -1721,6 +1748,27 @@ PALETTE: dict[str, Any] = {
                       "required": True},
                      {"name": "reason", "type": "text",
                       "help": "a rule without one is a rule nobody defends"},
+                 ]},
+                {"kind": "person", "label": "Person", "icon": "☺",
+                 "help": "a human principal: what they may decide, never "
+                         "what they may reach. A person's access is their "
+                         "employer's to mediate (ADR-0079)",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "name", "type": "string"},
+                     {"name": "contact", "type": "string",
+                      "help": "two people sharing one is refused: one human "
+                              "is one principal"},
+                     {"name": "position", "type": "string",
+                      "help": "their job title, as prose. Authority attaches "
+                              "to the person, not the position, so it rots "
+                              "when they move"},
+                     {"name": "unit", "type": "string",
+                      "help": "the org unit that bounds their authority; "
+                              "empty sits them under the root"},
+                     {"name": "mandate", "type": "decisions",
+                      "help": "what they may decide. There is deliberately "
+                              "no field here for what they may reach"},
                  ]},
                 {"kind": "decision", "label": "Decision class", "icon": "§",
                  "help": "what a unit may decide, referenced by a mandate",

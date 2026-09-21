@@ -469,9 +469,10 @@ a refusal nobody can act on.
 
 This is ADR-0065, and it is built. Two limits are worth stating plainly. A
 mission's mandate is bounded by its **leader** rather than by the human
-sponsor the record names, because people do not carry mandates — the hybrid
-gap ADR-0064 holds open — and the leader's authority is already narrowed by
-the standing tree, so it is the stricter available bound. And the root is the
+sponsor the record names. People now carry mandates (ADR-0079), so that bound
+could move; the leader's authority is already narrowed by the standing tree
+and is the stricter of the two, so it stays until somebody has a case where it
+is wrong. And the root is the
 one place authority is granted rather than inherited, so a root declaring no
 mandate is a spec error: silence there would mean either "everything" or
 "nothing", and a reader could not tell which.
@@ -1571,15 +1572,16 @@ the design describes and the code does not do yet.
 | MCP transport | One mounting path | One policy path, two transports: `langchain-mcp-adapters` carries stdio/SSE/streamable-HTTP and its tools return through our resolution, so the allowlist and `read_only` still apply. The in-process backend remains for tests and the bundled relational server |
 | Runtime adapters | Deep agents, OpenAI SDK, LangGraph | **deep agents executes in CI** against the real framework with a scripted chat model — real graph, real middleware, real tool binding — so the seam and the limit translations are exercised. No live model has answered. The OpenAI adapter is asserted against the installed SDK but `Runner` has never run; LangGraph is still untouched |
 | Authority: mandates | A declared scope of decision per unit, narrowing down the tree, escalating when exceeded | **Built** (ADR-0065): declared on teams, agents and missions, resolved once at the phase gate, enforced at the tool boundary, escalating to the smallest unit that holds the decision. A capability declares which decision class it constitutes, and most declare none — so an organization gets the checks it wires up, and an unwired capability decides nothing |
-| Authority: the designer | Editing a mandate with reference pickers | The palette declares decision classes; the mandate editor itself is not built, so mandates are authored in the spec (ADR-0066) |
+| Authority: the designer | Editing a mandate with reference pickers | Built: the palette declares decision classes, people and separations, the mandate and posture controls ask their question outright, and the Authority view shows effective authority for agents and people with the gate's findings beside it |
 | Role responsibilities | A promise anchored to the capabilities that keep it | Free-form prose beside checkable capabilities and permissions; a role can promise what it cannot do |
 | Agent vocabulary | Kind derived from the tree, service reach encoded once | Five `AgentKind` values of which one changes behaviour, encoded twice; `SUBAGENT` vestigial since ADR-0027. ADR-0063 is accepted and **not yet implemented** |
-| Delegated human authority | Undecided | ADR-0064 holds the question open: an agent acts as itself or not at all (ADR-0057 rule 2), which leaves a personal assistant unable to act for the person it is paired to |
+| Authority: people | A person is a principal for what they may decide, and never for what they may reach | **Built** (ADR-0079): declared once so one human is one principal, holding a mandate bounded by their org unit, covered by separations, reachable by the holder search, and refused outright if they declare a capability or a permission. What is declared is a **claim** — the real delegation of authority lives in an approval matrix this platform does not read, and nothing reconciles the two. Authority also attaches to the individual rather than the position, so it rots when they change jobs |
+| Delegated human authority | Undecided | ADR-0064 holds the question open, now narrower: a decision only a board can take lands on a person (ADR-0079), but an agent still acts as itself or not at all (ADR-0057 rule 2), which leaves a personal assistant unable to act for the person it is paired to |
 | Guardrails | Pluggable judgement | Works; recall never measured against a labelled corpus |
 | Designer identity | OIDC with group mapping | Works, but the JWT verification is hand-rolled RSA because no crypto library imports here — replace before production |
 | Knowledge | Declared, governed sources | Not retrieved from; `freshness_seconds` is declared and unenforced |
 | Memory recall | Finds what is relevant | Token overlap, not embeddings: it misses paraphrases often enough to matter |
-| Human pairings | Named, accountable people | Named individuals that rot; nothing detects a departed employee still listed as an approver (WS-016 M4) |
+| Human pairings | Named, accountable people | Named individuals that rot; nothing detects a departed employee still listed as an approver (WS-016 M4). A pairing now references a declared person rather than copying one, so the same human cannot appear twice under two ids — which it did, six times, in the worked finance example |
 
 Rows that used to be here and are not any more, because the code caught up: the
 command centre (backend and front end are built, with operator roles disjoint
