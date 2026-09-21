@@ -74,6 +74,23 @@ decisions:
     title: File a return with a tax authority
   - id: open_audit_finding
     title: Open or close an audit finding
+  - id: write_off_receivable
+    title: Write off a receivable
+    description: Declare a customer debt uncollectable.
+  - id: publish_statements
+    title: Publish financial statements
+    description: Issue the balance sheet, P&L and cash flow outside the company.
+  - id: approve_budget
+    title: Approve a budget
+  - id: approve_capex
+    title: Approve capital expenditure
+    description: Commit to a long-term asset or project.
+  - id: raise_debt
+    title: Raise debt or change a credit line
+  - id: place_investment
+    title: Place surplus cash in an instrument
+  - id: execute_hedge
+    title: Execute a hedge against rate or currency exposure
 
 # Decisions no single agent may hold together (ADR-0070). This is the control
 # a finance function is built around, and it is the one thing hierarchical
@@ -148,6 +165,76 @@ capabilities:
     resource_class: tax_portal
     data_classes: [ledger]
     decision: file_tax_return
+    constraints: {requires_approval: true}
+  - id: cash_application
+    description: Apply an incoming receipt to an open invoice.
+    action: write
+    resource_class: receivables
+    data_classes: [ledger]
+  - id: receivable_writeoff
+    description: Write off an uncollectable debt.
+    action: write
+    resource_class: receivables
+    data_classes: [ledger]
+    decision: write_off_receivable
+    constraints: {requires_approval: true}
+  - id: statement_production
+    description: Assemble the statutory financial statements from the ledger.
+    action: write
+    resource_class: reporting
+    data_classes: [ledger]
+    decision: publish_statements
+    constraints: {requires_approval: true}
+  - id: cash_position
+    description: Read balances and forecast the daily cash position.
+    action: query
+    resource_class: banking
+    data_classes: [payments]
+    constraints: {allowed_operations: [select]}
+  - id: debt_facility
+    description: Draw, repay or amend a credit facility.
+    action: write
+    resource_class: banking
+    data_classes: [payments]
+    decision: raise_debt
+    constraints: {requires_approval: true}
+  - id: investment_placement
+    description: Place surplus cash in a money-market instrument.
+    action: write
+    resource_class: banking
+    data_classes: [payments]
+    decision: place_investment
+    constraints: {requires_approval: true}
+  - id: hedge_execution
+    description: Execute an FX or rate hedge against a declared exposure.
+    action: write
+    resource_class: banking
+    data_classes: [payments]
+    decision: execute_hedge
+    constraints: {requires_approval: true}
+  - id: budget_model
+    description: Set and revise department spending targets.
+    action: write
+    resource_class: planning
+    data_classes: [forecast]
+    decision: approve_budget
+  - id: scenario_model
+    description: Run a what-if against the plan. Analysis, not a decision.
+    action: write
+    resource_class: planning
+    data_classes: [forecast]
+  - id: deal_analysis
+    description: Model an acquisition or disposal. Advisory only.
+    action: query
+    resource_class: planning
+    data_classes: [forecast, ledger]
+    constraints: {max_rows: 5000, allowed_operations: [select]}
+  - id: capex_register
+    description: Record and track approved capital projects.
+    action: write
+    resource_class: planning
+    data_classes: [ledger]
+    decision: approve_capex
     constraints: {requires_approval: true}
   - id: controls_testing
     description: Sample transactions and test a control.
@@ -240,6 +327,54 @@ roles:
     permissions:
       - {action: write, resource_kind: capability, resource: tax_filing}
       - {action: query, resource_kind: capability, resource: ledger_query}
+  - id: receivables_clerk
+    title: Receivables clerk
+    responsibilities:
+      - Apply incoming receipts and chase overdue customer debt.
+    capabilities: [cash_application, receivable_writeoff, ledger_query]
+    permissions:
+      - {action: write, resource_kind: capability, resource: cash_application}
+      - {action: write, resource_kind: capability, resource: receivable_writeoff}
+      - {action: query, resource_kind: capability, resource: ledger_query}
+  - id: reporting_accountant
+    title: Reporting accountant
+    responsibilities:
+      - Assemble the statutory financial statements from the closed ledger.
+    capabilities: [statement_production, ledger_query]
+    permissions:
+      - {action: write, resource_kind: capability, resource: statement_production}
+      - {action: query, resource_kind: capability, resource: ledger_query}
+  - id: cash_manager
+    title: Cash manager
+    responsibilities:
+      - Hold the daily cash position and keep the company liquid.
+      - Place surplus cash and draw on facilities as the position requires.
+    capabilities: [cash_position, debt_facility, investment_placement, hedge_execution]
+    permissions:
+      - {action: query, resource_kind: capability, resource: cash_position}
+      - {action: write, resource_kind: capability, resource: debt_facility}
+      - {action: write, resource_kind: capability, resource: investment_placement}
+      - {action: write, resource_kind: capability, resource: hedge_execution}
+  - id: planning_analyst
+    title: Planning analyst
+    responsibilities:
+      - Set budgets, project revenue and cost, and model what-if scenarios.
+    capabilities: [budget_model, scenario_model, forecast_model, ledger_query]
+    permissions:
+      - {action: write, resource_kind: capability, resource: budget_model}
+      - {action: write, resource_kind: capability, resource: scenario_model}
+      - {action: write, resource_kind: capability, resource: forecast_model}
+      - {action: query, resource_kind: capability, resource: ledger_query}
+  - id: corporate_development
+    title: Corporate development
+    responsibilities:
+      - Analyse acquisitions, disposals and capital projects.
+      - Recommend; the decision belongs to the board.
+    capabilities: [deal_analysis, capex_register, scenario_model]
+    permissions:
+      - {action: query, resource_kind: capability, resource: deal_analysis}
+      - {action: write, resource_kind: capability, resource: capex_register}
+      - {action: write, resource_kind: capability, resource: scenario_model}
   - id: internal_audit_team
     title: Internal audit
     kind: team
@@ -357,14 +492,34 @@ organization:
             - id: receivables
               name: accounts-receivable
               description: Chases and applies customer receipts.
-              roles: [payables_clerk]
+              roles: [receivables_clerk]
               mandate:
-                decisions: []
+                decisions: [write_off_receivable]
               humans:
                 - user_id: u_ar
                   name: Wen Li
                   display_name: Wen Li
                   contact: wen.li@northwind.example
+                  roles: [owner]
+              environment: {environment: analysis}
+        - id: reporting
+          name: Financial Reporting
+          description: Turns the closed ledger into statements.
+          mandate:
+            decisions: [publish_statements]
+          leader: reporting_lead
+          groups: [controllership]
+          roles: [controllership_team]
+          members:
+            - id: reporting_lead
+              name: reporting-accountant
+              description: Assembles and issues the statutory statements.
+              roles: [reporting_accountant]
+              humans:
+                - user_id: u_report
+                  name: Hana Svobodová
+                  display_name: Hana Svobodová
+                  contact: hana.svobodova@northwind.example
                   roles: [owner]
               environment: {environment: analysis}
         - id: treasury
@@ -386,6 +541,23 @@ organization:
                   contact: priya.raghunathan@northwind.example
                   roles: [owner]
               environment: {environment: payments_isolated}
+            - id: cash_manager
+              name: cash-manager
+              description: Holds the daily position; draws, places and hedges.
+              roles: [cash_manager]
+              mandate:
+                decisions: [raise_debt, place_investment, execute_hedge]
+                # Declared, and — as it turns out — never evaluated.
+                conditions:
+                  max_facility_gbp: 5000000
+                  max_placement_gbp: 2000000
+              humans:
+                - user_id: u_cash
+                  name: Eero Lindqvist
+                  display_name: Eero Lindqvist
+                  contact: eero.lindqvist@northwind.example
+                  roles: [owner]
+              environment: {environment: payments_isolated}
         - id: fpa
           name: Financial Planning and Analysis
           description: The forward look.
@@ -397,7 +569,10 @@ organization:
           members:
             - id: fpa_lead
               name: head-of-fpa
-              description: Owns the plan and the variance story.
+              description: Owns the plan, the budget and the variance story.
+              roles: [planning_analyst]
+              mandate:
+                decisions: [publish_forecast, approve_budget]
               humans:
                 - user_id: u_fpa
                   name: Sofia Marchetti
@@ -427,6 +602,27 @@ organization:
     # Internal Audit reports to the audit committee, NOT to the CFO. Its
     # independence is the control; putting it under Finance would make the
     # function test itself.
+    - id: corporate_development
+      name: Corporate Development
+      description: Analyses capital projects and transactions. Advises; does not decide.
+      # Declaring nothing would INHERIT the root's mandate — every decision in
+      # the company. "Recommends only" has to be written as an empty set.
+      mandate:
+        decisions: []
+      leader: corpdev_lead
+      groups: [finance]
+      members:
+        - id: corpdev_lead
+          name: head-of-corporate-development
+          description: Models acquisitions, disposals and capital projects.
+          roles: [corporate_development]
+          humans:
+            - user_id: u_corpdev
+              name: Anneke Visser
+              display_name: Anneke Visser
+              contact: anneke.visser@northwind.example
+              roles: [owner]
+          environment: {environment: analysis}
     - id: internal_audit
       name: Internal Audit
       description: Independent assurance over the finance function's controls.
