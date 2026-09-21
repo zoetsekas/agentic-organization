@@ -276,9 +276,7 @@ round-trip stability tests (WS-009 M4); per-system access within a workspace
    document. What remains of it is form coverage, not architecture.
 2. ~~**Surface identity, workspace and audit.**~~ Done, with the two caveats
    above (no lock heartbeat; a refused audit *read* leaves no entry).
-3. **Add the publish path.** Validate → compile → request deployment, with the
-   phase gate's output shown as the reason when it refuses. This is the one
-   thing the platform exists to do and the one thing the UI cannot do.
+3. ~~**Add the publish path.**~~ Done. See below.
 4. ~~**Show the two review surfaces** — the evaluation gate and the IR diff —
    on the system being edited.~~ Done: the consequence rail fetches both for
    the open design and ranks changes by consequence.
@@ -290,6 +288,46 @@ round-trip stability tests (WS-009 M4); per-system access within a workspace
    exception is a statement rather than a silence.
 6. **Then presence, auto-layout and form coverage**, which are experience
    rather than correctness.
+
+## Publishing
+
+Two routes and one bar, and the split between them is the design.
+
+`POST .../preflight` validates and compiles into a temporary directory that is
+discarded, so it answers *would this be refused* and changes nothing. It
+applies the fabric's platform policy when one is configured, because a
+preflight that passes and a real compile that refuses is worse than no
+preflight — the second time that happens, nobody reads the first one again.
+The answer names the stage it stopped at (`spec`, `validate`, `binding`,
+`compile`), which matters: "this is not a spec yet" and "the gate refuses this"
+are different problems for the person reading it.
+
+`POST .../publish` requires `system.publish`, which `EDITOR` does not hold.
+Deciding what an organization of agents should be and deciding to switch it on
+are different acts. It re-runs the preflight, and on a refusal returns 422 with
+the gate's own findings — **the refusal is the deliverable**, so the bar renders
+the findings rather than a status code. On success it creates a deployment in
+`requested` and returns it.
+
+**The designer requests; it does not deploy.** The fabric compiles for the
+tenant under its own authority and moves the deployment on (ADR-0049). Two
+reasons, both load-bearing: the tenant is assigned by the fabric and never
+named by a design, because a design that could name its own tenant could widen
+its own boundary (ADR-0050); and the platform policy is the fabric's to apply
+(ADR-0076). The bar says so on its face rather than leaving it in a record.
+
+A publish names a **revision**, so an unsaved draft cannot be published: the
+artifact a reviewer looked at and the artifact the fabric builds have to be the
+same document, and the version number is what makes that checkable afterwards.
+
+Both outcomes are audited. A refused publish is the interesting one — it leaves
+no revision, no lock and no deployment, so the audit entry is the only trace
+that somebody asked and the gate said no.
+
+One honest gap: the tenant is typed, not chosen from a list. Listing tenants is
+a fabric read and designer identity is disjoint from operator identity
+(ADR-0049), so the designer cannot offer a picker without holding fabric
+authority it should not have. An unknown tenant is a 404 from the route.
 
 ## Coverage, measured
 

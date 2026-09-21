@@ -560,6 +560,52 @@ class DesignerService:
             raise DesignerError(f"no revision {version} of '{system_id}'")
         return revision.spec, revision.binding, revision.version
 
+    def publish_candidate(
+        self, principal: Principal, system_id: str
+    ) -> tuple[dict[str, Any], Optional[dict[str, Any]], int, str]:
+        """The stored design somebody is asking to deploy, behind PUBLISH.
+
+        The **stored** one, deliberately. A publish names a revision, so an
+        unsaved draft cannot be published: the artifact a reviewer looked at
+        and the artifact the fabric builds have to be the same document, and
+        the version number is what makes that checkable afterwards.
+
+        Publishing is separated from editing on purpose. `EDITOR` may change a
+        design all day and may not ask for it to be run; `ADMIN` and `OWNER`
+        hold `system.publish`. Deciding what an organization of agents should
+        be and deciding to switch it on are different acts.
+        """
+        record = self._system(system_id)
+        self._require(
+            self.repository.get_workspace(record.workspace_id), principal,
+            PUBLISH, AuditAction.SYSTEM_PUBLISH, system_id=system_id,
+        )
+        return record.spec, record.binding, record.version, record.name
+
+    def record_publish(
+        self, principal: Principal, system_id: str, *,
+        outcome: AuditOutcome, **fields: Any
+    ) -> None:
+        """Write down what a publish did, refusals included.
+
+        A refused publish is the interesting one: it is the phase gate saying
+        no to a named person about a named design, and nothing else in the
+        system would keep that.
+        """
+        record = self.repository.get_system(system_id)
+        # The publish specifics — which tenant, which target, which deployment
+        # — are not `AuditEvent` fields and should not become any: `detail` is
+        # where an action's own particulars go, so the event schema does not
+        # grow a column per caller.
+        version = fields.pop("version", None)
+        reason = str(fields.pop("reason", ""))
+        self.audit.record(
+            AuditAction.SYSTEM_PUBLISH, principal, outcome=outcome,
+            workspace_id=record.workspace_id if record else "",
+            system_id=system_id, version_after=version, reason=reason,
+            detail={k: v for k, v in fields.items() if v not in (None, "")},
+        )
+
     def review_pair(
         self, principal: Principal, system_id: str, *,
         left: Optional[int] = None, right: Optional[int] = None,

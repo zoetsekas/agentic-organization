@@ -582,6 +582,7 @@ def create_app(
         UserRole,
         build_repository,
     )
+    from .designer.audit import AuditOutcome as DesignerAuditOutcome
     from .designer.auth import AuthError, Authenticator, verifier_from_settings
     from .designer.models import DesignerSettings
 
@@ -1047,6 +1048,193 @@ def create_app(
                  "message": f.message}
                 for f in validate_spec(spec) if f.code in codes
             ],
+        }
+
+    def _active_platform_policy():
+        """The fabric's house rules, if this installation has any (ADR-0076).
+
+        Read from the environment because the policy belongs to the fabric and
+        not to a design: a designer who could choose the policy their design is
+        judged against is not being judged. `None` means no policy is
+        configured, which is a real state and not an error — but a preflight
+        that ran without one while the real compile applies one would be
+        flattering, so the answer says which was used.
+        """
+        path = os.environ.get("ORGAGENTS_PLATFORM_POLICY", "")
+        if not path:
+            return None
+        try:
+            from .platform_policy import load as _load_policy
+
+            return _load_policy(path)
+        except Exception:
+            # A broken policy file must not silently become "no policy".
+            raise HTTPException(
+                503,
+                "the configured platform policy could not be read, so no "
+                "design can be judged against it",
+            )
+
+    def _preflight(spec_dict: dict, binding_dict: Optional[dict],
+                   target: str) -> dict:
+        """Would this design compile, and what would it produce?
+
+        The phase gate, run without deploying anything (ADR-0005). It compiles
+        into a temporary directory that is discarded: a preflight that wrote
+        artifacts somewhere would be a deployment nobody asked for.
+
+        It applies the fabric's platform policy when there is one, because a
+        preflight that passes and a real compile that refuses is worse than no
+        preflight at all — the second time that happens, nobody reads the
+        first one again (ADR-0076).
+        """
+        import tempfile
+
+        from .compiler.base import register_builtin_targets
+        from .compiler.engine import CompileError, compile_system
+        from .spec.model import SystemSpec
+        from .spec.validate import validate_spec
+
+        register_builtin_targets()
+        policy = _active_platform_policy()
+        try:
+            spec = SystemSpec.model_validate(spec_dict)
+        except Exception as exc:                  # a draft mid-edit
+            return {"ok": False, "stage": "spec",
+                    "refusals": [{"severity": "error", "code": "spec_invalid",
+                                  "where": "", "message": str(exc)}],
+                    "warnings": [], "files": [], "target": target}
+
+        findings = validate_spec(spec, platform_policy=policy)
+        refusals = [f for f in findings if f.severity == "error"]
+        warnings = [f for f in findings if f.severity == "warning"]
+        view = lambda f: {"severity": f.severity, "code": f.code,
+                          "where": f.where, "message": f.message}
+        if refusals:
+            return {"ok": False, "stage": "validate",
+                    "refusals": [view(f) for f in refusals],
+                    "warnings": [view(f) for f in warnings],
+                    "files": [], "target": target}
+
+        binding = None
+        if binding_dict:
+            from .spec.binding import Binding
+
+            try:
+                binding = Binding.model_validate(binding_dict)
+            except Exception as exc:
+                return {"ok": False, "stage": "binding",
+                        "refusals": [{"severity": "error",
+                                      "code": "binding_invalid",
+                                      "where": "", "message": str(exc)}],
+                        "warnings": [view(f) for f in warnings],
+                        "files": [], "target": target}
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                result = compile_system(
+                    spec, targets=[target], out_dir=Path(tmp), binding=binding,
+                    platform_policy=policy,
+                )[0]
+                files = sorted(f.path for f in result.files)
+        except CompileError as exc:
+            return {"ok": False, "stage": "compile",
+                    "refusals": [{"severity": "error", "code": "compile_failed",
+                                  "where": target, "message": str(exc)}],
+                    "warnings": [view(f) for f in warnings],
+                    "files": [], "target": target}
+        return {"ok": True, "stage": "compiled", "refusals": [],
+                "warnings": [view(f) for f in warnings],
+                "files": files, "target": target,
+                "platform_policy": policy.stamp if policy else None}
+
+    @app.post("/api/designer/systems/{system_id}/preflight")
+    def designer_preflight(system_id: str, body: Optional[dict] = None,
+                           user: Principal = Depends(principal)) -> dict:
+        """Validate and compile the stored design, deploying nothing.
+
+        A reviewer's act, not an editor's: it answers "would this be refused"
+        before anybody asks for it to be run, which is the question the UI
+        could not put to the platform at all.
+        """
+        target = (body or {}).get("target", "local")
+        spec_dict, binding_dict, version = _guard(
+            designer.spec_at, user, system_id
+        )
+        return {**_preflight(spec_dict, binding_dict, target),
+                "version": version}
+
+    @app.post("/api/designer/systems/{system_id}/publish")
+    def designer_publish(system_id: str, body: Optional[dict] = None,
+                         user: Principal = Depends(principal)) -> dict:
+        """Ask the fabric to run a design, or say exactly why it refused.
+
+        The designer **requests**; it does not deploy. The deployment is
+        created in `requested`, and the fabric compiles it for real and moves
+        it on under its own authority (ADR-0049). Two reasons, both load
+        bearing: the tenant is assigned by the fabric and never named by a
+        design, because a design that could name its own tenant could widen
+        its own boundary (ADR-0050); and the platform policy is the fabric's
+        to apply.
+
+        So what happens here is a preflight and a request. A refusal is
+        returned as the reason with the gate's own findings, and is written to
+        the audit log — a refused publish is the phase gate saying no to a
+        named person about a named design, and nothing else would keep that.
+        """
+        payload = body or {}
+        tenant_id = str(payload.get("tenant_id") or "").strip()
+        target = payload.get("target", "local")
+        spec_dict, binding_dict, version, name = _guard(
+            designer.publish_candidate, user, system_id
+        )
+        if not tenant_id:
+            designer.record_publish(
+                user, system_id, outcome=DesignerAuditOutcome.FAILED,
+                reason="no tenant named", version=version,
+            )
+            raise HTTPException(422, {
+                "error": "a publish names the tenant it is for",
+                "reason": "The tenant is assigned by the fabric and never by "
+                          "a design (ADR-0050), so it has to be named here.",
+            })
+        if fabric_tenants.get(tenant_id) is None:
+            designer.record_publish(
+                user, system_id, outcome=DesignerAuditOutcome.FAILED,
+                reason=f"unknown tenant '{tenant_id}'", version=version,
+            )
+            raise HTTPException(404, f"no tenant '{tenant_id}'")
+
+        verdict = _preflight(spec_dict, binding_dict, target)
+        if not verdict["ok"]:
+            designer.record_publish(
+                user, system_id, outcome=DesignerAuditOutcome.DENIED,
+                reason=f"refused at {verdict['stage']}", version=version,
+                tenant_id=tenant_id,
+            )
+            raise HTTPException(422, {
+                "error": f"this design is refused at the {verdict['stage']} "
+                         "stage and was not requested",
+                "verdict": verdict,
+            })
+
+        deployment = fabric_deployments.request(
+            tenant_id, name=name or system_id, system_id=system_id,
+            revision=str(version), target=target,
+        )
+        designer.record_publish(
+            user, system_id, outcome=DesignerAuditOutcome.SUCCESS,
+            version=version, tenant_id=tenant_id,
+            deployment_id=deployment.id, target=target,
+        )
+        return {
+            "deployment": _deployment_view(deployment),
+            "verdict": verdict,
+            "version": version,
+            "note": (
+                "Requested, not deployed. The fabric compiles this for the "
+                "tenant under its own authority and moves it on from "
+                "`requested`; nothing has been built yet."
+            ),
         }
 
     @app.get("/api/designer/systems/{system_id}/diff")

@@ -51,9 +51,45 @@
   <span class="sep"></span>
   <button id="btn-lock" title="Lock this design while you edit">Lock</button>
   <button id="btn-save" class="primary">Save</button>
+  <button id="btn-publish" title="Validate, compile and ask the fabric to run this design">Publish…</button>
   <button id="btn-revisions">History</button>
   <button id="btn-members">People</button>
   <button id="btn-designer-settings">Settings</button>
+</div>
+
+<!-- The publish path (WS-032 M9). It sits above every view because it acts on
+     the whole design, and its verdict is the point: a refusal is what the
+     phase gate says, rendered where the person who can fix it is standing. -->
+<div id="publish-bar" class="publish-bar" hidden>
+  <div class="publish-head">
+    <strong>Publish</strong>
+    <span id="publish-verdict" class="badge"></span>
+    <span class="grow"></span>
+    <button id="btn-publish-close">Close</button>
+  </div>
+  <p class="hint" id="publish-summary">Checking…</p>
+  <div id="publish-findings" class="conflict-list"></div>
+  <div class="actions">
+    <label class="inline">Tenant
+      <input id="publish-tenant" size="16"
+             title="The tenant this deployment is for"
+             placeholder="assigned by the fabric" />
+    </label>
+    <label class="inline">Target
+      <select id="publish-target" title="Which target to compile for">
+        <option value="local">local</option>
+        <option value="terraform:gcp">terraform:gcp</option>
+        <option value="terraform:aws">terraform:aws</option>
+        <option value="terraform:azure">terraform:azure</option>
+        <option value="maf">maf</option>
+      </select>
+    </label>
+    <button id="btn-publish-recheck">Re-check</button>
+    <button id="btn-publish-request" class="primary" disabled>Request deployment</button>
+  </div>
+  <p class="hint">The designer requests; the fabric deploys. A request is
+    created in <code>requested</code> and nothing is built until the fabric
+    compiles it for the tenant under its own authority.</p>
 </div>
 
 <main>

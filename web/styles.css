@@ -642,11 +642,26 @@ legend {
 .trace-node { border-left: 2px solid var(--line); padding-left: var(--s4); margin: var(--s2) 0; }
 .trace-node .t { font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--ink-dim); }
 
-.conflict-bar {
+.conflict-bar, .publish-bar {
   border: 1px solid var(--amber-line); background: var(--amber-ground);
   border-radius: var(--r-md); padding: var(--s5); margin-bottom: var(--s5);
 }
 .conflict-list { max-height: 200px; overflow: auto; margin: var(--s3) 0; }
+/* The publish bar borrows the conflict bar's amber ground: both are "stop and
+   read this". It turns moss only when the gate has actually said yes. */
+.publish-bar { margin: 0 var(--s6) var(--s5); }
+.publish-bar[data-ok="true"] {
+  border-color: var(--moss-line); background: var(--moss-ground);
+}
+.publish-head { display: flex; align-items: center; gap: var(--s3); }
+.publish-head .grow { flex: 1; }
+.publish-row {
+  display: flex; gap: var(--s3); align-items: baseline; flex-wrap: wrap;
+  border-bottom: 1px solid var(--line); padding: var(--s2) 0;
+  font-size: var(--t-small);
+}
+.publish-row[data-severity="error"] code { color: var(--clay-ink); }
+.publish-row[data-severity="warning"] code { color: var(--amber-ink); }
 .conflict-row {
   display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap;
   border-bottom: 1px solid var(--line); padding: var(--s2) 0; font-size: var(--t-small);

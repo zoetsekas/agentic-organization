@@ -547,6 +547,85 @@ function derivedEdges() {
   return out;
 }
 
+/* ------------------------------------------------------------ publishing */
+
+function publishTarget() {
+  return $("#publish-target")?.value || "local";
+}
+
+async function openPublish() {
+  const bar = $("#publish-bar");
+  if (!bar) return;
+  if (!canvas.systemId) return alert("Open an organisation first.");
+  bar.hidden = false;
+  bar.removeAttribute("data-ok");
+  $("#publish-verdict").textContent = "checking";
+  $("#publish-summary").textContent = "Validating and compiling…";
+  $("#publish-findings").replaceChildren();
+  $("#btn-publish-request").disabled = true;
+  try {
+    const verdict = await dapi(`/systems/${canvas.systemId}/preflight`, {
+      method: "POST", body: JSON.stringify({ target: publishTarget() }),
+    });
+    renderPublishVerdict(verdict);
+  } catch (err) {
+    $("#publish-verdict").textContent = "error";
+    $("#publish-summary").textContent = err.message;
+  }
+}
+
+function renderPublishVerdict(verdict) {
+  const bar = $("#publish-bar");
+  bar.dataset.ok = String(!!verdict.ok);
+  $("#publish-verdict").textContent = verdict.ok ? "would compile" : "refused";
+  /* A refusal names the stage, because "it does not compile" and "the gate
+     refuses it" are different problems for the person reading this. */
+  $("#publish-summary").textContent = verdict.ok
+    ? `${verdict.files.length} file(s) would be generated for `
+      + `${verdict.target}${verdict.platform_policy
+          ? ` under platform policy ${verdict.platform_policy}` : ""}.`
+      + ` ${verdict.warnings.length} warning(s) were not blocking.`
+    : `Refused at the ${verdict.stage} stage. Nothing was requested.`;
+  const rows = [...verdict.refusals, ...verdict.warnings].map((f) =>
+    el("div", { class: "publish-row", "data-severity": f.severity },
+      el("code", {}, f.where || f.code),
+      el("span", {}, f.message)));
+  $("#publish-findings").replaceChildren(...rows);
+  /* Publishing needs the permission as well as a clean verdict: an editor may
+     change a design all day and may not switch it on. */
+  $("#btn-publish-request").disabled =
+    !verdict.ok || !canvas.permissions.includes("system.publish");
+}
+
+async function requestDeployment() {
+  const tenant = $("#publish-tenant").value.trim();
+  if (!tenant) {
+    return alert("Name the tenant. It is assigned by the fabric, so the "
+      + "designer cannot choose one for you.");
+  }
+  try {
+    const result = await dapi(`/systems/${canvas.systemId}/publish`, {
+      method: "POST",
+      body: JSON.stringify({ tenant_id: tenant, target: publishTarget() }),
+    });
+    $("#publish-verdict").textContent = "requested";
+    $("#publish-summary").textContent =
+      `${result.deployment.id} is ${result.deployment.state} for `
+      + `${result.deployment.tenant_id}, from revision `
+      + `${result.deployment.revision}. ${result.note}`;
+    $("#btn-publish-request").disabled = true;
+    setStatus("deployment requested");
+  } catch (err) {
+    /* The refusal is the deliverable: show the gate's findings rather than a
+       status code. */
+    const detail = err.detail;
+    if (detail?.verdict) return renderPublishVerdict(detail.verdict);
+    $("#publish-verdict").textContent = "refused";
+    $("#publish-summary").textContent =
+      detail?.reason || (typeof detail === "string" ? detail : err.message);
+  }
+}
+
 /* dragging an existing node */
 function startDrag(event, node, box) {
   if (lockOn(node.id)) return;
@@ -1566,6 +1645,19 @@ function wireCanvas() {
       } else alert(err.message);
     }
   });
+  /* The publish path (WS-032 M9).
+
+     Two steps on purpose. The preflight answers "would this be refused" and
+     changes nothing; the request creates a deployment in `requested` that the
+     fabric picks up. The designer never deploys — the tenant is the fabric's
+     to assign and the platform policy is the fabric's to apply. */
+  $("#btn-publish").addEventListener("click", () => openPublish());
+  $("#btn-publish-close").addEventListener("click", () => {
+    $("#publish-bar").hidden = true;
+  });
+  $("#btn-publish-recheck").addEventListener("click", () => openPublish());
+  $("#btn-publish-request").addEventListener("click", () => requestDeployment());
+
   $("#btn-revisions").addEventListener("click", async () => {
     const revisions = await dapi(`/systems/${canvas.systemId}/revisions`);
     const choice = window.prompt(
