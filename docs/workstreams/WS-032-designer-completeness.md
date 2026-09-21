@@ -2,7 +2,7 @@
 id: WS-032
 title: Designer completeness — authoring the whole spec
 status: Active
-version: 1.6.0
+version: 1.7.0
 date: 2026-09-21
 updated: 2026-09-21
 owner: Product
@@ -100,6 +100,7 @@ in `docs/DESIGNER.md` no longer lists coverage as the largest gap.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.7.0 | 2026-09-21 | `scripts/concurrency_check.py`: two browser contexts through the locks and the three-way merge, seventeen checks, all passing with nothing to fix. The lock expiry DESIGNER.md claimed is now verified. |
 | 1.6.0 | 2026-09-21 | M7 done, by finding what it was for: a palette kind added after `CanvasNode.kind`'s enum was written could be dropped and edited and then lost on save with a 500. `kind` is open now and a check places every palette kind and saves them. `scripts/interaction_check.py` drives drag-and-drop, the forms and the save in a browser. |
 | 1.5.0 | 2026-09-21 | M9 done. `preflight` validates and compiles into a discarded directory under the fabric's platform policy; `publish` requires `system.publish`, names a revision, and creates a deployment in `requested` for the fabric to compile. The refusal is the deliverable and the bar renders the gate's findings. |
 | 1.4.0 | 2026-09-21 | M8 done. Placements render in the Authority view and their findings merge into one gate list. The category is now checked rather than reviewed: a test fails on any served designer route the bundle does not reference, with `lock/heartbeat` allowlisted and its reason named. |

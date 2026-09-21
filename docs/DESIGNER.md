@@ -422,13 +422,59 @@ they are not re-reported: the inspector's controls carry no `name` attribute
 person addresses them), and `renderAutonomy` correctly shows a hint rather than
 a control for an agent that holds no declared capability.
 
+## Two people on one design
+
+`scripts/concurrency_check.py` runs two browser contexts — Ana owns the
+workspace, Ben may edit and may not break a lock — and puts them in each
+other's way. Seventeen checks, and **all of them passed with nothing to fix.**
+That is worth stating plainly after two rounds that each found defects: this
+part of the system is correct, and it is the part that had never been run.
+
+What the run established:
+
+**The lock is enforced twice, and the first one is the useful one.** The
+non-holder's inspector goes fully read-only — 17 controls, 0 enabled — so they
+cannot do work they are about to lose. The server refuses too, with a 409 that
+names the holder and the expiry. Belt and braces, in the right order.
+
+**An abandoned lock really does expire.** The claim above that "an abandoned
+tab unfreezes itself" had never been tested, and with no heartbeat the TTL is
+the only thing between a closed laptop and a design nobody can edit. Ana takes
+a lock with the TTL set to a second, Ben waits it out and takes it.
+
+**The three-way merge works on real edits.** Two people a version apart editing
+*different* agents merge silently. Editing the *same* field raises a conflict
+naming the full path —
+`organization.teams[id=finance].teams[id=controllership].members[id=controller].description`
+— with both values shown, and taking theirs and applying saves the chosen one.
+The server kept exactly what was chosen.
+
+**`lock.break` is held by the owner and not the editor**, which is the
+permission table doing its job rather than the UI hiding a button.
+
+### The harness lied twice before it told the truth
+
+Worth recording, because the first run produced a headline that was false and
+alarming. `#user-input` is markup with a default value, so reloading a page
+resets it — and a page reloaded without re-asserting its identity is silently
+acting as somebody else. The first run therefore "found" that a lock does not
+lock, that the badge misattributes the holder, and that an editor may break a
+lock. All three were one harness bug. `become()` now re-asserts the identity
+after every reload and **fails the run** if the page disagrees, because a
+concurrency test that quietly collapses into one user proves nothing and
+claims everything.
+
+The second false start: the script provoked a 409 on purpose and then failed
+itself on the browser's console log of it. A deliberate refusal is the check
+passing, so that status is allowed by name.
+
 ## What is still unchecked
 
-Conflict resolution and the lock flow — the three-way merge, two people on one
-design, an expired lock — have never been exercised. Neither has undo, which
-does not exist (WS-032 M5). Accessibility beyond the contract tests, keyboard
-navigation, and behaviour on a large organization remain unassessed, and no
-view has been opened at a narrow viewport.
+Undo, which does not exist (WS-032 M5). Accessibility beyond the contract
+tests, keyboard navigation, and behaviour on a large organization remain
+unassessed, and no view has been opened at a narrow viewport. Lock *breaking*
+is permitted and tested at the permission level, and the flow itself — Ana
+breaking Ben's lock and Ben discovering it — has not been driven.
 
 ## Authority
 
