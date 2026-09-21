@@ -623,6 +623,38 @@ interaction_flows:
   - {source: formulator, target: claims_agent, kind: consult}
   - {source: salon_agent, target: care_agent_1, kind: notify}
 
+# Association, as against containment (ADR-0081). Regulatory constrains Brand
+# and does not sit inside it: a regulatory team inside marketing approves
+# whatever marketing wants, and that is the failure this industry runs on.
+unit_links:
+  - source: regulatory
+    target: brand
+    kind: oversees
+    reason: >-
+      Every claim Brand wants to publish is tested against the dossier by a
+      function Brand does not lead, does not contain and cannot overrule.
+  - source: regulatory
+    target: supply
+    kind: oversees
+    reason: >-
+      The Responsible Person may recall a batch Supply released. Separation
+      'release_and_recall' needs the recall to sit with somebody who has no
+      reason to protect the release.
+  - source: consumer_care
+    target: regulatory
+    kind: escalates_to
+    reason: >-
+      A reported reaction leaves Consumer Care immediately and goes to
+      vigilance. It is a safety obligation with a clock on it, not a
+      complaint about a product somebody did not like.
+  - source: rnd
+    target: regulatory
+    kind: serves
+    reason: >-
+      R&D supplies the formulation and stability data the safety assessment
+      is built from. A service relationship: supplying the evidence is not
+      the same as ruling on it.
+
 observability:
   traces: true
   metrics: true

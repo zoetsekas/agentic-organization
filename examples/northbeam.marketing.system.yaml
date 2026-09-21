@@ -634,6 +634,43 @@ interaction_flows:
   - {source: measurement_agent, target: campaign_agent, kind: notify}
   - {source: insight_agent, target: measurement_agent, kind: consult}
 
+# Association, as against containment (ADR-0081). Governance sits outside the
+# growth line on purpose, and this is what makes that a checkable fact rather
+# than a paragraph in a description.
+unit_links:
+  - source: governance
+    target: growth
+    kind: oversees
+    reason: >-
+      Consent is a legal basis and not a marketing preference. A privacy
+      function reporting to the people who want the segment approves the
+      segment.
+  - source: governance
+    target: crm
+    kind: oversees
+    reason: >-
+      CRM holds the contact data and builds the audiences, so it is the unit
+      whose work the legal basis actually governs.
+  - source: analytics
+    target: growth
+    kind: oversees
+    reason: >-
+      Measurement reports on what Growth spent. Separation 'run_and_measure'
+      keeps the two apart at the principal level; this says the same thing
+      about the units.
+  - source: brand
+    target: content
+    kind: serves
+    reason: >-
+      Brand reviews what Content publishes. A service relationship, and
+      deliberately not authority: Content is not Brand's to direct.
+  - source: growth
+    target: crm
+    kind: partners_with
+    reason: >-
+      Growth asks CRM for audiences and neither directs the other. Declared
+      inert, so nobody reads the line on the canvas as a chain of command.
+
 observability:
   traces: true
   metrics: true

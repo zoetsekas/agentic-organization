@@ -1390,6 +1390,46 @@ class InteractionFlow(BaseModel):
     requires_approval: bool = False
 
 
+class UnitLinkKind(str, Enum):
+    """How two units are related when one does not contain the other.
+
+    Every kind carries a consequence, because a relationship with none is
+    decoration (ADR-0081). `PARTNERS_WITH` is the exception and says so: it is
+    declared inert, because the alternative is people expressing an inert
+    relationship as an `OVERSEES` that is not one.
+    """
+
+    #: Second- or third-line supervision. The source may not sit inside the
+    #: target, at any depth: an overseer contained by what it oversees is not
+    #: independent, and independence is the whole control.
+    OVERSEES = "oversees"
+    #: Where this unit's escalations land. Outward or upward, never down into
+    #: the source's own subtree.
+    ESCALATES_TO = "escalates_to"
+    #: A shared service one unit provides another. Constrains nothing by
+    #: itself; it is here so a service relationship is not drawn as authority.
+    SERVES = "serves"
+    #: A working relationship with no authority in it. Symmetric, and inert.
+    PARTNERS_WITH = "partners_with"
+
+
+class UnitLink(BaseModel):
+    """An association between two units that is not containment (ADR-0081).
+
+    Containment is `team.teams`: one parent, authority narrows through it,
+    placement inherits through it. This is everything else — the relationships
+    a real organisation has that a tree cannot hold. It grants nothing,
+    narrows nothing and inherits nothing.
+    """
+
+    source: str
+    target: str
+    kind: UnitLinkKind = UnitLinkKind.PARTNERS_WITH
+    #: Why the relationship exists. Required in spirit: an association nobody
+    #: can explain is the decoration this model refuses.
+    reason: str = ""
+
+
 class KnowledgeSource(BaseModel):
     """Grounding material an agent may consult (ADR-0023)."""
 
@@ -1529,6 +1569,9 @@ class SystemSpec(BaseModel):
     # The default model policy, narrowed per agent (ADR-0040).
     model_policy: ModelPolicy = Field(default_factory=ModelPolicy)
     interaction_flows: list[InteractionFlow] = Field(default_factory=list)
+    # How units are related when one does not contain the other (ADR-0081).
+    # Containment is `team.teams`; this is oversight, escalation and service.
+    unit_links: list[UnitLink] = Field(default_factory=list)
     knowledge: list[KnowledgeSource] = Field(default_factory=list)
     budgets: list[Budget] = Field(default_factory=list)
     compliance: Compliance = Field(default_factory=Compliance)

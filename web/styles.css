@@ -927,3 +927,9 @@ textarea.json.invalid { border-color: var(--clay); }
   font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--ink-dim);
 }
 .findings .v-msg { font-size: var(--t-small); color: var(--ink-muted); line-height: 1.45; }
+
+/* An association's kind, written on its edge (ADR-0081). */
+.canvas-edges .edge-label {
+  font-family: var(--font-mono); font-size: 10px;
+  paint-order: stroke; stroke: var(--ground); stroke-width: 3px;
+}

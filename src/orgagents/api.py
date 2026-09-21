@@ -1900,6 +1900,7 @@ from .spec.model import (  # noqa: E402  (the palette is data, built below)
     FlowKind,
     MissionStatus,
     ResourceKind,
+    UnitLinkKind,
 )
 
 # Which components may be linked to which, and what the spec calls it
@@ -1917,6 +1918,19 @@ LINK_RULES: list[dict[str, Any]] = [
         "label": "contains",
         "help": "the target becomes a sub-team of the source. Authority and "
                 "permissions narrow downward from here (ADR-0008, ADR-0065)",
+    },
+    {
+        # Association, not containment (ADR-0081). The canvas asks which is
+        # meant rather than assuming, because a line between two teams used to
+        # mean exactly one thing and organisations have more than one.
+        "source": "team", "target": "team", "relationship": "association",
+        "writes": "unit_links",
+        "label": "is associated with",
+        "kinds": [k.value for k in UnitLinkKind],
+        "help": "a relationship that is not containment: oversight, "
+                "escalation or a shared service. It grants nothing, narrows "
+                "nothing and inherits nothing — an overseer that sits inside "
+                "what it oversees is refused (ADR-0081)",
     },
     {
         "source": "team", "target": "agent", "relationship": "member",

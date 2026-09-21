@@ -590,9 +590,34 @@ function an(kind, capitalise = false) {
   return `${capitalise ? article[0].toUpperCase() + article.slice(1) : article} ${kind}`;
 }
 
+/* Two kinds may be related in more than one way. Team to team is the case
+   that forced this: "is part of" and "is associated with" are different
+   relationships (ADR-0081), and a canvas that picked one for you would be
+   guessing — which is what the proximity-parenting bug was. */
+function linkRules(sourceKind, targetKind) {
+  return (canvas.palette?.links || []).filter(
+    (r) => r.source === sourceKind && r.target === targetKind);
+}
+
 function linkRule(sourceKind, targetKind) {
-  return (canvas.palette?.links || []).find(
-    (r) => r.source === sourceKind && r.target === targetKind) || null;
+  return linkRules(sourceKind, targetKind)[0] || null;
+}
+
+/* When several apply, the reader says which. The prompt states what each one
+   does, because "contains" and "associates" have very different consequences
+   and neither is obvious from a line on a canvas. */
+function chooseRule(rules, from, target) {
+  if (rules.length === 1) return rules[0];
+  const numbered = rules.map((r, i) => `${i + 1}. ${r.label} — ${r.help}`);
+  const answer = window.prompt(
+    `How is ${target.id} related to ${from.id}?\n\n${numbered.join("\n\n")}\n\n`
+    + "Enter a number.", "1");
+  if (answer === null) return null;
+  const at = Number(answer.trim()) - 1;
+  if (!Number.isInteger(at) || at < 0 || at >= rules.length) {
+    throw new Error(`'${answer}' is not one of 1..${rules.length}`);
+  }
+  return rules[at];
 }
 
 function legalTargetsFrom(sourceKind) {
@@ -654,7 +679,17 @@ function completeLink(target) {
   const from = canvas.linking;
   if (!from) return;
   if (from.id === target.id) return cancelLink();
-  const rule = linkRule(from.kind, target.kind);
+  const rules = linkRules(from.kind, target.kind);
+  let rule = rules[0] || null;
+  if (rule) {
+    try {
+      rule = chooseRule(rules, from, target);
+    } catch (err) {
+      alert(err.message);
+      return cancelLink(true);
+    }
+    if (!rule) return cancelLink();
+  }
   if (!rule) {
     /* The refusal names the model, not the UI: two agents are not connected
        by a line, they are connected by a declared flow or by belonging to the
@@ -698,6 +733,31 @@ function applyLink(rule, from, target) {
       throw new Error("that flow is already declared");
     }
     flows.push({ source: from.id, target: target.id, kind });
+    return;
+  }
+  if (rule.relationship === "association") {
+    /* Not a move. Containment has one parent; an association is a declared
+       fact about two units that both stay where they are. */
+    const kinds = rule.kinds || [];
+    const kind = window.prompt(
+      `How is ${from.id} related to ${target.id}?\n\n`
+      + `One of: ${kinds.join(", ")}\n\n`
+      + "'oversees' is checked: an overseer that sits inside what it oversees "
+      + "is refused. 'partners_with' is declared inert and grants nothing.",
+      kinds[0] || "oversees");
+    if (!kind) throw new Error("an association needs a kind; nothing was linked");
+    if (!kinds.includes(kind)) {
+      throw new Error(`'${kind}' is not one of ${kinds.join(", ")}`);
+    }
+    const reason = window.prompt(
+      "Why does this relationship exist?\n\nAn association nobody can "
+      + "explain is decoration, and the validator says so.", "") || "";
+    const links = (s.unit_links = s.unit_links || []);
+    if (links.some((l) => l.source === from.id && l.target === target.id
+                          && l.kind === kind)) {
+      throw new Error("that association is already declared");
+    }
+    links.push({ source: from.id, target: target.id, kind, reason });
     return;
   }
   if (rule.relationship === "fires") {
@@ -776,6 +836,13 @@ function unlink(node) {
     setStatus(`${node.id} released from ${released} agent`
       + (released === 1 ? "" : "s"));
   }
+  const links = s.unit_links || [];
+  const keptLinks = links.filter(
+    (l) => l.source !== node.id && l.target !== node.id);
+  if (keptLinks.length !== links.length) {
+    s.unit_links = keptLinks;
+    markDirty(`removed associations on ${node.id}`);
+  }
   const flows = s.interaction_flows || [];
   const kept = flows.filter((f) => f.source !== node.id && f.target !== node.id);
   if (kept.length !== flows.length) {
@@ -829,10 +896,26 @@ function renderEdges() {
     /* An edge says which kind of relation it is by how it is drawn: a solid
        reporting line, a dashed mission peer that expires with the mission, a
        dotted amber egress that leaves the boundary. */
-    const style = EDGE_STYLES[edge.kind] || EDGE_STYLES.member_of;
+    const style = edge.association
+      ? (EDGE_STYLES[`link:${edge.kind}`] || EDGE_STYLES["link:partners_with"])
+      : (EDGE_STYLES[edge.kind] || EDGE_STYLES.member_of);
     line.setAttribute("stroke", `var(${style.stroke})`);
     if (style.dash) line.setAttribute("stroke-dasharray", style.dash);
     parts.push(line);
+    if (edge.association) {
+      /* Containment is a line; an association is a line plus what it means.
+         Without the word, the two would be told apart only by a dash
+         pattern, and a reader should not have to consult a legend to know
+         whether a team is inside another or supervising it. */
+      const text = document.createElementNS(ns, "text");
+      text.setAttribute("x", String((x1 + x2) / 2));
+      text.setAttribute("y", String(mid - 4));
+      text.setAttribute("text-anchor", "middle");
+      text.setAttribute("class", "edge-label");
+      text.setAttribute("fill", `var(${style.stroke})`);
+      text.textContent = edge.kind.replace(/_/g, " ");
+      parts.push(text);
+    }
   }
   svg.replaceChildren(...parts);
 }
@@ -845,6 +928,13 @@ const EDGE_STYLES = {
   uses: { stroke: "--edge-peer", dash: "5 4" },
   triggers: { stroke: "--edge-peer", dash: "5 4" },
   egress: { stroke: "--edge-egress", dash: "2 5" },
+  /* Association, not containment (ADR-0081). Drawn apart from the reporting
+     line on purpose: oversight that looks like a reporting line is how an
+     independent function gets read as a subordinate one. */
+  "link:oversees": { stroke: "--edge-egress", dash: "8 4" },
+  "link:escalates_to": { stroke: "--edge-egress", dash: "2 4" },
+  "link:serves": { stroke: "--edge-peer", dash: "8 4" },
+  "link:partners_with": { stroke: "--edge-peer", dash: "1 5" },
 };
 
 /* Placement regions (ADR-0069).
@@ -987,6 +1077,11 @@ function derivedEdges() {
   }
   (spec()?.interaction_flows || []).forEach((f) =>
     out.push({ source: f.source, target: f.target, kind: f.kind }));
+  /* Association, drawn as an association: dashed, labelled with its kind, and
+     never mistakable for the containment line above (ADR-0081). */
+  (spec()?.unit_links || []).forEach((l) =>
+    out.push({ source: l.source, target: l.target, kind: l.kind,
+               association: true }));
   (spec()?.triggers || []).forEach((t) =>
     out.push({ source: t.id, target: t.agent, kind: "triggers" }));
   return out;

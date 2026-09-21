@@ -592,6 +592,43 @@ interaction_flows:
   - {source: collections_agent_1, target: complaints_agent, kind: notify}
   - {source: audit_agent, target: model_agent, kind: consult}
 
+# The three lines of defence, said out loud (ADR-0081). The tree puts Risk,
+# Financial Crime and Internal Audit outside the Lending line; that absence is
+# what makes them independent, and until this block existed nothing checked it.
+unit_links:
+  - source: risk
+    target: lending
+    kind: oversees
+    reason: >-
+      The second line sets the credit policy and tests whether the first line
+      followed it. A risk function reporting into the business it supervises
+      approves whatever that business wants.
+  - source: internal_audit
+    target: lending
+    kind: oversees
+    reason: >-
+      The third line tests what the first line did and what the second line
+      claims about it, and reports to the board's audit committee.
+  - source: internal_audit
+    target: risk
+    kind: oversees
+    reason: >-
+      Auditing the first line and not the function that supervises it would
+      leave the scorecards and the credit policy untested.
+  - source: complaints
+    target: lending
+    kind: oversees
+    reason: >-
+      A complaint about a lending decision cannot be heard by the line that
+      made it, which is why Complaints sits outside it rather than within.
+  - source: lending
+    target: financial_crime
+    kind: escalates_to
+    reason: >-
+      An application that trips a financial-crime signal leaves the lending
+      line entirely. Tipping off is an offence, so the case does not come
+      back down.
+
 observability:
   traces: true
   metrics: true

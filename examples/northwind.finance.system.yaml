@@ -780,6 +780,33 @@ organization:
               roles: [owner]
           environment: {environment: analysis}
 
+# Association, as against containment (ADR-0081). Internal Audit is not inside
+# Finance — that is what the tree says — and until now its independence was
+# expressed only by that absence, which nothing could check. Declaring the
+# oversight is what makes moving Internal Audit under Finance fail.
+unit_links:
+  - source: internal_audit
+    target: finance
+    kind: oversees
+    reason: >-
+      Internal Audit tests the close, the controls and the payment process it
+      reports on. It reports to the audit committee, not to the CFO, and an
+      auditor inside the function it audits is auditing itself.
+  - source: controllership
+    target: treasury
+    kind: serves
+    reason: >-
+      Controllership produces the approved payment run that Treasury releases.
+      A service relationship, and deliberately not authority: Treasury does
+      not answer to Controllership, which is what separation
+      'payment_control' relies on.
+  - source: fpa
+    target: corporate_development
+    kind: partners_with
+    reason: >-
+      They share a planning model and an analyst population. Declared inert:
+      neither directs the other, and nothing about this grants anything.
+
 observability:
   traces: true
   metrics: true
