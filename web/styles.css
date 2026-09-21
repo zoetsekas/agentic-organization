@@ -108,12 +108,16 @@
 
 * { box-sizing: border-box; }
 
+/* The shell is a full-height flex column so the canvas can take the rest of
+   the viewport instead of a fixed 640px box. */
+html, body { height: 100%; }
 body {
   margin: 0;
   background: var(--ground);
   color: var(--ink);
   font: var(--t-body)/1.5 var(--font-ui);
   -webkit-font-smoothing: antialiased;
+  display: flex; flex-direction: column;
 }
 
 /* Anything a machine decided — ids, versions, permission keys, state, ADR
@@ -169,9 +173,13 @@ a:hover { color: var(--accent-bright); }
   font-size: var(--t-tiny); color: var(--ink-dim);
 }
 
-main { padding: var(--s6); max-width: 1500px; margin: 0 auto; }
+main {
+  padding: var(--s6); max-width: 1500px; margin: 0 auto;
+  flex: 1; min-height: 0; width: 100%;
+  display: flex; flex-direction: column;
+}
 .view { display: none; }
-.view.active { display: block; }
+.view.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
 /* ---------------------------------------------------- shared design context */
 .contextbar {
@@ -190,8 +198,11 @@ main { padding: var(--s6); max-width: 1500px; margin: 0 auto; }
   background: var(--panel); border: 1px solid var(--line);
   border-radius: var(--r-md); padding: var(--s6); margin-bottom: var(--s6);
 }
-.split { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--s6); }
-.designer { display: grid; grid-template-columns: 248px minmax(0,1fr) 330px; gap: var(--s6); }
+.split { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--s6); flex: 1; min-height: 0; }
+.designer {
+  display: grid; grid-template-columns: 248px minmax(0,1fr) 330px; gap: var(--s6);
+  flex: 1; min-height: 0;
+}
 @media (max-width: 1100px) { .split, .designer { grid-template-columns: 1fr; } }
 .hint { color: var(--ink-muted); font-size: var(--t-small); margin: 0 0 var(--s5); }
 .empty { color: var(--ink-dim); font-size: var(--t-small); }
@@ -300,12 +311,25 @@ legend {
 }
 
 /* --------------------------------------------------------------- canvas */
-.canvas-layout { display: grid; grid-template-columns: 210px minmax(0,1fr) 340px; gap: var(--s5); }
+/* The canvas section fills the viewport left below the topbar and contextbar. */
+#view-canvas { padding-bottom: 0; }
+.canvas-layout {
+  display: grid; grid-template-columns: 210px minmax(0,1fr) 340px; gap: var(--s5);
+  flex: 1; min-height: 0; align-items: stretch;
+}
 @media (max-width: 1200px) { .canvas-layout { grid-template-columns: 1fr; } }
 
-.canvas-wrap { padding: 0; overflow: hidden; }
+/* Palette panel: independent scroll so it never clips */
+#canvas-palette {
+  display: flex; flex-direction: column; overflow-y: auto;
+  margin-bottom: 0;
+}
+#canvas-palette #palette-groups { flex: 1; overflow-y: auto; }
+
+/* Canvas wrapper: fills its grid column, removes default panel padding */
+.canvas-wrap { padding: 0; overflow: hidden; display: flex; flex-direction: column; margin-bottom: 0; }
 .canvas-surface {
-  position: relative; height: 640px; overflow: auto;
+  position: relative; flex: 1; min-height: 360px; overflow: auto;
   background-color: var(--ground);
   background-image:
     linear-gradient(var(--line) 1px, transparent 1px),
@@ -361,6 +385,53 @@ legend {
 .canvas-surface .node .n-title { font-weight: 600; font-size: var(--t-body); margin: 2px 0; }
 .canvas-surface .node .n-sub { font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-dim); }
 .canvas-surface .node .n-icon { float: right; font-size: var(--t-mid); color: var(--ink-dim); }
+
+/* Palette and inspector scroll on their own so neither clips the canvas. */
+#canvas-palette { display: flex; flex-direction: column; overflow-y: auto; margin-bottom: 0; }
+#canvas-palette #palette-groups { flex: 1; overflow-y: auto; }
+.inspector { display: flex; flex-direction: column; overflow-y: auto; margin-bottom: 0; }
+#inspector { flex: 1; overflow-y: auto; }
+
+/* Delete is an affordance of the node, so it lives on the node and appears
+   on hover rather than hiding in a menu. */
+.node-delete-btn {
+  position: absolute; top: 4px; right: 5px;
+  background: none; border: none; cursor: pointer;
+  color: var(--ink-dim); font-size: var(--t-small); line-height: 1;
+  padding: 0 2px; border-radius: 3px; opacity: 0;
+  transition: opacity .15s, color .15s;
+}
+.canvas-surface .node:hover .node-delete-btn { opacity: 1; }
+.node-delete-btn:hover { color: var(--clay-ink); }
+.node-delete-btn:disabled { display: none; }
+/* An endpoint is clipped to a chevron on its right edge, so its delete badge
+   moves inside the point rather than being cut off by the clip path. */
+.canvas-surface .node[data-shape="chevron"] .node-delete-btn { right: 20px; }
+
+/* Inline rename, in place of the title it replaces. */
+.node-rename-input {
+  font: inherit; font-weight: 600; font-size: var(--t-body);
+  background: var(--raised-2); border: 1px solid var(--accent);
+  border-radius: var(--r-sm); padding: 0 3px; outline: none;
+  width: 100%; box-sizing: border-box; color: var(--ink);
+}
+
+/* Right-click menu on a node. */
+#ctx-menu {
+  position: fixed; z-index: 9999;
+  background: var(--panel); border: 1px solid var(--line-strong);
+  border-radius: var(--r-md); box-shadow: 0 4px 16px rgba(0, 0, 0, .45);
+  padding: var(--s1) 0; min-width: 160px;
+}
+#ctx-menu[hidden] { display: none; }
+#ctx-menu hr { border: none; border-top: 1px solid var(--line); margin: 3px 0; }
+.ctx-item {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; border-radius: 0; cursor: pointer;
+  padding: var(--s3) var(--s5); font-size: var(--t-small); color: var(--ink);
+}
+.ctx-item:hover { background: var(--raised-2); }
+.ctx-item:disabled { color: var(--ink-dim); cursor: default; opacity: 1; }
 
 /* team: a dashed container. It holds; it does not act. */
 .canvas-surface .node[data-shape="container"] {
@@ -570,6 +641,33 @@ dialog::backdrop { background: rgba(0,0,0,.55); }
   font-size: var(--t-small); padding: 3px 0;
 }
 .v-err { color: var(--clay-ink); font-size: var(--t-small); }
+
+/* Reference pickers in the inspector: a binding is an id from the open spec,
+   so it is picked as a pill rather than retyped, with a free-text escape for
+   an id the spec does not carry yet. */
+.reflist-wrap {
+  display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center;
+  min-height: 28px; padding: 3px 0;
+}
+.ref-pill {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: var(--accent-wash); border: 1px solid var(--accent);
+  border-radius: var(--r-pill);
+  padding: 2px 8px 2px 9px; font-size: var(--t-tiny); white-space: nowrap;
+  font-family: var(--font-mono); color: var(--ink);
+}
+.ref-pill button {
+  background: none; border: none; cursor: pointer; padding: 0;
+  font-size: var(--t-small); line-height: 1; color: var(--ink-dim);
+}
+.ref-pill button:hover { color: var(--clay-ink); }
+.reflist-wrap select { font-size: var(--t-tiny); padding: 2px var(--s2); max-width: 130px; height: auto; }
+.reflist-free {
+  font-size: var(--t-tiny); padding: 2px var(--s3); border: 1px dashed var(--line-strong);
+  border-radius: var(--r-sm); width: 110px; height: auto;
+  background: var(--raised); color: var(--ink);
+}
+.reflist-free:focus { outline: none; border-color: var(--accent); }
 
 /* The catalog's entry form: a substantive edit is visibly unavailable on an
    approved entry, so the refusal is read before the form is filled in. */
