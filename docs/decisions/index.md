@@ -76,8 +76,8 @@
 | [ADR-0071](ADR-0071-authority-defaults-wide-at-scopes-narrow-at-principals-and-every-bound-is-checked.md) | Authority defaults wide at scopes, narrow at principals, and every bound is checked | Accepted | 1.0.0 | spec, compiler, runtime, security | WS-003, WS-009 | — |
 | [ADR-0072](ADR-0072-autonomy-is-declared-per-activity-and-the-mechanics-are-checked-against-it.md) | Autonomy is declared per activity and the mechanics are checked against it | Accepted | 1.0.0 | spec, compiler, runtime, security | WS-003, WS-009 | — |
 | [ADR-0073](ADR-0073-a-control-declares-who-enforces-it.md) | A control declares who enforces it | Accepted | 1.0.0 | spec, compiler, security | WS-002, WS-009 | — |
-| [ADR-0074](ADR-0074-an-agent-operates-an-application-as-a-named-principal.md) | An agent operates an application as a named principal | Accepted | 1.0.0 | spec, compiler, security | WS-002, WS-009 | — |
-| [ADR-0075](ADR-0075-an-enterprise-process-is-ordered-steps-with-owners.md) | An enterprise process is ordered steps with owners | Accepted | 1.0.0 | spec, compiler, runtime | WS-003, WS-009 | — |
+| [ADR-0074](ADR-0074-an-agent-operates-an-application-as-a-named-principal.md) | An agent operates an application as a named principal | Accepted | 1.0.0 | spec, compiler, security | WS-002, WS-009, WS-033 | — |
+| [ADR-0075](ADR-0075-an-enterprise-process-is-ordered-steps-with-owners.md) | An enterprise process is ordered steps with owners | Accepted | 1.0.0 | spec, compiler, runtime | WS-003, WS-009, WS-033 | — |
 | [ADR-0076](ADR-0076-the-fabric-declares-the-rules-a-design-is-judged-by.md) | The fabric declares the rules a design is judged by | Accepted | 1.1.0 | spec, compiler, security | WS-002, WS-028 | — |
 | [ADR-0077](ADR-0077-a-platform-policy-is-approved-dated-and-fingerprinted.md) | A platform policy is approved, dated and fingerprinted | Accepted | 1.1.0 | compiler, security | WS-028 | — |
 | [ADR-0078](ADR-0078-a-policys-history-is-checked-against-the-policy.md) | A policy's history is checked against the policy | Accepted | 1.0.0 | compiler, security | WS-028 | — |

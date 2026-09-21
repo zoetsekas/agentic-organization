@@ -2,13 +2,13 @@
 id: WS-003
 title: Organization modelling — recursive teams, leaders, roles and responsibilities
 status: Active
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-20
 updated: 2026-09-20
 owner: Platform Architecture
 contributors: [Product]
 scope: [spec, runtime, ui]
-decisions: [ADR-0006, ADR-0007]
+decisions: [ADR-0006, ADR-0007, ADR-0063]
 depends_on: [WS-002]
 tags: [organization]
 ---
@@ -49,6 +49,7 @@ accountability and authority cannot drift apart.
 | M3 Runtime consumes resolved org | Phase 2 | Done |
 | M4 UI team-aware org chart | Phase 2 | Not started |
 | M5 Matrix/dotted-line investigation | Phase 3 | Not started |
+| M6 Agent vocabulary refactor — service reach encoded once, positional kind derived (ADR-0063) | Phase 6 | Not started |
 
 ## Dependencies
 WS-002 for the spec. Feeds WS-004, which inherits permissions along this tree.
@@ -75,5 +76,6 @@ WS-002 for the spec. Feeds WS-004, which inherits permissions along this tree.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-21 | M6: ADR-0063's refactor is accepted and unimplemented, and had no milestone anywhere. |
 | 1.1.0 | 2026-09-20 | Milestone statuses reconciled with what has shipped. |
 | 1.0.0 | 2026-09-20 | Opened. Team/role model and resolution in progress. |
