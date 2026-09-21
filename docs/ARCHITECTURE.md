@@ -404,6 +404,22 @@ Escalation walks leader to leader, tests each leader's own mandate, and returns
 an agent or refuses — and a refusal may name who does hold the decision without
 routing to them, because reaching them is the process's job, not escalation's.
 
+**Every activity declares how much of it an agent does alone** (ADR-0072):
+`advisory` reads and models, `human_decides` prepares and recommends,
+`supervised` decides and a person confirms, `autonomous` decides and acts. The
+default is `advisory`, the most restrictive, and an advisory activity may not
+change a system of record — so a mutation nobody has thought about cannot ship.
+
+The declaration matters because the posture used to be *emergent*, falling out
+of the action, the decision class, the mandate and the approval flag with no
+stated intent. Classifying a real finance function found four writes governed by
+nothing at all, and two controls that were autonomous only because nobody had
+set a flag — including invoice approval, which is the accounts-payable control.
+The gate now checks the mechanics against the declaration: autonomy needs a
+decision class the agent holds and evaluation evidence behind it, supervision
+needs an approver who is not the agent's own owner, and an assignment may
+tighten a posture and never loosen it.
+
 Mandate never widens permission — it is a bound on a grant already held, not a
 grant. The per-action `requires_approval` flag survives alongside it and keeps
 its own meaning: mandate answers *whose decision is this*, approval answers

@@ -57,6 +57,13 @@ decisions:
   - id: grant_data_access
     title: Grant access to a protected data class
     description: Widen who may read a protected data class.
+  - id: contribute_knowledge
+    title: Contribute to the shared knowledge base
+    description: >-
+      Writing to the public plane is a decision, not a side effect. Without a
+      class here nothing governs who may add to what everyone reads.
+  - id: change_source
+    title: Propose a change to a repository
 
 capabilities:
   - id: warehouse_query
@@ -86,11 +93,16 @@ capabilities:
   - id: knowledge_contribute
     description: Read and contribute to the shared knowledge base.
     action: write
+    decision: contribute_knowledge
+    # High volume, low stakes, and reversible: exactly what runs alone.
+    autonomy: autonomous
     resource_class: knowledge_base
     data_classes: [public_knowledge]
   - id: code_change
     description: Propose reviewed changes to engineering repositories.
     action: write
+    decision: change_source
+    autonomy: supervised
     resource_class: source_repository
     data_classes: [engineering_internal]
     secret_ref: REPO_TOKEN
@@ -300,14 +312,7 @@ organization:
   name: Acme Corp
   description: Run Acme's agentic workforce safely and usefully.
   # The root is where authority enters: nothing above it narrows this.
-  mandate:
-    decisions:
-      - approve_spend
-      - close_period
-      - publish_forecast
-      - deploy_to_production
-      - declare_incident_severity
-      - grant_data_access
+  # No mandate: the root holds the declared vocabulary (ADR-0071).
   leader: ceo
   groups: [all_hands]
   roles: [executive_team]
@@ -342,7 +347,8 @@ organization:
       name: Finance
       description: Close the books accurately and on time, and forecast with stated confidence.
       mandate:
-        decisions: [approve_spend, close_period, grant_data_access]
+        decisions: [approve_spend, close_period, grant_data_access,
+                    contribute_knowledge]
         conditions:
           max_value_gbp: 250000
       shared_instructions:
@@ -473,7 +479,8 @@ organization:
       name: Technology
       description: Deliver and operate the platform Acme runs on.
       mandate:
-        decisions: [deploy_to_production, declare_incident_severity, grant_data_access]
+        decisions: [deploy_to_production, declare_incident_severity,
+                    grant_data_access, contribute_knowledge, change_source]
       shared_instructions:
         - A change without a test is a change that has not been made.
         - Declare a severity before doing anything else in an incident.
@@ -502,7 +509,8 @@ organization:
           name: Platform Engineering
           description: Ship platform changes safely and keep services healthy.
           mandate:
-            decisions: [deploy_to_production, declare_incident_severity]
+            decisions: [deploy_to_production, declare_incident_severity,
+                        contribute_knowledge, change_source]
           leader: platform_lead
           groups: [engineering]
           roles: [engineering_team]
@@ -619,7 +627,7 @@ organization:
       name: Revenue
       description: Own pipeline and forecast accuracy.
       mandate:
-        decisions: [publish_forecast, approve_spend]
+        decisions: [publish_forecast, approve_spend, contribute_knowledge]
         conditions:
           max_value_gbp: 50000
       leader: cro

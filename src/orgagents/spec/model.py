@@ -377,6 +377,40 @@ class DecisionClass(BaseModel):
     description: str = ""
 
 
+class AutonomyPosture(str, Enum):
+    """How much of an activity an agent does without a person (ADR-0072).
+
+    Until this existed the posture was *emergent*: it fell out of the action,
+    whether the capability named a decision class, whether the agent held it,
+    and whether approval was required. Four independent fields, no stated
+    intent — so an activity could change from supervised to autonomous by
+    deleting one line and nothing could say that it had.
+    """
+
+    #: Reads and models. May not mutate a system of record.
+    ADVISORY = "advisory"
+    #: Prepares and recommends; the decision is not the agent's to take.
+    HUMAN_DECIDES = "human_decides"
+    #: Decides, and a person confirms before it takes effect.
+    SUPERVISED = "supervised"
+    #: Decides and acts alone.
+    AUTONOMOUS = "autonomous"
+
+
+#: Most authority first. An assignment may move *down* this list and never up
+#: (ADR-0072 rule 6), the same narrowing discipline roles and mandates follow.
+AUTONOMY_ORDER = (
+    AutonomyPosture.AUTONOMOUS,
+    AutonomyPosture.SUPERVISED,
+    AutonomyPosture.HUMAN_DECIDES,
+    AutonomyPosture.ADVISORY,
+)
+
+
+def autonomy_rank(posture: "AutonomyPosture") -> int:
+    return AUTONOMY_ORDER.index(posture)
+
+
 class SeparationRule(BaseModel):
     """Decisions no single principal may hold together (ADR-0070).
 
@@ -441,6 +475,10 @@ class Capability(BaseModel):
     # (ADR-0065). Most capabilities are ordinary work and decide nothing;
     # those leave this unset and never consult a mandate.
     decision: Optional[str] = None
+    # How much of this an agent does without a person (ADR-0072). The default
+    # is the most restrictive: a capability nobody has thought about should not
+    # be the one running unattended.
+    autonomy: AutonomyPosture = AutonomyPosture.ADVISORY
     # Named reference resolved by the platform at bind time; never a value.
     secret_ref: Optional[str] = None
 
@@ -959,6 +997,9 @@ class AgentSpec(BaseModel):
     )
     # Lateral links; delegation otherwise follows the team tree.
     peers: list[str] = Field(default_factory=list)
+    # Per-capability autonomy, which may only ever be *tighter* than the
+    # capability declares (ADR-0072 rule 6).
+    autonomy: dict[str, AutonomyPosture] = Field(default_factory=dict)
     # What this agent may decide without asking; None inherits its team's
     # (ADR-0065). Effective authority is the intersection up the tree.
     mandate: Optional[Mandate] = None
