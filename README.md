@@ -88,6 +88,25 @@ pytest                                       # the whole suite, no network or AP
 orgagents serve      # then open http://localhost:8000/ui/#/canvas
 ```
 
+### The worked examples
+
+`acme` exercises every field the spec has. The other four are organisations,
+each built around a different family of control — and each is validated and
+compiled by the test suite, so a broken one breaks the build rather than
+waiting to be copied.
+
+| Example | The organisation | The control it exists to exercise |
+|---|---|---|
+| [`northwind.finance`](examples/northwind.finance.system.yaml) | A CFO function: controllership, treasury, FP&A, tax, internal audit | Segregation of duties over a payment — raise, approve and release are three principals, and internal audit does not report to the CFO |
+| [`meridian.lending`](examples/meridian.lending.system.yaml) | A consumer lender under three lines of defence | A declined applicant has a statutory right to a human, so `adverse_decision` is held by a person and no agent may claim it. Financial-crime casework is unreachable from the business the alert is about |
+| [`lumiere.beauty`](examples/lumiere.beauty.system.yaml) | A beauty and salon products company | What an agent may *say*: a cosmetic claim is legal and a medicinal one is not, and a reported reaction must never be closed with a refund |
+| [`northbeam.marketing`](examples/northbeam.marketing.system.yaml) | A marketing function | Consent as a legal basis rather than a preference, and measurement that cannot grade its own campaigns |
+
+```bash
+orgagents spec show examples/meridian.lending.system.yaml
+orgagents compile   examples/lumiere.beauty.system.yaml --target local --out build
+```
+
 Open <http://localhost:8000/ui/> for the **Agentic Designer**: org chart,
 agent/harness designer, marketplace, session traces and the operations console.
 
