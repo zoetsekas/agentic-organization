@@ -8,13 +8,104 @@ tests and the designer's dry-run preview.
 
 Adapters import their framework lazily, so a deployment only installs the one
 it uses.
+
+Guardrails are enforced *here*, in `RuntimeAdapter.run`, not in the framework.
+Each framework bounds a run differently — or not at all — so a harness limit
+expressed once in the spec would otherwise mean something different on each
+runtime, or nothing. Subclasses implement `_run`; the base class owns the
+budget.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from ..models import Agent, Runtime
+
+
+class BudgetExceeded(RuntimeError):
+    """A harness budget was spent. Carries which one, so the reason survives."""
+
+    def __init__(self, limit: str, spent: float, allowed: float) -> None:
+        super().__init__(
+            f"{limit} budget exhausted: {spent:.0f} of {allowed:.0f} used"
+        )
+        self.limit = limit
+        self.spent = spent
+        self.allowed = allowed
+
+
+@dataclass
+class TurnBudget:
+    """Token and wall-clock ceilings for one agent run.
+
+    A run is several turns — the first one, plus any output-contract retry —
+    so the budget is held by the adapter for the whole run rather than reset
+    per turn.
+
+    It binds *between* turns, not inside one. Neither framework lets us stop a
+    turn part-way without killing the thread running it, and a half-executed
+    tool call is worse than an overrun, so the honest guarantee is: a turn
+    never *starts* on an exhausted budget, and the overrun is bounded by one
+    turn. `max_turns` is what bounds that turn from the inside.
+    """
+
+    tokens: int = 0            # 0 means unbounded
+    seconds: float = 0.0       # 0 means unbounded
+    tokens_spent: int = 0
+    started_at: float = field(default_factory=time.monotonic)
+
+    @classmethod
+    def from_harness(cls, agent: Agent) -> "TurnBudget":
+        return cls(
+            tokens=agent.harness.token_budget,
+            seconds=float(agent.harness.wall_clock_budget_s),
+        )
+
+    @property
+    def elapsed(self) -> float:
+        return time.monotonic() - self.started_at
+
+    def check(self) -> None:
+        """Refuse to start another turn on an exhausted budget."""
+        if self.tokens and self.tokens_spent >= self.tokens:
+            raise BudgetExceeded("token", self.tokens_spent, self.tokens)
+        if self.seconds and self.elapsed >= self.seconds:
+            raise BudgetExceeded("wall clock", self.elapsed, self.seconds)
+
+    def spend(self, tokens: int) -> None:
+        self.tokens_spent += max(0, tokens)
+
+
+def recursion_limit(max_turns: int) -> int:
+    """Translate harness turns into LangGraph super-steps.
+
+    `max_turns` counts agent turns — one model call and the tool calls it
+    asked for. LangGraph's `recursion_limit` counts graph super-steps, and a
+    ReAct turn is two of them (the model node, then the tool node), plus one
+    step to enter the graph.
+
+    Passing `max_turns` straight through, as this adapter used to, gave an
+    agent on deep agents roughly half the turns the same spec gave it on the
+    OpenAI Agents SDK, where `max_turns` does mean turns.
+    """
+    return 2 * max(1, max_turns) + 1
+
+
+def _langchain_tokens(result: Any) -> int:
+    """Sum token usage across the AI messages LangChain returned."""
+    total = 0
+    for message in (result or {}).get("messages", []) or []:
+        usage = getattr(message, "usage_metadata", None)
+        if isinstance(usage, dict):
+            total += int(usage.get("total_tokens") or 0)
+    return total
+
+
+def _openai_tokens(result: Any) -> int:
+    usage = getattr(getattr(result, "context_wrapper", None), "usage", None)
+    return int(getattr(usage, "total_tokens", 0) or 0)
 
 
 @dataclass
@@ -37,13 +128,22 @@ class RuntimeAdapter:
         tools: dict[str, Callable[..., Any]],
         *,
         subagents: Optional[list[dict[str, Any]]] = None,
+        budget: Optional[TurnBudget] = None,
     ) -> None:
         self.agent = agent
         self.system_prompt = system_prompt
         self.tools = tools
         self.subagents = subagents or []
+        self.budget = budget if budget is not None else TurnBudget.from_harness(agent)
 
     def run(self, prompt: str, history: Optional[list[dict]] = None) -> TurnOutput:
+        """Run one turn against the framework, within the harness budget."""
+        self.budget.check()
+        out = self._run(prompt, history)
+        self.budget.spend(out.tokens)
+        return out
+
+    def _run(self, prompt: str, history: Optional[list[dict]] = None) -> TurnOutput:
         raise NotImplementedError
 
 
@@ -51,6 +151,25 @@ class DeepAgentsAdapter(RuntimeAdapter):
     """LangChain deep agents: planning, virtual filesystem and sub-agents."""
 
     runtime = Runtime.DEEPAGENTS
+
+    def _subagents(self) -> list[dict[str, Any]]:
+        """Map platform sub-agent descriptions onto the framework's shape.
+
+        `mode="isolated"` is the one that matches ADR-0027: the sub-agent gets
+        its own context and returns a result to its caller. `fork` would hand
+        it the parent's conversation, which is context the platform did not
+        decide to give it.
+        """
+        return [
+            {
+                "name": sa["name"],
+                "description": sa.get("description", ""),
+                "system_prompt": sa.get("prompt", ""),
+                "mode": "isolated",
+                **({"model": sa["model"]} if sa.get("model") else {}),
+            }
+            for sa in self.subagents
+        ]
 
     def _build(self) -> Any:
         from deepagents import create_deep_agent  # type: ignore
@@ -61,26 +180,33 @@ class DeepAgentsAdapter(RuntimeAdapter):
             for name, fn in self.tools.items()
         ]
         return create_deep_agent(
+            model=self.model(),
             tools=tools,
-            instructions=self.system_prompt,
-            subagents=self.subagents,
-            model=f"{self.agent.harness.model.provider}:{self.agent.harness.model.model}",
+            system_prompt=self.system_prompt,
+            subagents=self._subagents(),
+            # The harness already says which actions stop for a human; the
+            # framework can hold the interrupt rather than us re-inventing it.
+            interrupt_on={name: True for name in self.agent.harness.interrupt_on},
         )
 
-    def run(self, prompt: str, history: Optional[list[dict]] = None) -> TurnOutput:
+    def model(self) -> Any:
+        spec = self.agent.harness.model
+        return f"{spec.provider}:{spec.model}"
+
+    def _run(self, prompt: str, history: Optional[list[dict]] = None) -> TurnOutput:
         graph = self._build()
         messages = (history or []) + [{"role": "user", "content": prompt}]
         result = graph.invoke(
             {"messages": messages},
-            config={"recursion_limit": self.agent.harness.max_turns},
+            config={"recursion_limit": recursion_limit(self.agent.harness.max_turns)},
         )
         msgs = result.get("messages", [])
         text = getattr(msgs[-1], "content", "") if msgs else ""
-        return TurnOutput(text=text, raw=result)
+        return TurnOutput(text=text, tokens=_langchain_tokens(result), raw=result)
 
 
 class OpenAIAgentsAdapter(RuntimeAdapter):
-    """OpenAI Agents SDK: `Agent` + `Runner`, with handoffs as delegation."""
+    """OpenAI Agents SDK: `Agent` + `Runner`, sub-agents exposed as tools."""
 
     runtime = Runtime.OPENAI_AGENTS
 
@@ -89,30 +215,44 @@ class OpenAIAgentsAdapter(RuntimeAdapter):
         from agents import function_tool  # type: ignore
 
         tools = [function_tool(fn, name_override=name) for name, fn in self.tools.items()]
-        handoffs = [
-            SDKAgent(
+        # A sub-agent is a bounded call that returns to its caller (ADR-0027),
+        # which is `as_tool`. `handoffs` — what this adapter used to use —
+        # *transfers control*: the sub-agent inherits the conversation and its
+        # output becomes the run's output, so the parent never resumes. Same
+        # word, different mechanism.
+        for sa in self.subagents:
+            child = SDKAgent(
                 name=sa["name"],
                 instructions=sa.get("prompt", ""),
                 model=self.agent.harness.model.subagent_model
                 or self.agent.harness.model.model,
             )
-            for sa in self.subagents
-        ]
+            tools.append(
+                child.as_tool(
+                    tool_name=sa["name"],
+                    tool_description=sa.get("description", ""),
+                    max_turns=self.agent.harness.max_turns,
+                )
+            )
         return SDKAgent(
             name=self.agent.name,
             instructions=self.system_prompt,
             model=self.agent.harness.model.model,
             tools=tools,
-            handoffs=handoffs,
         )
 
-    def run(self, prompt: str, history: Optional[list[dict]] = None) -> TurnOutput:
+    def _run(self, prompt: str, history: Optional[list[dict]] = None) -> TurnOutput:
         from agents import Runner  # type: ignore
 
+        # `max_turns` here does mean agent turns, so it passes through.
         result = Runner.run_sync(
             self._build(), prompt, max_turns=self.agent.harness.max_turns
         )
-        return TurnOutput(text=str(result.final_output), raw=result)
+        return TurnOutput(
+            text=str(result.final_output),
+            tokens=_openai_tokens(result),
+            raw=result,
+        )
 
 
 class LangGraphAdapter(RuntimeAdapter):
@@ -120,7 +260,11 @@ class LangGraphAdapter(RuntimeAdapter):
 
     runtime = Runtime.LANGGRAPH
 
-    def run(self, prompt: str, history: Optional[list[dict]] = None) -> TurnOutput:
+    def model(self) -> Any:
+        spec = self.agent.harness.model
+        return f"{spec.provider}:{spec.model}"
+
+    def _run(self, prompt: str, history: Optional[list[dict]] = None) -> TurnOutput:
         from langchain_core.tools import StructuredTool  # type: ignore
         from langgraph.prebuilt import create_react_agent  # type: ignore
 
@@ -128,14 +272,17 @@ class LangGraphAdapter(RuntimeAdapter):
             StructuredTool.from_function(func=fn, name=name)
             for name, fn in self.tools.items()
         ]
-        graph = create_react_agent(
-            f"{self.agent.harness.model.provider}:{self.agent.harness.model.model}",
-            tools,
-            prompt=self.system_prompt,
+        graph = create_react_agent(self.model(), tools, prompt=self.system_prompt)
+        result = graph.invoke(
+            {"messages": (history or []) + [("user", prompt)]},
+            config={"recursion_limit": recursion_limit(self.agent.harness.max_turns)},
         )
-        result = graph.invoke({"messages": (history or []) + [("user", prompt)]})
         msgs = result.get("messages", [])
-        return TurnOutput(text=getattr(msgs[-1], "content", ""), raw=result)
+        return TurnOutput(
+            text=getattr(msgs[-1], "content", ""),
+            tokens=_langchain_tokens(result),
+            raw=result,
+        )
 
 
 class EchoAdapter(RuntimeAdapter):
@@ -148,7 +295,7 @@ class EchoAdapter(RuntimeAdapter):
 
     runtime = Runtime.ECHO
 
-    def run(self, prompt: str, history: Optional[list[dict]] = None) -> TurnOutput:
+    def _run(self, prompt: str, history: Optional[list[dict]] = None) -> TurnOutput:
         return TurnOutput(
             text=(
                 f"[{self.agent.name}] acknowledged: {prompt}\n"

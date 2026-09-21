@@ -76,7 +76,9 @@ but knowingly incomplete. **Not started**.
 | Adapter | State |
 |---|---|
 | `echo` | Built — the only one exercised in CI |
-| deep agents, OpenAI Agents SDK, LangGraph | **Contract** — thin, lazily imported, need their dependency and credentials |
+| deep agents | Partial — **executed against the real framework** in CI with a scripted chat model, so the graph, the middleware stack and our tool bindings are exercised. No live model has answered |
+| OpenAI Agents SDK | **Contract** — built and asserted against the installed SDK (sub-agents are `as_tool`, not handoffs); `Runner` has never been run |
+| LangGraph | **Contract** — thin, lazily imported, never executed |
 
 ---
 
@@ -104,7 +106,7 @@ An alpha is not "more features". It is the first build where the claims are
 | A2 | **Start a generated tenant stack and run one agent end to end** | The local target has never been executed. This is the single largest unknown in the project | WS-006 M4 |
 | A3 | **Replace the hand-rolled JWT verification** with a vetted library | Hand-written RSA in an auth path. Not shippable, even in alpha | WS-021 M3 |
 | A4 | **Resolve or replace the remaining unpinned images** | Keycloak is unresolved because quay.io is blocked here; mirroring (ADR-0053 rule 2) has not happened at all | ADR-0053 |
-| A5 | **One real runtime adapter working against a live model** | Only `echo` runs. An alpha where no agent can think is a demo of a compiler | WS-008 M3 |
+| A5 | **One real runtime adapter working against a live model** | Narrowed, not closed: deep agents now runs for real on a scripted model, which proved four mismatches a framework-free test could not see. What remains is a live model call — an alpha where no agent can think is a demo of a compiler | WS-008 M3 |
 | A6 | **A smoke test in CI** that builds the images and starts the stack | Otherwise A1 and A2 regress the day after they are fixed | WS-006 M4 |
 
 ### Should-have — an alpha is embarrassing without them

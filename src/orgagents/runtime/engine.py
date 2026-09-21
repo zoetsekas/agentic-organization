@@ -43,7 +43,7 @@ from ..org import OrgChart
 from ..sessions import SessionManager
 from ..store import AGENTS, WORKFLOWS, Store
 from ..spec.binding import WorkflowBinding
-from .adapters import RuntimeAdapter, TurnOutput, adapter_for
+from .adapters import BudgetExceeded, RuntimeAdapter, TurnOutput, adapter_for
 from .endpoints import Transport, boundary_for
 from .engines import ServiceEngine, engine_for_binding
 
@@ -192,6 +192,18 @@ class AgentRuntime:
             result.state = self.sessions.set_state(
                 session.id, SessionState.COMPLETED
             ).state
+        except BudgetExceeded as e:
+            # Spending a harness budget is a policy stop, not a crash. It is
+            # recorded as its own event with the limit that bound, so an
+            # operator reading the session can tell "this agent ran out of
+            # room" from "this agent broke" — the same distinction the
+            # evaluation gate draws between not-evaluated and failed.
+            result.error = f"budget stop: {e}"
+            self.sessions.log(session.id, "budget_exhausted", actor=agent.id,
+                              payload={"limit": e.limit, "spent": e.spent,
+                                       "allowed": e.allowed})
+            self.sessions.set_state(session.id, SessionState.FAILED)
+            result.state = SessionState.FAILED
         except Exception as e:
             result.error = f"{type(e).__name__}: {e}"
             self.sessions.log(session.id, "error", actor=agent.id,
