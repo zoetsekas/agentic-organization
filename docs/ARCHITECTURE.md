@@ -258,6 +258,54 @@ sequenceDiagram
     Note over G,M: Checked per call, not baked in at compile time,<br/>so an unswept mission still confers nothing.
 ```
 
+### Roles, responsibilities, mandates — and which of them decide anything
+
+An organization is held together by four things, and today the platform
+enforces one of them properly.
+
+A **role** is a contract: responsibilities, capabilities and permissions bound
+together (ADR-0007). Assigning it may narrow it and never widen it. The
+capabilities and permissions are checkable; the **responsibilities beside them
+are free-form prose**, so a role can promise work it holds no permission to do
+and nothing notices.
+
+A **mandate** is not a description of work — it is a scope of decision: what a
+unit may settle without asking. It exists today on teams only, as a free-form
+list that the validator warns about, the IR carries, the loader parks in
+metadata, and nothing reads. Agents have no mandate at all.
+
+**Positional kind** — executive, manager, individual — is derived from the tree
+and stored anyway, which lets a stored label contradict the structure it came
+from. Of the five `AgentKind` values only `SERVICE` changes any behaviour, and
+that one property is encoded twice: `shared_service` in the spec and
+`AgentKind.SERVICE` in the runtime (ADR-0063).
+
+ADR-0065 proposes the fix for mandate: a structured scope, declared on teams
+and agents, resolved once at the phase gate as an **intersection up the tree**,
+so authority narrows downward exactly as permission already does.
+
+```mermaid
+flowchart TB
+    root["Organization root<br/>mandate declared explicitly.<br/>A root without one is a spec error"]
+    fin["Finance<br/>declares: approve_spend under 50k,<br/>close_period"]
+    eng["Engineering<br/>declares nothing — inherits the root's"]
+    ap["Accounts Payable agent<br/>declares: approve_spend under 5k"]
+    an["Analyst agent<br/>declares nothing"]
+    note["Effective mandate = intersection up the tree.<br/>A unit cannot grant authority it does not hold,<br/>so declaring more than the parent narrows to the parent"]
+
+    root --> fin
+    root --> eng
+    fin --> ap
+    fin --> an
+    ap -.-> note
+```
+
+Nothing in this subsection below the role contract is built. It is recorded
+here because the gap is structural rather than a missing feature: the system
+models *structure* and *permission* rigorously and *authority* not at all, and
+that is the kind of thing that is expensive to retrofit once specs exist in the
+wild.
+
 ---
 
 ## 4. Security: how a permission is decided
@@ -301,6 +349,55 @@ flowchart TB
 Inheritance only ever narrows: a child team cannot hold more than its parent,
 and a mission cannot grant what a member lacked. Ambiguity on a deny fails
 unsafe, which is why the `unless` guard is explicit (ADR-0008 v1.1.0).
+
+### Permission refuses; mandate escalates
+
+The flow above answers *may this agent do X*. It does not answer *was this
+agent the one to decide it* — the question a mandate exists for. They are
+different, and the difference decides what happens on a "no": a missing
+permission is a dead end, while a decision above your authority has somebody
+it belongs to.
+
+Order matters. Permission is checked first, so an action the agent could never
+perform is refused outright rather than sent to a human who would have to
+refuse it again.
+
+```mermaid
+flowchart TB
+    ask["Agent is about to act on X"]
+    permq{"Permission resolved<br/>at the phase gate?"}
+    refuse["Refused — and it stops here.<br/>Escalating an impossible action<br/>would spend a human on nothing"]
+    mandq{"Is X inside the agent's<br/>effective mandate?"}
+    holderq{"Does any unit up the chain<br/>hold the mandate?"}
+    nobody["Refused — naming the decision class<br/>nobody in the organization may take.<br/>Silence never promotes"]
+    escalate["Escalated to the smallest unit<br/>that holds it: its paired human,<br/>else its manager agent"]
+    approvq{"Does the action also<br/>require approval?"}
+    wait["Waits for an authenticated click"]
+    act["Acts, and it is recorded"]
+
+    ask --> permq
+    permq -- no --> refuse
+    permq -- yes --> mandq
+    mandq -- no --> holderq
+    holderq -- no --> nobody
+    holderq -- yes --> escalate
+    mandq -- yes --> approvq
+    approvq -- yes --> wait --> act
+    approvq -- no --> act
+```
+
+Mandate never widens permission — it is a bound on a grant already held, not a
+grant. The per-action `requires_approval` flag survives alongside it and keeps
+its own meaning: mandate answers *whose decision is this*, approval answers
+*should anyone check it*.
+
+The escalation path is the one that already exists for failures and guardrail
+breaches (`org.escalation_target`, preferring the paired human). Exceeding your
+authority is not a failure; it is the ordinary case escalation was invented
+for, and routing it anywhere else is what produces either a silent overstep or
+a refusal nobody can act on.
+
+This is ADR-0065 and it is **proposed, not built**.
 
 ---
 
@@ -348,6 +445,67 @@ flowchart TB
     loop --> delegate
     tools --> workspace
 ```
+
+### The adapter seam
+
+The agent loop above is the one part of this the platform does not run itself.
+A `RuntimeAdapter` hands a composed prompt, a name-to-callable map and a set of
+limits to deep agents, the OpenAI Agents SDK, LangGraph or the dependency-free
+echo runtime, and gets a turn back.
+
+Where the seam falls is the whole design. Every check that decides anything —
+permission, delegation legality, SQL grants, approval gates — lives inside the
+tools, so it holds whichever framework is executing. The framework owns the
+loop and nothing else. That is why `Runtime` can be chosen per agent, why one
+organization can mix frameworks, and why swapping one does not re-open a
+governance question.
+
+Budgets are enforced at the seam rather than inside a framework, because the
+frameworks bound a run differently or not at all — and a harness limit written
+once in the spec must mean one thing everywhere.
+
+```mermaid
+flowchart TB
+    subgraph platform["What the platform owns — identical on every runtime"]
+        prompt["Composed system prompt"]
+        tools["name to callable map<br/>from HarnessBuilder"]
+        checks["Permission, delegation legality,<br/>SQL grants, approval gates<br/>— checked inside each tool"]
+        budget["TurnBudget: tokens and wall clock.<br/>Binds between turns, never mid-turn"]
+        subs["Sub-agent briefs (ADR-0027):<br/>a bounded call that returns"]
+    end
+
+    subgraph adapter["RuntimeAdapter.run"]
+        guard["Refuse to start on<br/>an exhausted budget"]
+        translate["Translate the limits<br/>each framework counts differently"]
+        meter["Read token usage back,<br/>deduct from the budget"]
+    end
+
+    subgraph frameworks["What the framework owns — the loop, and only the loop"]
+        da["deep agents<br/>system_prompt, subagents mode=isolated,<br/>recursion_limit = 2n+1"]
+        oa["OpenAI Agents SDK<br/>Agent.as_tool, not handoffs<br/>max_turns passes through"]
+        lg["LangGraph ReAct"]
+        echo["echo — no model call"]
+    end
+
+    platform --> adapter
+    guard --> translate --> frameworks
+    frameworks --> meter
+```
+
+Two translations in that diagram are load-bearing, and both were wrong until a
+framework was actually installed and run. `max_turns` counts agent turns;
+LangGraph's `recursion_limit` counts graph super-steps, and a ReAct turn is two
+of them — so passing it through unchanged gave the same spec half the turns on
+deep agents that it gave on the OpenAI SDK. And a sub-agent is a bounded call
+that returns to its caller (ADR-0027), which is `Agent.as_tool`; the SDK's
+`handoffs` *transfers control*, so the parent never resumes and the sub-agent
+inherits a conversation the platform never decided to give it.
+
+The budget's guarantee is deliberately narrow: **a turn never starts on an
+exhausted budget.** Stopping a turn part-way would leave a tool call half
+executed, so the overrun is bounded by one turn, and `max_turns` is what bounds
+that turn from the inside. Exhaustion is recorded as its own session event, not
+as an error — an agent that ran out of room did not break.
 
 Guardrails run **outside** the agent loop, at four boundaries, so a compromised
 prompt cannot argue its way past them (ADR-0035). Judgement at those boundaries
@@ -900,6 +1058,20 @@ the generated cloud target. A provider that cannot be detected degrades to the
 portable floor — containers — and the degradation is reported rather than
 silently taken.
 
+```mermaid
+flowchart TB
+    req["Environment class asks for<br/>a boundary: container, microvm_sbx,<br/>openshell or target_native"]
+    factq{"Do the environment facts<br/>support the provider?"}
+    resolve["Resolved as asked.<br/>BoundaryStatement records what it claims"]
+    degrade["Degraded to the container floor"]
+    loud["The degradation is loud:<br/>provider asked, provider given,<br/>and the reason travel together<br/>into MAPPING.md and the README"]
+    verified["verified = False, everywhere.<br/>We state the boundary we configured,<br/>never one we measured"]
+
+    req --> factq
+    factq -- yes --> resolve --> verified
+    factq -- no --> degrade --> loud --> verified
+```
+
 What makes the seam worth having is that each provider must state its boundary
 in writing: what it enforces, what it does **not**, and how faithfully it can
 express "this sandbox belongs to one tenant". The container provider says
@@ -1044,7 +1216,11 @@ the design describes and the code does not do yet.
 | Divergence signals | Disagreement reaches somebody | Computed on demand and returned to the caller; nothing routes or stores them (ALPHA B6) |
 | Sandbox providers | Prefer a kernel boundary | `container` is the portable floor and the only one available here; `microvm_sbx` and `openshell` are contracts with no binary behind them, and every boundary statement carries `verified=False` |
 | Workflow engines | Pluggable, out-of-process engines are egress events | `native` exercised; the Langflow path exercised through a fake transport; LangGraph, LangChain and ADK are binding entries only |
-| Runtime adapters | Deep agents, OpenAI SDK, LangGraph | Thin lazily-imported bindings; only the `echo` adapter runs in CI |
+| Runtime adapters | Deep agents, OpenAI SDK, LangGraph | **deep agents executes in CI** against the real framework with a scripted chat model — real graph, real middleware, real tool binding — so the seam and the limit translations are exercised. No live model has answered. The OpenAI adapter is asserted against the installed SDK but `Runner` has never run; LangGraph is still untouched |
+| Authority: mandates | A declared scope of decision per unit, narrowing down the tree, escalating when exceeded | **Nothing.** `mandate` is a free-form list on teams that the IR carries and no code reads; agents have no mandate field. ADR-0065 is proposed, not accepted |
+| Role responsibilities | A promise anchored to the capabilities that keep it | Free-form prose beside checkable capabilities and permissions; a role can promise what it cannot do |
+| Agent vocabulary | Kind derived from the tree, service reach encoded once | Five `AgentKind` values of which one changes behaviour, encoded twice; `SUBAGENT` vestigial since ADR-0027. ADR-0063 is accepted and **not yet implemented** |
+| Delegated human authority | Undecided | ADR-0064 holds the question open: an agent acts as itself or not at all (ADR-0057 rule 2), which leaves a personal assistant unable to act for the person it is paired to |
 | Guardrails | Pluggable judgement | Works; recall never measured against a labelled corpus |
 | Designer identity | OIDC with group mapping | Works, but the JWT verification is hand-rolled RSA because no crypto library imports here — replace before production |
 | Knowledge | Declared, governed sources | Not retrieved from; `freshness_seconds` is declared and unenforced |
