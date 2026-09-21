@@ -468,9 +468,14 @@ loop and nothing else. That is why `Runtime` can be chosen per agent, why one
 organization can mix frameworks, and why swapping one does not re-open a
 governance question.
 
-Budgets are enforced at the seam rather than inside a framework, because the
-frameworks bound a run differently or not at all — and a harness limit written
-once in the spec must mean one thing everywhere.
+Budgets are enforced at the seam rather than inside a framework, because a
+harness limit written once in the spec must mean one thing everywhere. That is
+a portability argument, not a claim that the frameworks have nothing: LangChain
+ships `ModelCallLimitMiddleware` and `ToolCallLimitMiddleware`, and
+`ModelCallLimitMiddleware(run_limit=…)` expresses `max_turns` more exactly than
+the `recursion_limit` arithmetic below does. What no framework offers is a
+token or wall-clock budget spanning the several turns of one run, which is what
+`TurnBudget` holds.
 
 ```mermaid
 flowchart TB
@@ -1198,7 +1203,112 @@ product's habits.
 
 ---
 
-## 18. Where the design is ahead of the implementation
+## 18. How this maps onto LangChain and deep agents
+
+The spec describes agents, harnesses, tools, MCP mounts and sandboxes. So does
+the framework underneath, in its own vocabulary, and the two are not the same
+shape. Reading them side by side is the fastest way to see which of our
+concepts are genuinely ours and which are a second implementation of something
+that already exists.
+
+```mermaid
+flowchart LR
+    subgraph ours["Declared in the spec — one meaning on every runtime"]
+        h["Harness<br/>model, tools, grants, limits, policy"]
+        t["ToolBinding<br/>+ the decision class it constitutes"]
+        mcpw["MCPServerRef<br/>transport, allowed tools, read_only"]
+        sbx["Sandbox template + provider seam<br/>tier, network, egress, boundary statement"]
+        gr["Guardrails at four boundaries"]
+        lim["max_turns, token and wall-clock budget"]
+        appr["requires_approval / interrupt_on"]
+    end
+
+    subgraph theirs["deep agents and LangChain — the loop's own machinery"]
+        hp["HarnessProfile<br/>prompt assembly + tool visibility<br/>(same word, different thing)"]
+        bt["BaseTool / StructuredTool"]
+        mcpa["langchain-mcp-adapters<br/>MultiServerMCPClient.get_tools()"]
+        exec["ShellToolMiddleware +<br/>DockerExecutionPolicy / Codex / Host<br/>SandboxBackendProtocol.execute"]
+        pii["PIIMiddleware<br/>block, redact, mask, hash"]
+        lm["ModelCallLimitMiddleware(run_limit)<br/>ToolCallLimitMiddleware"]
+        hitl["HumanInTheLoopMiddleware<br/>InterruptOnConfig"]
+        fsp["FilesystemPermission<br/>operations, paths, allow/deny/interrupt"]
+    end
+
+    t --> bt
+    mcpw -. not wired .-> mcpa
+    sbx -. different layer .-> exec
+    gr -. parallel implementation .-> pii
+    lim -. we use recursion_limit instead .-> lm
+    appr --> hitl
+    h -. no relation .-> hp
+    sbx -. ungoverned today .-> fsp
+```
+
+### The word "harness" means something else there
+
+deep agents has a `HarnessProfile`, and it is **not** our harness. Theirs
+governs prompt assembly and tool visibility: a base system prompt, a suffix,
+tool description overrides, excluded tools, excluded middleware. Ours is the
+whole operable envelope — model, tools, MCP mounts, relational grants, data
+grants, limits, approval policy. The overlap is the prompt and the tool list;
+everything we consider governance has no counterpart there, and everything
+they consider profile composition has none here. Two concepts, one word, and
+anybody reading both will conflate them.
+
+### Where the framework is ahead of us
+
+- **Limits.** `ModelCallLimitMiddleware(run_limit=n, exit_behavior="end")` is
+  `max_turns`, exactly, in the framework's own terms. Our adapter translates
+  `max_turns` into a `recursion_limit` of `2n+1`, which is a graph-depth
+  backstop rather than a turn limit and is only approximately right.
+  `ToolCallLimitMiddleware` bounds tool calls, per tool if wanted.
+- **Filesystem governance.** `FilesystemPermission` is
+  `{operations: [read|write], paths: [...], mode: allow|deny|interrupt}` — a
+  real permission model over the virtual filesystem, with a human-interrupt
+  mode. This is the answer to the gap where deep agents' built-in file tools
+  bypass our artifact store and data planes entirely.
+- **Execution policies.** `DockerExecutionPolicy`, `CodexSandboxExecutionPolicy`
+  and `HostExecutionPolicy` behind `ShellToolMiddleware` are a working provider
+  seam for shell execution, with timeouts and output caps.
+- **Boundary handling.** `PIIMiddleware` offers block, redact, mask and hash
+  per PII type; `ToolErrorMiddleware`, `ToolRetryMiddleware` and
+  `ModelFallbackMiddleware` cover ground our guardrails and model policy
+  describe.
+
+### Where we are ahead, and why the duplication is deliberate
+
+Every middleware above binds to one framework. A permission decided inside
+`PIIMiddleware` holds for LangChain and means nothing to the OpenAI Agents SDK
+or to a Terraform-generated deployment. Our checks live in the tools and at the
+adapter seam, so they hold whichever loop is running and survive swapping it —
+which is the whole argument for the seam in §5.
+
+Two things are ours with no counterpart at all: **authority** (a mandate is not
+a permission, and no framework models who should have decided something), and
+**the boundary statement** — a provider saying in writing what it enforces and
+what it does not, with `verified=False` until somebody measures it.
+
+### Where the two layers are different levels, not competitors
+
+Their sandbox is a backend for shell and file tools: a place to `execute()`. Our
+sandbox (ADR-0054) is an isolation boundary for the whole agent — tier, network
+posture, egress allowlist, tenant fidelity. One could sit inside the other; they
+do not replace each other, and describing either as "the sandbox" without saying
+which layer is how the two get confused.
+
+### MCP
+
+We resolve `MCPServerRef`s ourselves through `harness/mcp.py`, with a real
+client when the `mcp` package is installed and an in-process backend otherwise.
+LangChain's idiom is `langchain-mcp-adapters`, whose `MultiServerMCPClient`
+returns tools ready to hand to an agent. That package is **not** a dependency
+here, so the two paths have never been reconciled — ours carries the
+`allowed_tools` allowlist and `read_only` flag that the binding needs, and
+theirs carries transport handling that is better tested than ours.
+
+---
+
+## 19. Where the design is ahead of the implementation
 
 Kept here deliberately, so the diagrams above are not read as a description of
 what runs today. The ordered list with owners is `docs/ROADMAP.md`; the
@@ -1224,6 +1334,9 @@ the design describes and the code does not do yet.
 | Divergence signals | Disagreement reaches somebody | Computed on demand and returned to the caller; nothing routes or stores them (ALPHA B6) |
 | Sandbox providers | Prefer a kernel boundary | `container` is the portable floor and the only one available here; `microvm_sbx` and `openshell` are contracts with no binary behind them, and every boundary statement carries `verified=False` |
 | Workflow engines | Pluggable, out-of-process engines are egress events | `native` exercised; the Langflow path exercised through a fake transport; LangGraph, LangChain and ADK are binding entries only |
+| Harness limits on LangChain | `max_turns` means turns | Translated to a `recursion_limit` of `2n+1`, which is a graph-depth backstop; `ModelCallLimitMiddleware(run_limit=n)` says it exactly and is not wired (§18) |
+| Deep agents' virtual filesystem | Governed like any other agent material | Ungoverned: its file tools bypass the artifact store and the data planes. `FilesystemPermission` is the route in and is not wired (§18) |
+| MCP | One mounting path | Two: ours in `harness/mcp.py`, and `langchain-mcp-adapters` for the LangChain runtimes. Never reconciled; the adapter package is not a dependency |
 | Runtime adapters | Deep agents, OpenAI SDK, LangGraph | **deep agents executes in CI** against the real framework with a scripted chat model — real graph, real middleware, real tool binding — so the seam and the limit translations are exercised. No live model has answered. The OpenAI adapter is asserted against the installed SDK but `Runner` has never run; LangGraph is still untouched |
 | Authority: mandates | A declared scope of decision per unit, narrowing down the tree, escalating when exceeded | **Built** (ADR-0065): declared on teams, agents and missions, resolved once at the phase gate, enforced at the tool boundary, escalating to the smallest unit that holds the decision. A capability declares which decision class it constitutes, and most declare none — so an organization gets the checks it wires up, and an unwired capability decides nothing |
 | Authority: the designer | Editing a mandate with reference pickers | The palette declares decision classes; the mandate editor itself is not built, so mandates are authored in the spec (ADR-0066) |
