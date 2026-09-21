@@ -330,6 +330,29 @@ function kindSpec(kind) {
 }
 
 /* ---------------------------------------------------------------- canvas */
+/* Where the reader was looking, kept with the layout (ADR-0034: presentation,
+   never the spec). `Layout.viewport` was persisted from the day it was
+   declared and restored by nothing, so reopening a large design always put
+   you back at the origin. */
+function restoreViewport() {
+  const surface = $("#canvas");
+  const view = canvas.record?.layout?.viewport;
+  if (!surface || !view) return;
+  surface.scrollLeft = Number(view.x) || 0;
+  surface.scrollTop = Number(view.y) || 0;
+}
+
+function rememberViewport() {
+  const surface = $("#canvas");
+  const layout = canvas.record?.layout;
+  if (!surface || !layout) return;
+  const view = layout.viewport || (layout.viewport = { x: 0, y: 0, zoom: 1 });
+  /* Scrolling is not an edit: it must not mark the design dirty or take a
+     revision. It rides along with the next save somebody actually makes. */
+  view.x = surface.scrollLeft;
+  view.y = surface.scrollTop;
+}
+
 function renderCanvas() {
   const nodes = $("#canvas-nodes");
   const layout = canvas.record?.layout || { nodes: {}, edges: [] };
@@ -338,6 +361,7 @@ function renderCanvas() {
   $("#canvas-empty").hidden = Object.keys(layout.nodes).length > 0;
   renderRegions();
   renderEdges();
+  restoreViewport();
 }
 
 function lockOn(id) {
@@ -1754,6 +1778,7 @@ function wireCanvas() {
     $("#conflict-bar").hidden = true;
   });
   wireDropTarget();
+  $("#canvas").addEventListener("scroll", rememberViewport, { passive: true });
   document.addEventListener("keydown", handleCanvasKey);
   /* clicking the empty canvas surface hides the context menu and deselects */
   $( "#canvas").addEventListener("click", (e) => {

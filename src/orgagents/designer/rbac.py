@@ -103,11 +103,48 @@ def role_of(workspace: Optional[Workspace], principal: Principal,
     return principal.granted_role(workspace.id)
 
 
+#: Roles in order of reach, for the one permission an installation may move.
+ROLE_ORDER: tuple[UserRole, ...] = (
+    UserRole.VIEWER, UserRole.REVIEWER, UserRole.EDITOR,
+    UserRole.ADMIN, UserRole.OWNER,
+)
+
+
 def decide(workspace: Optional[Workspace], principal: Principal, permission: str,
-           *, default_role: UserRole = UserRole.VIEWER) -> Decision:
+           *, default_role: UserRole = UserRole.VIEWER,
+           break_lock_requires: Optional[UserRole] = None) -> Decision:
     role = role_of(workspace, principal, default_role)
     if role is None:
         return Decision(False, f"{principal.label} is not a member of this workspace")
+
+    # `lock_break_requires` was a setting an installation could change and
+    # nothing read: an operator could move it to `editor` or to `owner` and
+    # breaking a lock kept answering from the table below. A knob on a
+    # security surface that quietly configures nothing is worse than one that
+    # is not offered, so it is consulted here — for this permission only,
+    # because a general per-permission override would replace the table with a
+    # second one that can disagree with it.
+    if permission == BREAK_LOCK and break_lock_requires is not None:
+        try:
+            needed = ROLE_ORDER.index(break_lock_requires)
+            held = ROLE_ORDER.index(role)
+        except ValueError:
+            needed = held = None          # an unknown role falls back to the table
+        if needed is not None:
+            if held >= needed:
+                return Decision(
+                    True,
+                    f"granted by role '{role.value}': this workspace requires "
+                    f"'{break_lock_requires.value}' or above to break a lock",
+                    role,
+                )
+            return Decision(
+                False,
+                f"role '{role.value}' may not break a lock here: this "
+                f"workspace requires '{break_lock_requires.value}' or above",
+                role,
+            )
+
     if permission in ROLE_PERMISSIONS.get(role, frozenset()):
         return Decision(True, f"granted by role '{role.value}'", role)
     return Decision(
@@ -118,12 +155,32 @@ def decide(workspace: Optional[Workspace], principal: Principal, permission: str
 
 
 def require(workspace: Optional[Workspace], principal: Principal, permission: str,
-            *, default_role: UserRole = UserRole.VIEWER) -> Decision:
-    decision = decide(workspace, principal, permission, default_role=default_role)
+            *, default_role: UserRole = UserRole.VIEWER,
+            break_lock_requires: Optional[UserRole] = None) -> Decision:
+    decision = decide(workspace, principal, permission, default_role=default_role,
+                      break_lock_requires=break_lock_requires)
     if not decision.allowed:
         raise PermissionDenied(decision.reason)
     return decision
 
 
-def permissions_for(role: Optional[UserRole]) -> list[str]:
-    return sorted(ROLE_PERMISSIONS.get(role, frozenset())) if role else []
+def permissions_for(role: Optional[UserRole],
+                    break_lock_requires: Optional[UserRole] = None) -> list[str]:
+    """What this role may do, as the server would actually answer.
+
+    The setting is applied here as well as in `decide`, because this list is
+    what the UI is told and a UI that offers a button the server will refuse —
+    or hides one it would allow — is a worse lie than either alone.
+    """
+    if role is None:
+        return []
+    held = set(ROLE_PERMISSIONS.get(role, frozenset()))
+    if break_lock_requires is not None:
+        try:
+            allowed = ROLE_ORDER.index(role) >= ROLE_ORDER.index(break_lock_requires)
+        except ValueError:
+            allowed = BREAK_LOCK in held          # unknown role: keep the table
+        held.discard(BREAK_LOCK)
+        if allowed:
+            held.add(BREAK_LOCK)
+    return sorted(held)

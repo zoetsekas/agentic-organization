@@ -329,6 +329,44 @@ a fabric read and designer identity is disjoint from operator identity
 (ADR-0049), so the designer cannot offer a picker without holding fabric
 authority it should not have. An unknown tenant is a 404 from the route.
 
+## The data model, audited
+
+`CanvasNode.kind` was a closed set the palette outgrew, and a person could
+lose a minute's work to it. That defect class rarely appears once, so the rest
+of `designer/models.py` was audited the same way: what is declared, and what
+reads it. Four things were declared and read by nothing, and one typed model
+accepted anything.
+
+**`DesignerSettings.lock_break_requires` configured nothing.** It is settable
+through `PUT /api/designer/settings`, and `decide()` answered from the role
+table regardless — an operator could move it to `editor` or to `owner` and
+breaking a lock behaved identically. A knob on a security surface that quietly
+configures nothing is worse than one that is not offered. It is consulted now,
+for that permission only, and `permissions_for` applies it too: a UI that
+offers a button the server will refuse is a worse lie than either half alone.
+
+**`Layout.viewport` was persisted and restored by nothing**, so reopening a
+large design always put you back at the origin. The canvas restores it and
+remembers it on scroll — and scrolling stays not-an-edit, so it never marks
+the design dirty or takes a revision; it rides along with the next real save.
+
+**`CanvasEdge` and `Layout.edges` were a second source of truth that never
+met the first.** Only the seeder ever wrote an edge and the canvas never read
+one: the picture is derived from the spec so that it always matches what would
+compile, which a stored edge can contradict. Both are gone, and the layout
+merge no longer reconciles two lists neither side wrote.
+
+**`CanvasNode.color`** was declared, never set and never read. Gone rather
+than given a colour picker nobody asked for.
+
+**And the settings endpoint validated nothing.** `model_copy(update=...)` does
+not validate, so a PUT could put a string where an int is declared and a
+nonsense value where a `Literal` is. On the relational backend it surfaced as
+a 500 from the repository's own wrapper; on the others it simply persisted, so
+`lock_ttl_seconds` could become a string the lock service then did arithmetic
+with. Settings are validated where the rules live and refused with the reason,
+and a value the model rejects is a 422 rather than a 500 from a store.
+
 ## Coverage, measured
 
 Counted against `SystemSpec`, not estimated. 24 palette kinds; the canvas

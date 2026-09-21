@@ -13,7 +13,6 @@ from .audit import AuditAction, AuditEvent, AuditLog, AuditOutcome
 from .locks import LockConflict, LockManager
 from .merge import apply_resolutions, merge, summarize
 from .models import (
-    CanvasEdge,
     CanvasNode,
     DesignerSettings,
     Layout,
@@ -49,6 +48,6 @@ __all__ = [
     "TokenVerifier", "verifier_from_settings",
     "Principal", "PermissionDenied", "decide", "require", "permissions_for",
     "SystemRecord", "SystemStatus", "Workspace", "Member", "UserRole",
-    "Layout", "CanvasNode", "CanvasEdge", "NodeKind", "Lock", "LockScope",
+    "Layout", "CanvasNode", "NodeKind", "Lock", "LockScope",
     "Revision", "DesignerSettings",
 ]

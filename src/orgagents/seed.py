@@ -311,7 +311,6 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
     # -- designer workspace and system -------------------------------------
     try:
         from .designer.models import (
-            CanvasEdge,
             CanvasNode,
             Layout,
             Member,
@@ -374,10 +373,6 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
                     layout.nodes[t_id] = CanvasNode(
                         id=t_id, kind=NodeKind.TEAM, x=col_x, y=row_y, width=220, height=80
                     )
-                    if parent_team_id:
-                        layout.edges.append(
-                            CanvasEdge(source=parent_team_id, target=t_id, kind="member_of")
-                        )
                     row_y += 120
 
                 # members
@@ -387,17 +382,11 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
                         layout.nodes[m_id] = CanvasNode(
                             id=m_id, kind=NodeKind.AGENT, x=col_x + 280, y=row_y - 80, width=220, height=80
                         )
-                        layout.edges.append(
-                            CanvasEdge(source=t_id, target=m_id, kind="member_of")
-                        )
                         for sub in m.get("subagents", []):
                             sub_id = sub.get("id")
                             if sub_id:
                                 layout.nodes[sub_id] = CanvasNode(
                                     id=sub_id, kind=NodeKind.SUBAGENT, x=col_x + 560, y=row_y - 80, width=200, height=70
-                                )
-                                layout.edges.append(
-                                    CanvasEdge(source=m_id, target=sub_id, kind="uses")
                                 )
                         row_y += 110
 

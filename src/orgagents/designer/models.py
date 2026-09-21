@@ -88,7 +88,6 @@ class CanvasNode(BaseModel):
     width: float = 220
     height: float = 90
     collapsed: bool = False
-    color: Optional[str] = None
     note: str = ""
 
 
@@ -100,24 +99,19 @@ class CanvasNode(BaseModel):
         return str(v)
 
 
-class CanvasEdge(BaseModel):
-    """A drawn relationship. Derived from the spec, positioned by the canvas."""
-
-    id: str = Field(default_factory=lambda: new_id("edge"))
-    source: str
-    target: str
-    kind: Literal[
-        "reports_to", "member_of", "delegate", "consult", "notify", "escalate",
-        "uses", "triggers", "reads"
-    ] = "reports_to"
-    label: str = ""
-
-
 class Layout(BaseModel):
-    """The canvas: node positions, drawn edges and the viewport."""
+    """The canvas: where each node sits, and where the reader was looking.
+
+    **No edges.** The canvas derives every edge from the spec, so that the
+    picture always matches what would compile — a stored edge is a second
+    source that can disagree with the first, which is the thing the
+    derivation exists to prevent. There *was* a `CanvasEdge` model and a
+    `Layout.edges` list; nothing but the seeder ever wrote one, and the canvas
+    never read them. Two mechanisms for one thing that never met.
+    """
 
     nodes: dict[str, CanvasNode] = Field(default_factory=dict)
-    edges: list[CanvasEdge] = Field(default_factory=list)
+    #: Where the canvas was scrolled to, restored when the design is reopened.
     viewport: dict[str, float] = Field(
         default_factory=lambda: {"x": 0.0, "y": 0.0, "zoom": 1.0}
     )

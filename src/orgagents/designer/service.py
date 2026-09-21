@@ -7,6 +7,8 @@ own, which is what makes the frontend genuinely replaceable (ADR-0031).
 """
 from __future__ import annotations
 
+from pydantic import ValidationError as PydanticValidationError
+
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -102,6 +104,12 @@ class DesignerService:
         record = self.repository.get_system(system_id)
         return record.workspace_id if record else ""
 
+    def _permissions_for(self, role: Optional[UserRole]) -> list[str]:
+        """What to tell a caller they may do, settings included."""
+        return permissions_for(
+            role, break_lock_requires=self._settings.lock_break_requires
+        )
+
     def _require(self, workspace: Optional[Workspace], principal: Principal,
                  permission: str, action: AuditAction, *,
                  system_id: str = "", **fields: Any) -> Decision:
@@ -110,8 +118,11 @@ class DesignerService:
         A denial leaves no other trace anywhere in the system — no revision, no
         lock, nothing — so if it is not recorded here it is not recorded at all.
         """
-        decision = decide(workspace, principal, permission,
-                          default_role=self._settings.default_role)
+        decision = decide(
+            workspace, principal, permission,
+            default_role=self._settings.default_role,
+            break_lock_requires=self._settings.lock_break_requires,
+        )
         if not decision.allowed:
             self.audit.record(
                 action, principal, outcome=AuditOutcome.DENIED,
@@ -162,7 +173,23 @@ class DesignerService:
         workspace = self._workspace_for_settings(principal)
         self._require(workspace, principal, MANAGE_SETTINGS,
                       AuditAction.SETTINGS_UPDATE)
-        updated = self._settings.model_copy(update=changes)
+        # `model_copy(update=...)` does not validate, so a settings PUT could
+        # put a string where an int is declared and a nonsense value where a
+        # Literal is. It surfaced as a 500 from the repository's own wrapper
+        # on the relational backend, and on the others it simply persisted.
+        # Validate here, where the rules live, and refuse with the reason.
+        try:
+            updated = DesignerSettings.model_validate(
+                {**self._settings.model_dump(), **changes}
+            )
+        except PydanticValidationError as exc:
+            raise ValueError(
+                "these settings were refused: "
+                + "; ".join(
+                    f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}"
+                    for e in exc.errors()
+                )
+            ) from exc
         updated.updated_by = principal.user_id
         self._settings = self.repository.save_settings(updated)
         self.locks.ttl_seconds = self._settings.lock_ttl_seconds
@@ -246,7 +273,8 @@ class DesignerService:
             if role:
                 memberships.append({
                     "workspace_id": workspace.id, "workspace": workspace.name,
-                    "role": role.value, "permissions": permissions_for(role),
+                    "role": role.value,
+                    "permissions": self._permissions_for(role),
                 })
         return {
             "user_id": principal.user_id,
@@ -301,7 +329,7 @@ class DesignerService:
             "locks": [lock.model_dump(mode="json")
                       for lock in self.locks.active(system_id)],
             "role": role.value if role else None,
-            "permissions": permissions_for(role),
+            "permissions": self._permissions_for(role),
             "validation": self.validate(record),
         }
 
@@ -662,14 +690,15 @@ class DesignerService:
 
 
 def _merge_layout(theirs: Layout, ours: Layout) -> Layout:
-    """Keep our positions, adopt theirs for nodes we do not have."""
+    """Keep our positions, adopt theirs for nodes we do not have.
+
+    Nodes only. Edges are derived from the spec by whatever draws the picture,
+    so there is nothing here to reconcile — and merging two stored edge lists
+    was reconciling something neither side had ever written.
+    """
     merged = ours.model_copy(deep=True)
     for node_id, node in theirs.nodes.items():
         merged.nodes.setdefault(node_id, node)
-    known = {(e.source, e.target, e.kind) for e in merged.edges}
-    merged.edges += [
-        e for e in theirs.edges if (e.source, e.target, e.kind) not in known
-    ]
     return merged
 
 

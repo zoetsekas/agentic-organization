@@ -639,6 +639,10 @@ def create_app(
             raise HTTPException(
                 409, {"error": str(e), "lock": e.lock.model_dump(mode="json")}
             ) from e
+        except ValueError as e:
+            # A value the model refuses is the caller's mistake, not a missing
+            # thing: 422 with the reason, never a 500 from a store.
+            raise HTTPException(422, str(e)) from e
         except DesignerError as e:
             raise HTTPException(404, str(e)) from e
 
