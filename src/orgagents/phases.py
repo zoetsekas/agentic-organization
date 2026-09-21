@@ -103,8 +103,9 @@ def _check(report: PhaseReport, phase: Phase, ok: bool, cid: str, title: str,
 # --------------------------------------------------------------------------
 
 
-def review_definition(spec: SystemSpec, report: PhaseReport) -> None:
-    findings = validate_spec(spec)
+def review_definition(spec: SystemSpec, report: PhaseReport,
+                      platform_policy: Optional[Any] = None) -> None:
+    findings = validate_spec(spec, platform_policy=platform_policy)
     errors = [f for f in findings if f.severity == "error"]
     _check(
         report, "definition", not errors, "spec_valid",
@@ -356,6 +357,28 @@ def review_definition(spec: SystemSpec, report: PhaseReport) -> None:
 # --------------------------------------------------------------------------
 
 
+def review_platform_policy(
+    spec: SystemSpec, policy: Optional[Any], report: PhaseReport
+) -> None:
+    """Say which house rules judged this design, and what they let through."""
+    if policy is None:
+        _check(report, "definition", True, "platform_policy",
+               "Judged against the built-in rules only — no platform policy "
+               "is in force")
+        return
+    lowered = policy.lowered
+    _check(
+        report, "definition", not lowered, "platform_policy",
+        f"Platform policy '{policy.stamp}' is in force"
+        + (f", strictness {policy.treat_as}" if policy.treat_as else ""),
+        "; ".join(f"{code} lowered — {why or 'no reason given'}"
+                  for code, why in sorted(lowered.items())),
+        "a weakened rule is reported every time the policy is; remove the "
+        "override or accept that it travels with every verdict",
+        soft=True,
+    )
+
+
 def review_control_ownership(spec: SystemSpec, report: PhaseReport) -> None:
     """Say plainly which controls this deployment does not enforce itself."""
     trusted = trusted_controls(spec)
@@ -572,10 +595,12 @@ def review(
     binding: Optional[Binding] = None,
     target: Optional[str] = None,
     catalog: Optional[object] = None,
+    platform_policy: Optional[Any] = None,
 ) -> PhaseReport:
     """Run both phase reviews; the implementation phase needs a target."""
     report = PhaseReport(spec_name=spec.metadata.name, target=target)
-    review_definition(spec, report)
+    review_platform_policy(spec, platform_policy, report)
+    review_definition(spec, report, platform_policy)
     review_control_ownership(spec, report)
     if target:
         review_implementation(spec, binding, target, report, catalog)

@@ -1,0 +1,25 @@
+# A fabric's house rules. Owned by whoever runs the platform, never by a
+# design: a spec that could name the policy it is judged by is not judged
+# (ADR-0076).
+id: house
+version: "1.0.0"
+description: >-
+  What this fabric requires of any design it builds, regardless of what the
+  design says about itself.
+
+# Strictness is ours. `metadata.environment` is a field the design declares
+# about itself, and a design that calls itself development would otherwise
+# escape every rule marked strict.
+treat_as: production
+
+# Blocks a design must have declared to be built here.
+require_declared: [separations, guardrails, decisions, evaluations]
+
+# No agent runs unattended over money leaving the company, whatever a design
+# declares. An autonomy posture is a judgement about risk, and this one is not
+# the design's to make.
+forbid_autonomy_over: [release_payment, raise_debt, execute_hedge, approve_capex]
+
+severity:
+  # Raising needs no justification.
+  unused_capability: error

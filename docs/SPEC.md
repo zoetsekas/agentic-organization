@@ -261,6 +261,31 @@ enforcement:
 Our bound may narrow what the application permits and never widen it. A bound
 that reads as enforced and is not is worse than no bound.
 
+## The fabric's house rules
+
+`policies` below are a *design's* RBAC rules. A **platform policy** is a
+different thing one layer up: what the fabric requires of any design before it
+will build it (ADR-0076). It is owned by whoever runs the platform and is never
+part of a spec — a design that could name the rules it is judged by is not
+judged.
+
+```yaml
+# house.platform-policy.yaml — passed with --platform-policy
+id: house
+version: "1.0.0"
+treat_as: production          # strictness is ours, not the design's
+require_declared: [separations, guardrails, decisions, evaluations]
+forbid_autonomy_over: [release_payment, approve_capex]
+severity:
+  unused_capability: error    # raising needs no justification
+```
+
+Lowering a rule needs a `reasons` entry and is refused without one, and every
+lowered rule is reported in the gate and stamped into the IR alongside the
+policy's id and version — so "this passed `house/1.0.0`" is a fact somebody can
+re-check, and a build with no policy records `none` rather than looking the
+same as a policed one.
+
 ## Policies: `conditions` vs `unless`
 
 `conditions` must hold for a rule to apply. `unless` disapplies it. Exception

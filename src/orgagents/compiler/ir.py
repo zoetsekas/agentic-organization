@@ -527,8 +527,31 @@ class TeamIR(BaseModel):
     permissions: list[Permission] = Field(default_factory=list)
 
 
+class PlatformPolicyStampIR(BaseModel):
+    """Which house rules this design was judged against (ADR-0076).
+
+    Present even when no policy was in force, with `id: "none"`, so an
+    unpoliced compile is visibly unpoliced rather than indistinguishable from
+    a policed one. `lowered` names every built-in rule the policy weakened,
+    with the reason given, because a control switched off quietly is the
+    failure this layer exists to prevent.
+    """
+
+    id: str = "none"
+    version: str = ""
+    treat_as: str = ""
+    lowered: dict[str, str] = Field(default_factory=dict)
+
+    @property
+    def stamp(self) -> str:
+        return f"{self.id}/{self.version}" if self.version else self.id
+
+
 class SystemIR(BaseModel):
     ir_version: str = IR_VERSION
+    platform_policy: PlatformPolicyStampIR = Field(
+        default_factory=PlatformPolicyStampIR
+    )
     target: str = "local"
     name: str
     spec_version: str
@@ -980,6 +1003,7 @@ def build_ir(
     target: str = "local",
     binding: Optional[TargetBinding] = None,
     tenant: Optional[TenantIR] = None,
+    platform_policy: Optional[Any] = None,
 ) -> SystemIR:
     """Resolve a validated spec into the IR every target consumes."""
     bound = binding or default_binding(target)
@@ -1221,6 +1245,12 @@ def build_ir(
         )
 
     ir = SystemIR(
+        platform_policy=PlatformPolicyStampIR(
+            id=platform_policy.id if platform_policy else "none",
+            version=platform_policy.version if platform_policy else "",
+            treat_as=(platform_policy.treat_as or "") if platform_policy else "",
+            lowered=dict(platform_policy.lowered) if platform_policy else {},
+        ),
         target=target,
         name=spec.metadata.name,
         spec_version=spec.metadata.spec_version,

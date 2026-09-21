@@ -71,6 +71,7 @@ def compile_system(
     catalog: Optional[Any] = None,
     tenant: Optional[TenantIR] = None,
     foreign_prefixes: Optional[Iterable[str]] = None,
+    platform_policy: Optional[Any] = None,
 ) -> list[CompileResult]:
     """Validate, resolve to IR, then generate artifacts for each target.
 
@@ -78,11 +79,18 @@ def compile_system(
     refused if it reaches outside the tenant, and the generated artifacts are
     refused if any of their names is not the tenant's.
     """
-    findings = validate_spec(spec)
+    # The fabric's rules are applied here, not after: a design that fails the
+    # house policy produces no artifacts at all (ADR-0076).
+    findings = validate_spec(spec, platform_policy=platform_policy)
     blocking = [f for f in findings if f.severity == "error"]
     if blocking:
+        where = (
+            f" under platform policy '{platform_policy.stamp}'"
+            if platform_policy else ""
+        )
         raise CompileError(
-            "spec validation failed:\n  " + "\n  ".join(str(f) for f in blocking)
+            f"spec validation failed{where}:\n  "
+            + "\n  ".join(str(f) for f in blocking)
         )
 
     if tenant is not None:
@@ -103,7 +111,8 @@ def compile_system(
         bound: TargetBinding = (
             binding.for_target(target_id) if binding else None
         ) or default_binding(target_id)
-        ir = build_ir(spec, target=target_id, binding=bound, tenant=tenant)
+        ir = build_ir(spec, target=target_id, binding=bound, tenant=tenant,
+                      platform_policy=platform_policy)
         if catalog is not None:
             # A bound model outside the agent's policy stops the build: an
             # unapproved model is not a warning (ADR-0040).

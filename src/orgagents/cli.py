@@ -121,11 +121,19 @@ def _compiler_command(args: argparse.Namespace) -> int:
         return 2
     spec = load_spec(args.path)
     binding = load_binding(args.binding) if getattr(args, "binding", None) else None
+    # The fabric's house rules, never the design's: a spec cannot name the
+    # policy it is judged by (ADR-0076).
+    platform_policy = None
+    if getattr(args, "platform_policy", None):
+        from .platform_policy import load as _load_platform_policy
+
+        platform_policy = _load_platform_policy(args.platform_policy)
 
     if args.cmd == "phase":
         from .phases import review
 
-        report = review(spec, binding=binding, target=args.target)
+        report = review(spec, binding=binding, target=args.target,
+                        platform_policy=platform_policy)
         for phase in ("definition", "implementation"):
             checks = report.of(phase)
             if not checks:
@@ -244,7 +252,8 @@ def _compiler_command(args: argparse.Namespace) -> int:
                 from .directory import StaticDirectory
 
                 directory = StaticDirectory.from_file(args.directory)
-            findings = validate_spec(spec, directory=directory)
+            findings = validate_spec(spec, directory=directory,
+                                     platform_policy=platform_policy)
             for f in findings:
                 print(f)
             errors = [f for f in findings if f.severity == "error"]
@@ -288,6 +297,7 @@ def _compiler_command(args: argparse.Namespace) -> int:
             force=args.force,
             tenant=tenant_ir,
             foreign_prefixes=foreign_prefixes,
+            platform_policy=platform_policy,
         )
     except (CompileError, TenantIsolationError) as e:
         print(f"error: {e}")
@@ -673,6 +683,8 @@ def main(argv: list[str] | None = None) -> int:
                                  "diff"])
     p_spec.add_argument("path", nargs="?")
     p_spec.add_argument("--binding")
+    p_spec.add_argument("--platform-policy", dest="platform_policy",
+                        help="the fabric's house rules to judge against")
     p_spec.add_argument("against", nargs="?",
                         help="for 'diff': the second spec; the first is `path`")
     p_spec.add_argument("--format", choices=["text", "json"], default="text")
@@ -697,6 +709,9 @@ def main(argv: list[str] | None = None) -> int:
     p_comp.add_argument("path")
     p_comp.add_argument("--target", action="append", dest="targets")
     p_comp.add_argument("--binding")
+    p_comp.add_argument("--platform-policy", dest="platform_policy",
+                        help="the fabric's house rules this design is judged "
+                             "against; its id and version are stamped into the IR")
     p_comp.add_argument("--out", default="build")
     p_comp.add_argument("--force", action="store_true")
     p_comp.add_argument(
@@ -715,6 +730,8 @@ def main(argv: list[str] | None = None) -> int:
     p_phase.add_argument("path")
     p_phase.add_argument("--binding")
     p_phase.add_argument("--target")
+    p_phase.add_argument("--platform-policy", dest="platform_policy",
+                         help="the fabric's house rules to judge against")
 
     p_sched = sub.add_parser("schedule", help="preview when triggers fire")
     p_sched.add_argument("path")

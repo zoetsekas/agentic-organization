@@ -73,7 +73,9 @@ def _parent_of(root: Team, team_id: str) -> Optional[Team]:
 
 
 def validate_spec(
-    spec: SystemSpec, directory: Optional["Directory"] = None
+    spec: SystemSpec,
+    directory: Optional["Directory"] = None,
+    platform_policy: Optional[Any] = None,
 ) -> list[Finding]:
     """Return every finding; an empty list means the spec is sound.
 
@@ -86,7 +88,15 @@ def validate_spec(
     from ..scheduling import CadenceError, parse_cadence
 
     out: list[Finding] = []
-    production = spec.metadata.environment == "production"
+    # Strictness is the fabric's call where a policy is in force (ADR-0076).
+    # `metadata.environment` is a field the design declares about itself, so a
+    # design that called itself development was simply not judged by the
+    # strict rules.
+    production = (
+        platform_policy.treat_as == "production"
+        if platform_policy and platform_policy.treat_as
+        else spec.metadata.environment == "production"
+    )
 
     def err(code: str, message: str, where: str = "") -> None:
         out.append(Finding("error", code, message, where))
@@ -1195,7 +1205,9 @@ def validate_spec(
     # -- people who have left (ADR-0047) -----------------------------------
     out.extend(directory_findings(spec, directory))
 
-    return out
+    # The fabric's own rules, and its ranking of ours, come last: a policy
+    # judges the whole finding set rather than being one more rule inside it.
+    return _with_platform_policy(out, platform_policy, spec)
 
 
 def directory_findings(
@@ -1306,6 +1318,14 @@ def _check_narrowing(agent_id: str, env, override, err) -> None:
                 f"'{env.id}'",
                 agent_id,
             )
+
+
+def _with_platform_policy(
+    findings: list[Finding], policy: Optional[Any], spec: SystemSpec
+) -> list[Finding]:
+    from ..platform_policy import apply_severity, policy_findings
+
+    return apply_severity(policy, findings) + policy_findings(policy, spec)
 
 
 def errors(findings: list[Finding]) -> list[Finding]:
