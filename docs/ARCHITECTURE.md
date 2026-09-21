@@ -1126,15 +1126,79 @@ flowchart TB
     outer -.-> rule
 ```
 
-Hosting more than one agent in a sandbox environment is the part that needed a
-decision, because every control above assumes the agent boundary *is* the
-process boundary. Two agents sharing a sandbox share a filesystem and a process
-namespace — a lateral path `can_delegate` does not govern, permissions cannot
-see, and mandates sit above entirely. So co-residency is **declared and never
-inferred**, confined to one tenant, permitted only between agents the standing
-org chart already connects (mission-lent reach does not count, because a
-mission window closes and a sandbox does not), and filesystem-scoped per agent
-by the provider — degrading to one agent per sandbox where a provider cannot
+### Placement: the org unit is the namespace
+
+An environment class is a *profile* — what an agent needs. Keying sandboxes by
+it puts an HR agent and a Finance agent that both need `analysis` in one place,
+which groups by kind of work rather than by whose work it is. So a sandbox
+environment is an instance of a **placement**: an org unit crossed with an
+environment class (ADR-0069). HR × `analysis` and Finance × `analysis` are
+different sandboxes with the same shape.
+
+This is the application-platform model, and it is deliberate. A department
+wants what a namespace gives an application: a name scope, storage, a network
+policy, and reachability from outside only over declared channels. Half of it
+was already built and unused at this level — `Team.groups` is "protected-data
+reach", `Visibility.PROTECTED` means "shared with every agent in those groups",
+and `OrgChart.unit_groups` inherits groups down the chain. Nothing instantiated
+a *place* from it.
+
+```mermaid
+flowchart TB
+    subgraph tenant["Tenant — the absolute boundary (ADR-0050)"]
+        subgraph hr["Placement: HR x analysis"]
+            hra["hr-analyst"]
+            hrb["hr-recruiter"]
+            hrv["Shared volume = the PROTECTED plane<br/>for HR's groups. Not a new grant:<br/>no data class the unit did not already share"]
+        end
+        subgraph fin["Placement: Finance x analysis"]
+            fa["fin-analyst"]
+            fb["reconciler"]
+            fv["Shared volume for Finance's groups"]
+        end
+        bus["Message bus and channels —<br/>the only path between placements,<br/>re-checked per message"]
+    end
+
+    hra --- hrv
+    hrb --- hrv
+    fa --- fv
+    fb --- fv
+    hr -- "default deny" --x fin
+    hr --> bus
+    fin --> bus
+
+    note["Same environment class, different placements.<br/>Keying by class alone would have put<br/>HR and Finance in one sandbox"]
+    bus -.-> note
+```
+
+Placement is **opt-in and inherits**: a team may declare itself a placement
+boundary, a team that does not is placed in its nearest ancestor that did, and
+the root always is one — the inheritance shape mandates already use. Four
+things follow.
+
+**Co-residency is membership**, not a pairwise check. Agents share a sandbox
+because they share a placement.
+
+**The shared volume is the PROTECTED plane made concrete.** It carries exactly
+the data classes the unit's groups already share, and is not a new grant: an
+agent that may not read a data class does not acquire it by sharing a disk with
+someone who may. Without that rule a department volume widens access by
+deployment topology.
+
+**Only standing structure becomes a network rule** — manager chain, declared
+peers, shared services, the bus. Mission-lent reach never does, because a
+generated rule does not expire and a mission window does. Temporary reach goes
+over the bus, where `BusWorker` already re-runs the org-chart check per message
+(ADR-0059).
+
+**A placement is not a security boundary.** Borrowing the platform model means
+borrowing its caveat: namespaces on an application platform share a kernel too.
+The tenant stays absolute; a placement is a naming and policy scope whose
+isolation strength is whatever the provider reports. Two agents sharing one
+still share a filesystem and a process namespace — a lateral path
+`can_delegate` does not govern, permissions cannot see, and mandates sit above
+entirely — so ADR-0068's rules still bind: one tenant, filesystem-scoped per
+agent by the provider, degrading to one agent per sandbox where it cannot
 scope.
 
 The shared process namespace is not closed by any of that. Rule 7 documents it
@@ -1430,6 +1494,7 @@ the design describes and the code does not do yet.
 | Message bus | NATS/JetStream, one per tenant | Subject namespace, adapter, durability and the inbound org-chart re-check built against a fake client; the NATS service is generated and parsed, **never started**, and `nats-py` is not a dependency |
 | Evaluations | A gate backed by evidence | The runner executes declared cases and answers the gate. It runs on the `echo` adapter, so it proves the wiring, not the agent; prose expectations are reported unverifiable rather than judged |
 | Divergence signals | Disagreement reaches somebody | Computed on demand and returned to the caller; nothing routes or stores them (ALPHA B6) |
+| Placement | A sandbox environment belongs to an org unit, with a group-scoped volume and network policy from standing structure (ADR-0069) | **Nothing.** Sandboxes are still keyed by environment class, so two departments sharing a profile share a key; a team cannot declare a placement; no volume is generated; and no target emits a network rule derived from the org chart |
 | Sandbox environments hosting agents | The agent process runs inside a governed sandbox, and co-residency is declared and scoped (ADR-0068) | Partial. The provider seam now answers both questions — `hosts_agent_process` and `scopes_filesystem_per_agent`, in four states where `unknown` and `delegated` are conservatively not-a-yes — and rule 6's degradation to one agent per sandbox is computed and recorded. Every provider we can run answers `no` to both, so the effective limit is one agent everywhere. A sandbox environment is still not a spec concept and co-residency still cannot be declared |
 | Sandbox providers | Prefer a kernel boundary | `container` is the portable floor and the only one available here; `microvm_sbx` and `openshell` are contracts with no binary behind them, and every boundary statement carries `verified=False` |
 | Workflow engines | Pluggable, out-of-process engines are egress events | `native` exercised; the Langflow path exercised through a fake transport; LangGraph, LangChain and ADK are binding entries only |

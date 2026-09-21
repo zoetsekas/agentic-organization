@@ -2,7 +2,7 @@
 id: ADR-0068
 title: A sandbox environment hosts agents and co-residency is declared and scoped
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-21
 updated: 2026-09-21
 deciders: [Platform Architecture, Security Engineering]
@@ -12,7 +12,7 @@ scope: [spec, targets, runtime, security]
 workstreams: [WS-004, WS-028]
 supersedes: []
 superseded_by: []
-related: [ADR-0008, ADR-0009, ADR-0050, ADR-0054, ADR-0055, ADR-0065]
+related: [ADR-0008, ADR-0009, ADR-0050, ADR-0054, ADR-0055, ADR-0065, ADR-0069]
 tags: [sandbox, isolation, security]
 ---
 
@@ -79,13 +79,18 @@ permitted only where the standing org chart already connects the agents.**
    not grant authority (ADR-0065 rule 5).
 4. **Co-residency is within one tenant, absolutely** (ADR-0050). No policy,
    scoping or declaration makes a cross-tenant sandbox acceptable.
-5. **Co-residency requires standing org-chart connection.** Every pair of
-   agents in one sandbox environment must already be connected by the standing
-   organization: same team, one in the other's subtree, declared peers, or a
-   shared service. **Mission-lent reach does not qualify** — a mission window
-   closes and a sandbox does not, so honouring it would convert temporary reach
-   into a permanent channel, which is the accident ADR-0065 rule 8 exists to
-   prevent.
+5. **Co-residency is membership of a placement (v1.1.0, ADR-0069).** This
+   rule originally required every pair of co-resident agents to be connected by
+   the standing org chart. That was a checkable proxy for a simpler fact — they
+   are in the same org unit — and it admitted pairings nobody would draw on
+   purpose, since a shared-service agent connects to everyone. A sandbox
+   environment is now an instance of a *placement*, an org unit crossed with an
+   environment class, and agents co-reside because they share one.
+
+   What survives unchanged is the reasoning about time: **mission-lent reach
+   never places an agent and never becomes a network rule**, because a mission
+   window closes and neither a sandbox nor a generated rule does. Temporary
+   reach travels over the bus, where it is re-checked per message.
 6. **Each co-resident agent gets its own filesystem scope**, enforced by the
    provider. OpenShell locks filesystem policy at sandbox creation, which fits.
    **Where a provider cannot scope per agent, co-residency degrades to one
@@ -193,4 +198,5 @@ generated artifacts record that the agent's own boundary is a Docker network.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-21 | Rule 5 replaced: co-residency is membership of a placement (ADR-0069), not a pairwise org-chart check. Rules 4, 6, 7 and 8 unchanged. |
 | 1.0.0 | 2026-09-21 | Accepted. Two named levels; the agent process runs inside its sandbox environment where the provider can host it; co-residency is declared, tenant-bound, org-chart-bound, filesystem-scoped, and honest about the shared process namespace. |
