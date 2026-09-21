@@ -80,10 +80,14 @@ REGISTRY = TargetRegistry()
 def register_builtin_targets() -> TargetRegistry:
     """Register the targets that ship with the platform."""
     from .targets.local import LocalTarget
+    from .targets.maf import MicrosoftAgentFrameworkTarget
     from .targets.terraform import TerraformTarget
 
     if not REGISTRY.targets:
         REGISTRY.register(LocalTarget())
         for provider in ("gcp", "aws", "azure"):
             REGISTRY.register(TerraformTarget(provider))
+        # A platform target rather than an infrastructure one: it emits
+        # somebody else's agent definitions (ADR-0005).
+        REGISTRY.register(MicrosoftAgentFrameworkTarget())
     return REGISTRY

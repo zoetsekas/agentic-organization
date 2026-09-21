@@ -98,9 +98,16 @@ def test_neutral_resource_set_is_produced(spec):
 # -- targets ---------------------------------------------------------------
 
 
-def test_registry_exposes_local_and_three_clouds():
+def test_registry_exposes_infrastructure_targets_and_a_platform_target():
+    """Two kinds, and the difference is the point.
+
+    `local` and `terraform:*` are **infrastructure** targets: they deploy this
+    platform's runtime, which picks an adapter. `maf` is a **platform**
+    target: it emits another vendor's agent definitions, which is what the
+    Terraform analogy promises and what nothing here did until it existed.
+    """
     assert register_builtin_targets().ids() == [
-        "local", "terraform:aws", "terraform:azure", "terraform:gcp"
+        "local", "maf", "terraform:aws", "terraform:azure", "terraform:gcp"
     ]
 
 

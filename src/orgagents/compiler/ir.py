@@ -111,6 +111,30 @@ class ResponsibilityIR(BaseModel):
     source_role: str
 
 
+def _resolved_human(
+    human: HumanCounterpart, people: dict[str, Any]
+) -> HumanCounterpart:
+    """Fill a pairing from the person it names (ADR-0079).
+
+    A pairing that references a declared person carries no name or contact of
+    its own, and the IR is where references are resolved — the runtime reads
+    it and never chases a pointer. Without this the system prompt's "the
+    people you answer to" section listed a blank name and a blank mailbox,
+    which is worse than omitting the section: it tells an agent it answers to
+    nobody.
+    """
+    if not human.person:
+        return human
+    person = people.get(human.person)
+    if person is None:
+        return human
+    return human.model_copy(update={
+        "name": human.name or person.name or person.id,
+        "contact": human.contact or person.contact,
+        "role_title": human.role_title or person.position,
+    })
+
+
 def _mandate_ir(effective: Optional["EffectiveMandate"]) -> "MandateIR":
     if effective is None:
         return MandateIR()
@@ -1104,6 +1128,8 @@ def build_ir(
     mandates = resolve_mandates(
         spec.organization, [d.id for d in spec.decisions], spec.people
     )
+    people_by_id = {p.id: p for p in spec.people}
+
     from ..placements import resolve as resolve_placements
 
     placed = resolve_placements(spec)
@@ -1322,7 +1348,7 @@ def build_ir(
                         if r.source == placed.home.get(agent.id)
                     }
                 ) if agent.id in placed.home else [],
-                humans=list(agent.humans),
+                humans=[_resolved_human(h, people_by_id) for h in agent.humans],
                 responsibilities=responsibilities,
                 role_ids=role_ids,
                 permissions=permissions,
