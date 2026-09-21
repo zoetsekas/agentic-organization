@@ -1,0 +1,451 @@
+# Northwind Trading — the CFO organization, modelled to test this platform
+# against a real enterprise shape rather than a convenient one.
+#
+# The structure follows the conventional split: Controllership owns the
+# historical numbers (close, reporting, controls), FP&A owns the forward look,
+# Treasury owns cash, Tax owns compliance. Internal Audit deliberately does
+# **not** report to the CFO — its independence is the point, and an org model
+# that cannot express that cannot model a finance function.
+#
+# The control this example exists to exercise is segregation of duties: the
+# agent that raises a payment must not be the one that approves it, and neither
+# may be the one that releases it.
+
+metadata:
+  name: northwind
+  spec_version: "1.2.0"
+  version: "0.1.0"
+  description: Northwind's finance function as an agentic organization.
+  owner: Northwind Platform Team
+  environment: development
+
+data_classes:
+  - id: public_knowledge
+    description: Policies, calendars and glossaries any agent may read.
+    scope: public
+  - id: ledger
+    description: The general ledger, sub-ledgers and journal entries.
+    scope: protected
+    groups: [controllership]
+    allowed_environments: [analysis]
+  - id: payments
+    description: Payment runs, bank instructions and vendor bank details.
+    scope: protected
+    groups: [treasury]
+    allowed_environments: [payments_isolated]
+  - id: vendor_master
+    description: Vendor records, including bank details. A fraud surface.
+    scope: protected
+    groups: [controllership]
+    allowed_environments: [analysis]
+    may_appear_in_traces: false
+  - id: forecast
+    description: Plans, forecasts and the assumptions behind them.
+    scope: protected
+    groups: [fpa]
+    allowed_environments: [analysis]
+  - id: audit_findings
+    description: Internal Audit's working papers and findings.
+    scope: protected
+    groups: [audit]
+    allowed_environments: [analysis]
+
+# What Northwind's units may *decide*, as against what they may reach.
+decisions:
+  - id: raise_payment
+    title: Raise a payment
+    description: Enter an invoice and propose it for payment.
+  - id: approve_invoice
+    title: Approve an invoice for payment
+    description: Confirm an invoice is owed, correct and coded.
+  - id: release_payment
+    title: Release a payment to the bank
+    description: Instruct the bank. The last point before money moves.
+  - id: change_vendor_master
+    title: Change a vendor record
+    description: Including bank details. The classic fraud pairing with raise_payment.
+  - id: post_journal_entry
+    title: Post a journal entry
+  - id: close_period
+    title: Close an accounting period
+  - id: publish_forecast
+    title: Publish a forecast outside the team that made it
+  - id: file_tax_return
+    title: File a return with a tax authority
+  - id: open_audit_finding
+    title: Open or close an audit finding
+
+capabilities:
+  - id: ledger_query
+    description: Read-only queries against the general ledger.
+    action: query
+    resource_class: ledger_db
+    data_classes: [ledger]
+    constraints: {max_rows: 5000, allowed_operations: [select]}
+  - id: journal_post
+    description: Post a journal entry to the ledger.
+    action: write
+    resource_class: ledger_db
+    data_classes: [ledger]
+    decision: post_journal_entry
+    constraints: {requires_approval: true}
+  - id: invoice_entry
+    description: Enter a supplier invoice into the payables ledger.
+    action: write
+    resource_class: payables
+    data_classes: [ledger]
+    decision: raise_payment
+  - id: invoice_approval
+    description: Approve an entered invoice for payment.
+    action: approve
+    resource_class: payables
+    data_classes: [ledger]
+    decision: approve_invoice
+  - id: payment_release
+    description: Instruct the bank to pay an approved run.
+    action: write
+    resource_class: banking
+    data_classes: [payments]
+    decision: release_payment
+    constraints: {requires_approval: true}
+  - id: vendor_maintenance
+    description: Create or amend a vendor record.
+    action: write
+    resource_class: vendor_master
+    data_classes: [vendor_master]
+    decision: change_vendor_master
+    constraints: {requires_approval: true}
+  - id: forecast_model
+    description: Run and revise the planning model.
+    action: write
+    resource_class: planning
+    data_classes: [forecast]
+  - id: tax_filing
+    description: Prepare and submit a statutory return.
+    action: write
+    resource_class: tax_portal
+    data_classes: [ledger]
+    decision: file_tax_return
+    constraints: {requires_approval: true}
+  - id: controls_testing
+    description: Sample transactions and test a control.
+    action: query
+    resource_class: ledger_db
+    data_classes: [ledger, payments, vendor_master]
+    constraints: {max_rows: 2000, allowed_operations: [select]}
+
+environments:
+  - id: analysis
+    description: Reasoning and query work against finance systems.
+    toolchains: [data_analysis]
+    tier: medium
+    network: allowlist
+    egress_allowlist: ["ledger.internal", "planning.internal"]
+    mounts: [ledger, forecast]
+    persistence: ephemeral
+  - id: payments_isolated
+    description: Payment instruction work. No general egress.
+    toolchains: [scripting]
+    tier: minimal
+    network: allowlist
+    egress_allowlist: ["bank-gateway.internal"]
+    mounts: [payments]
+    persistence: ephemeral
+
+roles:
+  - id: finance_leadership
+    title: Finance leadership
+    kind: team
+    responsibilities:
+      - Own the integrity of the numbers Northwind reports.
+    permissions:
+      - {action: read, resource_kind: data_class, resource: public_knowledge}
+  - id: controllership_team
+    title: Controllership
+    kind: team
+    responsibilities:
+      - Close the books accurately and on the published calendar.
+      - Keep the vendor master accurate and the payables ledger complete.
+    capabilities: [ledger_query]
+    permissions:
+      - {action: read, resource_kind: data_class, resource: ledger}
+      - {action: query, resource_kind: capability, resource: ledger_query}
+      - {action: read, resource_kind: data_class, resource: public_knowledge}
+  - id: payables_clerk
+    title: Payables clerk
+    responsibilities:
+      - Enter supplier invoices and match them to purchase orders.
+    capabilities: [invoice_entry, ledger_query]
+    permissions:
+      - {action: write, resource_kind: capability, resource: invoice_entry}
+      - {action: query, resource_kind: capability, resource: ledger_query}
+  - id: financial_controller
+    title: Financial controller
+    responsibilities:
+      - Approve invoices for payment and own the close.
+    capabilities: [invoice_approval, journal_post, ledger_query, vendor_maintenance]
+    permissions:
+      - {action: approve, resource_kind: capability, resource: invoice_approval}
+      - {action: write, resource_kind: capability, resource: journal_post}
+      - {action: write, resource_kind: capability, resource: vendor_maintenance}
+      - {action: query, resource_kind: capability, resource: ledger_query}
+      - {action: delegate, resource_kind: agent, resource: "*"}
+  - id: treasury_team
+    title: Treasury
+    kind: team
+    responsibilities:
+      - Hold the cash position and release approved payment runs.
+    capabilities: [payment_release]
+    permissions:
+      - {action: read, resource_kind: data_class, resource: payments}
+      - {action: write, resource_kind: capability, resource: payment_release}
+  - id: fpa_team
+    title: Financial planning and analysis
+    kind: team
+    responsibilities:
+      - Produce the forecast and explain the variance against it.
+    capabilities: [forecast_model, ledger_query]
+    permissions:
+      - {action: read, resource_kind: data_class, resource: forecast}
+      - {action: write, resource_kind: capability, resource: forecast_model}
+      - {action: query, resource_kind: capability, resource: ledger_query}
+  - id: tax_team
+    title: Tax
+    kind: team
+    responsibilities:
+      - File accurate returns on statutory deadlines.
+    capabilities: [tax_filing, ledger_query]
+    permissions:
+      - {action: write, resource_kind: capability, resource: tax_filing}
+      - {action: query, resource_kind: capability, resource: ledger_query}
+  - id: internal_audit_team
+    title: Internal audit
+    kind: team
+    responsibilities:
+      - Test the controls the finance function relies on.
+      - Report to the audit committee, not to the function being tested.
+    capabilities: [controls_testing]
+    permissions:
+      - {action: read, resource_kind: data_class, resource: audit_findings}
+      - {action: query, resource_kind: capability, resource: controls_testing}
+
+organization:
+  id: northwind
+  name: Northwind Trading
+  description: The corporate centre.
+  mandate:
+    decisions:
+      - raise_payment
+      - approve_invoice
+      - release_payment
+      - change_vendor_master
+      - post_journal_entry
+      - close_period
+      - publish_forecast
+      - file_tax_return
+      - open_audit_finding
+  leader: ceo
+  groups: [all_hands]
+  members:
+    - id: ceo
+      name: chief-executive
+      description: Arbitrates between functions and owns cross-function escalation.
+      humans:
+        - user_id: u_ceo
+          name: Ada Whitfield
+          display_name: Ada Whitfield
+          contact: ada.whitfield@northwind.example
+          roles: [owner]
+      environment: {environment: analysis}
+  teams:
+    - id: finance
+      name: Finance
+      description: The CFO's organization.
+      mandate:
+        decisions:
+          - raise_payment
+          - approve_invoice
+          - release_payment
+          - change_vendor_master
+          - post_journal_entry
+          - close_period
+          - publish_forecast
+          - file_tax_return
+      leader: cfo
+      groups: [finance]
+      roles: [finance_leadership]
+      members:
+        - id: cfo
+          name: chief-financial-officer
+          description: Owns the numbers Northwind reports.
+          humans:
+            - user_id: u_cfo
+              name: Marcus Oyelaran
+              display_name: Marcus Oyelaran
+              contact: marcus.oyelaran@northwind.example
+              roles: [owner]
+          environment: {environment: analysis}
+      teams:
+        - id: controllership
+          name: Controllership
+          description: Close, controls and the payables ledger.
+          mandate:
+            decisions: [raise_payment, approve_invoice, change_vendor_master,
+                        post_journal_entry, close_period]
+          leader: controller
+          groups: [controllership]
+          roles: [controllership_team]
+          members:
+            - id: controller
+              name: financial-controller
+              description: Approves invoices and owns the close.
+              roles: [financial_controller]
+              mandate:
+                decisions: [approve_invoice, change_vendor_master,
+                            post_journal_entry, close_period]
+              humans:
+                - user_id: u_controller
+                  name: Reyna Castellanos
+                  display_name: Reyna Castellanos
+                  contact: reyna.castellanos@northwind.example
+                  roles: [owner]
+              environment: {environment: analysis}
+            - id: payables
+              name: accounts-payable
+              description: Enters supplier invoices and matches them to orders.
+              roles: [payables_clerk]
+              mandate:
+                decisions: [raise_payment]
+              humans:
+                - user_id: u_ap
+                  name: Tomas Brandt
+                  display_name: Tomas Brandt
+                  contact: tomas.brandt@northwind.example
+                  roles: [owner]
+              environment: {environment: analysis}
+            - id: receivables
+              name: accounts-receivable
+              description: Chases and applies customer receipts.
+              roles: [payables_clerk]
+              mandate:
+                decisions: []
+              humans:
+                - user_id: u_ar
+                  name: Wen Li
+                  display_name: Wen Li
+                  contact: wen.li@northwind.example
+                  roles: [owner]
+              environment: {environment: analysis}
+        - id: treasury
+          name: Treasury
+          description: Cash, liquidity and the bank relationship.
+          mandate:
+            decisions: [release_payment]
+          leader: treasurer
+          groups: [treasury]
+          roles: [treasury_team]
+          members:
+            - id: treasurer
+              name: treasurer
+              description: Holds the cash position and releases approved runs.
+              humans:
+                - user_id: u_treas
+                  name: Priya Raghunathan
+                  display_name: Priya Raghunathan
+                  contact: priya.raghunathan@northwind.example
+                  roles: [owner]
+              environment: {environment: payments_isolated}
+        - id: fpa
+          name: Financial Planning and Analysis
+          description: The forward look.
+          mandate:
+            decisions: [publish_forecast]
+          leader: fpa_lead
+          groups: [fpa]
+          roles: [fpa_team]
+          members:
+            - id: fpa_lead
+              name: head-of-fpa
+              description: Owns the plan and the variance story.
+              humans:
+                - user_id: u_fpa
+                  name: Sofia Marchetti
+                  display_name: Sofia Marchetti
+                  contact: sofia.marchetti@northwind.example
+                  roles: [owner]
+              environment: {environment: analysis}
+        - id: tax
+          name: Tax
+          description: Statutory compliance.
+          mandate:
+            decisions: [file_tax_return]
+          leader: tax_lead
+          groups: [tax]
+          roles: [tax_team]
+          members:
+            - id: tax_lead
+              name: head-of-tax
+              description: Prepares and files returns.
+              humans:
+                - user_id: u_tax
+                  name: Idris Kovač
+                  display_name: Idris Kovač
+                  contact: idris.kovac@northwind.example
+                  roles: [owner]
+              environment: {environment: analysis}
+    # Internal Audit reports to the audit committee, NOT to the CFO. Its
+    # independence is the control; putting it under Finance would make the
+    # function test itself.
+    - id: internal_audit
+      name: Internal Audit
+      description: Independent assurance over the finance function's controls.
+      mandate:
+        decisions: [open_audit_finding]
+      leader: audit_lead
+      groups: [audit]
+      roles: [internal_audit_team]
+      members:
+        - id: audit_lead
+          name: head-of-internal-audit
+          description: Tests the controls the finance function relies on.
+          humans:
+            - user_id: u_audit
+              name: Grace Nakamura
+              display_name: Grace Nakamura
+              contact: grace.nakamura@northwind.example
+              roles: [owner]
+          environment: {environment: analysis}
+
+observability:
+  traces: true
+  metrics: true
+  propagate_across_delegation: true
+  retention_days: 90
+  sample_rate: 1.0
+  # Vendor bank details are the fraud surface; they never reach a trace.
+  redact_data_classes: [vendor_master]
+
+guardrails:
+  - id: no_bank_details_outbound
+    description: Vendor bank details must not leave on an outbound message.
+    applies_to: [output, tool_output]
+    checks: [data_class]
+    data_classes: [vendor_master]
+    on_violation: block
+  - id: no_credentials_out
+    description: Nothing credential-shaped leaves an agent, ever.
+    applies_to: [output, tool_output]
+    checks: [secrets]
+    on_violation: block
+  - id: screen_inbound_instructions
+    description: Invoice text and vendor notes are somebody else's writing.
+    applies_to: [input, tool_output]
+    checks: [prompt_injection]
+    on_violation: escalate
+    escalate_channel: finance_escalations
+
+channels:
+  - id: finance_escalations
+    description: Where a screened message goes for a human to look at.
+    purpose: escalation
+    members: [controller, cfo]
