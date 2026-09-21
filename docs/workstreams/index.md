@@ -11,7 +11,7 @@
 | [WS-006](WS-006-local-deployment-target.md) | Local deployment target — Compose stack and single-process dev loop | Active | 1.3.0 | Developer Experience | ADR-0011, ADR-0005, ADR-0009, ADR-0014, ADR-0053, ADR-0056, ADR-0059 | WS-005 |
 | [WS-007](WS-007-cloud-terraform-targets.md) | Cloud deployment targets — Terraform for GCP, AWS and Azure | Proposed | 1.1.0 | Platform SRE | ADR-0012, ADR-0015, ADR-0009, ADR-0016 | WS-005, WS-004 |
 | [WS-008](WS-008-runtime-adapters-and-harness.md) | Runtime adapters and harness binding | Active | 1.2.0 | Platform Architecture | ADR-0013, ADR-0010, ADR-0030, ADR-0035, ADR-0056 | WS-005 |
-| [WS-009](WS-009-designer-ui-and-sdk.md) | Designer UI and SDK as peer clients of the spec | Active | 1.0.0 | Product | ADR-0018, ADR-0003 | WS-002 |
+| [WS-009](WS-009-designer-ui-and-sdk.md) | Designer UI and SDK as peer clients of the spec | Active | 1.1.0 | Product | ADR-0018, ADR-0003 | WS-002 |
 | [WS-010](WS-010-observability-and-operations.md) | Observability and operations across targets | Proposed | 1.1.0 | Platform SRE | ADR-0016 | WS-005, WS-006 |
 | [WS-011](WS-011-landscape-and-capability-roadmap.md) | Landscape research and the capability roadmap | Complete | 1.0.0 | Product | ADR-0019 | WS-001 |
 | [WS-012](WS-012-scheduling-and-triggers.md) | Scheduling, event triggers and durable unattended work | Active | 1.0.0 | Platform SRE | ADR-0020, ADR-0025 | WS-005, WS-011 |
