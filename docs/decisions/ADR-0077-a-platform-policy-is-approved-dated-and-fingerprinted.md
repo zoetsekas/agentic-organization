@@ -2,7 +2,7 @@
 id: ADR-0077
 title: A platform policy is approved, dated and fingerprinted
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-21
 updated: 2026-09-21
 deciders: [Platform Architecture, Security Engineering]
@@ -12,7 +12,7 @@ scope: [compiler, security]
 workstreams: [WS-028]
 supersedes: []
 superseded_by: []
-related: [ADR-0052, ADR-0060, ADR-0062, ADR-0076]
+related: [ADR-0052, ADR-0060, ADR-0062, ADR-0076, ADR-0078]
 tags: [governance, fabric, lifecycle]
 ---
 
@@ -118,9 +118,10 @@ Phase 5, WS-028. Implemented with this record.
   not added there is silently editorial, and the fingerprint will keep
   asserting sameness across a real change. That is the same class of defect as
   a decorative field, one level up.
-- **Still no history.** There is no record of who changed what when, only the
-  current signature — the attribution half of ADR-0062 is not here, and
-  reconstructing a policy's past means reading git.
+- **There was no history.** **Closed by ADR-0078**: attributed, append-only,
+  and held to the document by version and fingerprint, so a substantive edit
+  nobody recorded is refused. It remains self-reported — consistency, not
+  truth.
 - **Retirement is not supersession.** `supersedes` is a one-way string for the
   reader; nothing checks it resolves, and nothing links a retired policy to
   what replaced it.
@@ -156,4 +157,5 @@ worked house policy is approved and current.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-21 | The missing history is ADR-0078, and it is checked against the document rather than merely recorded. |
 | 1.0.0 | 2026-09-21 | Accepted and implemented. Four states, signed and dated approval, optional lapsing review, and a fingerprint over the substantive fields so a version claim is checkable. |

@@ -31,3 +31,27 @@ forbid_autonomy_over: [release_payment, raise_debt, execute_hedge, approve_capex
 severity:
   # Raising needs no justification.
   unused_capability: error
+
+# How these rules got here. Append-only, oldest first, and checked against the
+# document it describes: the newest entry must name this version and this
+# fingerprint, so a substantive edit nobody recorded is refused rather than
+# merely undocumented (ADR-0078).
+history:
+  - version: "0.1.0"
+    at: "2026-09-14"
+    by: Platform Architecture
+    action: drafted
+    note: First pass, to see what the built-in rules already cover.
+  - version: "1.0.0"
+    at: "2026-09-19"
+    by: Platform Architecture
+    action: amended
+    note: >-
+      Added forbid_autonomy_over after the finance example showed invoice
+      approval running unattended because nobody had set a flag.
+  - version: "1.0.0"
+    fingerprint: d1823247b194
+    at: "2026-09-21"
+    by: Security Engineering
+    action: approved
+    note: Accepted for the fabric. Revisit in 180 days.

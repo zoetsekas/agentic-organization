@@ -548,6 +548,8 @@ class PlatformPolicyStampIR(BaseModel):
     status: str = ""
     approved_by: str = ""
     approved_on: str = ""
+    #: Who last touched these rules, and when (ADR-0078).
+    last_change: str = ""
 
     @property
     def stamp(self) -> str:
@@ -1262,6 +1264,12 @@ def build_ir(
             approved_by=platform_policy.approved_by if platform_policy else "",
             approved_on=(platform_policy.approved_on or "")
             if platform_policy else "",
+            last_change=(
+                f"{platform_policy.last_change.action} by "
+                f"{platform_policy.last_change.by} on "
+                f"{platform_policy.last_change.at}"
+                if platform_policy and platform_policy.last_change else ""
+            ),
         ),
         target=target,
         name=spec.metadata.name,

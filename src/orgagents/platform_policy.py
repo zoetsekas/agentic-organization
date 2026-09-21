@@ -30,6 +30,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field, model_validator
 
 SEVERITIES = ("error", "warning", "ignore")
+ACTIONS = ("drafted", "reviewed", "amended", "approved", "retired")
 
 #: Fields that change what a design is judged by. Editing one of these without
 #: a new version would make a verdict mean something different from what it
@@ -65,6 +66,47 @@ REQUIRABLE = {
 }
 
 
+class PolicyChange(BaseModel):
+    """One recorded act on a policy (ADR-0078).
+
+    History here is not a log the platform keeps — a policy is a document, and
+    nothing watches it being edited. What makes it worth having is that it is
+    **checked against the document it describes**: the newest entry must name
+    this version and this fingerprint, so a substantive edit that nobody
+    recorded is refused rather than merely undocumented.
+    """
+
+    version: str
+    #: The fingerprint as of this act. Required for anything that changed the
+    #: substance, because that is the half a version cannot prove.
+    fingerprint: str = ""
+    at: str                       # ISO date
+    by: str
+    action: str                   # drafted | reviewed | amended | approved | retired
+    note: str = ""
+
+    @model_validator(mode="after")
+    def _check(self) -> "PolicyChange":
+        if self.action not in ACTIONS:
+            raise ValueError(
+                f"policy change records action '{self.action}', which is not "
+                f"one of {ACTIONS}"
+            )
+        try:
+            date.fromisoformat(self.at)
+        except ValueError as exc:
+            raise ValueError(
+                f"policy change is dated '{self.at}', which is not a date"
+            ) from exc
+        if not self.by:
+            raise ValueError(
+                f"a policy was {self.action} on {self.at} by nobody. An "
+                "unattributed change is the thing this history exists to "
+                "prevent (ADR-0078)"
+            )
+        return self
+
+
 class PlatformPolicy(BaseModel):
     """House rules a fabric applies to every design it builds."""
 
@@ -86,6 +128,8 @@ class PlatformPolicy(BaseModel):
     #: a superseded policy is retired, and retirement is the machine-readable
     #: half.
     supersedes: str = ""
+    #: Append-only, oldest first. Checked against the document it describes.
+    history: list[PolicyChange] = Field(default_factory=list)
 
     #: Judge the design at this strictness whatever it declares about itself.
     #: `None` leaves `metadata.environment` deciding, which is the old
@@ -127,6 +171,7 @@ class PlatformPolicy(BaseModel):
                 "whom or when. An approval nobody signed and nothing dates is "
                 "not an approval (ADR-0077)"
             )
+        self._check_history()
         if self.review_interval_days is not None and self.review_interval_days < 1:
             raise ValueError(
                 f"platform policy '{self.id}' has a review interval of "
@@ -139,6 +184,77 @@ class PlatformPolicy(BaseModel):
                 f"platform cannot check. Known blocks: {sorted(REQUIRABLE)}"
             )
         return self
+
+    def _check_history(self) -> None:
+        """Hold the history to the document, not the other way round."""
+        if not self.history:
+            if self.status is PolicyStatus.APPROVED:
+                raise ValueError(
+                    f"platform policy '{self.id}' is approved and records no "
+                    "history. Who wrote these rules, and who accepted them, is "
+                    "the question an auditor asks first (ADR-0078)"
+                )
+            return
+
+        dates = [date.fromisoformat(c.at) for c in self.history]
+        if dates != sorted(dates):
+            raise ValueError(
+                f"platform policy '{self.id}' records its history out of "
+                "order; it is append-only, oldest first"
+            )
+
+        # A version is immutable: two entries naming it may not disagree about
+        # what it contained (ADR-0062's rule, applied one layer up).
+        seen: dict[str, str] = {}
+        for change in self.history:
+            if not change.fingerprint:
+                continue
+            prior = seen.setdefault(change.version, change.fingerprint)
+            if prior != change.fingerprint:
+                raise ValueError(
+                    f"platform policy '{self.id}' records version "
+                    f"'{change.version}' with two different fingerprints. A "
+                    "version is immutable: changed substance is a new version"
+                )
+
+        head = self.history[-1]
+        if head.version != self.version:
+            raise ValueError(
+                f"platform policy '{self.id}' is version '{self.version}' and "
+                f"its newest recorded change is '{head.version}'. Record the "
+                "change, or restore the version it describes"
+            )
+        if head.fingerprint and head.fingerprint != self.fingerprint:
+            raise ValueError(
+                f"platform policy '{self.id}' version '{self.version}' has "
+                f"fingerprint '{self.fingerprint}' and its history records "
+                f"'{head.fingerprint}'. Something substantive changed and "
+                "nobody recorded it — which is exactly what a version alone "
+                "cannot tell you (ADR-0078)"
+            )
+
+        if self.status is PolicyStatus.APPROVED:
+            approvals = [
+                c for c in self.history
+                if c.action == "approved" and c.version == self.version
+            ]
+            if not approvals:
+                raise ValueError(
+                    f"platform policy '{self.id}' is approved and its history "
+                    f"records no approval of version '{self.version}'"
+                )
+            last = approvals[-1]
+            if (self.approved_by, self.approved_on) != (last.by, last.at):
+                raise ValueError(
+                    f"platform policy '{self.id}' says it was approved by "
+                    f"'{self.approved_by}' on {self.approved_on}, and its "
+                    f"history records '{last.by}' on {last.at}. The signature "
+                    "and the recorded act are the same fact"
+                )
+
+    @property
+    def last_change(self) -> Optional[PolicyChange]:
+        return self.history[-1] if self.history else None
 
     @property
     def stamp(self) -> str:

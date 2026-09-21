@@ -191,11 +191,21 @@ from orgagents.platform_policy import PolicyStatus  # noqa: E402
 
 
 def _approved(**over) -> PlatformPolicy:
-    base = dict(id="h", version="1.0.0", status="approved",
-                approved_by="ana", approved_on="2026-09-01",
-                treat_as="production")
+    """An approved policy, with the history an approved policy must carry.
+
+    Built twice on purpose: the recorded fingerprint has to be the one the
+    document actually has, which is the whole point of the check.
+    """
+    base = dict(id="h", version="1.0.0", approved_by="ana",
+                approved_on="2026-09-01", treat_as="production")
     base.update(over)
-    return PlatformPolicy(**base)
+    unsigned = PlatformPolicy(**{k: v for k, v in base.items()
+                                 if k not in ("approved_by", "approved_on")})
+    return PlatformPolicy(**base, status="approved", history=[{
+        "version": base["version"], "fingerprint": unsigned.fingerprint,
+        "at": base["approved_on"], "by": base["approved_by"],
+        "action": "approved",
+    }])
 
 
 def test_a_new_policy_starts_as_a_draft():
@@ -286,3 +296,116 @@ def test_the_gate_reports_why_a_policy_may_not_decide(spec):
 def test_the_worked_house_policy_is_approved_and_current(house):
     assert house.refusal() == "", house.refusal()
     assert house.review_interval_days, "house rules should be revisited"
+
+
+# --------------------------------------------------------------------------
+# Attribution history (ADR-0078)
+# --------------------------------------------------------------------------
+
+
+def _hist(policy: PlatformPolicy, **over) -> dict:
+    entry = dict(version=policy.version, fingerprint=policy.fingerprint,
+                 at="2026-09-01", by="ana", action="approved")
+    entry.update(over)
+    return entry
+
+
+def test_a_draft_needs_no_history():
+    assert PlatformPolicy(id="h").history == []
+
+
+def test_an_approved_policy_with_no_history_is_refused():
+    """Who wrote these rules, and who accepted them, is the first question."""
+    with pytest.raises(ValueError) as excinfo:
+        PlatformPolicy(id="h", version="1.0.0", status="approved",
+                       approved_by="ana", approved_on="2026-09-01")
+    assert "records no history" in str(excinfo.value)
+
+
+def test_a_substantive_edit_nobody_recorded_is_refused():
+    """The half a version alone cannot tell you."""
+    signed = PlatformPolicy(id="h", version="1.0.0", treat_as="production")
+    with pytest.raises(ValueError) as excinfo:
+        PlatformPolicy(
+            id="h", version="1.0.0", treat_as="development",  # changed
+            status="approved", approved_by="ana", approved_on="2026-09-01",
+            history=[_hist(signed)],
+        )
+    assert "nobody recorded it" in str(excinfo.value)
+
+
+def test_a_recorded_edit_passes():
+    p = PlatformPolicy(id="h", version="1.0.0", treat_as="development")
+    assert PlatformPolicy(
+        id="h", version="1.0.0", treat_as="development", status="approved",
+        approved_by="ana", approved_on="2026-09-01", history=[_hist(p)],
+    )
+
+
+def test_a_version_recorded_twice_with_different_substance_is_refused():
+    """A version is immutable — ADR-0062's rule, one layer up."""
+    p = PlatformPolicy(id="h", version="1.0.0", treat_as="production")
+    with pytest.raises(ValueError) as excinfo:
+        PlatformPolicy(
+            id="h", version="1.0.0", treat_as="production", status="approved",
+            approved_by="ana", approved_on="2026-09-02",
+            history=[
+                _hist(p, at="2026-09-01", fingerprint="deadbeefcafe",
+                      action="amended"),
+                _hist(p, at="2026-09-02"),
+            ],
+        )
+    assert "two different fingerprints" in str(excinfo.value)
+
+
+def test_history_must_be_append_only_oldest_first():
+    p = PlatformPolicy(id="h", version="1.0.0", treat_as="production")
+    with pytest.raises(ValueError) as excinfo:
+        PlatformPolicy(
+            id="h", version="1.0.0", treat_as="production", status="approved",
+            approved_by="ana", approved_on="2026-09-01",
+            history=[_hist(p, at="2026-09-05", action="amended",
+                           fingerprint=""),
+                     _hist(p, at="2026-09-01")],
+        )
+    assert "out of order" in str(excinfo.value)
+
+
+def test_an_unattributed_change_is_refused():
+    with pytest.raises(ValueError) as excinfo:
+        PlatformPolicy(id="h", version="1.0.0",
+                       history=[{"version": "1.0.0", "at": "2026-09-01",
+                                 "by": "", "action": "drafted"}])
+    assert "by nobody" in str(excinfo.value)
+
+
+def test_the_signature_and_the_recorded_act_are_the_same_fact():
+    p = PlatformPolicy(id="h", version="1.0.0", treat_as="production")
+    with pytest.raises(ValueError) as excinfo:
+        PlatformPolicy(
+            id="h", version="1.0.0", treat_as="production", status="approved",
+            approved_by="bo", approved_on="2026-09-01",   # says bo
+            history=[_hist(p, by="ana")],                  # records ana
+        )
+    assert "the same fact" in str(excinfo.value)
+
+
+def test_the_head_must_describe_this_version():
+    p = PlatformPolicy(id="h", version="2.0.0", treat_as="production")
+    with pytest.raises(ValueError) as excinfo:
+        PlatformPolicy(id="h", version="2.0.0", treat_as="production",
+                       history=[_hist(p, version="1.0.0", action="amended",
+                                      fingerprint="")])
+    assert "newest recorded change" in str(excinfo.value)
+
+
+def test_the_stamp_says_who_last_touched_the_rules(spec, house):
+    ir = build_ir(spec, platform_policy=house)
+    assert ir.platform_policy.last_change == (
+        "approved by Security Engineering on 2026-09-21"
+    )
+
+
+def test_the_worked_house_policy_records_how_it_got_here(house):
+    assert [c.action for c in house.history] == ["drafted", "amended", "approved"]
+    assert house.last_change.by == "Security Engineering"
