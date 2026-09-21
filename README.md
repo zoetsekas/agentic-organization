@@ -138,13 +138,19 @@ from drifting from the application, but that is not the same as a successful
 
 *The canvas. Teams and agents as the spec defines them, dashed **placement
 regions** behind the nodes (ADR-0069), edges derived from the spec rather than
-stored, and live validation — 0 errors, 27 warnings — with the findings in the
-inspector.*
+stored, and live validation — 0 errors, 27 warnings. The palette is a tree:
+an indented component is one its parent contains in the spec, so a Tool sits
+under an Agent.*
 
 | | |
 |---|---|
-| [![Authority](docs/images/designer-authority.png)](docs/images/designer-authority.png) | [![Publish](docs/images/designer-publish.png)](docs/images/designer-publish.png) |
-| **Authority** — what each agent may *decide*, resolved the way the phase gate resolves it, with autonomy postures, separation rules, placements and people. | **Publish** — validate, compile, request. The verdict names the stage, and the refusal is the deliverable. |
+| [![Issues](docs/images/designer-issues.png)](docs/images/designer-issues.png) | [![Authority](docs/images/designer-authority.png)](docs/images/designer-authority.png) |
+| **Issues** — one finding per problem, each naming the rule that fired and the component it is about; clicking the name takes you to it on the canvas. | **Authority** — what each agent may *decide*, resolved the way the phase gate resolves it, with autonomy postures, separation rules, placements and people. |
+
+| | |
+|---|---|
+| [![Publish](docs/images/designer-publish.png)](docs/images/designer-publish.png) | |
+| **Publish** — validate, compile, request. The verdict names the stage, and the refusal is the deliverable. | |
 
 There is also the [org chart](docs/images/designer-org-chart.png).
 

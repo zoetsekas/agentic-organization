@@ -192,10 +192,24 @@
         </div>
       </div>
 
+      <!-- The right panel holds two different jobs — what a component says,
+           and what is wrong with the design — so they are two tabs rather
+           than one column where a long error buries the form. -->
       <aside class="panel inspector">
-        <h2 id="inspector-title">Inspector</h2>
-        <div id="inspector" class="empty">Select a component on the canvas.</div>
-        <div id="validation" class="validation"></div>
+        <div class="side-tabs" id="side-tabs" role="tablist">
+          <button data-side="details" class="active" role="tab"
+                  aria-selected="true">Details</button>
+          <button data-side="issues" role="tab" aria-selected="false">
+            Issues <span id="issues-badge" class="badge"></span>
+          </button>
+        </div>
+        <div class="side-pane" id="side-details">
+          <h2 id="inspector-title">Inspector</h2>
+          <div id="inspector" class="empty">Select a component on the canvas.</div>
+        </div>
+        <div class="side-pane" id="side-issues" hidden>
+          <div id="validation" class="validation"></div>
+        </div>
       </aside>
     </div>
   </section>

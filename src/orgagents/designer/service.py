@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ..spec.loader import load_spec_text
-from ..spec.validate import validate_spec
+from ..spec.validate import Finding, validate_spec
 from .audit import AuditAction, AuditEvent, AuditLog, AuditOutcome
 from .locks import LockConflict, LockManager
 from .merge import apply_resolutions, merge
@@ -673,19 +673,40 @@ class DesignerService:
     # -- validation --------------------------------------------------------
 
     def validate(self, record: SystemRecord) -> dict[str, Any]:
-        """Run the spec validator over a design in progress, tolerating drafts."""
+        """Run the spec validator over a design in progress, tolerating drafts.
+
+        Findings are structured and carry the component they are about. A
+        draft that does not parse used to come back as one string holding the
+        whole of pydantic's report — four errors, four documentation URLs and
+        every input value, rendered as a single bullet in the inspector. It
+        was unreadable and it named nothing you could click. Each pydantic
+        error is now its own finding, pointed at the nearest component with an
+        id, so the UI can take you to what is wrong.
+
+        `errors` and `warnings` stay as strings for callers that only report;
+        `findings` is the same set with its parts still separate.
+        """
         import yaml
 
         try:
             spec = load_spec_text(yaml.safe_dump(record.spec))
-        except Exception as e:      # a draft may not parse yet; say so plainly
-            return {"ok": False, "errors": [f"{type(e).__name__}: {e}"],
-                    "warnings": []}
-        findings = validate_spec(spec)
+        except PydanticValidationError as exc:
+            findings = _parse_findings(exc, record.spec)
+        except Exception as e:      # not even YAML/shape; say so plainly
+            findings = [Finding(severity="error", code="unreadable",
+                                message=f"{type(e).__name__}: {e}")]
+        else:
+            findings = list(validate_spec(spec))
         return {
             "ok": not any(f.severity == "error" for f in findings),
             "errors": [str(f) for f in findings if f.severity == "error"],
             "warnings": [str(f) for f in findings if f.severity == "warning"],
+            "findings": [
+                {"severity": f.severity, "code": f.code, "where": f.where,
+                 "message": f.message,
+                 "component": _component_at(record.spec, f.where)}
+                for f in findings
+            ],
         }
 
 
@@ -717,3 +738,79 @@ def _starter_spec(name: str) -> dict[str, Any]:
         "policies": [], "channels": [], "triggers": [], "knowledge": [],
         "skills": [], "plugins": [], "tools": [], "endpoints": [],
     }
+
+
+# --------------------------------------------------------------- findings
+#
+# Making a validation failure traceable is a matter of naming the component,
+# not the path: `organization.teams.0.teams.0.mandate` is where the error is,
+# but "team_3" is what the reader has on the canvas and can click.
+
+def _walk_to(data: Any, path: tuple[Any, ...]) -> list[Any]:
+    """Everything on the way to `path`, nearest last, skipping what is missing."""
+    seen: list[Any] = [data]
+    here = data
+    for step in path:
+        try:
+            here = (here[int(step)] if isinstance(here, list)
+                    else here[str(step)])
+        except (KeyError, IndexError, TypeError, ValueError):
+            break
+        seen.append(here)
+    return seen
+
+
+def _component_at(spec: dict[str, Any], where: str) -> str:
+    """The id of the nearest declared component containing `where`.
+
+    Nearest, because an error on a team's mandate belongs to that team and not
+    to the organisation that holds it. Empty when nothing on the path has an
+    id, which is honest: not every error is about a component.
+    """
+    if not where:
+        return ""
+    # The spec validator's findings name the component directly ("payables_
+    # clerk"), while pydantic's name a path into the document. Both arrive
+    # here, so a `where` that is already a declared id is taken as one.
+    if where in _declared_ids(spec):
+        return where
+    path = tuple(where.split("."))
+    for node in reversed(_walk_to(spec, path)):
+        if isinstance(node, dict) and isinstance(node.get("id"), str):
+            return node["id"]
+    return ""
+
+
+def _parse_findings(exc: PydanticValidationError,
+                    spec: dict[str, Any]) -> list[Finding]:
+    """One finding per pydantic error, with the noise left out.
+
+    Pydantic's own rendering repeats the input value and a documentation URL
+    for every error. Neither helps somebody looking at a canvas, and together
+    they buried the one sentence that did.
+    """
+    out: list[Finding] = []
+    for error in exc.errors():
+        where = ".".join(str(part) for part in error["loc"])
+        message = str(error.get("msg", "")).removeprefix("Value error, ")
+        out.append(Finding(severity="error", code=str(error.get("type", "invalid")),
+                           message=message, where=where))
+    return out
+
+
+def _declared_ids(spec: Any) -> set[str]:
+    """Every id declared anywhere in a spec document."""
+    found: set[str] = set()
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if isinstance(node.get("id"), str):
+                found.add(node["id"])
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(spec)
+    return found

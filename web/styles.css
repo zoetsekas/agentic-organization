@@ -182,7 +182,10 @@ a:hover { color: var(--accent-bright); }
 }
 
 main {
-  padding: var(--s6); max-width: 1500px; margin: 0 auto;
+  /* A workbench, not an article: the canvas is the thing being read, so the
+     window is given to it rather than to symmetric margins. A reading width
+     here cost roughly a third of a wide screen. */
+  padding: var(--s4) var(--s5); max-width: none; margin: 0;
   flex: 1; min-height: 0; width: 100%;
   display: flex; flex-direction: column;
 }
@@ -322,7 +325,7 @@ legend {
 /* The canvas section fills the viewport left below the topbar and contextbar. */
 #view-canvas { padding-bottom: 0; }
 .canvas-layout {
-  display: grid; grid-template-columns: 210px minmax(0,1fr) 340px; gap: var(--s5);
+  display: grid; grid-template-columns: 208px minmax(0,1fr) 340px; gap: var(--s4);
   flex: 1; min-height: 0; align-items: stretch;
 }
 @media (max-width: 1200px) { .canvas-layout { grid-template-columns: 1fr; } }
@@ -432,8 +435,10 @@ legend {
 /* Palette and inspector scroll on their own so neither clips the canvas. */
 #canvas-palette { display: flex; flex-direction: column; overflow-y: auto; margin-bottom: 0; }
 #canvas-palette #palette-groups { flex: 1; overflow-y: auto; }
-.inspector { display: flex; flex-direction: column; overflow-y: auto; margin-bottom: 0; }
-#inspector { flex: 1; overflow-y: auto; }
+/* The panel itself no longer scrolls: the tab showing does, so the tab bar
+   stays put while a long form or a long list of findings moves under it. */
+.inspector { display: flex; flex-direction: column; overflow: hidden; margin-bottom: 0; }
+#inspector { overflow-wrap: anywhere; }
 
 /* Delete is an affordance of the node, so it lives on the node and appears
    on hover rather than hiding in a menu. */
@@ -877,3 +882,48 @@ textarea.json.invalid { border-color: var(--clay); }
   display: flex; flex-direction: column; gap: 6px;
   border-left: 2px solid var(--rule); padding-left: 10px;
 }
+
+
+/* ------------------------------------------------- right panel, in tabs */
+/* Component details and validation are different jobs. Stacked in one
+   column, a long error pushed the form out of sight; a reader looking for a
+   field had to scroll past everything wrong with the design to reach it. */
+.side-tabs {
+  display: flex; gap: var(--s2); border-bottom: 1px solid var(--line);
+  margin: calc(var(--s6) * -1) calc(var(--s6) * -1) var(--s5);
+  padding: var(--s3) var(--s4) 0;
+}
+.side-tabs button {
+  background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--ink-muted); padding: var(--s3) var(--s3); font-size: var(--t-small);
+  display: flex; align-items: center; gap: var(--s2); cursor: pointer;
+}
+.side-tabs button.active { color: var(--ink); border-bottom-color: var(--accent); }
+.side-tabs .badge:empty { display: none; }
+.side-pane { flex: 1; min-height: 0; overflow-y: auto; }
+.side-pane[hidden] { display: none; }
+
+/* A finding is three things: what it is about, which rule said so, and the
+   sentence. Keeping them apart is what makes a list of them scannable. */
+.findings { list-style: none; margin: var(--s3) 0 0; padding: 0; }
+.findings li {
+  border-left: 2px solid var(--line); padding: var(--s3) 0 var(--s3) var(--s4);
+  margin-bottom: var(--s3);
+}
+.findings li.v-err { border-left-color: var(--clay-ink); }
+.findings li.v-warn { border-left-color: var(--amber-ink); }
+.findings .v-head {
+  display: flex; gap: var(--s3); align-items: baseline; flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+.findings .v-where {
+  font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--ink);
+}
+.findings button.v-where {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--accent); text-decoration: underline;
+}
+.findings .v-code {
+  font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--ink-dim);
+}
+.findings .v-msg { font-size: var(--t-small); color: var(--ink-muted); line-height: 1.45; }

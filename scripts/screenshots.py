@@ -130,6 +130,14 @@ async def main():
               "| regions:", await page.locator("#canvas-regions > *").count())
         await shot(page, "designer-canvas")
 
+        # 3. The issues tab: every finding, attributed to a component.
+        await page.click('#side-tabs button[data-side="issues"]')
+        await page.wait_for_timeout(600)
+        print("  findings:", await page.locator("#validation .findings li").count(),
+              "| traceable:", await page.locator("#validation button.v-where").count())
+        await shot(page, "designer-issues")
+        await page.click('#side-tabs button[data-side="details"]')
+
         # 3. Authority — mandates, separations, placements, people.
         await page.click('#tabs button[data-view="authority"]')
         await page.wait_for_timeout(1400)

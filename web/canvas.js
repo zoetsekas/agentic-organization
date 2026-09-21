@@ -1297,6 +1297,7 @@ function placeComponent(kind, x, y) {
 /* ------------------------------------------------------------- inspector */
 function selectNode(node) {
   canvas.selected = { kind: node.kind, id: node.id };
+  showSide("details");
   renderCanvas();
   renderInspector();
 }
@@ -1981,15 +1982,89 @@ function renderValidationStrip(validation) {
         || (validation.ok ? "nothing to answer" : "")));
 }
 
+/* Which of the right panel's two tabs is showing. */
+function showSide(which) {
+  canvas.side = which;
+  for (const button of document.querySelectorAll("#side-tabs button")) {
+    const on = button.dataset.side === which;
+    button.classList.toggle("active", on);
+    button.setAttribute("aria-selected", String(on));
+  }
+  $("#side-details").hidden = which !== "details";
+  $("#side-issues").hidden = which !== "issues";
+}
+
+/* A finding the backend could not attribute to a component still has to say
+   where it is, so the raw path is the fallback — never nothing. */
+function findingWhere(finding) {
+  return finding.component || finding.where || "";
+}
+
 function renderValidation(validation) {
   const host = $("#validation");
   renderValidationStrip(validation);
-  if (!validation) return host.replaceChildren();
+  const badge = $("#issues-badge");
+  if (!validation) {
+    if (badge) badge.textContent = "";
+    return host.replaceChildren();
+  }
+  const errors = validation.errors || [];
+  const warnings = validation.warnings || [];
+  if (badge) {
+    badge.textContent = errors.length ? String(errors.length)
+      : warnings.length ? String(warnings.length) : "";
+    badge.className = `badge ${errors.length ? "err" : warnings.length ? "warn" : ""}`;
+  }
+
+  /* Structured findings if the backend sent them; the old strings otherwise,
+     so an older response still renders rather than showing an empty panel. */
+  const findings = validation.findings || [
+    ...errors.map((m) => ({ severity: "error", message: String(m) })),
+    ...warnings.map((m) => ({ severity: "warning", message: String(m) })),
+  ];
+
+  const row = (finding) => {
+    const where = findingWhere(finding);
+    const known = finding.component
+      && canvas.record?.layout?.nodes?.[finding.component];
+    return el("li", { class: finding.severity === "error" ? "v-err" : "v-warn" },
+      el("div", { class: "v-head" },
+        where
+          ? el(known ? "button" : "span", {
+              class: known ? "v-where link" : "v-where",
+              title: known ? "show this component on the canvas"
+                : (finding.where || ""),
+              ...(known ? { onclick: () => selectAndReveal(finding.component) } : {}),
+            }, where)
+          : null,
+        finding.code ? el("span", { class: "v-code" }, finding.code) : null),
+      el("div", { class: "v-msg" }, finding.message));
+  };
+
   host.replaceChildren(
-    el("h3", {}, validation.ok ? "Valid" : "Not yet valid"),
-    el("ul", {},
-      ...validation.errors.map((e) => el("li", { class: "v-err" }, e)),
-      ...validation.warnings.slice(0, 5).map((w) => el("li", { class: "v-warn" }, w))));
+    el("h3", {}, validation.ok ? "Nothing blocking" : "Not yet valid"),
+    findings.length
+      ? el("ul", { class: "findings" }, ...findings.map(row))
+      : el("p", { class: "hint" }, "No errors and no warnings."));
+}
+
+/* Take the reader to the component a finding names: select it, and scroll it
+   into view, which is the whole point of attributing a finding at all. */
+function selectAndReveal(id) {
+  const node = canvas.record?.layout?.nodes?.[id];
+  if (!node) return;
+  canvas.selected = { kind: node.kind, id };
+  showSide("details");
+  renderCanvas();
+  renderInspector();
+  const surface = $("#canvas");
+  if (surface) {
+    surface.scrollTo({
+      left: Math.max(0, node.x - surface.clientWidth / 2),
+      top: Math.max(0, node.y - surface.clientHeight / 2),
+      behavior: "smooth",
+    });
+  }
 }
 
 async function saveSystem(resolutions = null) {
@@ -2087,6 +2162,9 @@ function wireCanvas() {
       else renderOrgSelectors();
     });
   });
+  document.querySelectorAll("#side-tabs button").forEach((button) =>
+    button.addEventListener("click", () => showSide(button.dataset.side)));
+  /* Selecting a component is a request to read it, so the panel shows it. */
   $("#btn-save").addEventListener("click", () => saveSystem());
   $("#btn-lock").addEventListener("click", async () => {
     const mine = canvas.locks.find((l) => l.holder === canvas.user);
