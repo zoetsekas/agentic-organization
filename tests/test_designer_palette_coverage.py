@@ -262,3 +262,64 @@ def test_a_design_with_the_M3_blocks_validates():
              "applies_to": ["a"]}]},
     }
     assert not [c for c in _codes(spec) if c.startswith("unknown_")]
+
+
+def test_every_palette_kind_survives_a_save(tmp_path):
+    """The palette and the store drifted, and only a browser noticed.
+
+    `CanvasNode.kind` was a closed enum written when the palette had fifteen
+    kinds. It has twenty-four. Everything added since could be dragged onto
+    the canvas and edited, and then the save returned a 500 — so a person
+    could do a minute's work and lose it, with the UI reporting a JSON parse
+    error because the 500 was not JSON.
+
+    This is WS-032 M7's drift check, in the form that would have caught it:
+    place one node of every kind the palette offers and save them all.
+    """
+    from fastapi.testclient import TestClient
+
+    from orgagents.api import create_app
+
+    client = TestClient(create_app(str(tmp_path / "drift.db")))
+    headers = {"X-User": "alice"}
+    palette = client.get("/api/designer/palette", headers=headers).json()
+    kinds = [k["kind"] for group in palette["groups"] for k in group["kinds"]]
+    assert len(kinds) > 15, "the palette shrank; this test assumes it grew"
+
+    workspace = client.post("/api/designer/workspaces", json={"name": "w"},
+                            headers=headers).json()
+    created = client.post(
+        "/api/designer/systems",
+        json={"workspace_id": workspace["id"], "name": "drift",
+              "spec": {"metadata": {"name": "drift"}}},
+        headers=headers,
+    ).json()
+
+    nodes = {
+        f"{kind}_1": {"id": f"{kind}_1", "kind": kind, "x": 10 * i, "y": 10,
+                      "width": 200, "height": 80, "collapsed": False, "note": ""}
+        for i, kind in enumerate(kinds)
+    }
+    saved = client.put(
+        f"/api/designer/systems/{created['id']}",
+        json={"layout": {"nodes": nodes, "edges": []},
+              "version": created["version"]},
+        headers=headers,
+    )
+    assert saved.status_code == 200, (
+        f"a layout using the palette's own kinds was refused: {saved.text[:400]}"
+    )
+    stored = client.get(f"/api/designer/systems/{created['id']}",
+                        headers=headers).json()["record"]["layout"]["nodes"]
+    assert set(stored) == set(nodes), "kinds were dropped on the way through"
+
+
+def test_a_node_must_still_say_what_kind_it_is(tmp_path):
+    """Opening the field is not the same as accepting anything."""
+    import pytest
+    from pydantic import ValidationError
+
+    from orgagents.designer.models import CanvasNode
+
+    with pytest.raises(ValidationError):
+        CanvasNode(id="x", kind="   ")

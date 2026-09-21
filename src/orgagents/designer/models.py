@@ -43,7 +43,21 @@ class SystemStatus(str, Enum):
 
 
 class NodeKind(str, Enum):
-    """What a box on the canvas represents."""
+    """What a box on the canvas represents.
+
+    **Not a closed set, and it must not be.** Layout is pure presentation and
+    never enters the spec (ADR-0034), so the palette is the only authority on
+    what a person may drop — and this enum was written when the palette had
+    fifteen kinds. It now has twenty-four. Every kind added since
+    (`guardrail`, `person`, `decision`, `separation`, `evaluation`,
+    `output_contract`, `skill`, `plugin`, `tool`, `mission`) could be dragged
+    onto the canvas, edited, and then failed the *save* with a 500 — the
+    palette and the store had drifted, and nothing checked it.
+
+    The values below are kept as names worth having, and
+    `CanvasNode.kind` accepts any non-empty string: refusing an unknown kind
+    here protects nothing and breaks the thing the designer is for.
+    """
 
     TEAM = "team"
     AGENT = "agent"
@@ -66,7 +80,9 @@ class CanvasNode(BaseModel):
     """Where a component sits on the canvas. Pure presentation."""
 
     id: str                      # matches the spec object's id
-    kind: NodeKind
+    #: Any non-empty kind the palette offers. See `NodeKind`: a closed set
+    #: here made every palette kind added after it unsaveable.
+    kind: str
     x: float = 0
     y: float = 0
     width: float = 220
@@ -74,6 +90,14 @@ class CanvasNode(BaseModel):
     collapsed: bool = False
     color: Optional[str] = None
     note: str = ""
+
+
+    @field_validator("kind")
+    @classmethod
+    def _kind_is_named(cls, v: str) -> str:
+        if not str(v).strip():
+            raise ValueError("a canvas node must say what kind it is")
+        return str(v)
 
 
 class CanvasEdge(BaseModel):

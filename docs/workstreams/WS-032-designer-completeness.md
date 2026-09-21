@@ -2,7 +2,7 @@
 id: WS-032
 title: Designer completeness — authoring the whole spec
 status: Active
-version: 1.5.0
+version: 1.6.0
 date: 2026-09-21
 updated: 2026-09-21
 owner: Product
@@ -60,7 +60,7 @@ small enough that failing it is a prompt rather than a permanent red mark.
 | M4 The platform policy verdict in the designer | Phase 6 | Not started |
 | M5 Undo for canvas edits | Phase 6 | Not started |
 | M6 Keyboard node creation and a focus treatment | Phase 6 | Not started |
-| M7 A drift check between the palette and the spec model | Phase 6 | Not started |
+| M7 A drift check between the palette and the spec model | Phase 6 | Done |
 | M8 Wire the placements route into the view — volumes, what crosses, who is placed nowhere | Phase 6 | Done |
 | M9 The publish path: validate → compile → request deployment, with the gate's refusal as the reason | Phase 6 | Done |
 
@@ -100,6 +100,7 @@ in `docs/DESIGNER.md` no longer lists coverage as the largest gap.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.6.0 | 2026-09-21 | M7 done, by finding what it was for: a palette kind added after `CanvasNode.kind`'s enum was written could be dropped and edited and then lost on save with a 500. `kind` is open now and a check places every palette kind and saves them. `scripts/interaction_check.py` drives drag-and-drop, the forms and the save in a browser. |
 | 1.5.0 | 2026-09-21 | M9 done. `preflight` validates and compiles into a discarded directory under the fabric's platform policy; `publish` requires `system.publish`, names a revision, and creates a deployment in `requested` for the fabric to compile. The refusal is the deliverable and the bar renders the gate's findings. |
 | 1.4.0 | 2026-09-21 | M8 done. Placements render in the Authority view and their findings merge into one gate list. The category is now checked rather than reviewed: a test fails on any served designer route the bundle does not reference, with `lock/heartbeat` allowlisted and its reason named. |
 | 1.3.0 | 2026-09-21 | M8 and M9 opened. Coverage measured rather than estimated: 9 spec blocks have no UI and 5 are partial, `missions` and `policies` being the two that matter. `GET .../placements` is served and nothing calls it. |

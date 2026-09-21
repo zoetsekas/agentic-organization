@@ -148,10 +148,13 @@ inspector.*
 
 There is also the [org chart](docs/images/designer-org-chart.png).
 
-> These were captured from the running application with a real browser, against
-> the worked finance example in `examples/northwind.finance.system.yaml`. They
-> are the first renders this UI has ever had, and taking them found four
-> defects that 1,400 passing tests did not — see `docs/DESIGNER.md`.
+> Captured from the running application with a real browser, against the worked
+> finance example in `examples/northwind.finance.system.yaml`. Regenerate them
+> with `scripts/screenshots.py`; drive the UI with
+> `scripts/interaction_check.py`, which drags a component off the palette,
+> edits its form, moves a node and saves. Between them those two scripts found
+> six defects that 1,400 passing tests did not, one of them data loss on every
+> keystroke and one a 500 that ate a save — see `docs/DESIGNER.md`.
 
 `http://localhost:8000/ui/#/canvas` is a drag-and-drop canvas: drop a **Team**,
 drop **Agents** onto it, fill in the inspector forms, and watch validation

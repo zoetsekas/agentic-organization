@@ -36,7 +36,22 @@ async function dapi(path, options = {}) {
     ...options,
   });
   const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
+  /* A 500 is not JSON. Parsing unconditionally turned every server fault into
+     `Unexpected token 'I', "Internal S"... is not valid JSON`, which tells the
+     person nothing and sent the real cause to the server log alone — that is
+     how a save that had been broken for months read as a parse error. */
+  let body = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    if (res.ok) throw new Error(`${path} returned a body that is not JSON`);
+    const err = new Error(
+      `the server failed (${res.status} ${res.statusText || "error"}). `
+      + "Its log has the reason.");
+    err.status = res.status;
+    err.detail = text.slice(0, 300);
+    throw err;
+  }
   if (!res.ok) {
     const detail = body && body.detail ? body.detail : res.statusText;
     const err = new Error(typeof detail === "string" ? detail : JSON.stringify(detail));

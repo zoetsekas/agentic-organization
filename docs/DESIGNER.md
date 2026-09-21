@@ -388,14 +388,47 @@ Three of the four are one mistake made twice — a reference rendered as though
 it were an inline value — which is the cost of a migration that the type system
 does not check.
 
+## The first interaction run
+
+`scripts/interaction_check.py` drives the same browser through the things a
+person actually does: drag a component off the palette, edit its form, move a
+node, open an agent's authority controls, save, and read it back. Twelve
+checks, and they pass.
+
+Getting there cost **one serious defect and one that made it unreadable**.
+
+**A palette kind added after the layout store was written could not be saved.**
+`CanvasNode.kind` was an enum of fifteen values; the palette offers
+twenty-four. Everything added since — `guardrail`, `person`, `decision`,
+`separation`, `evaluation`, `output_contract`, `skill`, `plugin`, `tool`,
+`mission` — could be dragged onto the canvas and edited, and then the save
+returned a 500 and the work was gone. Nothing caught it because nothing had
+ever *dropped* one: the palette-coverage test asserted the canvas could place
+every kind, not that the server would accept it.
+
+Layout is pure presentation and never enters the spec (ADR-0034), so a closed
+set there protected nothing. `kind` is now any non-empty string, and the drift
+check WS-032 M7 asked for exists in the form that would have caught this:
+place one node of every kind the palette offers and save them all.
+
+**And the person saw `Unexpected token 'I'`.** `dapi` parsed every response as
+JSON, so a 500 — which is not JSON — surfaced as a parse error with the real
+cause in the server log alone. A non-JSON failure now reports the status and
+says where the reason is.
+
+Two other things looked like defects and were not, which is worth recording so
+they are not re-reported: the inspector's controls carry no `name` attribute
+(they are associated by wrapping `<label>`, so they are addressed the way a
+person addresses them), and `renderAutonomy` correctly shows a hint rather than
+a control for an agent that holds no declared capability.
+
 ## What is still unchecked
 
-The captures prove these four views render and carry real data. They say
-nothing about interaction: drag-and-drop, the inspector forms, conflict
-resolution and the lock flow have still never been exercised by a person or a
-script. Accessibility beyond the contract tests, keyboard navigation, undo and
-behaviour on a large organization remain unassessed, and no view has been
-opened at a narrow viewport.
+Conflict resolution and the lock flow — the three-way merge, two people on one
+design, an expired lock — have never been exercised. Neither has undo, which
+does not exist (WS-032 M5). Accessibility beyond the contract tests, keyboard
+navigation, and behaviour on a large organization remain unassessed, and no
+view has been opened at a narrow viewport.
 
 ## Authority
 
