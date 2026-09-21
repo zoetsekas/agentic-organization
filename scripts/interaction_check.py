@@ -384,6 +384,54 @@ async def main() -> None:
         check("an id another component already holds is refused",
               clash.get("refused") is True, json.dumps(clash))
 
+        # -- 8. The four views a modelling tool needs ----------------------
+        #
+        # Explorer (what the model contains), Palette (what may be added),
+        # Outline (where you are), Properties (what the selection says). The
+        # Explorer is the one that earns its place: a component declared in
+        # the spec but never laid out is invisible on the canvas, and there
+        # was no other way to reach it.
+        await page.click('#left-tabs button[data-left="explorer"]')
+        await page.wait_for_timeout(500)
+        shell = await page.evaluate("""() => ({
+          explorerRows: document.querySelectorAll('#explorer-tree .ex-row').length,
+          offCanvas: document.querySelectorAll('#explorer-tree .ex-row.off-canvas').length,
+          outlineNodes: document.querySelectorAll('#outline-svg .o-node').length,
+          viewport: getComputedStyle(
+            document.querySelector('#outline-viewport')).display,
+        })""")
+        check("the explorer lists the model", shell["explorerRows"] > 10,
+              json.dumps(shell))
+        check("a component not on the canvas is still in the explorer",
+              shell["offCanvas"] > 0, f"{shell['offCanvas']} off-canvas row(s)")
+        check("the outline draws every node",
+              shell["outlineNodes"] == await page.locator("#canvas-nodes > *").count(),
+              f"{shell['outlineNodes']} outlined")
+        check("the outline shows the viewport", shell["viewport"] != "none")
+
+        await page.fill("#explorer-filter", "treasur")
+        await page.wait_for_timeout(400)
+        filtered = await page.evaluate(
+            "() => [...document.querySelectorAll('#explorer-tree .ex-row')]"
+            ".map((r) => r.textContent)")
+        check("filtering the explorer narrows it",
+              0 < len(filtered) < shell["explorerRows"], f"{len(filtered)} row(s)")
+        await page.fill("#explorer-filter", "")
+        await page.wait_for_timeout(300)
+
+        # Selecting in the explorer opens the properties, which is the whole
+        # reason the two are next to each other.
+        await page.locator('#explorer-tree .ex-row:not(.group)').nth(1).click()
+        await page.wait_for_timeout(400)
+        check("selecting in the explorer opens the properties",
+              await page.locator("#inspector .form").count() == 1,
+              (await page.text_content("#inspector-title") or "").strip())
+
+        await page.click('#left-tabs button[data-left="palette"]')
+        await page.wait_for_timeout(300)
+        check("the palette is still one tab away",
+              await page.locator("#left-palette .drag-item").count() > 10)
+
         await page.screenshot(path="/tmp/interaction-final.png")
         await browser.close()
 

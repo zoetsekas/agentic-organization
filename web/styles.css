@@ -325,7 +325,7 @@ legend {
 /* The canvas section fills the viewport left below the topbar and contextbar. */
 #view-canvas { padding-bottom: 0; }
 .canvas-layout {
-  display: grid; grid-template-columns: 208px minmax(0,1fr) 340px; gap: var(--s4);
+  display: grid; grid-template-columns: 250px minmax(0,1fr) 340px; gap: var(--s4);
   flex: 1; min-height: 0; align-items: stretch;
 }
 @media (max-width: 1200px) { .canvas-layout { grid-template-columns: 1fr; } }
@@ -932,4 +932,57 @@ textarea.json.invalid { border-color: var(--clay); }
 .canvas-edges .edge-label {
   font-family: var(--font-mono); font-size: 10px;
   paint-order: stroke; stroke: var(--ground); stroke-width: 3px;
+}
+
+/* ------------------------------------------- explorer, palette, outline */
+/* A modelling tool needs both trees in reach: what the model contains, and
+   what can be added to it. Stacked under them, the outline — a canvas larger
+   than the window has no other way of saying where you are. */
+.left-column {
+  display: grid; grid-template-rows: minmax(0, 1fr) 170px; gap: var(--s4);
+  min-height: 0;
+}
+#canvas-palette { min-height: 0; }
+#canvas-palette .side-pane { display: flex; flex-direction: column; }
+#explorer-filter { width: 100%; margin-bottom: var(--s3); font-size: var(--t-tiny); }
+.explorer { flex: 1; overflow-y: auto; }
+.ex-row {
+  display: flex; align-items: baseline; gap: var(--s2);
+  padding: 3px var(--s2); border-radius: var(--r-sm);
+  font-size: var(--t-small); cursor: pointer; white-space: nowrap;
+}
+.ex-row.group {
+  cursor: default; color: var(--ink-dim); text-transform: uppercase;
+  font-size: var(--t-tiny); letter-spacing: .06em; margin-top: var(--s3);
+}
+.ex-row:not(.group):hover { background: var(--panel-2, rgba(127,127,127,.12)); }
+.ex-row.selected { background: var(--panel-2, rgba(127,127,127,.18)); color: var(--ink); }
+/* Declared but not laid out. Dimmed, never hidden: it is in the model, and
+   pretending otherwise is how a declaration gets lost. */
+.ex-row.off-canvas .ex-label { opacity: .55; font-style: italic; }
+.ex-row .ic { color: var(--ink-dim); }
+.ex-row .ex-label { flex: 1 1 auto; min-width: 0; overflow: hidden;
+                    text-overflow: ellipsis; }
+.ex-row .ex-note {
+  flex: 0 1 auto; max-width: 42%; color: var(--ink-dim);
+  font-size: var(--t-tiny); padding-left: var(--s3);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.ex-row .ex-count { color: var(--ink-dim); font-size: var(--t-tiny); margin-left: auto; }
+
+.outline { padding: var(--s3) var(--s4); margin-bottom: 0; overflow: hidden;
+           display: flex; flex-direction: column; }
+.outline h4 { margin: 0 0 var(--s2); color: var(--ink-dim);
+              font-size: var(--t-tiny); text-transform: uppercase;
+              letter-spacing: .06em; }
+.outline-surface { position: relative; flex: 1; min-height: 0; cursor: crosshair; }
+.outline-surface svg { position: absolute; inset: 0; }
+.outline-surface .o-node { fill: var(--ink-dim); opacity: .45; }
+.outline-surface .o-node[data-kind="team"] { fill: none; stroke: var(--ink-dim);
+                                             stroke-width: 1; opacity: .6; }
+.outline-surface .o-node.selected { fill: var(--accent); opacity: 1; }
+.outline-viewport {
+  position: absolute; border: 1px solid var(--accent); border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  pointer-events: none;
 }

@@ -109,6 +109,17 @@ def test_an_agent_with_no_capabilities_is_told_why_there_is_nothing(canvas_js):
 
 
 def test_the_controls_are_styled_from_tokens(styles):
+    """A component may not invent a colour; it names one from the token layer.
+
+    This used to look for a bare `#` in everything after the authority
+    comment, which meant it also failed on an id selector — and every block
+    added to the end of the stylesheet after it inherited the check whether
+    or not it was about the authority controls. It looks for a hex literal
+    now, which is the thing it was always about.
+    """
+    import re
+
+    block = styles.split("authority form controls", 1)[1].split("*/", 1)[1]
     assert ".mandate-wrap" in styles and ".autonomy-row" in styles
-    block = styles.split("authority form controls", 1)[1]
-    assert "#" not in block.split("*/", 1)[1], "colour literals in components"
+    literals = re.findall(r"#[0-9a-fA-F]{3,8}\b", block)
+    assert not literals, f"colour literals in components: {literals}"

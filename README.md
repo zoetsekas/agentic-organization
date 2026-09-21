@@ -155,11 +155,14 @@ from drifting from the application, but that is not the same as a successful
 
 [![The canvas: an organisation laid out, with placement regions behind it](docs/images/designer-canvas.png)](docs/images/designer-canvas.png)
 
-*The canvas. Teams and agents as the spec defines them, dashed **placement
-regions** behind the nodes (ADR-0069), edges derived from the spec rather than
-stored, and live validation — 0 errors, 27 warnings. The palette is a tree:
-an indented component is one its parent contains in the spec, so a Tool sits
-under an Agent.*
+*The designer's four views. **Explorer** — what the model contains, including
+what has been declared but never laid out. **Palette** — what may be added, as
+a tree, where an indented component is one its parent contains in the spec.
+**Outline** — the whole diagram with the viewport on it. **Properties** — what
+the selection says, with the Issues tab beside it. On the canvas: teams and
+agents as the spec defines them, dashed **placement regions** behind the nodes
+(ADR-0069), edges derived from the spec rather than stored, containment drawn
+apart from association (ADR-0081), and live validation.*
 
 | | |
 |---|---|

@@ -169,11 +169,40 @@
     </div>
 
     <div class="canvas-layout">
-      <aside class="panel palette" id="canvas-palette">
-        <h2>Components</h2>
-        <p class="hint">Drag a component onto the canvas.</p>
-        <div id="palette-groups"></div>
-      </aside>
+      <!-- The left column carries the two views a modelling tool needs
+           side by side: what the model *contains* (Explorer) and what can be
+           added to it (Palette). Below them, the Outline — where you are in
+           a diagram too large to see at once. -->
+      <div class="left-column">
+        <aside class="panel palette" id="canvas-palette">
+          <div class="side-tabs" id="left-tabs" role="tablist">
+            <!-- Palette first: the empty canvas tells you to drag a Team
+                 onto it, so the thing it names should be what is showing. -->
+            <button data-left="palette" class="active" role="tab"
+                    aria-selected="true">Palette</button>
+            <button data-left="explorer" role="tab"
+                    aria-selected="false">Explorer</button>
+          </div>
+          <div class="side-pane" id="left-explorer" hidden>
+            <input id="explorer-filter" type="search"
+                   placeholder="filter the model…" />
+            <div id="explorer-tree" class="explorer"></div>
+          </div>
+          <div class="side-pane" id="left-palette">
+            <p class="hint">Drag a component onto the canvas.</p>
+            <div id="palette-groups"></div>
+          </div>
+        </aside>
+        <!-- The whole diagram at a glance, with the viewport drawn on it.
+             Click to go there. -->
+        <aside class="panel outline" id="canvas-outline">
+          <h4>Outline</h4>
+          <div id="outline-surface" class="outline-surface">
+            <svg id="outline-svg"></svg>
+            <div id="outline-viewport" class="outline-viewport"></div>
+          </div>
+        </aside>
+      </div>
 
       <div class="panel canvas-wrap">
         <!-- Live, and it names the rule that fired: a warning nobody can act
@@ -198,14 +227,14 @@
       <aside class="panel inspector">
         <div class="side-tabs" id="side-tabs" role="tablist">
           <button data-side="details" class="active" role="tab"
-                  aria-selected="true">Details</button>
+                  aria-selected="true">Properties</button>
           <button data-side="issues" role="tab" aria-selected="false">
             Issues <span id="issues-badge" class="badge"></span>
           </button>
         </div>
         <div class="side-pane" id="side-details">
-          <h2 id="inspector-title">Inspector</h2>
-          <div id="inspector" class="empty">Select a component on the canvas.</div>
+          <h2 id="inspector-title">Properties</h2>
+          <div id="inspector" class="empty">Select a component on the canvas or in the explorer.</div>
         </div>
         <div class="side-pane" id="side-issues" hidden>
           <div id="validation" class="validation"></div>

@@ -386,6 +386,8 @@ function renderCanvas() {
   renderRegions();
   renderEdges();
   restoreViewport();
+  renderExplorer();
+  renderOutline();
 }
 
 function lockOn(id) {
@@ -1087,6 +1089,176 @@ function derivedEdges() {
   return out;
 }
 
+/* -------------------------------------------------- model explorer */
+/*
+   What the model *contains*, as against what the canvas happens to be
+   showing. They are not the same thing and the difference is the point: a
+   component declared in the spec but never laid out is invisible on the
+   canvas, and there is otherwise no way to find it.
+
+   Grouped the way the palette is grouped, so the tree somebody reads and the
+   tree somebody builds from have the same shape.
+*/
+function explorerModel() {
+  const s = spec();
+  if (!s) return [];
+
+  const unit = (team) => ({
+    id: team.id, kind: "team", label: team.name || team.id,
+    note: team.leader ? `led by ${team.leader}` : "no leader",
+    children: [
+      ...(team.members || []).map((agent) => ({
+        id: agent.id, kind: "agent", label: agent.name || agent.id,
+        note: classificationOf(agent),
+        children: (agent.subagents || []).map((sub) => ({
+          id: sub.id, kind: "subagent", label: sub.name || sub.id,
+          note: sub.kind || "", children: [],
+        })),
+      })),
+      ...(team.teams || []).map(unit),
+    ],
+  });
+
+  const flat = (kind, collection, note) => ({
+    id: `group:${kind}`, kind: "group",
+    label: kindSpec(kind).label, group: true,
+    children: (s[collection] || []).map((item) => ({
+      id: item.id, kind, label: item.name || item.id,
+      note: note ? note(item) : "", children: [],
+    })),
+  });
+
+  return [
+    { id: "group:organisation", kind: "group", label: "Organisation",
+      group: true,
+      children: s.organization?.id ? [unit(s.organization)] : [] },
+    flat("person", "people", (p) => p.position || ""),
+    flat("role", "roles", (r) => r.title || ""),
+    flat("decision", "decisions", (d) => d.title || ""),
+    flat("separation", "separations",
+         (x) => `${(x.decisions || []).length} decisions kept apart`),
+    flat("policy", "policies", (p) => p.effect || ""),
+    flat("capability", "capabilities", (c) => c.action || ""),
+    flat("data_class", "data_classes", (d) => d.scope || ""),
+    flat("environment", "environments", (e) => postureOf(e)),
+    flat("endpoint", "endpoints", (e) => e.trust || ""),
+    flat("mission", "missions", (m) => `ends ${m.ends_on || "—"}`),
+    flat("workflow", "workflows"),
+    flat("trigger", "triggers", (t) => t.kind || ""),
+    flat("channel", "channels", (c) => c.purpose || ""),
+    flat("knowledge", "knowledge", (k) => k.kind || ""),
+    flat("skill", "skills"),
+    flat("plugin", "plugins"),
+    flat("tool", "tools"),
+    flat("guardrail", "guardrails", (g) => g.on_violation || ""),
+    flat("output_contract", "output_contracts"),
+  ].filter((group) => group.children.length);
+}
+
+function matchesFilter(node, needle) {
+  if (!needle) return true;
+  const own = `${node.id} ${node.label} ${node.note || ""}`.toLowerCase();
+  if (own.includes(needle)) return true;
+  return (node.children || []).some((c) => matchesFilter(c, needle));
+}
+
+function renderExplorer() {
+  const host = $("#explorer-tree");
+  if (!host) return;
+  const needle = ($("#explorer-filter")?.value || "").trim().toLowerCase();
+  const laidOut = canvas.record?.layout?.nodes || {};
+
+  const row = (node, depth) => {
+    if (!matchesFilter(node, needle)) return [];
+    const onCanvas = !node.group && !!laidOut[node.id];
+    const item = el("div", {
+      class: `ex-row${node.group ? " group" : ""}`
+        + `${canvas.selected?.id === node.id ? " selected" : ""}`
+        + `${onCanvas ? "" : " off-canvas"}`,
+      style: `padding-left:${8 + depth * 13}px`,
+      /* A component not on the canvas is dimmed rather than hidden: it is in
+         the model, and pretending otherwise is how a declaration gets lost. */
+      title: node.group ? ""
+        : `${node.id}${node.note ? ` — ${node.note}` : ""}`
+          + (onCanvas ? "" : " — declared, not on the canvas"),
+      onclick: node.group ? null : () => {
+        if (onCanvas) return selectAndReveal(node.id);
+        canvas.selected = { kind: node.kind, id: node.id };
+        showSide("details");
+        renderExplorer();
+        renderInspector();
+      },
+    },
+      el("span", { class: "ic" }, kindSpec(node.kind).icon || "▫"),
+      el("span", { class: "ex-label" }, node.label),
+      /* The note is context, the label is the thing. In a column this
+         narrow, showing both at every depth truncated the labels to three
+         characters, so the note gives way once the tree gets deep. */
+      node.note && depth < 2 ? el("span", { class: "ex-note" }, node.note) : null,
+      node.group ? el("span", { class: "ex-count" },
+                      String(node.children.length)) : null);
+    return [item, ...(node.children || []).flatMap((c) => row(c, depth + 1))];
+  };
+
+  const rows = explorerModel().flatMap((group) => row(group, 0));
+  host.replaceChildren(...(rows.length ? rows
+    : [el("p", { class: "hint" },
+          needle ? `Nothing in the model matches '${needle}'.`
+                 : "Nothing declared yet.")]));
+}
+
+/* ------------------------------------------------------------- outline */
+/*
+   The whole diagram at a fifth of the size, with the viewport drawn on it.
+   A canvas larger than the window has no other way of saying where you are,
+   and scrolling to look for a node you cannot see is not navigation.
+*/
+function renderOutline() {
+  const svg = $("#outline-svg");
+  const surface = $("#canvas");
+  if (!svg || !surface) return;
+  const nodes = Object.values(canvas.record?.layout?.nodes || {});
+  if (!nodes.length) {
+    svg.replaceChildren();
+    $("#outline-viewport").style.display = "none";
+    return;
+  }
+  const maxX = Math.max(...nodes.map((n) => n.x + n.width), surface.clientWidth);
+  const maxY = Math.max(...nodes.map((n) => n.y + (n.height || 80)),
+                        surface.clientHeight);
+  const box = $("#outline-surface").getBoundingClientRect();
+  if (box.width < 4 || box.height < 4) {
+    /* Called before the panel has been laid out, which happens on the first
+       paint: a scale computed from a zero box draws every node as a dot. */
+    requestAnimationFrame(renderOutline);
+    return;
+  }
+  const scale = Math.min(box.width / maxX, box.height / maxY);
+  canvas.outlineScale = scale;
+
+  const ns = "http://www.w3.org/2000/svg";
+  svg.setAttribute("width", String(box.width));
+  svg.setAttribute("height", String(box.height));
+  svg.replaceChildren(...nodes.map((node) => {
+    const rect = document.createElementNS(ns, "rect");
+    rect.setAttribute("x", String(node.x * scale));
+    rect.setAttribute("y", String(node.y * scale));
+    rect.setAttribute("width", String(Math.max(2, node.width * scale)));
+    rect.setAttribute("height", String(Math.max(2, (node.height || 80) * scale)));
+    rect.setAttribute("class",
+      `o-node${canvas.selected?.id === node.id ? " selected" : ""}`);
+    rect.setAttribute("data-kind", node.kind);
+    return rect;
+  }));
+
+  const view = $("#outline-viewport");
+  view.style.display = "block";
+  view.style.left = `${surface.scrollLeft * scale}px`;
+  view.style.top = `${surface.scrollTop * scale}px`;
+  view.style.width = `${surface.clientWidth * scale}px`;
+  view.style.height = `${surface.clientHeight * scale}px`;
+}
+
 /* ------------------------------------------------------------ publishing */
 
 function publishTarget() {
@@ -1497,9 +1669,10 @@ function selectNode(node) {
 function renderInspector() {
   const host = $("#inspector");
   if (!canvas.selected || !canvas.record) {
-    $("#inspector-title").textContent = "Inspector";
+    $("#inspector-title").textContent = "Properties";
     host.className = "empty";
-    host.replaceChildren("Select a component on the canvas.");
+    host.replaceChildren(
+      "Select a component on the canvas or in the explorer.");
     return;
   }
   const { kind, id } = canvas.selected;
@@ -2198,6 +2371,19 @@ function renderValidationStrip(validation) {
         || (validation.ok ? "nothing to answer" : "")));
 }
 
+/* Which of the left column's two tabs is showing: what the model contains,
+   or what may be added to it. */
+function showLeft(which) {
+  canvas.left = which;
+  for (const button of document.querySelectorAll("#left-tabs button")) {
+    const on = button.dataset.left === which;
+    button.classList.toggle("active", on);
+    button.setAttribute("aria-selected", String(on));
+  }
+  $("#left-explorer").hidden = which !== "explorer";
+  $("#left-palette").hidden = which !== "palette";
+}
+
 /* Which of the right panel's two tabs is showing. */
 function showSide(which) {
   canvas.side = which;
@@ -2380,6 +2566,23 @@ function wireCanvas() {
   });
   document.querySelectorAll("#side-tabs button").forEach((button) =>
     button.addEventListener("click", () => showSide(button.dataset.side)));
+  document.querySelectorAll("#left-tabs button").forEach((button) =>
+    button.addEventListener("click", () => showLeft(button.dataset.left)));
+  $("#explorer-filter")?.addEventListener("input", renderExplorer);
+  /* The outline follows the viewport, and clicking it moves the viewport.
+     Both directions, or it is a picture rather than a control. */
+  $("#canvas")?.addEventListener("scroll", renderOutline);
+  $("#outline-surface")?.addEventListener("click", (e) => {
+    const scale = canvas.outlineScale;
+    const surface = $("#canvas");
+    if (!scale || !surface) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    surface.scrollTo({
+      left: Math.max(0, (e.clientX - box.left) / scale - surface.clientWidth / 2),
+      top: Math.max(0, (e.clientY - box.top) / scale - surface.clientHeight / 2),
+      behavior: "smooth",
+    });
+  });
   /* Selecting a component is a request to read it, so the panel shows it. */
   $("#btn-save").addEventListener("click", () => saveSystem());
   $("#btn-lock").addEventListener("click", async () => {
@@ -2509,6 +2712,9 @@ window.designer = {
   add: addComponent,
   remove: removeComponent,
   renameComponent,
+  renderExplorer,
+  renderOutline,
+  showLeft,
   declaredIds,
   namesInUse,
   markDirty,
