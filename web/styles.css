@@ -778,16 +778,19 @@ dialog::backdrop { background: rgba(0,0,0,.55); }
   font-size: .68rem; color: var(--muted);
 }
 
-.separation, .finding, .person {
+.separation, .finding, .person, .placement {
   border-top: 1px solid var(--rule);
   padding: 9px 0;
   display: flex; flex-direction: column; gap: 3px;
 }
-.separation p, .finding p, .person p { margin: 0; font-size: .8rem; }
+.separation p, .finding p, .person p, .placement p { margin: 0; font-size: .8rem; }
 /* A person's decisions read like an agent's, because they are the same
    structure. There is no rule here for a person's capabilities: a person
    holds none (ADR-0079). */
 .person .decides { color: var(--ink); }
+/* A placement's border already carries the posture on the canvas; here the
+   code is enough, because the row says the posture in words. */
+.placement[data-network="open"] code { color: var(--amber-ink); }
 .finding[data-severity="error"] code { color: var(--clay); }
 .finding[data-severity="warning"] code { color: var(--amber); }
 

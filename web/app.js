@@ -637,7 +637,12 @@ async function loadAuthority() {
     findHost?.replaceChildren();
     return;
   }
-  const data = await consequence(`/systems/${state.systemId}/authority`);
+  // Two questions, one view: what an agent may *decide* and what it may
+  // *reach*. Fetched together so a reader never sees half a picture.
+  const [data, places] = await Promise.all([
+    consequence(`/systems/${state.systemId}/authority`),
+    consequence(`/systems/${state.systemId}/placements`),
+  ]);
   if (!data) {
     // A design mid-edit legitimately does not compile, and that is an empty
     // view rather than an error somebody has to dismiss.
@@ -645,12 +650,63 @@ async function loadAuthority() {
       "This design does not resolve yet — authority appears once it compiles."));
     sepHost?.replaceChildren();
     findHost?.replaceChildren();
+    $("#authority-placements")?.replaceChildren();
     return;
   }
   renderAuthorityAgents(host, data);
   renderSeparations(sepHost, data);
   renderPeople($("#authority-people"), data);
-  renderAuthorityFindings(findHost, data);
+  renderPlacements($("#authority-placements"), places);
+  // One findings list, not two. A reader looking for what the gate says
+  // should not have to know which route produced a refusal.
+  renderAuthorityFindings(findHost, {
+    findings: [...(data.findings || []), ...(places?.findings || [])],
+  });
+}
+
+/* Where each agent's work lives, and what crosses (ADR-0069).
+
+   The canvas draws the regions from the spec; this is everything the picture
+   cannot carry — what the shared volume holds, what reaches what and why, and
+   who is placed nowhere. The note about a security boundary is rendered rather
+   than assumed, because a list of boxes reads as a wall. */
+function renderPlacements(host, places) {
+  if (!host) return;
+  if (!places || !places.placements?.length) {
+    host.replaceChildren(el("p", { class: "hint" },
+      "No agent declares an environment class, so this design has no sandbox "
+      + "environments to place anything in."));
+    return;
+  }
+  const nodes = [
+    el("p", { class: "hint" }, places.note || ""),
+    ...places.placements.map((p) =>
+      el("div", { class: "placement", "data-network": p.network || "" },
+        el("code", {}, p.id),
+        el("p", {}, `${p.agents.length} agent(s): ${p.agents.join(", ")}`),
+        el("p", { class: "hint" },
+          `network ${p.network}`
+          + (p.egress_allowlist?.length
+              ? ` → ${p.egress_allowlist.join(", ")}` : "")),
+        p.shares_a_volume
+          ? el("p", { class: "hint" },
+              p.data_classes.length
+                ? `shared volume carries ${p.data_classes.join(", ")}`
+                : "shared volume carries nothing the unit's groups share")
+          : null,
+        el("p", { class: "hint" },
+          p.reaches.length
+            ? `reaches ${p.reaches.join(", ")}`
+            : "reaches nothing — everything else is denied"))),
+  ];
+  if (places.unplaced?.length) {
+    nodes.push(el("div", { class: "placement" },
+      el("code", {}, "unplaced"),
+      el("p", { class: "hint" },
+        `${places.unplaced.join(", ")} — no environment class, so no sandbox `
+        + "environment and no region on the canvas")));
+  }
+  host.replaceChildren(...nodes);
 }
 
 /* People are principals for authority and never for access (ADR-0079), so

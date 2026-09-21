@@ -242,3 +242,73 @@ def test_the_designer_bundle_is_served(client):
     assert client.get("/ui/").status_code == 200
     assert client.get("/ui/app.js").status_code == 200
     assert client.get("/ui/canvas.js").status_code == 200
+
+
+# -- the inverse: routes the bundle does NOT call --------------------------
+
+#: Designer routes served with no consumer in the bundle, and why that is
+#: allowed. Every entry is a deliberate statement, not a backlog: a route that
+#: nothing calls is a backend capability with no UI in front of it, which is
+#: the defect category `docs/DESIGNER.md` exists to track. `.../placements` sat
+#: here for exactly one session before being wired into the Authority view, and
+#: this test is what stops the next one lasting longer.
+SERVER_ONLY = {
+    ("POST", "/api/designer/systems/{}/lock/heartbeat"):
+        "Known and documented: no heartbeat is sent, so a long edit can lose "
+        "its lock. Tracked in DESIGNER.md's caveat table, not silently absent.",
+}
+
+
+def _referenced_paths(*sources: str) -> set[str]:
+    """Every designer path the bundle mentions, however it is built.
+
+    Deliberately looser than `designer_routes`: `gate` and `diff` are reached
+    through `gateUrl`/`diffUrl` helpers rather than a literal at the call site,
+    and a check for orphaned routes should ask whether the bundle refers to a
+    path at all — not whether it does so in one particular shape.
+    """
+    found: set[str] = set()
+    for source in sources:
+        for raw in re.findall(r"[`\"']((?:/systems|/workspaces|/palette"
+                              r"|/settings|/whoami|/audit)[^`\"'\s]*)", source):
+            path = "/api/designer" + raw.split("?")[0]
+            path = re.sub(r"\$\{[^}]*\}", "{}", path).rstrip("/")
+            found.add(path)
+    return found
+
+
+def test_every_designer_route_has_something_that_calls_it(client, app_js,
+                                                          canvas_js):
+    """A served route nothing calls is a capability with no UI in front of it.
+
+    The sibling test above checks the bundle does not call routes that do not
+    exist. This checks the other direction, which is the one that actually
+    went wrong: `.../placements` was built, served, tested, and reachable by
+    nobody.
+    """
+    referenced = _referenced_paths(app_js, canvas_js)
+    orphans = {}
+    for route in client.app.routes:
+        path = getattr(route, "path", "")
+        if not path.startswith("/api/designer"):
+            continue
+        shape = re.sub(r"\{[^}]+\}", "{}", path).rstrip("/")
+        for method in getattr(route, "methods", ()):
+            if method in ("HEAD", "OPTIONS"):
+                continue
+            if shape in referenced or (method, shape) in SERVER_ONLY:
+                continue
+            orphans[(method, shape)] = True
+    assert not orphans, (
+        "designer routes nothing in the bundle calls: "
+        f"{sorted(orphans)}. Wire it into a view, or add it to SERVER_ONLY "
+        "with the reason."
+    )
+
+
+def test_the_placements_route_reaches_the_view(app_js):
+    """The specific orphan, kept closed."""
+    assert "/placements`" in app_js
+    assert "function renderPlacements" in app_js
+    # And its honest caveat travels with it: a list of boxes reads as a wall.
+    assert "places.note" in app_js

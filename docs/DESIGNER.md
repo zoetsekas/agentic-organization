@@ -282,13 +282,12 @@ round-trip stability tests (WS-009 M4); per-system access within a workspace
 4. ~~**Show the two review surfaces** — the evaluation gate and the IR diff —
    on the system being edited.~~ Done: the consequence rail fetches both for
    the open design and ranks changes by consequence.
-5. **Close the orphaned routes.** `GET .../placements` is served and nothing
-   in the bundle calls it, so the shared volumes, what crosses between
-   placements and why, the agents placed nowhere and the placement findings
-   are API-only. The canvas draws the regions from the spec; everything the
-   route adds is invisible. A backend capability with no UI in front of it is
-   the category this review exists to catch, and this one was added by the
-   same session that wrote the category down.
+5. ~~**Close the orphaned routes.**~~ Done, and the category is now checked
+   rather than reviewed. `.../placements` is wired into the Authority view,
+   and `test_every_designer_route_has_something_that_calls_it` fails on any
+   served designer route the bundle does not reference. One route is
+   allowlisted with its reason — `lock/heartbeat`, the caveat below — so the
+   exception is a statement rather than a silence.
 6. **Then presence, auto-layout and form coverage**, which are experience
    rather than correctness.
 
@@ -344,6 +343,13 @@ Alongside it:
   (ADR-0073).
 * **Separation of duties** lists each rule with its reason, since a rule
   without one is a rule nobody defends when it is inconvenient.
+* **Where the work lives** shows each placement (ADR-0069): its agents, its
+  network posture and egress allowlist, what its shared volume carries, and
+  what it reaches — everything absent being denied. The canvas draws the
+  regions; this is what a picture cannot carry. It leads with the note that a
+  placement is **not** a security boundary, because a list of boxes reads as a
+  wall. Agents that declare no environment class are listed as `unplaced`
+  rather than quietly omitted.
 * **People** shows each declared person, what they may decide, the unit that
   bounds them and the agents they are paired with (ADR-0079). There is
   deliberately nothing here about what a person may *reach*: their access is
@@ -352,9 +358,11 @@ Alongside it:
   escalation past the top of the org chart is visible as landing somewhere —
   capital allocation is a board's decision, and before people were principals
   it landed on nobody.
-* **What the gate says** carries the authority and autonomy findings into the
-  view where the thing they refuse is being edited, rather than leaving them in
-  a validation log.
+* **What the gate says** carries the authority, autonomy **and placement**
+  findings into the view where the thing they refuse is being edited, rather
+  than leaving them in a validation log. One list, not two: a reader looking
+  for what the gate says should not have to know which route produced a
+  refusal.
 
 A design mid-edit legitimately does not resolve. That renders as an empty view
 with a line saying so, not an error somebody has to dismiss.
