@@ -692,3 +692,69 @@ dialog::backdrop { background: rgba(0,0,0,.55); }
 .orgtree .mark[data-classification="protected"] { background: var(--amber); }
 .orgtree .mark[data-classification="private"] { background: var(--clay); }
 .orgtree .mark[data-classification="unclassified"] { background: var(--slate); }
+
+/* ------------------------------------------------------------------ authority
+   Shape says what a thing is; colour says what state it is in. A posture is a
+   state, so it is a colour; a decision is a thing, so it is set in mono like
+   every other identifier. `inherited` is deliberately quieter than `declared
+   here` — a reader should be able to see at a glance which authority somebody
+   chose to give this agent and which arrived down the tree. */
+.authority-agents { display: flex; flex-direction: column; gap: 14px; }
+
+.authority-agent {
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.authority-agent header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.authority-agent h3 { margin: 0; font-size: 1rem; }
+.authority-agent .unit {
+  font-family: var(--mono);
+  font-size: .74rem;
+  color: var(--muted);
+}
+
+.decisions { list-style: none; margin: 0; padding: 0;
+             display: flex; flex-wrap: wrap; gap: 6px 10px; }
+.decisions li { display: flex; align-items: baseline; gap: 6px; }
+.decisions .origin { font-size: .68rem; color: var(--muted); }
+.decisions li.inherited code { opacity: .72; }
+
+.bounds { margin: 0; font-size: .78rem; color: var(--muted);
+          display: flex; flex-wrap: wrap; gap: 6px; }
+
+.activities { list-style: none; margin: 0; padding: 0;
+              display: flex; flex-direction: column; gap: 4px; }
+.activity { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+            font-size: .82rem; }
+.activity .posture {
+  font-size: .7rem;
+  letter-spacing: .04em;
+  padding: 1px 7px;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+}
+.activity[data-posture="advisory"] .posture      { color: var(--muted); }
+.activity[data-posture="human_decides"] .posture { color: var(--accent); }
+.activity[data-posture="supervised"] .posture    { color: var(--amber); }
+.activity[data-posture="autonomous"] .posture    { color: var(--moss); }
+.activity .tight, .activity .elsewhere {
+  font-size: .68rem; color: var(--muted);
+}
+
+.separation, .finding {
+  border-top: 1px solid var(--rule);
+  padding: 9px 0;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.separation p, .finding p { margin: 0; font-size: .8rem; }
+.finding[data-severity="error"] code { color: var(--clay); }
+.finding[data-severity="warning"] code { color: var(--amber); }

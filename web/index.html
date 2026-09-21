@@ -22,6 +22,7 @@
     <button data-view="org" class="active">Org chart</button>
     <button data-view="canvas">Canvas</button>
     <button data-view="designer">Agents</button>
+    <button data-view="authority">Authority</button>
     <button data-view="platform">Catalog</button>
     <button data-view="catalog">Marketplace</button>
     <button data-view="workspace">Workspace</button>
@@ -236,6 +237,32 @@
   </section>
 
   <!-- PLATFORM CATALOG -->
+  <!-- Authority is a *design* fact, so it never shares a panel with a runtime
+       one. What is shown is the effective mandate — the intersection with every
+       unit above — because showing the declaration would let a reader believe
+       an agent holds something its line excludes (ADR-0065). -->
+  <section id="view-authority" class="view">
+    <div class="split">
+      <div class="panel">
+        <h2>Who may decide what</h2>
+        <p class="hint">Effective authority, resolved the way the phase gate
+          resolves it. A line reading <em>inherited</em> was never declared on
+          the agent — it came down the tree.</p>
+        <div id="authority-agents" class="authority-agents">
+          <p class="hint">Open an organisation to resolve its authority.</p>
+        </div>
+      </div>
+      <aside class="panel">
+        <h3>Separation of duties</h3>
+        <p class="hint">A team is a scope and may hold both sides; an agent is
+          a principal and may not.</p>
+        <div id="authority-separations"></div>
+        <h3>What the gate says</h3>
+        <div id="authority-findings"></div>
+      </aside>
+    </div>
+  </section>
+
   <section id="view-platform" class="view">
     <div class="panel">
       <h2>Platform catalog</h2>

@@ -65,7 +65,7 @@ function showView(name) {
   const loaders = {
     org: renderOrg, designer: renderAgentView, workspace: loadWorkspaceView,
     catalog: loadCatalog, sessions: loadSessions, ops: loadOps,
-    platform: loadPlatformCatalog,
+    platform: loadPlatformCatalog, authority: loadAuthority,
   };
   (loaders[name] || (() => {}))();
 }
@@ -600,6 +600,127 @@ const GATE_WORDS = {
 };
 
 const SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"];
+
+/* ---------------------------------------------------------------- authority
+   What each agent may *decide*, and how much of each activity it does without
+   a person. Both are design facts and neither is a permission: permission is
+   whether the door opens, a mandate is whether you were the one to open it.
+
+   The mandate shown is always the **effective** one — the intersection with
+   every unit above (ADR-0065). Rendering the declaration would let a reader
+   believe an agent holds something its line excludes, which is the mistake
+   this view exists to prevent. */
+
+const POSTURE_WORDS = {
+  advisory: ["Advisory", "reads and models; changes no system of record"],
+  human_decides: ["Human decides", "prepares and recommends"],
+  supervised: ["Supervised", "decides, a person confirms"],
+  autonomous: ["Autonomous", "decides and acts alone"],
+};
+
+async function loadAuthority() {
+  const host = $("#authority-agents");
+  const sepHost = $("#authority-separations");
+  const findHost = $("#authority-findings");
+  if (!host) return;
+  if (!state.systemId) {
+    host.replaceChildren(el("p", { class: "hint" },
+      "Open an organisation to resolve its authority."));
+    sepHost?.replaceChildren();
+    findHost?.replaceChildren();
+    return;
+  }
+  const data = await consequence(`/systems/${state.systemId}/authority`);
+  if (!data) {
+    // A design mid-edit legitimately does not compile, and that is an empty
+    // view rather than an error somebody has to dismiss.
+    host.replaceChildren(el("p", { class: "hint" },
+      "This design does not resolve yet — authority appears once it compiles."));
+    sepHost?.replaceChildren();
+    findHost?.replaceChildren();
+    return;
+  }
+  renderAuthorityAgents(host, data);
+  renderSeparations(sepHost, data);
+  renderAuthorityFindings(findHost, data);
+}
+
+function renderAuthorityAgents(host, data) {
+  const ids = Object.keys(data.agents).sort();
+  if (!ids.length) {
+    host.replaceChildren(el("p", { class: "hint" }, "No agents yet."));
+    return;
+  }
+  host.replaceChildren(...ids.map((id) => {
+    const a = data.agents[id];
+    const declared = new Set(a.declared || []);
+    const decisions = a.decisions.length
+      ? el("ul", { class: "decisions" }, ...a.decisions.map((d) =>
+          el("li", { class: declared.has(d) ? "own" : "inherited" },
+            el("code", {}, d),
+            el("span", { class: "origin" },
+              declared.has(d) ? "declared here" : "inherited"))))
+      : el("p", { class: "hint" },
+          a.declared && a.declared.length
+            ? "Decides nothing: everything it claimed, its line excludes."
+            : "Decides nothing.");
+    const conds = (a.conditions || []).flatMap((c) => Object.entries(c));
+    return el("article", { class: "authority-agent" },
+      el("header", {},
+        el("h3", {}, a.name),
+        el("span", { class: "unit" }, a.line.join(" › "))),
+      decisions,
+      conds.length
+        ? el("p", { class: "bounds" }, "Bounds: ",
+            ...conds.map(([k, v]) =>
+              el("code", {}, `${k}=${JSON.stringify(v)}`)))
+        : null,
+      a.activities.length
+        ? el("ul", { class: "activities" }, ...a.activities.map((act) => {
+            const [word, why] = POSTURE_WORDS[act.posture] || [act.posture, ""];
+            return el("li", { class: "activity", "data-posture": act.posture },
+              el("code", {}, act.capability),
+              el("span", { class: "posture", title: why }, word),
+              act.tightened ? el("span", { class: "tight" }, "tightened") : null,
+              act.enforced_by !== "platform"
+                ? el("span", { class: "elsewhere" },
+                    `${act.enforced_by}: ${act.enforced_in || "unnamed"}`)
+                : null);
+          }))
+        : null);
+  }));
+}
+
+function renderSeparations(host, data) {
+  if (!host) return;
+  if (!data.separations.length) {
+    host.replaceChildren(el("p", { class: "hint" },
+      "None declared — so nothing stops one agent holding both sides of a control."));
+    return;
+  }
+  host.replaceChildren(...data.separations.map((r) =>
+    el("div", { class: "separation" },
+      el("code", {}, r.id),
+      el("p", {}, r.decisions.join(" · ")),
+      r.reason ? el("p", { class: "hint" }, r.reason) : null,
+      r.enforced_by !== "platform"
+        ? el("p", { class: "hint" },
+            `Enforced by ${r.enforced_by}: ${r.enforced_in || "unnamed system"}`)
+        : null)));
+}
+
+function renderAuthorityFindings(host, data) {
+  if (!host) return;
+  if (!data.findings.length) {
+    host.replaceChildren(el("p", { class: "hint" },
+      "Nothing outstanding on authority or autonomy."));
+    return;
+  }
+  host.replaceChildren(...data.findings.map((f) =>
+    el("div", { class: "finding", "data-severity": f.severity },
+      el("code", {}, f.where || f.code),
+      el("p", {}, f.message))));
+}
 
 function renderConsequenceRail(gate, diff) {
   const host = $("#consequence-rail");

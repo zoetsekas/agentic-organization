@@ -838,6 +838,109 @@ def create_app(
             }
         }
 
+    @app.get("/api/designer/systems/{system_id}/authority")
+    def designer_authority(system_id: str,
+                           user: Principal = Depends(principal)) -> dict:
+        """What each agent may decide, and how much it does alone. Reads only.
+
+        Effective authority, never what a unit declared: a mandate is the
+        intersection with every unit above it (ADR-0065), and showing the
+        declaration would let a reader believe an agent holds something its
+        line excludes. `line` names the units that produced it, so a refusal
+        can be explained to somebody who did not write the spec.
+        """
+        from .mandates import resolve as resolve_mandates
+        from .spec.model import AutonomyPosture
+        from .spec.validate import validate_spec
+
+        raw, _binding, _version = _guard(designer.spec_at, user, system_id)
+        spec = _designer_spec(raw)
+        vocabulary = [d.id for d in spec.decisions]
+        resolved = resolve_mandates(spec.organization, vocabulary)
+
+        caps = {c.id: c for c in spec.capabilities}
+        roles = {r.id: r for r in spec.roles}
+
+        def postures(agent, team_roles: list) -> list[dict]:
+            held: set[str] = set(agent.capabilities)
+            for assignment in list(agent.roles) + list(team_roles):
+                role = roles.get(getattr(assignment, "role", assignment))
+                if role:
+                    held.update(role.capabilities)
+            out = []
+            for cap_id in sorted(c for c in held if c in caps):
+                cap = caps[cap_id]
+                declared = agent.autonomy.get(cap_id)
+                posture: AutonomyPosture = declared or cap.autonomy
+                out.append({
+                    "capability": cap_id,
+                    "posture": posture.value,
+                    "tightened": bool(declared and declared != cap.autonomy),
+                    "decision": cap.decision,
+                    "requires_approval": bool(cap.constraints.requires_approval),
+                    "enforced_by": cap.constraints.enforcement.enforced_by.value,
+                    "enforced_in": cap.constraints.enforcement.enforced_in,
+                })
+            return out
+
+        agents: dict[str, dict] = {}
+
+        def walk(team, inherited: list) -> None:
+            team_roles = inherited + [r.role for r in team.roles]
+            for agent in team.members:
+                effective = resolved.for_agent(agent.id)
+                agents[agent.id] = {
+                    "name": agent.name or agent.id,
+                    "team": team.id,
+                    "decisions": sorted(effective.decisions),
+                    "conditions": [dict(c) for c in effective.conditions],
+                    # Root first: the units whose declarations produced this.
+                    "line": list(effective.line),
+                    "declared": sorted(agent.mandate.decisions)
+                    if agent.mandate else None,
+                    "activities": postures(agent, team_roles),
+                }
+            for child in team.teams:
+                walk(child, team_roles)
+
+        walk(spec.organization, [])
+
+        # Findings the authority model produces, so the UI can show a refusal
+        # where the thing it refuses is being edited rather than in a log.
+        codes = {
+            "separation_violated", "mandate_overreach", "undeclared_decision",
+            "root_leader_without_mandate", "advisory_mutates",
+            "autonomous_without_decision", "autonomous_without_mandate",
+            "supervised_without_approval", "human_decides_but_agent_holds",
+            "autonomy_widened", "unenforceable_platform_control",
+            "both_without_authority", "platform_bound_wider_than_application",
+            "autonomy_without_evidence", "supervised_by_its_own_owner",
+            "human_decides_with_no_holder", "application_control_unnamed",
+        }
+        findings = [
+            {"severity": f.severity, "code": f.code, "where": f.where,
+             "message": f.message}
+            for f in validate_spec(spec) if f.code in codes
+        ]
+
+        return {
+            "vocabulary": [
+                {"id": d.id, "title": d.title or d.id} for d in spec.decisions
+            ],
+            "separations": [
+                {"id": r.id, "decisions": list(r.decisions), "reason": r.reason,
+                 "enforced_by": r.enforcement.enforced_by.value,
+                 "enforced_in": r.enforcement.enforced_in}
+                for r in spec.separations
+            ],
+            "teams": {
+                tid: {"decisions": sorted(eff.decisions), "line": list(eff.line)}
+                for tid, eff in resolved.teams.items()
+            },
+            "agents": agents,
+            "findings": findings,
+        }
+
     @app.get("/api/designer/systems/{system_id}/diff")
     def designer_diff(system_id: str,
                       from_version: Optional[int] = Query(default=None, alias="from"),
@@ -1498,7 +1601,19 @@ PALETTE: dict[str, Any] = {
                       "help": "agent id; must also be a member"},
                      {"name": "description", "type": "text",
                       "help": "the unit's charter, in prose"},
+                     {"name": "mandate", "type": "decisions",
+                      "help": "what this unit may decide; empty inherits its "
+                              "parent's, never everything"},
                      {"name": "groups", "type": "list"},
+                 ]},
+                {"kind": "separation", "label": "Separation of duties",
+                 "icon": "⊘",
+                 "help": "decisions no single agent may hold together",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "decisions", "type": "decisions", "required": True},
+                     {"name": "reason", "type": "text",
+                      "help": "a rule without one is a rule nobody defends"},
                  ]},
                 {"kind": "decision", "label": "Decision class", "icon": "§",
                  "help": "what a unit may decide, referenced by a mandate",
@@ -1521,6 +1636,12 @@ PALETTE: dict[str, Any] = {
                      {"name": "endpoints", "type": "list"},
                      {"name": "environment", "type": "string",
                       "help": "environment class id"},
+                     {"name": "mandate", "type": "decisions",
+                      "help": "what this agent may decide alone; empty "
+                              "inherits its team's"},
+                     {"name": "autonomy", "type": "autonomy",
+                      "help": "per capability, and may only tighten what the "
+                              "capability declares"},
                      {"name": "shared_service", "type": "bool"},
                      {"name": "humans", "type": "humans"},
                  ]},

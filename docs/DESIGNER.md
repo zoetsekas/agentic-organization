@@ -294,3 +294,37 @@ which is asserted from outside the bundle and has never been clicked. The tests 
 calls and which it must not; they say nothing about whether a single pixel
 renders. Accessibility, keyboard navigation, undo/redo and behaviour on a large
 organization remain unassessed.
+
+## Authority
+
+A tab that answers two questions the other views could not: what each agent may
+**decide**, and how much of each activity it does without a person. Neither is
+a permission — permission is whether the door opens, a mandate is whether you
+were the one to open it.
+
+What it shows is the **effective** mandate, resolved the way the phase gate
+resolves it: the intersection with every unit above (ADR-0065). Rendering the
+declaration would let a reader believe an agent holds something its line
+excludes, which is the mistake this view exists to prevent. Each decision is
+marked `declared here` or `inherited`, and the unit line is printed root-first
+so a refusal can be explained to somebody who did not write the spec.
+
+Alongside it:
+
+* **Activities** carry their autonomy posture (ADR-0072) — advisory, human
+  decides, supervised, autonomous — with the posture as a colour because it is
+  a state, and the capability in mono because it is an identifier. An activity
+  whose control belongs to an application says so and names the system
+  (ADR-0073).
+* **Separation of duties** lists each rule with its reason, since a rule
+  without one is a rule nobody defends when it is inconvenient.
+* **What the gate says** carries the authority and autonomy findings into the
+  view where the thing they refuse is being edited, rather than leaving them in
+  a validation log.
+
+A design mid-edit legitimately does not resolve. That renders as an empty view
+with a line saying so, not an error somebody has to dismiss.
+
+The palette gained `decision` and `separation` kinds, and `mandate` on teams and
+agents plus `autonomy` on an agent — a field the UI cannot edit is a field
+nobody will set.
