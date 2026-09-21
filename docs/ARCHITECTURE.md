@@ -404,6 +404,42 @@ Escalation walks leader to leader, tests each leader's own mandate, and returns
 an agent or refuses — and a refusal may name who does hold the decision without
 routing to them, because reaching them is the process's job, not escalation's.
 
+### The platform is not the system of record
+
+An agentic organization does not replace its enterprise applications. The ERP
+still owns the ledger, the treasury system still owns the sweep, the bank still
+owns the payment, and agents use them the way people do — following the
+organization's processes, reading the results and acting on them. Each of those
+systems carries its own controls, and this platform has been accumulating
+controls beside them as though it were the system of record.
+
+Three decisions follow from taking that seriously.
+
+**A control declares who enforces it** (ADR-0073): `application`, `platform` or
+`both`. A `platform` control must be evaluable at our boundary or the spec is
+refused; an `application` control may be described and may not be claimed; a
+`both` control names an authoritative side and is always reported. The default
+is `platform`, so claiming a control obliges us to evaluate it. This exists
+because a bound that reads as enforced and is not is worse than no bound — the
+mandate-condition ceiling that permitted ten 49m sweeps against a 50m limit was
+one instance of a whole class.
+
+**An agent operates an application as a named principal** (ADR-0074). Our
+`IdentityIR` is a workload identity and says nothing about who the agent is
+inside the ERP, so two permission systems sit side by side with nothing between
+them. A binding names the application account and, where the application can
+state it, the role it holds; one account per agent per application, because a
+shared one destroys the audit trail an auditor actually accepts.
+
+**A process is ordered steps with owners** (ADR-0075). Procure-to-pay spans the
+ERP and the bank with a handoff at every step, and the platform could only see
+a scatter of unrelated capabilities. Autonomy is per step, separation may be
+declared between steps — and **instance-level segregation is declared here and
+enforced by the application**, because the ERP holds the document and we do
+not.
+
+---
+
 **Every activity declares how much of it an agent does alone** (ADR-0072):
 `advisory` reads and models, `human_decides` prepares and recommends,
 `supervised` decides and a person confirms, `autonomous` decides and acts. The
