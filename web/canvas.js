@@ -68,7 +68,34 @@ const COLLECTIONS = {
   knowledge: "knowledge",
   endpoint: "endpoints",
   workflow: "workflows",
+  decision: "decisions",
+  separation: "separations",
 };
+
+/* Blocks that are not a top-level list. Each needs its container built on the
+   way in, which is why they cannot just join COLLECTIONS. */
+const NESTED = {
+  memory_namespace: {
+    container: (s) => (s.memory = s.memory || {}),
+    list: "namespaces",
+    seed: (id) => ({ id, scope: "private", data_classes: [] }),
+  },
+  evaluation: {
+    container: (s) => (s.lifecycle = s.lifecycle || {}),
+    list: "evaluations",
+    // An evaluation case with no `applies_to` applies to every agent, which
+    // is a wider claim than anybody means by dropping one on a canvas.
+    seed: (id) => ({ id, given: "", expect: "", applies_to: [] }),
+  },
+};
+
+function nestedList(s, kind) {
+  const shape = NESTED[kind];
+  if (!shape) return null;
+  const container = shape.container(s);
+  container[shape.list] = container[shape.list] || [];
+  return container[shape.list];
+}
 
 function spec() {
   return canvas.record ? canvas.record.spec : null;
@@ -105,8 +132,7 @@ function findComponent(kind, id) {
     }
     return null;
   }
-  if (kind === "memory_namespace")
-    return (s.memory?.namespaces || []).find((n) => n.id === id) || null;
+  if (NESTED[kind]) return nestedList(s, kind).find((x) => x.id === id) || null;
   if (kind === "note") return canvas.record.layout.nodes[id] || null;
   const collection = COLLECTIONS[kind];
   return collection ? (s[collection] || []).find((x) => x.id === id) || null : null;
@@ -160,12 +186,10 @@ function addComponent(kind, id, at = null) {
     (parent.subagents = parent.subagents || []).push(sub);
     return sub;
   }
-  if (kind === "memory_namespace") {
-    s.memory = s.memory || { namespaces: [] };
-    s.memory.namespaces = s.memory.namespaces || [];
-    const ns = { id, scope: "private", data_classes: [] };
-    s.memory.namespaces.push(ns);
-    return ns;
+  if (NESTED[kind]) {
+    const item = NESTED[kind].seed(id);
+    nestedList(s, kind).push(item);
+    return item;
   }
   if (kind === "note") return { note: "" };
   const collection = COLLECTIONS[kind];
@@ -191,8 +215,11 @@ function removeComponent(kind, id) {
     allAgents().forEach(({ agent }) => {
       agent.subagents = (agent.subagents || []).filter((x) => x.id !== id);
     });
-  } else if (kind === "memory_namespace") {
-    s.memory.namespaces = (s.memory.namespaces || []).filter((n) => n.id !== id);
+  } else if (NESTED[kind]) {
+    const shape = NESTED[kind];
+    const container = shape.container(s);
+    container[shape.list] = (container[shape.list] || [])
+      .filter((x) => x.id !== id);
   } else if (COLLECTIONS[kind]) {
     s[COLLECTIONS[kind]] = (s[COLLECTIONS[kind]] || []).filter((x) => x.id !== id);
   }
@@ -753,6 +780,9 @@ function fieldContext(componentKind, fieldName) {
     },
     role: {
       capabilities: { mode: "reflist", col: "capabilities" },
+    },
+    evaluation: {
+      applies_to: { mode: "reflist", fn: agentIds },
     },
     team: {
       leader: {

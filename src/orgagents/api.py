@@ -1606,6 +1606,23 @@ PALETTE: dict[str, Any] = {
                               "parent's, never everything"},
                      {"name": "groups", "type": "list"},
                  ]},
+                {"kind": "evaluation", "label": "Evaluation case", "icon": "✓",
+                 "help": "what an agent must get right before it may be "
+                         "promoted — and before it may run unattended",
+                 "fields": [
+                     {"name": "id", "type": "string", "required": True},
+                     {"name": "description", "type": "text"},
+                     {"name": "given", "type": "text", "required": True,
+                      "help": "the situation or prompt"},
+                     {"name": "expect", "type": "text", "required": True,
+                      "help": "what a correct answer must contain or do; "
+                              "`contains: ...` is checkable, prose is not"},
+                     {"name": "must_not", "type": "list"},
+                     {"name": "applies_to", "type": "list",
+                      "help": "which agents; empty applies to every one of "
+                              "them, which is wider than most people mean"},
+                     {"name": "weight", "type": "number"},
+                 ]},
                 {"kind": "separation", "label": "Separation of duties",
                  "icon": "⊘",
                  "help": "decisions no single agent may hold together",

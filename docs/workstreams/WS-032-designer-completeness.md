@@ -1,8 +1,8 @@
 ---
 id: WS-032
 title: Designer completeness — authoring the whole spec
-status: Proposed
-version: 1.0.0
+status: Active
+version: 1.1.0
 date: 2026-09-21
 updated: 2026-09-21
 owner: Product
@@ -54,7 +54,7 @@ small enough that failing it is a prompt rather than a permanent red mark.
 ## Milestones
 | Milestone | Target | Status |
 |---|---|---|
-| M1 Evaluation cases in the palette — close the autonomy contradiction | Phase 5 | Not started |
+| M1 Evaluation cases in the palette — close the autonomy contradiction | Phase 5 | Done |
 | M2 Guardrails, output contracts and model policy | Phase 6 | Not started |
 | M3 Skills, plugins, tools and operating principles | Phase 6 | Not started |
 | M4 The platform policy verdict in the designer | Phase 6 | Not started |
@@ -98,4 +98,5 @@ in `docs/DESIGNER.md` no longer lists coverage as the largest gap.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-21 | M1 done. It also surfaced two palette kinds — `decision` and `separation` — that were offered and could not be placed, because they were never wired into the canvas's collection map. |
 | 1.0.0 | 2026-09-21 | Proposed, from the designer review of 2026-09-21. |
