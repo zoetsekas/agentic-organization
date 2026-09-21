@@ -140,16 +140,68 @@ def test_holders_names_who_can_take_a_decision_without_routing_to_them():
 # --------------------------------------------------------------------------
 
 
-def test_a_root_without_a_mandate_is_a_spec_error():
-    spec = {**BASE, "organization": {**BASE["organization"], "mandate": None}}
+def test_a_root_team_without_a_mandate_holds_the_declared_vocabulary():
+    """A team is a scope and nobody exercises it (ADR-0070), so the root may
+    default (ADR-0071).
+
+    Requiring it to enumerate every decision is what made authority accumulate
+    upward, and what made adding one function to a leaf an edit of every unit
+    between it and the root.
+    """
+    spec = {**BASE, "organization": {**BASE["organization"], "mandate": None,
+                                     "leader": "ceo"}}
+    parsed = _org(spec)
+    m = resolve(parsed.organization, [d.id for d in parsed.decisions])
+    assert m.teams["root"].decisions == {"spend", "deploy", "close"}
+
+
+def test_the_root_leader_must_declare_because_a_principal_is_never_silent():
+    """The root team may default; the agent at the top may not.
+
+    It is a principal, it inherits its unit's mandate, and at the root that is
+    everything.
+    """
+    spec = {**BASE, "organization": {**BASE["organization"], "mandate": None,
+                                     "leader": "ceo"}}
     found = errors(validate_spec(_org(spec)))
-    assert any(f.code == "root_without_mandate" for f in found)
+    assert any(f.code == "root_leader_without_mandate" for f in found)
 
 
-def test_an_empty_root_mandate_is_the_same_error_not_unlimited_authority():
-    spec = {**BASE,
-            "organization": {**BASE["organization"], "mandate": {"decisions": []}}}
-    assert any(f.code == "root_without_mandate" for f in errors(validate_spec(_org(spec))))
+def test_an_explicit_empty_mandate_says_it_decides_nothing():
+    spec = {
+        **BASE,
+        "organization": {
+            **BASE["organization"], "mandate": None, "leader": "ceo",
+            "members": [{"id": "ceo", "name": "CEO", "mandate": {"decisions": []}}],
+        },
+    }
+    parsed = _org(spec)
+    assert not [f for f in errors(validate_spec(parsed))
+                if f.code == "root_leader_without_mandate"]
+    m = resolve(parsed.organization, [d.id for d in parsed.decisions])
+    assert m.for_agent("ceo").decisions == frozenset()
+
+
+def test_a_claim_no_ancestor_holds_is_an_error_not_a_warning():
+    """Silently deciding nothing is the worst of the three outcomes (ADR-0071).
+
+    Before this, a leaf that declared authority its line excluded produced a
+    warning and an agent that quietly decided nothing — which in a finance
+    function reads as work stopping for no stated reason.
+    """
+    spec = {
+        **BASE,
+        "organization": {
+            **BASE["organization"], "leader": "ceo",
+            "members": [{"id": "ceo", "name": "CEO", "mandate": {"decisions": []}}],
+            "teams": [{**BASE["organization"]["teams"][0],
+                       "mandate": {"decisions": ["close"]},
+                       "members": [{"id": "clerk", "name": "Clerk",
+                                    "mandate": {"decisions": ["spend"]}}]}],
+        },
+    }
+    found = errors(validate_spec(_org(spec)))
+    assert any(f.code == "mandate_overreach" and f.where == "clerk" for f in found)
 
 
 def test_a_mandate_naming_an_undeclared_decision_is_refused():
@@ -437,7 +489,7 @@ def test_the_worked_finance_example_holds_its_own_controls():
     assert spec.separations, "the example must declare the controls it tests"
     assert not errors(validate_spec(spec))
 
-    m = resolve(spec.organization)
+    m = resolve(spec.organization, [d.id for d in spec.decisions])
     for rule in spec.separations:
         for agent_id, effective in m.agents.items():
             held = set(rule.decisions) & effective.decisions
@@ -446,3 +498,94 @@ def test_the_worked_finance_example_holds_its_own_controls():
     # And escalation cannot route a payment release around the control.
     assert m.holder("payables", "release_payment") is None
     assert m.holders("release_payment") == ["treasurer"]
+
+
+# --------------------------------------------------------------------------
+# ADR-0071: conditions are evaluated, and separation survives the binding
+# --------------------------------------------------------------------------
+
+
+def _bounded(platform, agent_id, tool, decision, mandate, conditions):
+    """An agent with a bounded mandate, and a tool that takes the bounded field.
+
+    A condition checks an argument the *call* carries — the amount on a payment,
+    the currency on a placement — so the tool has to accept it. Policy that
+    reads a field the tool does not take would bound nothing.
+    """
+    agent = platform.org.agent(agent_id)
+    agent.mandate = mandate
+    agent.mandate_conditions = conditions
+    agent.harness.tools.append(ToolBinding(name=tool, source="builtin",
+                                           decision=decision))
+    _save(platform, agent)
+
+    def stub(**kwargs):
+        return {"ok": True, "args": kwargs}
+
+    return agent, platform.harness.guarded(agent, {tool: stub})[tool]
+
+
+def test_a_ceiling_refuses_a_call_that_exceeds_it(platform):
+    """`max_value_gbp: 250000` used to bound nothing at all."""
+    _, tool = _bounded(platform, "agt_fin_analyst", "approve", "approve_spend",
+                       ["approve_spend"], [{"max_value_gbp": 250000}])
+    out = tool(value_gbp=400000)
+    assert out["ok"] is False
+    assert "exceeds max_value_gbp" in out["error"]
+
+
+def test_a_call_within_the_ceiling_proceeds(platform):
+    _, tool = _bounded(platform, "agt_fin_analyst", "approve", "approve_spend",
+                       ["approve_spend"], [{"max_value_gbp": 250000}])
+    assert tool(value_gbp=1000)["ok"] is True
+
+
+def test_omitting_the_field_is_a_refusal_not_a_pass(platform):
+    """Otherwise leaving out the amount removes the ceiling."""
+    _, tool = _bounded(platform, "agt_fin_analyst", "approve", "approve_spend",
+                       ["approve_spend"], [{"max_value_gbp": 250000}])
+    out = tool()
+    assert out["ok"] is False
+    assert "supplies no 'value_gbp'" in out["error"]
+
+
+def test_a_condition_we_cannot_evaluate_is_a_refusal(platform):
+    """Silently ignoring an unparseable bound is how these became decorative."""
+    _, tool = _bounded(platform, "agt_fin_analyst", "approve", "approve_spend",
+                       ["approve_spend"], [{"only_on_a_tuesday": True}])
+    out = tool()
+    assert out["ok"] is False
+    assert "cannot evaluate" in out["error"]
+
+
+def test_conditions_chain_so_a_child_cannot_loosen_a_parents(platform):
+    _, tool = _bounded(platform, "agt_fin_analyst", "approve", "approve_spend",
+                       ["approve_spend"],
+                       [{"max_value_gbp": 5000}, {"max_value_gbp": 1000000}])
+    out = tool(value_gbp=9000)
+    assert out["ok"] is False, "the tighter bound in the line still applies"
+
+
+def test_a_membership_condition_is_evaluated(platform):
+    _, tool = _bounded(platform, "agt_fin_analyst", "approve", "approve_spend",
+                       ["approve_spend"], [{"currency_in": ["GBP", "EUR"]}])
+    assert tool(currency="JPY")["ok"] is False
+    assert tool(currency="GBP")["ok"] is True
+
+
+def test_the_worked_binding_keeps_the_two_sides_of_the_payment_control_apart():
+    """Separation decided in the spec means nothing if the ERP and the bank
+    turn out to be one connection (ADR-0071)."""
+    import pathlib
+
+    from orgagents.phases import review
+    from orgagents.spec import load_binding, load_spec
+
+    spec = load_spec(pathlib.Path("examples/northwind.finance.system.yaml"))
+    binding = load_binding(pathlib.Path("examples/northwind.binding.yaml"))
+    report = review(spec, binding=binding, target="local")
+    checks = [c for c in report.of("implementation")
+              if c.id.startswith("separation_survives_binding")]
+    assert checks, "the binding was never checked against the separations"
+    failed = [c.detail for c in checks if c.status != "pass"]
+    assert not failed, failed

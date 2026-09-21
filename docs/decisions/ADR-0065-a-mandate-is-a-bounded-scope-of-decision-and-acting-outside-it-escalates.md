@@ -61,7 +61,10 @@ within permission but outside mandate escalates; it is not refused.**
    `decisions: list[str]` — named decision classes drawn from the spec's
    declared vocabulary, the same way capabilities are named — plus
    `conditions` for the bounds that make a decision class finite (a value
-   ceiling, a reversibility requirement, a data class).
+   ceiling, a reversibility requirement, a data class). **Conditions are
+   evaluated at the tool boundary (v1.3.0, ADR-0071)**; as first written they
+   were carried into the IR and read by nothing, which made every threshold
+   decorative.
    The free-form `list[str]` on `Team` is replaced, not supplemented.
 2. **Teams and agents both hold mandates.** An agent's **effective mandate is
    the intersection of its own declared mandate with its team's**, recursively

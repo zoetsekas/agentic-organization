@@ -382,6 +382,37 @@ def review_implementation(
            f"unbound: {unbound_caps}",
            "add a `capabilities:` binding naming the MCP server (ADR-0010)")
 
+    # Separation of duties has to survive the binding (ADR-0071). Two
+    # decisions the spec keeps apart mean nothing if both their capabilities
+    # resolve to one MCP server under one credential: the control is enforced
+    # in the ERP and the banking portal, not in our mandate table, and a
+    # single connection is a single place to defeat it.
+    cap_decision = {c.id: c.decision for c in spec.capabilities if c.decision}
+    for rule in spec.separations:
+        by_server: dict[tuple[str, str], list[str]] = {}
+        for cap_id, decision in cap_decision.items():
+            if decision not in rule.decisions:
+                continue
+            cb = bound.capability_binding(cap_id)
+            if cb is None:
+                continue
+            key = (cb.server_name, cb.dsn_secret_ref or "")
+            by_server.setdefault(key, []).append(f"{decision} via {cap_id}")
+        collisions = {k: v for k, v in by_server.items() if len(v) > 1}
+        _check(
+            report, "implementation", not collisions,
+            f"separation_survives_binding:{rule.id}",
+            f"Separation '{rule.id}' survives the binding",
+            "; ".join(
+                f"{' and '.join(sorted(v))} share server '{k[0]}'"
+                + (f" and credential '{k[1]}'" if k[1] else "")
+                for k, v in collisions.items()
+            ),
+            "bind the two sides to different servers, or to the same server "
+            "under different credentials, so the downstream system can tell "
+            "them apart",
+        )
+
     used_envs = {a.environment.environment for a in spec.agents() if a.environment}
     unbound_envs = [e for e in used_envs if bound.environment_binding(e) is None]
     _check(report, "implementation", not unbound_envs, "environments_bound",

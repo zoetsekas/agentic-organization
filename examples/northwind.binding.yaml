@@ -1,0 +1,59 @@
+# Northwind's binding. This is where product names are allowed (ADR-0002).
+#
+# The two sides of the payment control bind to different servers under
+# different credentials on purpose: separation decided in the spec means
+# nothing if the ERP and the bank turn out to be one connection (ADR-0071).
+targets:
+  - target: local
+    runtime:
+      adapter: langchain_deepagents
+    model:
+      provider: anthropic
+      model: claude-opus-5
+    capabilities:
+      - {capability: ledger_query, server_name: erp_ledger, engine: postgres,
+         dsn_secret_ref: ERP_LEDGER_DSN}
+      - {capability: journal_post, server_name: erp_ledger, engine: postgres,
+         dsn_secret_ref: ERP_LEDGER_DSN}
+      - {capability: invoice_entry, server_name: erp_payables, engine: postgres,
+         dsn_secret_ref: ERP_PAYABLES_ENTRY_DSN}
+      # Approval is the same system and a different principal, so a different
+      # credential: the ERP must be able to tell the two apart.
+      - {capability: invoice_approval, server_name: erp_payables,
+         engine: postgres, dsn_secret_ref: ERP_PAYABLES_APPROVER_DSN}
+      - {capability: cash_application, server_name: erp_receivables,
+         engine: postgres, dsn_secret_ref: ERP_RECEIVABLES_DSN}
+      - {capability: receivable_writeoff, server_name: erp_receivables,
+         engine: postgres, dsn_secret_ref: ERP_RECEIVABLES_DSN}
+      - {capability: statement_production, server_name: reporting_suite,
+         transport: http, url: https://reporting.internal/mcp}
+      - {capability: vendor_maintenance, server_name: erp_vendor_master,
+         engine: postgres, dsn_secret_ref: ERP_VENDOR_DSN}
+      - {capability: payment_release, server_name: bank_gateway,
+         transport: http, url: https://bank-gateway.internal/mcp}
+      - {capability: cash_position, server_name: bank_gateway,
+         transport: http, url: https://bank-gateway.internal/mcp}
+      - {capability: debt_facility, server_name: treasury_tms,
+         transport: http, url: https://tms.internal/mcp}
+      - {capability: investment_placement, server_name: treasury_tms,
+         transport: http, url: https://tms.internal/mcp}
+      - {capability: hedge_execution, server_name: treasury_tms,
+         transport: http, url: https://tms.internal/mcp}
+      - {capability: budget_model, server_name: planning_suite,
+         transport: http, url: https://planning.internal/mcp}
+      - {capability: scenario_model, server_name: planning_suite,
+         transport: http, url: https://planning.internal/mcp}
+      - {capability: forecast_model, server_name: planning_suite,
+         transport: http, url: https://planning.internal/mcp}
+      - {capability: deal_analysis, server_name: planning_suite,
+         transport: http, url: https://planning.internal/mcp}
+      - {capability: capex_register, server_name: planning_suite,
+         transport: http, url: https://planning.internal/mcp}
+      - {capability: tax_filing, server_name: tax_portal,
+         transport: http, url: https://tax.internal/mcp}
+      - {capability: controls_testing, server_name: erp_ledger,
+         engine: postgres, dsn_secret_ref: ERP_AUDIT_READONLY_DSN}
+    environments:
+      - {environment: analysis, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: payments_isolated, image: "python:3.12-slim",
+         cpu: "0.5", memory: 1Gi}

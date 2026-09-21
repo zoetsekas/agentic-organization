@@ -140,14 +140,32 @@ class MandateMap:
         return sorted(a for a, eff in self.agents.items() if eff.covers(decision))
 
 
-def resolve(organization: Any) -> MandateMap:
-    """Walk a spec's organization tree and resolve every unit's authority."""
+def resolve(
+    organization: Any, vocabulary: Optional[Iterable[str]] = None
+) -> MandateMap:
+    """Walk a spec's organization tree and resolve every unit's authority.
+
+    A root that declares no mandate holds the whole declared `vocabulary`
+    (ADR-0071). That is safe because a team is a scope and nobody exercises it
+    (ADR-0070), and it removes the enumeration burden that made authority
+    accumulate: without it, giving a leaf agent one new decision meant editing
+    every unit between it and the root, and forgetting to was a warning and an
+    agent that silently decided nothing.
+
+    What is *not* safe is a principal inheriting it, so the root's leader still
+    declares its own — checked by the spec validator, not here.
+    """
     out = MandateMap()
 
     def visit(team: Any, inherited: Optional[EffectiveMandate]) -> None:
         declared = getattr(team, "mandate", None)
         if inherited is None:
-            effective = root_mandate(declared, team.id)
+            if declared is None or not getattr(declared, "decisions", None):
+                effective = EffectiveMandate(
+                    frozenset(vocabulary or ()), (), (team.id,)
+                )
+            else:
+                effective = root_mandate(declared, team.id)
         else:
             over = inherited.overreach(declared)
             if over:

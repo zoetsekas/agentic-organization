@@ -132,17 +132,28 @@ def validate_spec(
                     where,
                 )
 
-    # The root is where authority enters the system. Nothing above it narrows
-    # it, so silence there would mean either "unlimited" or "nothing at all" —
-    # and a reader could not tell which. It is written down or it is an error.
-    if spec.organization.mandate is None or not spec.organization.mandate.decisions:
-        err(
-            "root_without_mandate",
-            f"organization '{spec.organization.id}' declares no mandate; the "
-            "root is the one place authority is granted rather than inherited, "
-            "so it must say what this organization may decide (ADR-0065)",
-            spec.organization.id,
+    # The root *team* may default to the whole declared vocabulary (ADR-0071):
+    # a team is a scope and nobody exercises it, and requiring the root to
+    # enumerate every decision is what made authority accumulate upward.
+    #
+    # The root's *leader* is a different matter. It is a principal, it inherits
+    # its unit's mandate, and at the root that is everything. So the one place
+    # authority must be written down is the agent at the top.
+    root_leader = spec.organization.leader
+    if root_leader:
+        top = next(
+            (m for m in spec.organization.members if m.id == root_leader), None
         )
+        if top is not None and top.mandate is None:
+            err(
+                "root_leader_without_mandate",
+                f"agent '{root_leader}' leads the organization and declares no "
+                "mandate, so it inherits every decision this organization can "
+                "take. A principal's authority is the one thing that is never "
+                "silent: declare it, or declare `decisions: []` to say it "
+                "decides nothing (ADR-0071)",
+                root_leader,
+            )
 
     for team in teams:
         check_mandate(team.mandate, team.id, "team")
@@ -158,7 +169,9 @@ def validate_spec(
     if spec.separations:
         from ..mandates import resolve as _resolve_for_separation
 
-        resolved = _resolve_for_separation(spec.organization)
+        resolved = _resolve_for_separation(
+            spec.organization, declared_decisions
+        )
         for rule in spec.separations:
             unknown = [d for d in rule.decisions if d not in declared_decisions]
             for d in unknown:
@@ -195,11 +208,19 @@ def validate_spec(
     # decide something it cannot is a spec somebody will act on.
     from ..mandates import resolve as _resolve_mandates
 
-    for unit_id, over in _resolve_mandates(spec.organization).overreach.items():
-        warn(
+    _map = resolved or _resolve_mandates(spec.organization, declared_decisions)
+    for unit_id, over in _map.overreach.items():
+        # An error, not a warning (ADR-0071). The claim has no effect, so the
+        # unit decides less than its author believes — and with the root now
+        # defaulting to the whole vocabulary, reaching this at all means some
+        # ancestor deliberately narrowed. Silently deciding nothing is the
+        # worst of the three possible outcomes.
+        err(
             "mandate_overreach",
-            f"'{unit_id}' claims {sorted(over)}, which its line does not hold; "
-            "authority narrows downward, so the claim has no effect",
+            f"'{unit_id}' claims {sorted(over)}, which its line does not hold, "
+            "so it would decide nothing of the kind. Authority narrows "
+            "downward: either widen the ancestor that excludes it, or drop "
+            "the claim",
             unit_id,
         )
 

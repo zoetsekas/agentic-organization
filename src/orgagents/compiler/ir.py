@@ -990,7 +990,9 @@ def build_ir(
     # Authority is resolved exactly once, here, for the same reason
     # permissions are: a runtime that re-derives it can disagree with the
     # artifact somebody reviewed (ADR-0065).
-    mandates = resolve_mandates(spec.organization)
+    mandates = resolve_mandates(
+        spec.organization, [d.id for d in spec.decisions]
+    )
     teams, index = _build_teams(spec, mandates)
     team_by_agent: dict[str, Team] = {
         m.id: t for t in spec.teams() for m in t.members

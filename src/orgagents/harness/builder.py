@@ -251,7 +251,63 @@ class HarnessBuilder:
                 return binding.decision
         return None
 
-    def refusal(self, agent: Agent, tool_name: str) -> Optional[ToolCallResult]:
+    def condition_failure(
+        self, agent: Agent, decision: str, arguments: dict[str, Any]
+    ) -> Optional[str]:
+        """Check a mandate's conditions against the call, or say why not.
+
+        Conditions were carried into the IR and read by nothing, so a mandate
+        of "approve spend under 250k" bounded nothing at all (ADR-0071). They
+        are now evaluated, with a small deliberate grammar:
+
+        * ``max_<field>`` — the call's ``<field>`` must be present and at most
+          this;
+        * ``min_<field>`` — present and at least this;
+        * ``<field>_in`` — present and one of these.
+
+        Two rules matter more than the grammar. A condition naming a field the
+        call does not supply is a **refusal**, because otherwise omitting the
+        amount removes the ceiling. And a key this grammar cannot parse is
+        also a refusal: silently ignoring a condition nobody can evaluate is
+        exactly how these became decorative.
+        """
+        for condition in agent.mandate_conditions:
+            for key, limit in condition.items():
+                if key.startswith("max_") or key.startswith("min_"):
+                    field = key[4:]
+                    if field not in arguments:
+                        return (
+                            f"'{decision}' is bounded by {key}={limit}, and the "
+                            f"call supplies no '{field}' to check it against"
+                        )
+                    value = arguments[field]
+                    if key.startswith("max_") and value > limit:
+                        return f"{field}={value} exceeds {key}={limit}"
+                    if key.startswith("min_") and value < limit:
+                        return f"{field}={value} is below {key}={limit}"
+                elif key.endswith("_in"):
+                    field = key[:-3]
+                    if field not in arguments:
+                        return (
+                            f"'{decision}' is bounded by {key}, and the call "
+                            f"supplies no '{field}' to check it against"
+                        )
+                    if arguments[field] not in limit:
+                        return f"{field}={arguments[field]!r} is not one of {limit}"
+                else:
+                    return (
+                        f"'{decision}' carries condition '{key}', which this "
+                        "platform cannot evaluate; a bound nobody can check is "
+                        "not a bound"
+                    )
+        return None
+
+    def refusal(
+        self,
+        agent: Agent,
+        tool_name: str,
+        arguments: Optional[dict[str, Any]] = None,
+    ) -> Optional[ToolCallResult]:
         """Why this call may not proceed, or `None` if it may.
 
         One implementation, used by both `call` and the wrappers handed to a
@@ -303,6 +359,16 @@ class HarnessBuilder:
                       "approver": holder.human.email if holder.human else None},
             )
 
+        if decision:
+            failed = self.condition_failure(agent, decision, arguments or {})
+            if failed:
+                return ToolCallResult(
+                    tool_name,
+                    False,
+                    error=f"outside the bounds on '{decision}': {failed}",
+                    decision=decision,
+                )
+
         if self.requires_approval(agent, tool_name):
             return ToolCallResult(
                 tool_name,
@@ -326,7 +392,7 @@ class HarnessBuilder:
 
         def wrap(name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
             def guarded_tool(**kwargs: Any) -> Any:
-                refused = self.refusal(agent, name)
+                refused = self.refusal(agent, name, kwargs)
                 if refused is not None:
                     return {
                         "ok": False,
@@ -349,7 +415,7 @@ class HarnessBuilder:
         fn = tools.get(tool_name)
         if fn is None:
             return ToolCallResult(tool_name, False, error=f"no such tool '{tool_name}'")
-        refused = self.refusal(agent, tool_name)
+        refused = self.refusal(agent, tool_name, kwargs)
         if refused is not None:
             return refused
         try:

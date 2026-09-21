@@ -390,17 +390,8 @@ organization:
   id: northwind
   name: Northwind Trading
   description: The corporate centre.
-  mandate:
-    decisions:
-      - raise_payment
-      - approve_invoice
-      - release_payment
-      - change_vendor_master
-      - post_journal_entry
-      - close_period
-      - publish_forecast
-      - file_tax_return
-      - open_audit_finding
+  # No mandate: the root holds the declared vocabulary (ADR-0071). Enumerating
+  # it here would mean editing this list every time a leaf gains a function.
   leader: ceo
   groups: [all_hands]
   members:
@@ -423,16 +414,6 @@ organization:
     - id: finance
       name: Finance
       description: The CFO's organization.
-      mandate:
-        decisions:
-          - raise_payment
-          - approve_invoice
-          - release_payment
-          - change_vendor_master
-          - post_journal_entry
-          - close_period
-          - publish_forecast
-          - file_tax_return
       leader: cfo
       groups: [finance]
       roles: [finance_leadership]
@@ -457,7 +438,7 @@ organization:
           description: Close, controls and the payables ledger.
           mandate:
             decisions: [raise_payment, approve_invoice, change_vendor_master,
-                        post_journal_entry, close_period]
+                        post_journal_entry, close_period, write_off_receivable]
           leader: controller
           groups: [controllership]
           roles: [controllership_team]
@@ -526,7 +507,8 @@ organization:
           name: Treasury
           description: Cash, liquidity and the bank relationship.
           mandate:
-            decisions: [release_payment]
+            decisions: [release_payment, raise_debt, place_investment,
+                        execute_hedge]
           leader: treasurer
           groups: [treasury]
           roles: [treasury_team]
@@ -562,7 +544,7 @@ organization:
           name: Financial Planning and Analysis
           description: The forward look.
           mandate:
-            decisions: [publish_forecast]
+            decisions: [publish_forecast, approve_budget]
           leader: fpa_lead
           groups: [fpa]
           roles: [fpa_team]

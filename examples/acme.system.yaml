@@ -316,6 +316,10 @@ organization:
       name: ceo-agent
       description: Routes company-wide requests and owns cross-function escalation.
       roles: [chief_executive]
+      # A principal's authority is never silent (ADR-0071). Acme's chief
+      # executive arbitrates; it does not reach into a function's decisions.
+      mandate:
+        decisions: []
       model_policy:
         classes: [frontier_reasoning]
         max_cost_per_million_tokens: 40
