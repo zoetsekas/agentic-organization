@@ -2,7 +2,7 @@
 id: ADR-0054
 title: Sandbox execution is pluggable, and prefers a kernel boundary
 status: Accepted
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-20
 updated: 2026-09-20
 deciders: [Platform Architecture, Security Engineering]
@@ -12,7 +12,7 @@ scope: [targets, runtime, security]
 workstreams: [WS-004, WS-028]
 supersedes: []
 superseded_by: []
-related: [ADR-0009, ADR-0011, ADR-0050, ADR-0053]
+related: [ADR-0009, ADR-0011, ADR-0050, ADR-0053, ADR-0068]
 tags: [security, deployment]
 ---
 
@@ -78,6 +78,16 @@ and where a provider offers a kernel boundary we prefer it.**
 4. The honest claim travels with the artifact. Whatever provider is in force is
    named in the generated README and the mapping report, alongside what it
    actually enforces.
+5. **A provider operates at two levels, not one (v1.2.0).** This record
+   originally placed every provider *under* a per-agent environment class,
+   which described OpenShell correctly and then used it one level too low. A
+   provider may host the **agent process itself** inside a governed sandbox
+   environment — where its policy engine covers the agent's egress, filesystem
+   and credentials — as well as providing the **execution sandbox** an agent's
+   harness runs code in. ADR-0068 defines those two levels and the rules for
+   hosting more than one agent in a sandbox environment. Rule 3 is unchanged
+   and now binds at both levels: a provider that cannot host an agent process
+   degrades to the agent running beside its sandbox, and says so.
 
 ## Scope
 How a sandbox is executed locally and how that is reported. It does not change
@@ -154,5 +164,6 @@ verified against a running `sbx`.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-21 | Corrected the level. A provider may host the agent process itself, not only the sandbox its harness executes code in; the two levels and the co-residency rules are ADR-0068. |
 | 1.1.0 | 2026-09-20 | Added `openshell` as a named provider: its policy domains map onto our environment class almost field for field, but it is alpha, so it is a candidate rather than a dependency. |
 | 1.0.0 | 2026-09-20 | Accepted. Pluggable sandbox providers, microVM preferred locally, degradation must be loud. |

@@ -1085,6 +1085,62 @@ flowchart TB
     factq -- no --> degrade --> loud --> verified
 ```
 
+### Two levels, and which one you mean
+
+There are two sandboxes and they are not interchangeable (ADR-0068). A
+**sandbox environment** is an instance of an environment class: it carries the
+policy domains and the network posture, and it hosts agent processes. An
+**execution sandbox** is where one agent's harness runs code, per invocation.
+
+Only the second is built. Today an `agent-<id>` service runs *beside* its
+sandbox on the platform runtime image, so the boundary around the agent process
+is a Docker network — which the container provider's own boundary statement
+concedes is a Docker-object boundary and not a kernel one. Where a provider can
+host the agent process instead, its policy engine covers the agent itself: its
+egress at method and path level, its filesystem, its credentials injected rather
+than written to disk. That is the shape ADR-0054 v1.1.0 described OpenShell as
+having, and then used one level too low; v1.2.0 corrects it.
+
+```mermaid
+flowchart TB
+    subgraph tenant["Tenant — absolute boundary (ADR-0050)"]
+        subgraph outer["Sandbox environment — an instance of an environment class"]
+            pol["Policy: filesystem and process locked at creation,<br/>network and providers hot-reloadable"]
+            net["Network connectivity: posture, egress allowlist,<br/>enforced at L7 by the provider's proxy"]
+            a1["Agent process: analyst<br/>own filesystem scope"]
+            a2["Agent process: reconciler<br/>own filesystem scope"]
+            shared["Shared process namespace —<br/>NOT scoped by anything we can express.<br/>Declared in the boundary statement, verified = False"]
+        end
+        subgraph inner1["Execution sandbox — analyst's harness"]
+            e1["Code execution, per invocation,<br/>on the environment class image"]
+        end
+        subgraph inner2["Execution sandbox — reconciler's harness"]
+            e2["Code execution, per invocation"]
+        end
+    end
+
+    rule["Co-residency is declared, never inferred.<br/>Permitted only when the standing org chart already<br/>connects every pair — mission-lent reach does not count,<br/>because a sandbox outlives a mission window"]
+
+    a1 --> inner1
+    a2 --> inner2
+    outer -.-> rule
+```
+
+Hosting more than one agent in a sandbox environment is the part that needed a
+decision, because every control above assumes the agent boundary *is* the
+process boundary. Two agents sharing a sandbox share a filesystem and a process
+namespace — a lateral path `can_delegate` does not govern, permissions cannot
+see, and mandates sit above entirely. So co-residency is **declared and never
+inferred**, confined to one tenant, permitted only between agents the standing
+org chart already connects (mission-lent reach does not count, because a
+mission window closes and a sandbox does not), and filesystem-scoped per agent
+by the provider — degrading to one agent per sandbox where a provider cannot
+scope.
+
+The shared process namespace is not closed by any of that. Rule 7 documents it
+rather than fixing it: co-resident agents are declared to share a process
+boundary, in those words, with `verified=False`.
+
 What makes the seam worth having is that each provider must state its boundary
 in writing: what it enforces, what it does **not**, and how faithfully it can
 express "this sandbox belongs to one tenant". The container provider says
@@ -1363,6 +1419,7 @@ the design describes and the code does not do yet.
 | Message bus | NATS/JetStream, one per tenant | Subject namespace, adapter, durability and the inbound org-chart re-check built against a fake client; the NATS service is generated and parsed, **never started**, and `nats-py` is not a dependency |
 | Evaluations | A gate backed by evidence | The runner executes declared cases and answers the gate. It runs on the `echo` adapter, so it proves the wiring, not the agent; prose expectations are reported unverifiable rather than judged |
 | Divergence signals | Disagreement reaches somebody | Computed on demand and returned to the caller; nothing routes or stores them (ALPHA B6) |
+| Sandbox environments hosting agents | The agent process runs inside a governed sandbox, and co-residency is declared and scoped (ADR-0068) | **Nothing.** The agent runs beside its sandbox on a Docker network; a sandbox environment is not a spec concept, co-residency cannot be declared, and the provider seam cannot yet answer "can you host an agent process" or "can you scope a filesystem per agent" |
 | Sandbox providers | Prefer a kernel boundary | `container` is the portable floor and the only one available here; `microvm_sbx` and `openshell` are contracts with no binary behind them, and every boundary statement carries `verified=False` |
 | Workflow engines | Pluggable, out-of-process engines are egress events | `native` exercised; the Langflow path exercised through a fake transport; LangGraph, LangChain and ADK are binding entries only |
 | Reference runtime | Deep agents carries the deep integrations (ADR-0067) | Delivered: limits as `ModelCallLimitMiddleware`, a deny-by-default filesystem permission set, and MCP over the adapter transport behind our own allowlist. A live model still has not answered (ALPHA A5) |
