@@ -380,3 +380,31 @@ def test_a_remote_task_maps_to_exactly_one_session(tmp_path):
 
 def test_without_a_session_manager_nothing_pretends_to_be_traceable():
     assert client().send_message("hi").task.session_id == ""
+
+
+def test_the_spec_spelling_of_a_posture_does_not_fail_open():
+    """Two vocabularies name one posture, and a miss would fail open.
+
+    `NetworkPosture.ALLOWLIST` serialises as `allowlist`; the runtime loader
+    rewrites it to `egress_allowlist`. The allowlist check compared against
+    the second spelling only, so a boundary built from the first reached any
+    host it liked while still reading as allowlisted.
+    """
+    from orgagents.runtime.endpoints import CallerBoundary
+
+    for spelling in ("allowlist", "egress_allowlist"):
+        caller = CallerBoundary(
+            agent_id="a", network=spelling,
+            egress_allowlist=("api.acme.example",),
+        )
+        assert caller.allowlisted, spelling
+        assert caller.can_egress, spelling
+
+
+def test_an_unrecognised_posture_fails_closed_rather_than_open():
+    """Silence about a posture must never read as permission."""
+    from orgagents.runtime.endpoints import CallerBoundary
+
+    caller = CallerBoundary(agent_id="a", network="none")
+    assert not caller.can_egress
+    assert not caller.allowlisted

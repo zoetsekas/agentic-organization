@@ -26,6 +26,14 @@ from ..spec.model import EndpointTrust, GuardrailKind
 Transport = Callable[[str, Any, Optional[str]], Any]
 
 
+#: Two vocabularies name the same posture. The spec's `NetworkPosture` says
+#: `allowlist`; the runtime loader's `_NETWORK` table says `egress_allowlist`.
+#: Mapping one onto the other here means neither has to know about the other,
+#: and an unrecognised value stays as it is so it fails *closed* at the
+#: `can_egress` check rather than sliding past the allowlist check.
+_NETWORK_ALIASES = {"allowlist": "egress_allowlist", "full": "open"}
+
+
 @dataclass(frozen=True)
 class CallerBoundary:
     """The boundary the caller sits inside, frozen for the duration of a call.
@@ -36,15 +44,30 @@ class CallerBoundary:
 
     agent_id: str
     tenant_id: Optional[str] = None
+    #: The posture, in either spelling. The spec says `allowlist`
+    #: (`NetworkPosture.ALLOWLIST`) and the runtime loader rewrites it to
+    #: `egress_allowlist`, so both reach here. `__post_init__` normalises,
+    #: because the alternative is a string compare that silently misses and
+    #: lets an allowlisted agent reach anything — a boundary that fails open
+    #: is worse than no boundary.
     network: str = "none"
     egress_allowlist: tuple[str, ...] = ()
     secret_refs: tuple[str, ...] = ()
     permissions: frozenset[str] = frozenset()
     data_classes: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "network", _NETWORK_ALIASES.get(self.network, self.network)
+        )
+
     @property
     def can_egress(self) -> bool:
         return self.network != "none"
+
+    @property
+    def allowlisted(self) -> bool:
+        return self.network == "egress_allowlist"
 
 
 @dataclass
@@ -144,7 +167,7 @@ def call_endpoint(
             detail=f"agent '{caller.agent_id}' has network: none and cannot "
                    f"reach '{host}'",
         )
-    if caller.network == "egress_allowlist" and not host_allowed(
+    if caller.allowlisted and not host_allowed(
         host, caller.egress_allowlist
     ):
         return EndpointCallResult(
