@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from ..models import Agent, Runtime
+from ..plugins import ProviderDescriptor, Registry
 
 
 class BudgetExceeded(RuntimeError):
@@ -351,13 +352,70 @@ class EchoAdapter(RuntimeAdapter):
         )
 
 
-_ADAPTERS: dict[Runtime, type[RuntimeAdapter]] = {
-    Runtime.DEEPAGENTS: DeepAgentsAdapter,
-    Runtime.OPENAI_AGENTS: OpenAIAgentsAdapter,
-    Runtime.LANGGRAPH: LangGraphAdapter,
-    Runtime.ECHO: EchoAdapter,
-}
+# --------------------------------------------------------------------------
+# The adapter registry (ADR-0091)
+#
+# `Runtime` is a closed enum, so it can only ever name the frameworks that
+# ship here. The registry is keyed by the *string* those members carry, which
+# means a third-party adapter gets an id of its own — "acme_framework" — and a
+# built-in one keeps working unchanged, because a str-enum member and its value
+# normalise to the same key.
+# --------------------------------------------------------------------------
+
+#: Entry-point group a third-party runtime adapter registers under.
+ADAPTER_GROUP = "orgagents.runtime_adapters"
+
+ADAPTERS: Registry = Registry(name="runtime adapter",
+                              entry_point_group=ADAPTER_GROUP)
+
+
+def runtime_key(runtime: Any) -> str:
+    """The registry key for a `Runtime` member or a plain string id."""
+    return str(getattr(runtime, "value", runtime))
+
+
+#: What each built-in runtime can actually carry, in the shared vocabulary.
+#: These are read by the designer to decide which fields to offer, so they are
+#: claims about behaviour rather than aspiration (ADR-0073).
+_BUILTIN_RUNTIMES = (
+    (Runtime.DEEPAGENTS, DeepAgentsAdapter, "LangChain deep agents",
+     {"instructions", "tools", "model", "subagents", "interrupt_on", "skills",
+      "long_term_memory", "filesystem_permissions", "structured_output",
+      "planning", "middleware", "streaming", "durable_execution"}),
+    (Runtime.OPENAI_AGENTS, OpenAIAgentsAdapter, "OpenAI Agents SDK",
+     {"instructions", "tools", "model", "subagents", "handoffs",
+      "structured_output", "streaming"}),
+    (Runtime.LANGGRAPH, LangGraphAdapter, "Native LangGraph ReAct loop",
+     {"instructions", "tools", "model", "structured_output", "streaming",
+      "durable_execution"}),
+    (Runtime.ECHO, EchoAdapter, "Deterministic echo (tests and demos)",
+     {"instructions", "tools"}),
+)
+
+
+def _register_builtin_adapters() -> None:
+    for runtime, adapter, title, supports in _BUILTIN_RUNTIMES:
+        ADAPTERS.register(
+            runtime_key(runtime), adapter, replace=True,
+            descriptor=ProviderDescriptor(
+                id=runtime_key(runtime), title=title, kind="runtime",
+                summary=(adapter.__doc__ or "").strip().split("\n")[0],
+                supports=frozenset(supports)))
+
+
+def register_builtin_adapters() -> Registry:
+    """Register the shipped adapters, then any installed by a plugin."""
+    ADAPTERS.load_builtins(_register_builtin_adapters)
+    ADAPTERS.discover()
+    return ADAPTERS
 
 
 def adapter_for(agent: Agent) -> type[RuntimeAdapter]:
-    return _ADAPTERS[agent.harness.runtime]
+    """The adapter class for an agent's runtime.
+
+    Fails naming what *is* available: an integrator who mistypes a runtime id,
+    or whose plugin failed to install, learns which ids exist rather than
+    getting a bare KeyError from a dict they cannot see.
+    """
+    register_builtin_adapters()
+    return ADAPTERS.require(runtime_key(agent.harness.runtime))

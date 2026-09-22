@@ -139,6 +139,51 @@ def _spec_new_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _providers_command(args: argparse.Namespace) -> int:
+    """`providers` — what is installed, and what each one can carry.
+
+    The designer reads this to decide which fields to offer: deep agents has
+    an interrupt gate and skills, the OpenAI Agents SDK has handoffs, and a
+    UI that hardcoded either would be wrong for the next one (ADR-0091).
+    """
+    from .compiler.base import register_builtin_targets
+    from .plugins import FEATURES
+    from .runtime.adapters import register_builtin_adapters
+
+    targets = register_builtin_targets()
+    runtimes = register_builtin_adapters()
+    rows = runtimes.describe_all() + targets.descriptors()
+
+    if args.feature:
+        if args.feature not in FEATURES:
+            print(f"unknown feature '{args.feature}'; known: "
+                  f"{', '.join(sorted(FEATURES))}")
+            return 2
+        named = [r["id"] for r in rows if args.feature in r["supports"]]
+        print(f"{args.feature}: {', '.join(named) or 'nothing supports it'}")
+        return 0
+
+    if args.format == "json":
+        print(json.dumps({"features": FEATURES, "providers": rows}, indent=2))
+        return 0
+
+    for kind in ("runtime", "target"):
+        subset = [r for r in rows if r["kind"] == kind]
+        if not subset:
+            continue
+        print(f"\n── {kind}s " + "─" * (52 - len(kind)))
+        for row in subset:
+            mark = " [plugin]" if row["third_party"] else ""
+            print(f"  {row['id']:24}{mark} {row['title']}")
+            print(f"  {'':24} supports: {', '.join(row['supports']) or 'nothing declared'}")
+    failed = {**runtimes.failures, **targets.registry.failures}
+    if failed:
+        print("\n! plugins that failed to load:")
+        for name, why in sorted(failed.items()):
+            print(f"  {name}: {why}")
+    return 0
+
+
 def _compiler_command(args: argparse.Namespace) -> int:
     from .compiler import build_ir, compile_system
     from .compiler.base import register_builtin_targets
@@ -731,6 +776,12 @@ def main(argv: list[str] | None = None) -> int:
     p_serve.add_argument("--host", default="127.0.0.1")
     p_serve.add_argument("--port", type=int, default=8000)
 
+    p_prov = sub.add_parser(
+        "providers",
+        help="runtimes and targets installed, and what each supports")
+    p_prov.add_argument("--feature", help="list only providers with this feature")
+    p_prov.add_argument("--format", choices=["text", "json"], default="text")
+
     sub.add_parser("tree", help="print the org chart")
     sub.add_parser("metrics", help="print operational metrics")
 
@@ -888,6 +939,9 @@ def main(argv: list[str] | None = None) -> int:
 
         uvicorn.run(create_app(args.db, args.base_url), host=args.host, port=args.port)
         return 0
+
+    if args.cmd == "providers":
+        return _providers_command(args)
 
     if args.cmd in ("evaluate", "gate"):
         return _evaluation_command(args)

@@ -24,6 +24,22 @@ dev = ["pytest>=8.0", "httpx>=0.27", "jsonschema>=4.20"]
 [project.scripts]
 orgagents = "orgagents.cli:main"
 
+# Extension points (ADR-0091). A third-party distribution declares its own
+# entries under these groups and `pip install` is the whole installation step:
+#
+#   [project.entry-points."orgagents.targets"]
+#   "acme:onprem" = "acme_orgagents.target:OnPremTarget"
+#
+#   [project.entry-points."orgagents.runtime_adapters"]
+#   acme_framework = "acme_orgagents.runtime:AcmeAdapter"
+#
+#   [project.entry-points."orgagents.provider_profiles"]
+#   openstack = "acme_orgagents.terraform:OPENSTACK_PROFILE"
+#
+# Each entry resolves to the implementation, or to a zero-argument factory
+# returning one. Publishing a `descriptor` alongside it is what lets the
+# designer offer the right fields for that provider.
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

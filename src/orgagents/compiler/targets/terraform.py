@@ -211,6 +211,42 @@ PROFILES: dict[str, ProviderProfile] = {
     ),
 }
 
+#: Entry-point group a third-party cloud profile registers under (ADR-0091).
+PROFILE_GROUP = "orgagents.provider_profiles"
+
+
+def register_provider_profile(profile: "ProviderProfile", *,
+                              replace: bool = False) -> "ProviderProfile":
+    """Add a cloud to the Terraform target without editing this module.
+
+    A new cloud is a `ProviderProfile` plus this call; the target for it is
+    then `TerraformTarget(profile.id)`, registered like any other (ADR-0091).
+    Refuses to shadow an existing profile unless asked, because silently
+    changing what `terraform:gcp` means is not a thing a plugin should do.
+    """
+    if profile.id in PROFILES and not replace:
+        raise ValueError(
+            f"provider profile '{profile.id}' is already registered; pass "
+            f"replace=True to override it deliberately")
+    PROFILES[profile.id] = profile
+    return profile
+
+
+def discover_provider_profiles() -> list[str]:
+    """Register profiles published by installed distributions."""
+    from ...plugins import Registry
+
+    found = Registry(name="provider profile",
+                     entry_point_group=PROFILE_GROUP)
+    found.discover()
+    added = []
+    for key, profile in found.items.items():
+        if key not in PROFILES:
+            PROFILES[key] = profile
+            added.append(key)
+    return added
+
+
 # Neutral action → the role/permission family each provider grants for it.
 ACTION_ROLES = {
     "gcp": {
