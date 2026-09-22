@@ -102,6 +102,7 @@ waiting to be copied.
 | [`lumiere.beauty`](examples/lumiere.beauty.system.yaml) | A beauty and salon products company | What an agent may *say*: a cosmetic claim is legal and a medicinal one is not, and a reported reaction must never be closed with a refund |
 | [`northbeam.marketing`](examples/northbeam.marketing.system.yaml) | A marketing function | Consent as a legal basis rather than a preference, and measurement that cannot grade its own campaigns |
 | [`sentinel.secops`](examples/sentinel.secops.system.yaml) | A security operations centre | An agent in **two sandboxes** — triage in `analysis`, malware detonation in an offline `detonation` range (ADR-0082) — and every agent authored with its own **instructions** (ADR-0083) |
+| [`helios.pharma`](examples/helios.pharma.system.yaml) | A clinical-stage pharma company: R&D, clinical, manufacturing, regulatory, commercial | The large one — four levels deep, 13 agents, **three multi-sandbox** (patient data stays in an offline `phi_enclave`), a scoped sub-agent, and a trial readout as a mission. Passes the **phase gate** under a production platform policy |
 
 ```bash
 orgagents spec show examples/meridian.lending.system.yaml
@@ -110,6 +111,10 @@ orgagents compile   examples/lumiere.beauty.system.yaml --target local --out bui
 # One design taken the whole distance — validate → IR → compile → run —
 # showing the multi-sandbox and instructions features end to end:
 PYTHONPATH=src python3 examples/end_to_end.py
+
+# The larger walk-through: the pharma design through the phase gate (against a
+# platform policy and binding), compiled to three targets, and run:
+PYTHONPATH=src python3 examples/end_to_end_pharma.py
 ```
 
 Open <http://localhost:8000/ui/> for the **Agentic Designer**: org chart,

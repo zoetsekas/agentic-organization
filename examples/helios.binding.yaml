@@ -1,0 +1,151 @@
+# Helios's binding. Where the vendor-neutral design meets named products and
+# credentials (ADR-0002). Two targets: the local Compose stack for a walk
+# through, and GCP for the shape of a cloud deployment.
+#
+# The controls decided in the spec are honoured here in the credentials: the
+# batch-release side and the deviation-signoff side bind to the MES and the
+# QMS under different secrets, because a separation the spec declares means
+# nothing if the two turn out to be one connection (ADR-0071).
+targets:
+  - target: local
+    runtime:
+      adapter: langchain_deepagents
+    model:
+      provider: anthropic
+      model: claude-opus-5
+    capabilities:
+      - {capability: compound_screen, server_name: screening_platform,
+         transport: http, url: https://screening.internal/mcp}
+      - {capability: research_publish, server_name: publications,
+         transport: http, url: https://publications.internal/mcp}
+      - {capability: genomics_pipeline, server_name: genomics_hpc,
+         transport: http, url: https://hpc.internal/mcp}
+      - {capability: model_training, server_name: genomics_hpc,
+         transport: http, url: https://hpc.internal/mcp}
+      - {capability: protocol_authoring, server_name: ctms,
+         transport: http, url: https://ctms.internal/mcp}
+      - {capability: enrollment, server_name: ctms,
+         transport: http, url: https://ctms.internal/mcp}
+      - {capability: unblinding, server_name: randomization,
+         transport: http, url: https://rando.internal/mcp}
+      - {capability: statistical_analysis, server_name: stats_engine,
+         engine: postgres, dsn_secret_ref: TRIAL_DB_READONLY_DSN}
+      - {capability: ae_intake, server_name: safety_db,
+         transport: http, url: https://safety.internal/mcp}
+      - {capability: safety_reporting, server_name: safety_db,
+         transport: http, url: https://safety.internal/mcp}
+      # Release and deviation: same plant, different systems, different
+      # credentials — the separation lives in the binding too.
+      - {capability: batch_release, server_name: mes,
+         transport: http, url: https://mes.internal/mcp}
+      - {capability: batch_quarantine, server_name: mes,
+         transport: http, url: https://mes.internal/mcp}
+      - {capability: deviation_signoff, server_name: qms,
+         transport: http, url: https://qms.internal/mcp}
+      - {capability: dossier_authoring, server_name: regulatory_portal,
+         transport: http, url: https://reg.internal/mcp}
+      # A different server from dossier_authoring on purpose: the label side
+      # and the filing side must be distinguishable downstream, or the
+      # separation decided in the spec dissolves in the binding (ADR-0071).
+      - {capability: label_review, server_name: label_review_system,
+         transport: http, url: https://label.internal/mcp}
+      - {capability: market_analysis, server_name: market_warehouse,
+         engine: postgres, dsn_secret_ref: MARKET_DB_READONLY_DSN}
+      - {capability: pricing, server_name: market_warehouse,
+         transport: http, url: https://market.internal/mcp}
+      - {capability: medical_content, server_name: content_platform,
+         transport: http, url: https://content.internal/mcp}
+    environments:
+      - {environment: discovery_lab, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+      - {environment: hpc, image: "python:3.12-slim", cpu: "8", memory: 32Gi}
+      - {environment: phi_enclave, image: "python:3.12-slim", cpu: "4", memory: 16Gi}
+      - {environment: clinical_analysis, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+      - {environment: safety_review, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: gmp_ops, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: regulatory_review, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: commercial_analysis, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+    channels:
+      - {channel: clinical_escalations, provider: slack, workspace: helios,
+         address: "#clinical-escalations", bot_identity_ref: SLACK_BOT_TOKEN}
+      - {channel: exec_briefing, provider: smtp,
+         address: exec-briefing@helios.example, bot_identity_ref: SMTP_CREDENTIAL}
+    memory:
+      session_store: redis
+      long_term_store: vector
+      index: helios-memory
+      embedding_model: text-embedding-3-large
+    secrets_backend: environment
+
+  - target: terraform:gcp
+    runtime:
+      adapter: langchain_deepagents
+    model:
+      provider: anthropic
+      model: claude-opus-5
+    infrastructure:
+      provider: gcp
+      region: europe-west1
+      project: helios-prod
+      state_backend: gcs
+    capabilities:
+      - {capability: compound_screen, server_name: screening_platform,
+         transport: http, url: https://screening.internal/mcp}
+      - {capability: research_publish, server_name: publications,
+         transport: http, url: https://publications.internal/mcp}
+      - {capability: genomics_pipeline, server_name: genomics_hpc,
+         transport: http, url: https://hpc.internal/mcp}
+      - {capability: model_training, server_name: genomics_hpc,
+         transport: http, url: https://hpc.internal/mcp}
+      - {capability: protocol_authoring, server_name: ctms,
+         transport: http, url: https://ctms.internal/mcp}
+      - {capability: enrollment, server_name: ctms,
+         transport: http, url: https://ctms.internal/mcp}
+      - {capability: unblinding, server_name: randomization,
+         transport: http, url: https://rando.internal/mcp}
+      - {capability: statistical_analysis, server_name: stats_engine,
+         engine: postgres, dsn_secret_ref: TRIAL_DB_READONLY_DSN}
+      - {capability: ae_intake, server_name: safety_db,
+         transport: http, url: https://safety.internal/mcp}
+      - {capability: safety_reporting, server_name: safety_db,
+         transport: http, url: https://safety.internal/mcp}
+      # Release and deviation: same plant, different systems, different
+      # credentials — the separation lives in the binding too.
+      - {capability: batch_release, server_name: mes,
+         transport: http, url: https://mes.internal/mcp}
+      - {capability: batch_quarantine, server_name: mes,
+         transport: http, url: https://mes.internal/mcp}
+      - {capability: deviation_signoff, server_name: qms,
+         transport: http, url: https://qms.internal/mcp}
+      - {capability: dossier_authoring, server_name: regulatory_portal,
+         transport: http, url: https://reg.internal/mcp}
+      # A different server from dossier_authoring on purpose: the label side
+      # and the filing side must be distinguishable downstream, or the
+      # separation decided in the spec dissolves in the binding (ADR-0071).
+      - {capability: label_review, server_name: label_review_system,
+         transport: http, url: https://label.internal/mcp}
+      - {capability: market_analysis, server_name: market_warehouse,
+         engine: postgres, dsn_secret_ref: MARKET_DB_READONLY_DSN}
+      - {capability: pricing, server_name: market_warehouse,
+         transport: http, url: https://market.internal/mcp}
+      - {capability: medical_content, server_name: content_platform,
+         transport: http, url: https://content.internal/mcp}
+    environments:
+      - {environment: discovery_lab, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+      - {environment: hpc, image: "python:3.12-slim", cpu: "8", memory: 32Gi}
+      - {environment: phi_enclave, image: "python:3.12-slim", cpu: "4", memory: 16Gi}
+      - {environment: clinical_analysis, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+      - {environment: safety_review, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: gmp_ops, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: regulatory_review, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: commercial_analysis, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+    channels:
+      - {channel: clinical_escalations, provider: slack, workspace: helios,
+         address: "#clinical-escalations", bot_identity_ref: SLACK_BOT_TOKEN}
+      - {channel: exec_briefing, provider: smtp,
+         address: exec-briefing@helios.example, bot_identity_ref: SMTP_CREDENTIAL}
+    memory:
+      session_store: redis
+      long_term_store: vector
+      index: helios-memory
+      embedding_model: text-embedding-3-large
+    secrets_backend: environment

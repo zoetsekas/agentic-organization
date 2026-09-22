@@ -36,6 +36,7 @@ def test_the_examples_we_expect_are_all_here():
         "lumiere.beauty.system.yaml",
         "northbeam.marketing.system.yaml",
         "sentinel.secops.system.yaml",
+        "helios.pharma.system.yaml",
     }
 
 
