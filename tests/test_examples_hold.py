@@ -9,7 +9,9 @@ The examples are deliberately unlike each other. Northwind is segregation of
 duties over a payment; Meridian is a three-lines-of-defence lender where a
 decline belongs to a human by statute; Lumière is a consumer business where
 the control is on what an agent may *say*; Northbeam is a marketing function
-where consent is a legal basis and measurement must not grade itself.
+where consent is a legal basis and measurement must not grade itself; Sentinel
+is a SOC where the analyst runs in two sandboxes and every agent is authored
+with its own instructions (ADR-0082, ADR-0083).
 """
 from __future__ import annotations
 
@@ -33,6 +35,7 @@ def test_the_examples_we_expect_are_all_here():
         "meridian.lending.system.yaml",
         "lumiere.beauty.system.yaml",
         "northbeam.marketing.system.yaml",
+        "sentinel.secops.system.yaml",
     }
 
 

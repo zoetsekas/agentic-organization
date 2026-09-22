@@ -101,10 +101,15 @@ waiting to be copied.
 | [`meridian.lending`](examples/meridian.lending.system.yaml) | A consumer lender under three lines of defence | A declined applicant has a statutory right to a human, so `adverse_decision` is held by a person and no agent may claim it. Financial-crime casework is unreachable from the business the alert is about |
 | [`lumiere.beauty`](examples/lumiere.beauty.system.yaml) | A beauty and salon products company | What an agent may *say*: a cosmetic claim is legal and a medicinal one is not, and a reported reaction must never be closed with a refund |
 | [`northbeam.marketing`](examples/northbeam.marketing.system.yaml) | A marketing function | Consent as a legal basis rather than a preference, and measurement that cannot grade its own campaigns |
+| [`sentinel.secops`](examples/sentinel.secops.system.yaml) | A security operations centre | An agent in **two sandboxes** — triage in `analysis`, malware detonation in an offline `detonation` range (ADR-0082) — and every agent authored with its own **instructions** (ADR-0083) |
 
 ```bash
 orgagents spec show examples/meridian.lending.system.yaml
 orgagents compile   examples/lumiere.beauty.system.yaml --target local --out build
+
+# One design taken the whole distance — validate → IR → compile → run —
+# showing the multi-sandbox and instructions features end to end:
+PYTHONPATH=src python3 examples/end_to_end.py
 ```
 
 Open <http://localhost:8000/ui/> for the **Agentic Designer**: org chart,
