@@ -37,6 +37,7 @@ def test_the_examples_we_expect_are_all_here():
         "northbeam.marketing.system.yaml",
         "sentinel.secops.system.yaml",
         "helios.pharma.system.yaml",
+        "atlas.bank.system.yaml",
     }
 
 

@@ -1,0 +1,115 @@
+# Atlas's binding: where the vendor-neutral design meets Google's stack.
+#
+# The `adk` target runs the agents on Gemini via Vertex AI Agent Engine; the
+# `terraform:gcp` target places the governed runtime on Google Cloud. Both name
+# Gemini models — this is where a vendor is finally allowed (ADR-0002) — and the
+# model policy in the spec already required the eu/us regions these deploy to.
+#
+# The two sides of each information barrier and separation bind to different
+# servers, so a control decided in the spec survives into the wiring (ADR-0071):
+# the phase gate checks it.
+targets:
+  - target: adk
+    runtime:
+      adapter: google_adk
+    model:
+      provider: google
+      model: gemini-2.5-pro
+      subagent_model: gemini-2.5-flash
+    capabilities:
+      - {capability: loan_origination, server_name: loan_origination_svc, transport: http, url: "https://loan-origination.internal/mcp"}
+      - {capability: identity_verification, server_name: identity_verification_svc, transport: http, url: "https://identity-verification.internal/mcp"}
+      - {capability: transaction_trace, server_name: transaction_trace_svc, transport: http, url: "https://transaction-trace.internal/mcp"}
+      - {capability: customer_lookup, server_name: customer_lookup_svc, transport: http, url: "https://customer-lookup.internal/mcp"}
+      - {capability: trade_execution, server_name: trade_execution_svc, transport: http, url: "https://trade-execution.internal/mcp"}
+      - {capability: position_query, server_name: position_query_svc, transport: http, url: "https://position-query.internal/mcp"}
+      - {capability: research_publishing, server_name: research_publishing_svc, transport: http, url: "https://research-publishing.internal/mcp"}
+      - {capability: deal_advisory, server_name: deal_advisory_svc, transport: http, url: "https://deal-advisory.internal/mcp"}
+      - {capability: wall_crossing, server_name: wall_crossing_svc, transport: http, url: "https://wall-crossing.internal/mcp"}
+      - {capability: limit_setting, server_name: limit_setting_svc, transport: http, url: "https://limit-setting.internal/mcp"}
+      - {capability: risk_analytics_run, server_name: risk_analytics_run_svc, transport: http, url: "https://risk-analytics-run.internal/mcp"}
+      - {capability: breach_override, server_name: breach_override_svc, transport: http, url: "https://breach-override.internal/mcp"}
+      - {capability: credit_approval, server_name: credit_approval_svc, transport: http, url: "https://credit-approval.internal/mcp"}
+      - {capability: aml_triage, server_name: aml_triage_svc, transport: http, url: "https://aml-triage.internal/mcp"}
+      - {capability: sar_filing, server_name: sar_filing_svc, transport: http, url: "https://sar-filing.internal/mcp"}
+      - {capability: audit_testing, server_name: audit_testing_svc, transport: http, url: "https://audit-testing.internal/mcp"}
+      - {capability: production_deploy, server_name: production_deploy_svc, transport: http, url: "https://production-deploy.internal/mcp"}
+    environments:
+      - {environment: clean_room, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+      - {environment: banking_ops, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+      - {environment: trading_floor, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+      - {environment: research_desk, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+      - {environment: deal_room, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+      - {environment: risk_analytics, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+      - {environment: fincrime_enclave, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+      - {environment: audit_room, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+      - {environment: build, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+      - {environment: deploy_runner, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+    channels:
+      - {channel: risk_desk, provider: google_chat, workspace: atlas, address: "spaces/risk", bot_identity_ref: CHAT_BOT_TOKEN}
+      - {channel: control_room_escalations, provider: google_chat, workspace: atlas, address: "spaces/control-room", bot_identity_ref: CHAT_BOT_TOKEN}
+    knowledge:
+      - {knowledge: policy_library, provider: document_store, location: "gs://atlas-policy/library", index: policy-v3}
+    memory:
+      session_store: redis
+      long_term_store: vector
+      index: atlas-memory
+      embedding_model: text-embedding-005
+    scheduler:
+      provider: cloud_scheduler
+      queue: atlas-triggers
+    secrets_backend: gcp_secret_manager
+  - target: terraform:gcp
+    runtime:
+      adapter: langchain_deepagents
+    model:
+      provider: google
+      model: gemini-2.5-pro
+    infrastructure:
+      provider: gcp
+      region: europe-west1
+      project: atlas-prod
+      state_backend: gcs
+    capabilities:
+      - {capability: loan_origination, server_name: loan_origination_svc, transport: http, url: "https://loan-origination.internal/mcp"}
+      - {capability: identity_verification, server_name: identity_verification_svc, transport: http, url: "https://identity-verification.internal/mcp"}
+      - {capability: transaction_trace, server_name: transaction_trace_svc, transport: http, url: "https://transaction-trace.internal/mcp"}
+      - {capability: customer_lookup, server_name: customer_lookup_svc, transport: http, url: "https://customer-lookup.internal/mcp"}
+      - {capability: trade_execution, server_name: trade_execution_svc, transport: http, url: "https://trade-execution.internal/mcp"}
+      - {capability: position_query, server_name: position_query_svc, transport: http, url: "https://position-query.internal/mcp"}
+      - {capability: research_publishing, server_name: research_publishing_svc, transport: http, url: "https://research-publishing.internal/mcp"}
+      - {capability: deal_advisory, server_name: deal_advisory_svc, transport: http, url: "https://deal-advisory.internal/mcp"}
+      - {capability: wall_crossing, server_name: wall_crossing_svc, transport: http, url: "https://wall-crossing.internal/mcp"}
+      - {capability: limit_setting, server_name: limit_setting_svc, transport: http, url: "https://limit-setting.internal/mcp"}
+      - {capability: risk_analytics_run, server_name: risk_analytics_run_svc, transport: http, url: "https://risk-analytics-run.internal/mcp"}
+      - {capability: breach_override, server_name: breach_override_svc, transport: http, url: "https://breach-override.internal/mcp"}
+      - {capability: credit_approval, server_name: credit_approval_svc, transport: http, url: "https://credit-approval.internal/mcp"}
+      - {capability: aml_triage, server_name: aml_triage_svc, transport: http, url: "https://aml-triage.internal/mcp"}
+      - {capability: sar_filing, server_name: sar_filing_svc, transport: http, url: "https://sar-filing.internal/mcp"}
+      - {capability: audit_testing, server_name: audit_testing_svc, transport: http, url: "https://audit-testing.internal/mcp"}
+      - {capability: production_deploy, server_name: production_deploy_svc, transport: http, url: "https://production-deploy.internal/mcp"}
+    environments:
+      - {environment: clean_room, image: "us-docker.pkg.dev/atlas/agents/base:py312", cpu: "2", memory: 4Gi}
+      - {environment: banking_ops, image: "us-docker.pkg.dev/atlas/agents/base:py312", cpu: "2", memory: 4Gi}
+      - {environment: trading_floor, image: "us-docker.pkg.dev/atlas/agents/base:py312", cpu: "2", memory: 4Gi}
+      - {environment: research_desk, image: "us-docker.pkg.dev/atlas/agents/base:py312", cpu: "2", memory: 4Gi}
+      - {environment: deal_room, image: "us-docker.pkg.dev/atlas/agents/base:py312", cpu: "2", memory: 4Gi}
+      - {environment: risk_analytics, image: "us-docker.pkg.dev/atlas/agents/base:py312", cpu: "2", memory: 4Gi}
+      - {environment: fincrime_enclave, image: "us-docker.pkg.dev/atlas/agents/base:py312", cpu: "2", memory: 4Gi}
+      - {environment: audit_room, image: "us-docker.pkg.dev/atlas/agents/base:py312", cpu: "2", memory: 4Gi}
+      - {environment: build, image: "us-docker.pkg.dev/atlas/agents/base:py312", cpu: "2", memory: 4Gi}
+      - {environment: deploy_runner, image: "us-docker.pkg.dev/atlas/agents/base:py312", cpu: "2", memory: 4Gi}
+    channels:
+      - {channel: risk_desk, provider: google_chat, workspace: atlas, address: "spaces/risk", bot_identity_ref: CHAT_BOT_TOKEN}
+      - {channel: control_room_escalations, provider: google_chat, workspace: atlas, address: "spaces/control-room", bot_identity_ref: CHAT_BOT_TOKEN}
+    knowledge:
+      - {knowledge: policy_library, provider: document_store, location: "gs://atlas-policy/library", index: policy-v3}
+    memory:
+      session_store: redis
+      long_term_store: vector
+      index: atlas-memory
+      embedding_model: text-embedding-005
+    scheduler:
+      provider: cloud_scheduler
+      queue: atlas-triggers
+    secrets_backend: gcp_secret_manager
