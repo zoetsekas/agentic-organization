@@ -41,10 +41,56 @@ class WorkflowResult:
     path: list[str] = field(default_factory=list)
     interrupted_at: Optional[str] = None
     error: Optional[str] = None
+    #: How many nodes actually ran, so a cycle's cost is visible.
+    steps: int = 0
 
     @property
     def ok(self) -> bool:
         return self.error is None and self.interrupted_at is None
+
+
+class AmbiguousEdges(ValueError):
+    """A node declares more than one way out and nothing chooses between them.
+
+    Two edges leaving one node mean different things in different engines: to
+    LangGraph it is a fan-out that runs both branches as a parallel superstep,
+    to this interpreter it is a single `next` that can only be one of them.
+    They were being collapsed into a dict keyed by source, so the second edge
+    silently won and the first was never taken — a declared step that simply
+    did not run, with nothing anywhere saying so.
+
+    Refusing is not the end state; parallel workflow steps are a real gap and
+    named as one. But a graph whose declared edges are quietly discarded is the
+    worse failure, because the run looks like a success.
+    """
+
+    def __init__(self, node_id: str, targets: list[str]) -> None:
+        self.node_id = node_id
+        self.targets = targets
+        super().__init__(
+            f"node '{node_id}' declares {len(targets)} outgoing edges "
+            f"({', '.join(targets)}) and is not a branch, so nothing chooses "
+            "between them. Route with a 'branch' node, or split the work "
+            "across separate workflows: parallel steps are not supported."
+        )
+
+
+def _resolve_edges(graph: dict[str, Any], nodes: dict[str, dict]) -> dict[str, str]:
+    """One outgoing edge per node, or a refusal naming the node.
+
+    A `branch` node is exempt: it carries its own `cases`, and its entry here
+    is only the fallback when no case matches.
+    """
+    out: dict[str, list[str]] = {}
+    for edge in graph.get("edges", []):
+        out.setdefault(edge["from"], []).append(edge["to"])
+    resolved: dict[str, str] = {}
+    for source, targets in out.items():
+        kind = (nodes.get(source) or {}).get("kind")
+        if len(targets) > 1 and kind != "branch":
+            raise AmbiguousEdges(source, targets)
+        resolved[source] = targets[0]
+    return resolved
 
 
 class WorkflowEngine:
@@ -72,9 +118,13 @@ class WorkflowEngine:
         nodes: dict[str, dict] = {n["id"]: n for n in graph.get("nodes", [])}
         if not nodes:
             return WorkflowResult(ref.id, new_id("run"), state or {}, error="empty graph")
-        edges: dict[str, str] = {e["from"]: e["to"] for e in graph.get("edges", [])}
-        current = graph.get("entry") or graph["nodes"][0]["id"]
         result = WorkflowResult(ref.id, new_id("run"), dict(state or {}))
+        try:
+            edges = _resolve_edges(graph, nodes)
+        except AmbiguousEdges as e:
+            result.error = str(e)
+            return result
+        current = graph.get("entry") or graph["nodes"][0]["id"]
 
         steps = 0
         while current and current != "END" and steps < max_steps:
@@ -98,8 +148,17 @@ class WorkflowEngine:
             except Exception as e:
                 result.error = f"{current}: {type(e).__name__}: {e}"
                 return result
+        result.steps = steps
         if steps >= max_steps:
-            result.error = "step limit exceeded"
+            # A cycle is legal — a review loop that runs until it passes is a
+            # real process — so this bound is what stops one running forever.
+            # It says which bound it was, because "step limit exceeded" alone
+            # leaves a reader unable to tell a runaway loop from a long graph.
+            result.error = (
+                f"step limit exceeded: {steps} steps, and max_steps is "
+                f"{max_steps}. A cycle in this graph is not converging, or "
+                "the graph is longer than the bound allows."
+            )
         return result
 
     def _execute(self, node: dict, result: WorkflowResult, edges: dict[str, str]) -> str:
@@ -145,7 +204,11 @@ class WorkflowEngine:
         graph = ref.graph or {}
         builder = StateGraph(dict)
         nodes = {n["id"]: n for n in graph.get("nodes", [])}
-        edges = {e["from"]: e["to"] for e in graph.get("edges", [])}
+        # The same resolution as the interpreter, so the two engines cannot
+        # disagree about what a graph means. LangGraph would happily fan out
+        # where the interpreter takes one edge, which is exactly the kind of
+        # divergence that makes a local run stop predicting the deployed one.
+        edges = _resolve_edges(graph, nodes)
 
         def make(node: dict) -> Callable[[dict], dict]:
             def fn(state: dict) -> dict:
