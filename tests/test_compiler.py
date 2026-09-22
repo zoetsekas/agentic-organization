@@ -102,12 +102,14 @@ def test_registry_exposes_infrastructure_targets_and_a_platform_target():
     """Two kinds, and the difference is the point.
 
     `local` and `terraform:*` are **infrastructure** targets: they deploy this
-    platform's runtime, which picks an adapter. `maf` is a **platform**
-    target: it emits another vendor's agent definitions, which is what the
-    Terraform analogy promises and what nothing here did until it existed.
+    platform's runtime, which picks an adapter. `maf` and `adk` are **platform**
+    targets: they emit another vendor's agent definitions (Microsoft Agent
+    Framework, and Google ADK for Vertex AI Agent Engine), which is what the
+    Terraform analogy promises and what nothing here did until they existed.
     """
     assert register_builtin_targets().ids() == [
-        "local", "maf", "terraform:aws", "terraform:azure", "terraform:gcp"
+        "adk", "local", "maf", "terraform:aws", "terraform:azure",
+        "terraform:gcp"
     ]
 
 
