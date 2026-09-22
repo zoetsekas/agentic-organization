@@ -156,7 +156,13 @@ def stub_module(ir: Any) -> str:
         for tool in stubbed:
             seen.setdefault(tool["name"], tool)
     lines = [
-        '"""Tool stubs to implement (generated).',
+        f"# Tool implementations for '{getattr(ir, 'name', '')}' — "
+        "engineer-owned (ADR-0089).",
+        "# This file is YOURS to edit. Regeneration is additive-only: it never",
+        "# rewrites or removes a function here, it only appends a stub for a",
+        "# tool the design newly requires. Implement each body in place.",
+        "",
+        '"""Tool implementations.',
         "",
         "Each function is a tool the design gives one or more agents but whose",
         "code is the host's — a wrapper that narrows an existing grant, or a",

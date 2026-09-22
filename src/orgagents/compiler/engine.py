@@ -7,6 +7,7 @@ Anything under `overlays/` is user-owned and never touched.
 """
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -36,18 +37,63 @@ class CompileResult:
     files: list[GeneratedFile] = field(default_factory=list)
     written: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    #: Engineer-owned files the compiler added new stubs to (path -> names added).
+    merged: dict[str, list[str]] = field(default_factory=dict)
     findings: list[Finding] = field(default_factory=list)
 
     def summary(self) -> str:
+        added = sum(len(v) for v in self.merged.values())
+        merged = f", {added} stub(s) merged into {len(self.merged)} file(s)" \
+            if self.merged else ""
         return (
             f"{self.target}: {len(self.written)} files written, "
-            f"{len(self.skipped)} preserved, {len(self.findings)} findings "
-            f"→ {self.out_dir}"
+            f"{len(self.skipped)} preserved, {len(self.findings)} findings"
+            f"{merged} → {self.out_dir}"
         )
 
 
 def _digest(content: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()[:16]
+
+
+def _top_level_defs(source: str) -> dict[str, str]:
+    """Map each top-level function name to its source text.
+
+    Best-effort: if the file does not parse (an engineer mid-edit), returns
+    nothing, so the merge appends nothing rather than corrupting their work.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return {}
+    out: dict[str, str] = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            segment = ast.get_source_segment(source, node)
+            if segment:
+                out[node.name] = segment
+    return out
+
+
+def _merge_additive(existing: str, generated: str) -> tuple[str, list[str]]:
+    """Append only the generated top-level functions the file is missing.
+
+    An engineer's implemented (or half-implemented) function is never rewritten
+    or removed; a function the design newly requires is appended as a stub. If
+    the existing file does not parse, nothing is appended (ADR-0089).
+    """
+    have = _top_level_defs(existing)
+    if not have and existing.strip():
+        return existing, []          # unparseable; leave it untouched
+    incoming = _top_level_defs(generated)
+    added = [name for name in incoming if name not in have]
+    if not added:
+        return existing, []
+    banner = ("\n\n"
+              "# --- Added by regeneration: new tools to implement. Existing\n"
+              "# --- functions above were left untouched (ADR-0089).\n")
+    blocks = "\n\n\n".join(incoming[name] for name in added)
+    return existing.rstrip() + "\n" + banner + "\n" + blocks + "\n", added
 
 
 def _load_manifest(out_dir: Path) -> dict[str, str]:
@@ -174,6 +220,18 @@ def _write(result: CompileResult, *, force: bool) -> None:
         if path.exists():
             if gf.preserve_if_exists:
                 result.skipped.append(gf.path)
+                continue
+            if gf.merge_additive:
+                # The engineer owns this file; only append defs it is missing,
+                # never rewrite one they may have implemented (ADR-0089).
+                existing = path.read_text()
+                merged, added = _merge_additive(existing, gf.content)
+                manifest[gf.path] = _digest(merged)
+                if added:
+                    path.write_text(merged)
+                    result.merged[gf.path] = added
+                else:
+                    result.skipped.append(gf.path)
                 continue
             current = _digest(path.read_text())
             was_generated = previous.get(gf.path)

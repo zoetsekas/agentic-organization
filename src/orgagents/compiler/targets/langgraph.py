@@ -132,10 +132,10 @@ class LangGraphPlatformTarget:
                 .with_header(ir, comment="#")
             )
         if self._any_stubbed(ir):
+            # Engineer-owned: regeneration only appends new stubs (ADR-0089).
             files.append(
-                GeneratedFile("graphs/tools.py", stub_module(ir))
-                .with_header(ir, comment="#")
-            )
+                GeneratedFile("graphs/tools.py", stub_module(ir),
+                              merge_additive=True))
         files.append(GeneratedFile("langgraph.json", self._manifest(ir)))
         files.append(GeneratedFile("requirements.txt", self._requirements(ir)))
         files.append(

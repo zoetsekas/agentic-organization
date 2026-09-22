@@ -19,7 +19,7 @@
     "agents/__init__.py": "f9ae2644dc8fba27",
     "agent_engine.py": "18255e8864e55022",
     "agents/_backends.py": "d9311bff89816bea",
-    "agents/tools.py": "6b93578b432359eb",
+    "agents/tools.py": "26fce535abc3f19f",
     "requirements.txt": "f5cfa4ecb0cda523",
     "CONFORMANCE.md": "807505c91a8ff7ab",
     "README.md": "0d4d428719a6d99b"

@@ -28,6 +28,11 @@ class GeneratedFile:
     executable: bool = False
     # Written once and then left alone (e.g. a sample env file).
     preserve_if_exists: bool = False
+    # An engineer-owned file the compiler only ever ADDS to: on regeneration,
+    # top-level `def`s already present are left exactly as the engineer left
+    # them (implemented or not), and only defs the file is missing are appended.
+    # A regeneration never rewrites or removes an implementation (ADR-0089).
+    merge_additive: bool = False
 
     def with_header(self, ir: SystemIR, comment: str = "#") -> "GeneratedFile":
         header = GENERATED_HEADER.format(
@@ -39,6 +44,7 @@ class GeneratedFile:
             content=f"{prefix}\n\n{self.content}",
             executable=self.executable,
             preserve_if_exists=self.preserve_if_exists,
+            merge_additive=self.merge_additive,
         )
 
 

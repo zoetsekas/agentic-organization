@@ -120,10 +120,10 @@ class GoogleADKTarget:
                 .with_header(ir, comment="#")
             )
         if self._any_stubbed(ir):
+            # Engineer-owned: regeneration only appends new stubs (ADR-0089).
             files.append(
-                GeneratedFile("agents/tools.py", stub_module(ir))
-                .with_header(ir, comment="#")
-            )
+                GeneratedFile("agents/tools.py", stub_module(ir),
+                              merge_additive=True))
         files.append(GeneratedFile("requirements.txt", self._requirements(ir)))
         files.append(
             GeneratedFile("CONFORMANCE.md", self._conformance(ir))
