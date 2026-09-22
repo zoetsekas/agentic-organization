@@ -1,6 +1,6 @@
 # IAM and resource mapping — Google Cloud
 
-Generated from the IR for **ayc** (spec_version 1.3.0).
+Generated from the IR for **ayc** (spec_version 1.4.0).
 This report exists because the mapping is lossy in places, and a gap you cannot
 see is a gap you cannot review (ADR-0012).
 

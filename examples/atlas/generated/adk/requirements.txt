@@ -1,2 +1,4 @@
 google-adk>=1.0
 google-cloud-aiplatform[agent_engines]>=1.60
+langchain-mcp-adapters>=0.1  # wired MCP capabilities
+sqlalchemy>=2.0  # wired database capabilities

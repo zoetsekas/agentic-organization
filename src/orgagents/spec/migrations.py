@@ -151,6 +151,20 @@ def _many_environments(data: dict[str, Any]) -> list[str]:
     ]
 
 
+def _planning_flag(data: dict[str, Any]) -> list[str]:
+    """Purely additive: agents gain an optional `planning:` flag.
+
+    A 1.3.0 agent kept no explicit task plan, which is exactly what
+    `planning: false` — the default — means, so nothing in a 1.3.0 document
+    changes behaviour under 1.4.0. Setting it true here would be guessing at
+    intent, so this step touches no data (ADR-0088).
+    """
+    return [
+        "no data change: 1.4.0 only adds an optional agent 'planning:' flag "
+        "(ADR-0088), whose default 'false' matches 1.3.0 behaviour"
+    ]
+
+
 MIGRATIONS: list[MigrationStep] = [
     MigrationStep(
         from_version="1.0.0",
@@ -170,6 +184,12 @@ MIGRATIONS: list[MigrationStep] = [
         summary="agent and sub-agent 'environment:' becomes 'environments:' "
                 "(ADR-0082)",
         apply=_many_environments,
+    ),
+    MigrationStep(
+        from_version="1.3.0",
+        to_version="1.4.0",
+        summary="optional agent 'planning:' flag added (ADR-0088)",
+        apply=_planning_flag,
     ),
 ]
 

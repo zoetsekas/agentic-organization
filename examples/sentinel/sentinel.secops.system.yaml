@@ -23,7 +23,7 @@
 
 metadata:
   name: sentinel
-  spec_version: "1.3.0"
+  spec_version: "1.4.0"
   version: "0.1.0"
   description: Sentinel's security operations centre as an agentic organization.
   owner: Sentinel Platform Security

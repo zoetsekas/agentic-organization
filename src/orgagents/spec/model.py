@@ -27,7 +27,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-SPEC_VERSION = "1.3.0"
+SPEC_VERSION = "1.4.0"
 
 
 # --------------------------------------------------------------------------
@@ -1244,6 +1244,11 @@ class AgentSpec(BaseModel):
     shared_service: bool = False
     runtime_requirements: list[RuntimeRequirement] = Field(default_factory=list)
     max_delegation_depth: int = 3
+    # Whether the agent keeps an explicit task plan while it works. A
+    # multi-step coordinator benefits from one; a single-shot responder does
+    # not. Runtimes that have a planning tool (deep agents' write_todos) are
+    # given it when this is set; others state it as unmet.
+    planning: bool = False
     labels: dict[str, str] = Field(default_factory=dict)
 
     model_config = {"validate_assignment": True}

@@ -1,19 +1,19 @@
 {
   "system": "ayc",
   "target": "terraform:gcp",
-  "spec_version": "1.3.0",
+  "spec_version": "1.4.0",
   "ir_version": "1.0.0",
   "files": {
-    "main.tf": "8f574a4ab6e2754f",
-    "variables.tf": "6105ff15e783f57f",
-    "iam.tf": "1e7a5b282e0c97d6",
-    "agents.tf": "fa93caf35d339bdf",
-    "network.tf": "a67b44cd6ed081ea",
-    "triggers.tf": "7590379a309e6c83",
-    "channels.tf": "b24fee04e7b566ec",
-    "REGISTRY.md": "c984b0ecf0c420d3",
-    "backend.tf.example": "16ffc0d3058e74d8",
-    "system.ir.json": "39cee84f552ca2ee",
-    "MAPPING.md": "0704be0022cbc810"
+    "main.tf": "096be716aca4a72b",
+    "variables.tf": "278716796cec3e20",
+    "iam.tf": "d72e976c22653634",
+    "agents.tf": "9555d1894368684b",
+    "network.tf": "2518acab1d74e80e",
+    "triggers.tf": "9f93b97344a6fdfe",
+    "channels.tf": "7be0564af29b2cb0",
+    "REGISTRY.md": "999e016ad132b353",
+    "backend.tf.example": "f29ac730078bc265",
+    "system.ir.json": "4634918380db14ff",
+    "MAPPING.md": "c9c93230f06511a4"
   }
 }

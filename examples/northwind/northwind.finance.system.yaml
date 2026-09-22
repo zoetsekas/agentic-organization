@@ -13,7 +13,7 @@
 
 metadata:
   name: northwind
-  spec_version: "1.3.0"
+  spec_version: "1.4.0"
   version: "0.1.0"
   description: Northwind's finance function as an agentic organization.
   owner: Northwind Platform Team

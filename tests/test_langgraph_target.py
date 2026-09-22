@@ -128,6 +128,69 @@ def test_requirements_name_deepagents_and_langgraph(emitted):
     assert "langgraph" in req
 
 
+@pytest.fixture(scope="module")
+def ayc() -> dict[str, str]:
+    register_builtin_targets()
+    spec = load_spec(ROOT / "examples" / "ayc" / "ayc.system.yaml")
+    from orgagents.spec.loader import load_binding
+    binding = load_binding(ROOT / "examples" / "ayc" / "ayc.binding.yaml")
+    with tempfile.TemporaryDirectory() as tmp:
+        result = compile_system(spec, targets=["langgraph"],
+                                out_dir=pathlib.Path(tmp), binding=binding)[0]
+    return {f.path: f.content for f in result.files}
+
+
+def test_skills_lower_into_the_skills_parameter(ayc):
+    # The ecommerce agent holds the listing_copy skill.
+    mod = ayc["graphs/ecommerce_agent.py"]
+    assert 'skills=["listing_copy"]' in mod
+
+
+def test_long_term_memory_lowers_into_the_memory_parameter(ayc):
+    joined = "\n".join(v for k, v in ayc.items() if k.endswith(".py"))
+    assert 'memory=["merchandising_lessons"]' in joined
+
+
+def test_filesystem_permissions_are_emitted_with_a_deny_floor(ayc):
+    mod = ayc["graphs/ecommerce_agent.py"]
+    assert "from deepagents import create_deep_agent, FilesystemPermission" in mod
+    assert "FilesystemPermission(operations=" in mod
+    assert 'mode="deny"' in mod          # the explicit floor (ADR-0008)
+
+
+def test_planning_agent_gets_the_todo_middleware(ayc):
+    mod = ayc["graphs/ecommerce_agent.py"]
+    assert "from langchain.agents.middleware import" in mod
+    assert "TodoListMiddleware()" in mod
+    assert "middleware=[" in mod
+
+
+def test_the_approver_the_interrupt_routes_to_is_named(ayc):
+    mod = ayc["graphs/ecommerce_agent.py"]
+    assert "interrupt_on=" in mod
+    # deepagents pauses; the approver is our model, so it is documented.
+    assert "the approver the design routes to is Lea" in mod
+
+
+def test_an_output_contract_lowers_into_response_format():
+    register_builtin_targets()
+    spec = load_spec(ROOT / "examples" / "acme" / "acme.system.yaml")
+    from orgagents.spec.loader import load_binding
+    binding = load_binding(ROOT / "examples" / "acme" / "acme.binding.yaml")
+    with tempfile.TemporaryDirectory() as tmp:
+        result = compile_system(spec, targets=["langgraph"],
+                                out_dir=pathlib.Path(tmp), binding=binding)[0]
+    emitted = {f.path: f.content for f in result.files}
+    assert "response_format={" in emitted["graphs/analyst.py"]
+
+
+def test_conformance_now_claims_skills_memory_and_planning(emitted):
+    report = emitted["CONFORMANCE.md"]
+    for row in ("Skills", "Long-term memory", "Structured output",
+                "Planning / task plan"):
+        assert row in report
+
+
 def test_it_is_the_same_runtime_as_the_gcp_target(emitted):
     """The whole point: deepagents on LangGraph Platform is the same runtime as
     deepagents on GCP. The README says so, and the graph is a deepagents graph."""

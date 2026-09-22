@@ -20,7 +20,7 @@
 
 metadata:
   name: ayc
-  spec_version: "1.3.0"
+  spec_version: "1.4.0"
   version: "0.1.0"
   description: AYC's salon-furnishings distribution business as an agentic organization.
   owner: AYC Operations
@@ -772,6 +772,9 @@ organization:
               mandate:
                 decisions: [publish_product]
               workflows: [listing_readiness]
+              # A listing goes through several steps — copy, stock check,
+              # price proposal — so the agent keeps an explicit plan.
+              planning: true
               # The commerce plugin adds stock_lookup, a narrowed wrapper over
               # the stock_check the agent already holds (ADR-0029). It grants
               # nothing new; a target emits it as a typed stub to implement.

@@ -19,7 +19,7 @@
 
 metadata:
   name: meridian
-  spec_version: "1.3.0"
+  spec_version: "1.4.0"
   version: "0.1.0"
   description: Meridian Bank's consumer lending function as an agentic organization.
   owner: Meridian Platform Engineering

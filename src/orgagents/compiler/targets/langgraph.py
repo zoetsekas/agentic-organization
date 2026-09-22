@@ -28,7 +28,7 @@ than no control (ADR-0073), which is why the report exists.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Optional
 
 from ..base import GeneratedFile
 from ..ir import SystemIR
@@ -45,9 +45,12 @@ from ._wiring import (
 EXPRESSIBLE = (
     "system_prompt (instructions), model, tools",
     "subagents (a spawned delegation hierarchy, one level)",
-    "interrupt_on (a human-in-the-loop gate on named tools)",
+    "skills (deepagents `skills=`, from the design's skills)",
+    "long-term memory namespaces (deepagents `memory=`)",
     "filesystem permissions (the virtual filesystem, governed)",
-    "a model-call limit (max turns)",
+    "a structured response_format (from an output contract)",
+    "interrupt_on (a human-in-the-loop gate on named tools)",
+    "planning / write_todos and a model-call limit (middleware)",
     "LangSmith tracing and evaluation (a deployment fact, wired by .env)",
 )
 
@@ -157,9 +160,23 @@ class LangGraphPlatformTarget:
         wired, stubbed = wired_and_stubbed(ir, tools)
         needs = {t["backend"]["kind"] for t in wired}
 
+        # What of the design lowers into deepagents parameters (not prose).
+        skills = [s.id for s in agent.skills]
+        memories = ([n.id for n in agent.memory.namespaces]
+                    if agent.memory.long_term_enabled else [])
+        response_format = self._response_format(agent)
+        permissions = self._permissions(agent)
+        middleware = self._middleware(agent)
+
+        deep_imports = ["create_deep_agent"]
+        if permissions:
+            deep_imports.append("FilesystemPermission")
         lines = [
-            "from deepagents import create_deep_agent",
+            f"from deepagents import {', '.join(deep_imports)}",
         ]
+        if middleware:
+            lines.append("from langchain.agents.middleware import "
+                         f"{', '.join(sorted({m[0] for m in middleware}))}")
         if tools:
             lines.append("from langchain_core.tools import StructuredTool")
         shim = shim_imports(needs)
@@ -213,16 +230,34 @@ class LangGraphPlatformTarget:
         lines.append(f"    system_prompt={system_prompt},")
         if subagents:
             lines.append("    subagents=SUBAGENTS,")
+        if skills:
+            lines.append(f"    skills={json.dumps(skills)},")
+        if memories:
+            lines.append(f"    memory={json.dumps(memories)},")
+        if permissions:
+            lines.append("    permissions=[")
+            for rule in permissions:
+                lines.append(
+                    f"        FilesystemPermission(operations={rule['operations']}, "
+                    f"paths={rule['paths']}, mode={_pystr(rule['mode'])}),")
+            lines.append("    ],")
+        if response_format is not None:
+            lines.append(f"    response_format={response_format},")
         if gated:
-            # A real human-in-the-loop gate, in the framework's own terms.
+            # A real human-in-the-loop gate, in the framework's own terms. The
+            # graph pauses before the tool; *which* human resumes it is this
+            # platform's model, not deepagents' — the approver is noted below.
             pairs = ", ".join(f"{_pystr(name)}: True" for name in gated)
             lines.append(f"    interrupt_on={{{pairs}}},")
-        limit = self._max_turns(agent)
-        if limit:
-            lines.append(
-                f"    # max turns {limit}: add ModelCallLimitMiddleware in "
-                "host code (deepagents middleware=...)")
+        if middleware:
+            calls = ", ".join(m[1] for m in middleware)
+            lines.append(f"    middleware=[{calls}],")
         lines.append(")")
+        approver = self._approver(agent)
+        if gated and approver:
+            lines.append(
+                f"# interrupt_on pauses for a human; the approver the design "
+                f"routes to is {approver} (enforced by this platform's harness).")
 
         gaps = self._agent_gaps(agent, tools)
         if gaps:
@@ -332,6 +367,58 @@ class LangGraphPlatformTarget:
         model = agent.model or {}
         return int(model.get("max_turns") or 0)
 
+    def _response_format(self, agent: Any) -> Optional[str]:
+        """The output contract as a deepagents response_format (a schema dict)."""
+        oc = agent.output_contract
+        if oc is None or not getattr(oc, "schema_", None):
+            return None
+        payload: dict[str, Any] = {"schema": oc.schema_}
+        if oc.required:
+            payload["required"] = list(oc.required)
+        return json.dumps(payload)
+
+    def _writable(self, agent: Any) -> bool:
+        """Does the design give this agent anything but read access?"""
+        for cap in agent.capabilities:
+            if "read" not in str(cap.action).lower() and "query" not in str(
+                    cap.action).lower():
+                return True
+        return any(
+            p.startswith(("write:", "administer:", "publish:", "approve:"))
+            for p in getattr(agent, "requires_approval_for", []))
+
+    def _permissions(self, agent: Any) -> list[dict[str, Any]]:
+        """FilesystemPermission rules for the virtual filesystem (ADR-0067).
+
+        Mirrors the runtime's rule: allow read (and write, if the design gives
+        any write) under the workspace, deny everywhere else — the deny floor
+        written down rather than assumed."""
+        if not agent.environments:
+            return []
+        ops = ["read", "write"] if self._writable(agent) else ["read"]
+        return [
+            {"operations": ops, "paths": ["/workspace/**"], "mode": "allow"},
+            {"operations": ["read", "write"], "paths": ["/**"], "mode": "deny"},
+        ]
+
+    def _middleware(self, agent: Any) -> list[tuple[str, str]]:
+        """(import_name, call_expression) for each middleware to attach."""
+        out: list[tuple[str, str]] = []
+        if getattr(agent, "planning", False):
+            out.append(("TodoListMiddleware", "TodoListMiddleware()"))
+        limit = self._max_turns(agent)
+        if limit:
+            out.append(("ModelCallLimitMiddleware",
+                        f'ModelCallLimitMiddleware(run_limit={limit}, '
+                        f'exit_behavior="end")'))
+        return out
+
+    def _approver(self, agent: Any) -> str:
+        for human in agent.humans:
+            if any(getattr(r, "value", r) == "approver" for r in human.roles):
+                return human.name or human.person
+        return ""
+
     def _agent_gaps(self, agent: Any, tools: list[dict[str, Any]]) -> list[str]:
         out: list[str] = []
         if agent.mandate.decisions:
@@ -358,8 +445,10 @@ class LangGraphPlatformTarget:
             out.append(f"placement '{placement}' and its network policy")
         for environment in agent.environments:
             out.append(
-                f"sandbox '{environment.id}': network "
-                f"{environment.network.value}")
+                f"sandbox '{environment.id}': its filesystem is carried as "
+                f"permissions, but the network posture "
+                f"({environment.network.value}) is the infrastructure "
+                f"target's, not deepagents'")
         if agent.humans:
             out.append(
                 f"{len(agent.humans)} paired human(s), including the approver "
@@ -387,6 +476,20 @@ class LangGraphPlatformTarget:
             ("Filesystem permissions", "emitted", "deepagents",
              "The virtual filesystem is governed by FilesystemPermission "
              "rules; the harness derives the same rules it runs with."),
+            ("Skills", "emitted", "deepagents `skills=`",
+             "The design's skills are passed to `skills=`, so an agent's "
+             "on-demand behaviours travel with it rather than sitting only in "
+             "the prompt."),
+            ("Long-term memory", "emitted (names)", "deepagents `memory=`",
+             "Long-term namespaces are passed to `memory=`; the store that "
+             "backs them is a deployment fact the infrastructure target sets "
+             "(ADR-0028)."),
+            ("Structured output", "emitted", "deepagents `response_format`",
+             "An output contract becomes a `response_format` schema; the "
+             "retry-on-violation policy stays this platform's harness."),
+            ("Planning / task plan", "emitted", "TodoListMiddleware",
+             "An agent the design marks `planning` gets the write_todos "
+             "middleware; others do not."),
             ("Tool callables", "emitted for bound capabilities", "the "
              "servers catalog",
              "A capability the binding puts behind a declared server (MCP or "
@@ -427,9 +530,9 @@ class LangGraphPlatformTarget:
             ("Guardrails", "partial", "deepagents middleware",
              "Expressible as middleware the host writes, never in the emitted "
              "graph."),
-            ("Budgets and model policy", "partial", "middleware",
-             "A turn ceiling maps to ModelCallLimitMiddleware; spend does "
-             "not."),
+            ("Budgets and model policy", "partial", "ModelCallLimitMiddleware",
+             "A turn ceiling is emitted as ModelCallLimitMiddleware; token and "
+             "money spend do not map."),
             ("Tracing and evaluation", "wired", "LangSmith",
              "LANGSMITH_* in .env turns on tracing and opens the door to "
              "LangSmith evaluations — a deployment fact, not a design one."),

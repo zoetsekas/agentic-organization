@@ -11,9 +11,11 @@ A Python ADK package:
 Run locally with `adk run agents`, or deploy with
 `python agent_engine.py --project YOUR_PROJECT --location us-central1`.
 
-Tool callables are stubs that raise until you bind them: a binding names a
-Python callable in your process, which is a property of your application, not
-of this design.
+Tools behind a declared server are wired for real: a capability the binding
+puts on an MCP or database server (ADR-0085) is emitted in `agents/_backends.py`
+as a working client — an MCP call, or a bounded SQL query that enforces the
+design's operation allowlist and row cap. Set the credential env vars the
+binding named. Only a capability with no server bound stays a stub you fill in.
 
 **Read `CONFORMANCE.md` first.** 12 agents come across; the
 authority model does not, and the report says what that costs.

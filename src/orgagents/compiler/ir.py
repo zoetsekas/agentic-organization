@@ -403,6 +403,8 @@ class AgentIR(BaseModel):
     groups: list[str] = Field(default_factory=list)
     identity: Optional[IdentityIR] = None
     max_delegation_depth: int = 3
+    #: Whether the agent keeps an explicit task plan (ADR-0083 companion).
+    planning: bool = False
     requires_approval_for: list[str] = Field(default_factory=list)
     runtime_adapter: str = "echo"
     model: dict[str, Any] = Field(default_factory=dict)
@@ -1377,6 +1379,7 @@ def build_ir(
                 groups=list(team_ir.groups),
                 identity=identity,
                 max_delegation_depth=agent.max_delegation_depth,
+                planning=agent.planning,
                 requires_approval_for=sorted(
                     {*agent.approval_required_for,
                      *[c.id for c in capabilities if c.constraints.requires_approval],

@@ -20,7 +20,7 @@
 
 metadata:
   name: helios
-  spec_version: "1.3.0"
+  spec_version: "1.4.0"
   version: "0.1.0"
   description: Helios Therapeutics' drug-development organization.
   owner: Helios Platform Engineering

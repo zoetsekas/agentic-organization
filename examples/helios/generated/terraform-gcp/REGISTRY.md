@@ -1,6 +1,6 @@
 # Agent registry — helios
 
-Generated from the system spec (spec_version 1.3.0) for target
+Generated from the system spec (spec_version 1.4.0) for target
 `terraform:gcp`. This is the fleet inventory: every agent, its owner, its identity,
 what it may reach, what wakes it and where it talks to people.
 
