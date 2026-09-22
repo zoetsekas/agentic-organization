@@ -15,6 +15,7 @@ agent what it cannot carry.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import json
 import pathlib
 import sys
@@ -186,6 +187,120 @@ def test_the_acme_example_declares_the_tenant_boundary(acme_target):
     """Every target owes this, plugin or not."""
     caveats = " ".join(acme_target().describe().get("caveats", []))
     assert "tenant" in caveats.lower()
+
+
+# -- the same distribution also extends the other two registries -----------
+
+@pytest.fixture(scope="module")
+def acme_modules():
+    """Import the example distribution's runtime and cloud modules."""
+    sys.path.insert(0, str(ACME_SRC))
+    try:
+        from acme_onprem import cloud, runtime
+        yield runtime, cloud
+    finally:
+        sys.path.remove(str(ACME_SRC))
+        for name in ("acme_onprem", "acme_onprem.runtime", "acme_onprem.cloud",
+                     "acme_onprem.target"):
+            sys.modules.pop(name, None)
+
+
+def test_one_distribution_declares_all_three_entry_point_groups():
+    """The realistic case: a vendor ships how they deploy, the framework they
+    run and the cloud they run it on, together."""
+    pyproject = (PLUGINS / "acme-onprem" / "pyproject.toml").read_text()
+    for group in ("orgagents.targets", "orgagents.runtime_adapters",
+                  "orgagents.provider_profiles"):
+        assert f'[project.entry-points."{group}"]' in pyproject
+
+
+def test_the_example_runtime_works_despite_the_closed_enum(acme_modules):
+    """`Runtime` can only name what ships in orgagents; the registry is keyed
+    by the string it carries, so a plugin gets an id of its own."""
+    from orgagents.runtime.adapters import ADAPTERS, adapter_for
+
+    runtime, _ = acme_modules
+    runtime.register()
+    try:
+        agent = type("A", (), {"harness": type("H", (), {
+            "runtime": runtime.RUNTIME_ID})()})()
+        assert adapter_for(agent) is runtime.AcmeRuntimeAdapter
+        assert ADAPTERS.descriptors[runtime.RUNTIME_ID].third_party
+    finally:
+        ADAPTERS.items.pop(runtime.RUNTIME_ID, None)
+        ADAPTERS.descriptors.pop(runtime.RUNTIME_ID, None)
+
+
+def test_the_example_runtime_distinguishes_handoffs_from_subagents(acme_modules):
+    """The two are different mechanisms — a handoff does not return — so a
+    runtime that has one must not claim the other."""
+    runtime, _ = acme_modules
+    descriptor = runtime.AcmeRuntimeAdapter.descriptor()
+    assert descriptor.claims("handoffs")
+    assert not descriptor.claims("subagents")
+    assert not descriptor.claims("planning")
+    assert not descriptor.claims("interrupt_on")
+
+
+def test_the_example_cloud_becomes_a_terraform_target(design, acme_modules):
+    from orgagents.compiler.base import REGISTRY
+    from orgagents.compiler.targets.terraform import PROFILES
+
+    spec, binding = design
+    _, cloud = acme_modules
+    cloud.register()
+    try:
+        assert "terraform:acme_cloud" in REGISTRY.ids()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = compile_system(spec, targets=["terraform:acme_cloud"],
+                                    out_dir=pathlib.Path(tmp), binding=binding)[0]
+        emitted = {f.path: f.content for f in result.files}
+        assert "iam.tf" in emitted and "MAPPING.md" in emitted
+        # Its own IAM mapping was used, not a built-in cloud's.
+        assert "openstack_identity_role_assignment_v3" in emitted["iam.tf"]
+    finally:
+        REGISTRY.registry.items.pop("terraform:acme_cloud", None)
+        REGISTRY.registry.descriptors.pop("terraform:acme_cloud", None)
+        PROFILES.pop("acme_cloud", None)
+
+
+def test_a_plugin_cloud_carries_its_own_iam_mapping(acme_modules):
+    """The built-in role table cannot know about a cloud shipped elsewhere, so
+    a plugin profile brings its own or fails saying so."""
+    from orgagents.compiler.targets.terraform import ProviderProfile, action_roles
+
+    _, cloud = acme_modules
+    assert action_roles(cloud.ACME_CLOUD)["administer"] == "admin"
+
+    bare = dataclasses.replace(cloud.ACME_CLOUD, id="nobody", action_roles={})
+    with pytest.raises(ValueError, match="no `action_roles`"):
+        action_roles(bare)
+
+
+def test_a_cloud_may_honestly_omit_a_resource_it_lacks(design, acme_modules):
+    """MAPPING.md always listed unmapped resources, but the emitters indexed
+    `resources` directly — so an honest omission used to crash the compile."""
+    from orgagents.compiler.base import REGISTRY
+    from orgagents.compiler.targets.terraform import PROFILES
+
+    spec, binding = design
+    _, cloud = acme_modules
+    cloud.register()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = compile_system(spec, targets=["terraform:acme_cloud"],
+                                    out_dir=pathlib.Path(tmp), binding=binding)[0]
+        emitted = {f.path: f.content for f in result.files}
+        # It says what it skipped, rather than emitting nothing or dying.
+        assert "NOT generated" in emitted["channels.tf"]
+        assert "knowledge_index" in emitted["channels.tf"]
+        assert "knowledge_index" in emitted["MAPPING.md"]
+        # And it declares no network isolation rather than implying some.
+        assert "NOT" in emitted["network.tf"]
+    finally:
+        REGISTRY.registry.items.pop("terraform:acme_cloud", None)
+        REGISTRY.registry.descriptors.pop("terraform:acme_cloud", None)
+        PROFILES.pop("acme_cloud", None)
 
 
 # -- route 2: the overlay --------------------------------------------------

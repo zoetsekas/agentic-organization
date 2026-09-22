@@ -116,6 +116,68 @@ as the reference. It demonstrates the four rules:
 4. **It leaves the operator room** — generated files are rewritten each compile;
    anything hand-written beside them is never touched.
 
+## One distribution, three registries
+
+`acme-onprem/` extends **all three** seams ADR-0091 opened, which is the
+realistic case: a vendor ships how they deploy, the framework they run, and the
+cloud they run it on, together.
+
+```toml
+[project.entry-points."orgagents.targets"]
+"acme:onprem"  = "acme_onprem.target:AcmeOnPremTarget"
+
+[project.entry-points."orgagents.runtime_adapters"]
+acme_framework = "acme_onprem.runtime:build"
+
+[project.entry-points."orgagents.provider_profiles"]
+acme_cloud     = "acme_onprem.cloud:ACME_CLOUD"
+```
+
+### A runtime the `Runtime` enum can never name
+
+`runtime.py` registers `acme_framework`. The enum is closed and always will be;
+the registry is keyed by the **string** an enum member carries, which leaves
+room for an id that ships elsewhere.
+
+Its descriptor is the interesting part. Acme's framework *transfers control*
+between agents and never returns — a handoff, not a sub-agent call — so it
+claims `handoffs` and pointedly **not** `subagents`, `planning` or
+`interrupt_on`:
+
+```
+orgagents providers --feature handoffs   # openai_agents_sdk, acme_framework
+orgagents providers --feature planning   # langchain_deepagents
+```
+
+Claiming `interrupt_on` here would put a human-in-the-loop field in front of
+somebody whose runtime cannot pause. That is why the vocabulary is fixed and a
+word outside it is refused at construction.
+
+### A cloud, as `terraform:acme_cloud`
+
+`cloud.py` is a `ProviderProfile` for Acme's private OpenStack. A profile is a
+set of claims about what a cloud can express, and the valuable ones say what it
+**cannot**:
+
+| Field | Acme's value | What it produces |
+|---|---|---|
+| `coarse_actions` | `approve`, `administer` | a "Coarsened permissions" table in `MAPPING.md` — these grants are *broader* than the spec asked |
+| `network=None` | no VPC profile | a `network.tf` stating the isolation was **not** generated |
+| `resources` omits `knowledge_index`, … | no equivalent exists | those listed under "Unmapped neutral resources", and the skipped block says so in place |
+| `action_roles` | Keystone roles | its own IAM mapping — the built-in table cannot know about a cloud shipped elsewhere |
+
+Declaring a weakness is the profile doing its job. A cloud that quietly claimed
+full granularity would produce a mapping report that reads as enforced and is
+not.
+
+> **Two gaps this example found.** Writing it surfaced that `ACTION_ROLES` was a
+> second hardcoded per-provider table (so `register_provider_profile()` alone
+> was not enough to add a cloud), and that the emitters indexed `resources`
+> directly — so a profile that *honestly* omitted a resource crashed the
+> compile, even though `MAPPING.md` had always had a section for exactly that.
+> Both are fixed: a profile now carries its own `action_roles`, and an unmapped
+> resource produces a note where the block would have gone.
+
 ## Binding a plugin target
 
 `plugins.binding.yaml` binds both the template target and `acme:onprem`. A

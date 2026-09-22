@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ..base import GeneratedFile
@@ -40,6 +40,11 @@ class ProviderProfile:
     # Neutral permission verbs that this provider's IAM cannot express at the
     # requested granularity. Declared, not discovered, and surfaced in MAPPING.md.
     coarse_actions: tuple[str, ...] = ()
+    # Neutral action -> this provider's role name. A profile registered by a
+    # plugin must carry its own, because the built-in table below cannot know
+    # about a cloud that ships in somebody else's distribution (ADR-0091).
+    # Empty means "look me up in ACTION_ROLES", which is how the built-ins work.
+    action_roles: dict[str, str] = field(default_factory=dict)
     # The per-tenant deployment boundary (ADR-0050): what the tenant's
     # resources live inside, what Terraform pins it with, and where that is
     # coarser than one tenant per blast radius.
@@ -268,6 +273,27 @@ ACTION_ROLES = {
     },
 }
 
+def action_roles(profile: ProviderProfile) -> dict[str, str]:
+    """The neutral-action to role map for a provider.
+
+    A profile's own mapping wins, so a cloud added by a plugin is
+    self-contained; the built-in table is the fallback for the clouds that
+    ship here. A profile with neither fails naming the fix rather than raising
+    a KeyError from a table the integrator cannot see.
+    """
+    if profile.action_roles:
+        return profile.action_roles
+    try:
+        return ACTION_ROLES[profile.id]
+    except KeyError:
+        raise ValueError(
+            f"provider profile '{profile.id}' has no `action_roles`, and none "
+            f"ship for it. A profile registered by a plugin must carry its "
+            f"own mapping of neutral actions "
+            f"({', '.join(sorted(ACTION_ROLES['gcp']))}) to role names."
+        ) from None
+
+
 #: Ordered widest-last, so "the widest sandbox an agent has" is a max().
 _TIER_ORDER = ("minimal", "small", "medium", "large", "accelerated")
 _POSTURE_ORDER = ("none", "allowlist", "internal", "open")
@@ -446,7 +472,7 @@ locals {{
     def _iam(self, ir: SystemIR) -> str:
         """One identity per agent, bound to exactly its resolved permissions."""
         p = self.profile
-        roles = ACTION_ROLES[p.id]
+        roles = action_roles(p)
         blocks = []
         for agent in ir.agents:
             if not agent.identity:
@@ -747,6 +773,10 @@ locals {{
                     if trigger.cron
                     else f"rate({trigger.interval_seconds // 60} minutes)"
                 )
+                if not p.resources.get("scheduler"):
+                    blocks.append(self._unmapped(
+                        "scheduler", f"trigger '{trigger.id}'"))
+                    continue
                 blocks.append(
                     f'''resource "{p.resources["scheduler"]}" "{name}" {{
   # {trigger.description or trigger.id}
@@ -763,6 +793,10 @@ locals {{
 }}'''
                 )
             else:
+                if not p.resources.get("event_subscription"):
+                    blocks.append(self._unmapped(
+                        "event_subscription", f"trigger '{trigger.id}'"))
+                    continue
                 blocks.append(
                     f'''resource "{p.resources["event_subscription"]}" "{name}" {{
   # {trigger.description or trigger.id}
@@ -772,7 +806,8 @@ locals {{
   service_account = {p.identity_resource}.{agent}.email
 }}'''
                 )
-        if ir.binding.scheduler and ir.binding.scheduler.dead_letter:
+        if (ir.binding.scheduler and ir.binding.scheduler.dead_letter
+                and p.resources.get("message_bus")):
             blocks.append(
                 f'''resource "{p.resources["message_bus"]}" "dead_letter" {{
   # Runs that exhaust their retries land here (ADR-0025).
@@ -780,6 +815,19 @@ locals {{
 }}'''
             )
         return "\n\n".join(blocks) + "\n" if blocks else "# no triggers\n"
+
+    def _unmapped(self, kind: str, what: str) -> str:
+        """A note where a resource would have gone.
+
+        `MAPPING.md` has always listed unmapped neutral resources, but the
+        emitters indexed `resources` directly, so a profile that honestly
+        omitted one crashed the compile instead. A cloud without an equivalent
+        is a normal state — especially for a profile that ships in a plugin —
+        so the output says what was skipped and why (ADR-0091).
+        """
+        return (f'# {what} NOT generated: the "{self.profile.display}" profile '
+                f'maps no\n# `{kind}` resource. See MAPPING.md, "Unmapped '
+                f'neutral resources".')
 
     def _channels(self, ir: SystemIR) -> str:
         """Channel bridges and their credentials (ADR-0021).
@@ -797,6 +845,10 @@ locals {{
                 f"{step['notify']} after {step['after_minutes']}m"
                 for step in channel.escalation
             ) or "none"
+            if not p.resources.get("channel_bridge"):
+                blocks.append(self._unmapped(
+                    "channel_bridge", f"channel '{channel.id}'"))
+                continue
             blocks.append(
                 f'''resource "{p.resources["channel_bridge"]}" "{name}" {{
   # {channel.description or channel.id}
@@ -814,7 +866,9 @@ locals {{
   secret_id = "{channel.bot_identity_ref}"
 }}'''
                 )
-        if ir.memory.long_term.enabled:
+        if ir.memory.long_term.enabled and not p.resources.get("memory_store"):
+            blocks.append(self._unmapped("memory_store", "long-term memory"))
+        elif ir.memory.long_term.enabled:
             namespaces = ", ".join(n.id for n in ir.memory.namespaces) or "none"
             blocks.append(
                 f'''resource "{p.resources["memory_store"]}" "long_term_memory" {{
@@ -826,6 +880,10 @@ locals {{
 }}'''
             )
         for endpoint in {e.id: e for a in ir.agents for e in a.endpoints}.values():
+            if not p.resources.get("agent_endpoint"):
+                blocks.append(self._unmapped(
+                    "agent_endpoint", f"endpoint '{endpoint.id}'"))
+                continue
             blocks.append(
                 f'''resource "{p.resources["agent_endpoint"]}" "{_tf_name(endpoint.id)}" {{
   # External agent '{endpoint.id}' — trust: {endpoint.trust.value} (ADR-0030)
@@ -836,6 +894,10 @@ locals {{
 }}'''
             )
         for source in ir.knowledge:
+            if not p.resources.get("knowledge_index"):
+                blocks.append(self._unmapped(
+                    "knowledge_index", f"knowledge source '{source.id}'"))
+                continue
             blocks.append(
                 f'''resource "{p.resources["knowledge_index"]}" "{_tf_name(source.id)}" {{
   # Grounding source '{source.id}' ({source.kind}); citation required: {source.require_citation}
@@ -901,7 +963,7 @@ a `.tf` file was never a control; change the design and recompile instead.
     def _mapping_report(self, ir: SystemIR) -> str:
         """Every IR permission, named as mapped or explicitly coarsened."""
         p = self.profile
-        roles = ACTION_ROLES[p.id]
+        roles = action_roles(p)
         rows, coarse_rows = [], []
         for agent in ir.agents:
             for perm in agent.permissions:

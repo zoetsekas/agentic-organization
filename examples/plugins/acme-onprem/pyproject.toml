@@ -1,17 +1,30 @@
-# A third-party deployment target, packaged as its own distribution.
+# A third-party distribution extending orgagents in all three ways.
 #
-# `pip install .` is the whole installation step: the entry point below is how
-# orgagents discovers this target (ADR-0091). Nothing in the orgagents package
-# is edited, and an upgrade of orgagents does not conflict with this.
+# `pip install .` is the whole installation step: the entry points below are
+# how orgagents discovers each piece (ADR-0091). Nothing in the orgagents
+# package is edited, so an upgrade of orgagents does not conflict with this.
+#
+# One distribution may extend several seams at once, which is the realistic
+# case: Acme ships the way they deploy, the framework they run, and the cloud
+# they run it on, together.
 [project]
 name = "acme-onprem-target"
 version = "0.1.0"
-description = "Deploy an orgagents design to Acme's on-prem Nomad cluster."
+description = "Acme's deployment target, runtime adapter and private cloud for orgagents."
 requires-python = ">=3.11"
 dependencies = ["orgagents"]
 
+# 1. A deployment target — a new output format.
 [project.entry-points."orgagents.targets"]
 "acme:onprem" = "acme_onprem.target:AcmeOnPremTarget"
+
+# 2. A runtime adapter — an agent framework the `Runtime` enum cannot name.
+[project.entry-points."orgagents.runtime_adapters"]
+acme_framework = "acme_onprem.runtime:build"
+
+# 3. A cloud for the Terraform target — reachable as `terraform:acme_cloud`.
+[project.entry-points."orgagents.provider_profiles"]
+acme_cloud = "acme_onprem.cloud:ACME_CLOUD"
 
 [build-system]
 requires = ["setuptools>=68"]
