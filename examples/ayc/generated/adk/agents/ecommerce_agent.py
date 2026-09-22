@@ -4,6 +4,7 @@
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 from ._backends import bounded_sql, mcp_call
+from .tools import stock_lookup
 
 def order_query(**kwargs):
     """Read orders and their fulfillment status."""
@@ -55,6 +56,10 @@ Before a product goes live, check its stock in Fishbowl — a listing for someth
 - Lea (Chief Growth Officer) — approver, lea@ayc.example
 - Always seek approval before: product_publishing
 
+## Skills you hold
+- **listing_copy** — Write product listing copy that is accurate to the spec sheet.
+  Never invent a dimension or a material. If the spec sheet is silent, say so rather than guessing; a wrong measurement on a spa is a return.
+
 ## Sub-agents you may call as tools
 - `subagent_stock_verifier` — Confirm a SKU has sellable stock before it is listed.; returns an on-hand quantity and location
 
@@ -82,7 +87,7 @@ Before a product goes live, check its stock in Fishbowl — a listing for someth
         "temperature": 0.2,
         "max_output_tokens": 8192,
     },
-    tools=[FunctionTool(order_query), FunctionTool(product_publishing), FunctionTool(stock_check)],
+    tools=[FunctionTool(stock_lookup), FunctionTool(order_query), FunctionTool(product_publishing), FunctionTool(stock_check)],
     # sub_agents wired in agents/__init__.py from delegates_to=['inventory_agent', 'marketing_agent']
 )
 

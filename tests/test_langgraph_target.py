@@ -42,7 +42,9 @@ def test_the_target_is_registered():
 
 def test_every_agent_becomes_a_deepagents_graph(emitted):
     modules = [p for p in emitted if p.startswith("graphs/") and p.endswith(".py")
-               and not p.endswith("__init__.py")]
+               and not p.endswith("__init__.py")
+               and not p.endswith("tools.py")
+               and not p.endswith("_backends.py")]
     assert modules
     for path in modules:
         assert "create_deep_agent(" in emitted[path]
@@ -87,9 +89,14 @@ def test_a_gated_tool_becomes_an_interrupt(emitted):
 
 
 def test_tools_are_stubs_that_refuse_until_bound(emitted):
+    # Northwind binds no servers, so its tools are stubs — now typed scaffolds
+    # in one shared module, imported and wrapped as StructuredTools per agent.
     module = next(v for k, v in emitted.items() if k.endswith("controller.py"))
     assert "StructuredTool.from_function(" in module
-    assert "NotImplementedError" in module
+    assert "from .tools import" in module
+    stubs = emitted["graphs/tools.py"]
+    assert "NotImplementedError" in stubs
+    assert "TODO: implement" in stubs
 
 
 def test_the_mandate_is_reported_as_not_carried(emitted):

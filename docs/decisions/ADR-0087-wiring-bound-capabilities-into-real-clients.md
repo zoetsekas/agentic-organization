@@ -2,7 +2,7 @@
 id: ADR-0087
 title: Wiring bound capabilities into real clients, not stubs
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-22
 updated: 2026-09-22
 deciders: [Platform Architecture]
@@ -52,9 +52,17 @@ and imports nothing from `orgagents.spec` (ADR-0005).
 What stays the host's is emitted honestly: a **credential** is an env-var name,
 never a value (ADR-0015); an **MCP tool's remote name** follows the convention
 "named for the capability", a one-line fix if wrong; and a **database query** is
-an argument, because the design carries the *bound* on a read, not the SQL. A
-capability with no server bound stays a `NotImplementedError` stub, and the
-conformance report (ADR-0073) says which tools are wired and which are not.
+an argument, because the design carries the *bound* on a read, not the SQL.
+
+A tool that only narrows an existing grant (a wrapper, ADR-0029), or a
+capability with no server bound, is not wired — its body is application logic
+the design does not carry. It is not a bare `**kwargs` that raises, though: each
+such tool is emitted as a **typed, documented function stub** in one shared
+`tools.py` beside the agents — a real signature from the tool's input schema, a
+docstring naming what it wraps with its args and returns, and a `TODO` body —
+and every agent that has the tool imports it from there, so it is implemented
+once. The conformance report (ADR-0073) says which tools are wired clients and
+which are stubs to implement.
 
 ## Scope
 The `adk` and `langgraph` platform targets and a new shared wiring helper. No
@@ -108,12 +116,16 @@ credentials are env names; an MCP capability resolves to an MCP backend and a
 database capability to a SQL backend; an unbound capability resolves to nothing;
 `emit_wired_def` output parses; and AYC's `adk` and `langgraph` packages contain
 **no** `NotImplementedError`, call the declared backends, enforce `["select"]`
-on the stock check, and name the wired clients in requirements. The existing
-`test_adk_target.py` / `test_langgraph_target.py` still hold for Northwind,
-whose binding declares no servers, so its tools stay stubs.
+on the stock check, and name the wired clients in requirements. It also asserts a tool
+stub is a typed scaffold (`def stock_lookup(sku: str) -> dict`, a wraps note, a
+`TODO`) rather than a bare raise, and that a schemaless tool falls back to
+`**kwargs`. The existing `test_adk_target.py` / `test_langgraph_target.py` still
+hold for Northwind, whose binding declares no servers, so its tools are stubs —
+now in the shared `tools.py`, imported per agent.
 
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-22 | Unbound tools/capabilities emitted as typed, documented function stubs in one shared `tools.py` (signature from the input schema, wraps/args/returns docstring, TODO body), imported by each agent that has the tool. AYC's `stock_lookup` wrapper demonstrates it alongside its wired capabilities. |
 | 1.0.0 | 2026-09-22 | Accepted. Bound MCP/database capabilities emitted as real clients via a shared `_backends.py` shim; only unbound capabilities stay stubs; AYC regenerates with zero stubs. |

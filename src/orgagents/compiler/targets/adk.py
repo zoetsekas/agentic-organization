@@ -26,7 +26,14 @@ from typing import Any
 
 from ..base import GeneratedFile
 from ..ir import SystemIR
-from ._wiring import BACKENDS_SHIM, emit_wired_def, shim_imports, wired_and_stubbed
+from ._wiring import (
+    BACKENDS_SHIM,
+    emit_wired_def,
+    shim_imports,
+    stub_module,
+    tool_surface,
+    wired_and_stubbed,
+)
 
 #: What an ADK `LlmAgent` can actually carry, verified against the ADK API.
 EXPRESSIBLE = (
@@ -79,10 +86,10 @@ class GoogleADKTarget:
                 "sub_agents is an LLM-driven delegation hierarchy, not this "
                 "platform's authorized-delegation graph. It approximates the "
                 "org chart; it does not enforce who may delegate to whom.",
-                "A FunctionTool needs its callable at registration. The tool "
-                "surface an agent really sees is assembled by this platform's "
-                "harness at run time and is not in the IR, so the emitted tools "
-                "are stubs.",
+                "A capability bound to a server (MCP or database, ADR-0085) is "
+                "emitted as a working client; a tool that only narrows an "
+                "existing grant is emitted as a typed stub in agents/tools.py "
+                "for the host to implement.",
                 "No permission, mandate, separation, autonomy posture or "
                 "data-class egress rule survives. CONFORMANCE.md lists what "
                 "that costs.",
@@ -112,6 +119,11 @@ class GoogleADKTarget:
                 GeneratedFile("agents/_backends.py", BACKENDS_SHIM)
                 .with_header(ir, comment="#")
             )
+        if self._any_stubbed(ir):
+            files.append(
+                GeneratedFile("agents/tools.py", stub_module(ir))
+                .with_header(ir, comment="#")
+            )
         files.append(GeneratedFile("requirements.txt", self._requirements(ir)))
         files.append(
             GeneratedFile("CONFORMANCE.md", self._conformance(ir))
@@ -125,7 +137,7 @@ class GoogleADKTarget:
     def _agent_module(self, ir: SystemIR, agent: Any) -> str:
         model = self._model_id(agent)
         instruction = _pytext(agent.system_prompt() or "")
-        tools = self._tool_surface(agent)
+        tools = tool_surface(agent)
         wired, stubbed = wired_and_stubbed(ir, tools)
         needs = {t["backend"]["kind"] for t in wired}
 
@@ -137,23 +149,17 @@ class GoogleADKTarget:
         shim = shim_imports(needs)
         if shim:
             lines.append(f"from ._backends import {', '.join(shim)}")
+        # Stubs to implement live in one shared module; import the ones this
+        # agent has (ADR-0029). Each is a typed scaffold, not a bare raise.
+        if stubbed:
+            names = ", ".join(_mod(t["name"]) for t in stubbed)
+            lines.append(f"from .tools import {names}")
         lines.append("")
 
         # Wired tools: a real client to the declared backend, not a stub.
         for tool in wired:
             lines += emit_wired_def(tool)
             lines.append("")
-        # Stubs remain only where the design binds no backend (ADR-0085).
-        for tool in stubbed:
-            lines += [
-                f"def {_mod(tool['name'])}(**kwargs):",
-                f'    """{tool["description"] or tool["name"]}"""',
-                "    # No server bound for this capability; the callable is the "
-                "host's.",
-                f'    raise NotImplementedError("bind {tool["name"]} in host '
-                'code")',
-                "",
-            ]
 
         lines.append(f"{_mod(agent.id)} = LlmAgent(")
         lines.append(f"    name={_pystr(agent.id)},")
@@ -268,14 +274,19 @@ if __name__ == "__main__":
         return any(
             t.get("backend")
             for agent in ir.agents
-            for t in wired_and_stubbed(ir, self._tool_surface(agent))[0]
+            for t in wired_and_stubbed(ir, tool_surface(agent))[0]
+        )
+
+    def _any_stubbed(self, ir: SystemIR) -> bool:
+        return any(
+            wired_and_stubbed(ir, tool_surface(agent))[1] for agent in ir.agents
         )
 
     def _requirements(self, ir: SystemIR) -> str:
         kinds = {
             t["backend"]["kind"]
             for agent in ir.agents
-            for t in wired_and_stubbed(ir, self._tool_surface(agent))[0]
+            for t in wired_and_stubbed(ir, tool_surface(agent))[0]
         }
         lines = [
             "google-adk>=1.0",
@@ -288,36 +299,6 @@ if __name__ == "__main__":
         return "\n".join(lines) + "\n"
 
     # -- shared with the MAF target in spirit ------------------------------
-
-    def _tool_surface(self, agent: Any) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        gated = set(agent.requires_approval_for)
-        by_cap = {c.id: c for c in agent.capabilities}
-        for tool in agent.tools:
-            cap = by_cap.get(tool.wraps) if tool.wraps_kind == "capability" else None
-            out.append(self._constraints({
-                "name": tool.id, "description": tool.description,
-                "gated": tool.requires_approval,
-            }, cap))
-        for capability in agent.capabilities:
-            if any(t["name"] == capability.id for t in out):
-                continue
-            out.append(self._constraints({
-                "name": capability.id,
-                "description": capability.description,
-                "gated": capability.id in gated
-                or bool(capability.constraints.requires_approval),
-            }, capability))
-        return out
-
-    def _constraints(self, tool: dict[str, Any], cap: Any) -> dict[str, Any]:
-        if cap is not None:
-            tool["allowed_operations"] = list(cap.constraints.allowed_operations)
-            tool["max_rows"] = cap.constraints.max_rows or 0
-        else:
-            tool["allowed_operations"] = []
-            tool["max_rows"] = 0
-        return tool
 
     def _generate_content_config(self, agent: Any) -> dict[str, Any]:
         model = agent.model or {}
@@ -398,8 +379,11 @@ if __name__ == "__main__":
              "database, ADR-0085) is emitted as a working client in "
              "`_backends.py` and wrapped in a FunctionTool — an MCP call, or a "
              "bounded SQL query enforcing the design's operation allowlist and "
-             "row cap. Only a capability with no server bound stays a stub, and "
-             "credentials are env-var names, never values."),
+             "row cap; credentials are env-var names, never values. A tool that "
+             "only narrows an existing grant, or a capability with no server "
+             "bound, is emitted as a typed, documented stub in `agents/tools.py` "
+             "— one per tool, imported by each agent that has it — for the host "
+             "to implement."),
             ("The rest of the tool surface", "**not in the IR**",
              "our harness only",
              "MCP mounts and built-in tool families are assembled by this "

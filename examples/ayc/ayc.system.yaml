@@ -772,6 +772,10 @@ organization:
               mandate:
                 decisions: [publish_product]
               workflows: [listing_readiness]
+              # The commerce plugin adds stock_lookup, a narrowed wrapper over
+              # the stock_check the agent already holds (ADR-0029). It grants
+              # nothing new; a target emits it as a typed stub to implement.
+              plugins: [commerce_pack]
               humans:
                 - person: p_ecom
                   roles: [owner]

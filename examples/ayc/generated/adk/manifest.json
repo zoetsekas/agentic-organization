@@ -13,14 +13,15 @@
     "agents/ar_agent.py": "c14583c8286ec3c9",
     "agents/software_agent.py": "25bd147689649757",
     "agents/cgo_agent.py": "e291a1d1fd47eee4",
-    "agents/ecommerce_agent.py": "b9db3b8e8287de70",
+    "agents/ecommerce_agent.py": "0cbfd4472cb58519",
     "agents/cs_agent.py": "60237b958e506b2e",
     "agents/marketing_agent.py": "2ca216522f48f0c3",
     "agents/__init__.py": "ab297ccc9b966c23",
     "agent_engine.py": "629e4d5fc99f0293",
     "agents/_backends.py": "ddfa05c650adf0de",
+    "agents/tools.py": "6e96e5bd928916b4",
     "requirements.txt": "f5cfa4ecb0cda523",
-    "CONFORMANCE.md": "64d3818eb699c5c4",
-    "README.md": "d55ab30270f6d45d"
+    "CONFORMANCE.md": "0cb68d235ba7384f",
+    "README.md": "0d4d428719a6d99b"
   }
 }

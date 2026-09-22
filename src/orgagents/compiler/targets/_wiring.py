@@ -39,6 +39,152 @@ def _pystr(value: Optional[str]) -> str:
     return json.dumps(value or "")
 
 
+#: JSON-schema-ish type words → a Python annotation.
+_PYTYPE = {
+    "string": "str", "integer": "int", "number": "float", "boolean": "bool",
+    "array": "list", "object": "dict", "null": "None",
+}
+
+
+def tool_surface(agent: Any) -> list[dict[str, Any]]:
+    """The tools an agent exposes: its declared tools (which carry schemas) and
+    any capability not already named by one.
+
+    Shared by the platform targets so 'what tools does this agent have' has one
+    answer. A tool that wraps a capability inherits that capability's read
+    bound, so a database-backed one can enforce it.
+    """
+    out: list[dict[str, Any]] = []
+    gated = set(agent.requires_approval_for)
+    by_cap = {c.id: c for c in agent.capabilities}
+    for tool in agent.tools:
+        cap = by_cap.get(tool.wraps) if tool.wraps_kind == "capability" else None
+        out.append(_with_constraints({
+            "name": tool.id,
+            "description": tool.description,
+            "gated": tool.requires_approval or tool.id in gated,
+            "input_schema": dict(tool.input_schema or {}),
+            "output_schema": dict(tool.output_schema or {}),
+            "wraps_kind": tool.wraps_kind,
+            "wraps": tool.wraps,
+        }, cap))
+    for capability in agent.capabilities:
+        if any(t["name"] == capability.id for t in out):
+            continue
+        out.append(_with_constraints({
+            "name": capability.id,
+            "description": capability.description,
+            "gated": capability.id in gated
+            or bool(capability.constraints.requires_approval),
+            "input_schema": {},
+            "output_schema": {},
+            "wraps_kind": "capability",
+            "wraps": capability.id,
+        }, capability))
+    return out
+
+
+def _with_constraints(tool: dict[str, Any], cap: Any) -> dict[str, Any]:
+    if cap is not None:
+        tool["allowed_operations"] = list(cap.constraints.allowed_operations)
+        tool["max_rows"] = cap.constraints.max_rows or 0
+    else:
+        tool["allowed_operations"] = []
+        tool["max_rows"] = 0
+    return tool
+
+
+def _params(input_schema: dict[str, Any]) -> str:
+    if not input_schema:
+        return "**kwargs"
+    parts = []
+    for pname, ptype in input_schema.items():
+        parts.append(f"{_mod(pname)}: {_PYTYPE.get(str(ptype), 'Any')}")
+    return ", ".join(parts)
+
+
+def emit_stub_def(tool: dict[str, Any]) -> list[str]:
+    """A typed, documented function stub for a tool to be implemented.
+
+    A tool grants nothing new — it names and narrows something the agent
+    already holds (ADR-0029) — so its body is application logic, not something
+    the design carries. Rather than a bare `**kwargs` that raises, this emits a
+    real signature from the tool's input schema, a docstring naming what it
+    wraps, and a `TODO` in the body, so it is a scaffold a developer fills in.
+    """
+    name = _mod(tool["name"])
+    inp = tool.get("input_schema") or {}
+    outp = tool.get("output_schema") or {}
+    ret = "dict" if outp else "Any"
+    lines = [f"def {name}({_params(inp)}) -> {ret}:"]
+    doc = [f'    """{tool["description"] or tool["name"]}', ""]
+    wraps_kind, wraps = tool.get("wraps_kind"), tool.get("wraps")
+    if wraps and wraps != tool["name"]:
+        doc.append(f"    Wraps {wraps_kind} '{wraps}' (ADR-0029): implement by "
+                   f"calling it and narrowing to this tool's contract.")
+        doc.append("")
+    if inp:
+        doc.append("    Args:")
+        for pname, ptype in inp.items():
+            doc.append(f"        {pname} ({_PYTYPE.get(str(ptype), 'Any')})")
+    if outp:
+        doc.append("    Returns:")
+        fields = ", ".join(f"{k}: {v}" for k, v in outp.items())
+        doc.append(f"        dict with {fields}")
+    if tool.get("gated"):
+        doc.append("")
+        doc.append("    Approval-gated: the harness stops this for a human "
+                   "before it runs.")
+    doc.append('    """')
+    lines += doc
+    lines.append(
+        f'    raise NotImplementedError("TODO: implement {tool["name"]}")')
+    return lines
+
+
+def stub_module(ir: Any) -> str:
+    """A shared module of typed stubs — one per distinct tool that has no bound
+    backend, across the whole system — for agents to import and implement.
+
+    One definition per tool, imported by each agent that has it, so a tool
+    implemented once is used wherever the design gives it (rather than a
+    diverging copy per agent module).
+    """
+    seen: dict[str, dict[str, Any]] = {}
+    for agent in ir.agents:
+        _, stubbed = wired_and_stubbed(ir, tool_surface(agent))
+        for tool in stubbed:
+            seen.setdefault(tool["name"], tool)
+    lines = [
+        '"""Tool stubs to implement (generated).',
+        "",
+        "Each function is a tool the design gives one or more agents but whose",
+        "code is the host's — a wrapper that narrows an existing grant, or a",
+        "capability with no server bound. Fill in the body; the signature and",
+        "docstring come from the design. Every agent that has the tool imports",
+        "it from here, so implement it once.",
+        '"""',
+        "from __future__ import annotations",
+        "",
+        "from typing import Any",
+        "",
+        "",
+    ]
+    for name in sorted(seen):
+        lines += emit_stub_def(seen[name])
+        lines += ["", ""]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def stubbed_names(ir: Any) -> set[str]:
+    """The module-safe names of every stubbed tool, system-wide."""
+    out: set[str] = set()
+    for agent in ir.agents:
+        _, stubbed = wired_and_stubbed(ir, tool_surface(agent))
+        out.update(t["name"] for t in stubbed)
+    return out
+
+
 def emit_wired_def(tool: dict[str, Any]) -> list[str]:
     """Emit a real tool function that calls the declared backend.
 

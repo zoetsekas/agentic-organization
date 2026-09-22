@@ -101,13 +101,13 @@ what it may reach, what wakes it and where it talks to people.
 
 | Agent | Tool | Wraps | Source | Approval |
 |---|---|---|---|---|
-| — |
+| `ecommerce_agent` | `stock_lookup` | capability `stock_check` | plugin | no |
 
 ## Skills and plugins
 
 | Agent | Skills | Plugins |
 |---|---|---|
-| — |
+| `ecommerce_agent` | listing_copy | commerce_pack |
 
 ## External agent endpoints
 

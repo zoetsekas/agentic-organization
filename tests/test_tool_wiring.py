@@ -23,6 +23,7 @@ from orgagents.compiler.base import register_builtin_targets
 from orgagents.compiler.engine import compile_system
 from orgagents.compiler.targets._wiring import (
     BACKENDS_SHIM,
+    emit_stub_def,
     emit_wired_def,
     resolve_backend,
     shim_imports,
@@ -95,6 +96,30 @@ def test_emit_wired_def_is_runnable_python():
     ast.parse("\n".join(sql))
 
 
+def test_a_tool_stub_is_a_typed_documented_scaffold():
+    lines = emit_stub_def({
+        "name": "stock_lookup",
+        "description": "Look up the Fishbowl stock level for one SKU.",
+        "input_schema": {"sku": "string"},
+        "output_schema": {"on_hand": "number", "location": "string"},
+        "wraps_kind": "capability", "wraps": "stock_check", "gated": False,
+    })
+    src = "\n".join(lines)
+    ast.parse(src)                                   # runnable Python
+    assert "def stock_lookup(sku: str) -> dict:" in src   # typed signature
+    assert "Wraps capability 'stock_check'" in src        # what to implement
+    assert "TODO: implement stock_lookup" in src          # a scaffold, not silence
+
+
+def test_a_schemaless_tool_stub_falls_back_to_kwargs():
+    lines = emit_stub_def({
+        "name": "incident_signal", "description": "Raise an incident.",
+        "input_schema": {}, "output_schema": {},
+        "wraps_kind": "capability", "wraps": "incident_signal", "gated": False,
+    })
+    assert "def incident_signal(**kwargs) -> Any:" in "\n".join(lines)
+
+
 def test_shim_imports_picks_the_needed_clients():
     assert shim_imports({"mcp"}) == ["mcp_call"]
     assert shim_imports({"database"}) == ["bounded_sql"]
@@ -103,21 +128,27 @@ def test_shim_imports_picks_the_needed_clients():
 
 # -- the whole-package assertion, per target -------------------------------
 
-@pytest.mark.parametrize("target,shim_path,pkg", [
-    ("langgraph", "graphs/_backends.py", "graphs/"),
-    ("adk", "agents/_backends.py", "agents/"),
+@pytest.mark.parametrize("target,shim_path,tools_path,pkg", [
+    ("langgraph", "graphs/_backends.py", "graphs/tools.py", "graphs/"),
+    ("adk", "agents/_backends.py", "agents/tools.py", "agents/"),
 ])
-def test_ayc_has_no_stubs_because_every_capability_is_bound(target, shim_path, pkg):
+def test_ayc_agent_modules_define_no_stubs(target, shim_path, tools_path, pkg):
+    """Every AYC capability is server-bound, so the agent modules hold only
+    real clients — no `NotImplementedError` inline. The one tool stub
+    (stock_lookup, a wrapper) lives in the shared tools module, imported."""
     emitted = _emit(target)
-    # The shim is emitted, and no agent module raises NotImplementedError.
     assert shim_path in emitted
     agent_modules = [p for p in emitted
                      if p.startswith(pkg) and p.endswith(".py")
                      and not p.endswith("_backends.py")
+                     and not p.endswith("tools.py")
                      and not p.endswith("__init__.py")]
     assert agent_modules
     for path in agent_modules:
         assert "NotImplementedError" not in emitted[path], path
+    # The wrapper tool is a typed stub in the shared module, imported for use.
+    assert "def stock_lookup(sku: str)" in emitted[tools_path]
+    assert "from .tools import stock_lookup" in emitted[f"{pkg}ecommerce_agent.py"]
 
 
 @pytest.mark.parametrize("target", ["langgraph", "adk"])

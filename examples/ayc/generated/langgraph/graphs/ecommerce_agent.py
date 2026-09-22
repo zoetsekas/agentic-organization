@@ -4,6 +4,7 @@
 from deepagents import create_deep_agent
 from langchain_core.tools import StructuredTool
 from ._backends import bounded_sql, mcp_call
+from .tools import stock_lookup
 
 def order_query(**kwargs):
     """Read orders and their fulfillment status."""
@@ -130,7 +131,7 @@ A promotion runs against stock that exists and a price the CEO set; check both b
 
 ecommerce_agent = create_deep_agent(
     model="anthropic:claude-sonnet-4-5",
-    tools=[StructuredTool.from_function(func=order_query, name="order_query"), StructuredTool.from_function(func=product_publishing, name="product_publishing"), StructuredTool.from_function(func=stock_check, name="stock_check")],
+    tools=[StructuredTool.from_function(func=stock_lookup, name="stock_lookup"), StructuredTool.from_function(func=order_query, name="order_query"), StructuredTool.from_function(func=product_publishing, name="product_publishing"), StructuredTool.from_function(func=stock_check, name="stock_check")],
     system_prompt="""You are ecommerce-manager.
 Publishes listings on Shopify and checks stock in Fishbowl.
 
@@ -151,6 +152,10 @@ Before a product goes live, check its stock in Fishbowl — a listing for someth
 - Ping (E-Commerce and Web) — owner, ping@ayc.example
 - Lea (Chief Growth Officer) — approver, lea@ayc.example
 - Always seek approval before: product_publishing
+
+## Skills you hold
+- **listing_copy** — Write product listing copy that is accurate to the spec sheet.
+  Never invent a dimension or a material. If the spec sheet is silent, say so rather than guessing; a wrong measurement on a spa is a return.
 
 ## Sub-agents you may call as tools
 - `subagent_stock_verifier` — Confirm a SKU has sellable stock before it is listed.; returns an on-hand quantity and location

@@ -89,7 +89,7 @@
 | [ADR-0084](ADR-0084-placement-becomes-a-vpc-with-per-team-subnets.md) | Placement becomes a VPC with per-placement subnets and identity-scoped firewall | Accepted | 1.0.0 | compiler | WS-003, WS-028 | — |
 | [ADR-0085](ADR-0085-a-servers-catalog-in-the-binding.md) | A servers catalog in the binding | Accepted | 1.0.0 | spec, compiler | WS-003 | — |
 | [ADR-0086](ADR-0086-langgraph-platform-target-and-runtime-target-composition.md) | A LangGraph Platform target, and runtime/target composition | Accepted | 1.0.0 | compiler, runtime | WS-003 | — |
-| [ADR-0087](ADR-0087-wiring-bound-capabilities-into-real-clients.md) | Wiring bound capabilities into real clients, not stubs | Accepted | 1.0.0 | compiler | WS-003 | — |
+| [ADR-0087](ADR-0087-wiring-bound-capabilities-into-real-clients.md) | Wiring bound capabilities into real clients, not stubs | Accepted | 1.1.0 | compiler | WS-003 | — |
 
 ## By status
 

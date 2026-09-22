@@ -11,9 +11,9 @@
     "network.tf": "a67b44cd6ed081ea",
     "triggers.tf": "7590379a309e6c83",
     "channels.tf": "b24fee04e7b566ec",
-    "REGISTRY.md": "3d479e9fbce17ee9",
+    "REGISTRY.md": "c984b0ecf0c420d3",
     "backend.tf.example": "16ffc0d3058e74d8",
-    "system.ir.json": "4ca212dcd1e77c61",
+    "system.ir.json": "39cee84f552ca2ee",
     "MAPPING.md": "0704be0022cbc810"
   }
 }
