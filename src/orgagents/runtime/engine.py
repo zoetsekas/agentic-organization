@@ -11,6 +11,10 @@ control loop around a runtime adapter:
 """
 from __future__ import annotations
 
+import threading
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -19,6 +23,7 @@ from datetime import datetime, timezone
 from ..catalog import Catalog
 from ..data.planes import AccessDenied, DataPlanes
 from ..harness.builder import HarnessBuilder
+from ..ids import now_iso
 from ..messaging import ChannelKind, DeliveryError, MessageBus
 from ..context import ArtifactWorkspace, ContextManager, ResolvedContext, Turn
 from ..classifiers import Classifier
@@ -40,10 +45,16 @@ from ..spec.model import (
 )
 from ..observability import Observability, log_event
 from ..org import OrgChart
-from ..sessions import SessionManager
+from ..sessions import TERMINAL_STATES, SessionManager
 from ..store import AGENTS, WORKFLOWS, Store
 from ..spec.binding import WorkflowBinding
-from .adapters import BudgetExceeded, RuntimeAdapter, TurnOutput, adapter_for
+from .adapters import (
+    BudgetExceeded,
+    RuntimeAdapter,
+    TurnBudget,
+    TurnOutput,
+    adapter_for,
+)
 from .endpoints import Transport, boundary_for
 from .engines import ServiceEngine, engine_for_binding
 
@@ -58,6 +69,27 @@ class RunResult:
     delegations: list[dict[str, Any]] = field(default_factory=list)
     escalated_to: Optional[str] = None
     error: Optional[str] = None
+
+
+@dataclass
+class _Assignment:
+    """One handle a leader holds over work it commissioned (ADR-0093).
+
+    The durable facts — who asked whom, what state the work is in, what it
+    spent — live on the child session, not here. This holds only what a
+    process can: the worker running the child, and whether the result has
+    already been charged to the parent.
+    """
+
+    handle: str                     # the child session id, which *is* the handle
+    parent_session_id: str
+    by_agent_id: str
+    to_agent_id: str
+    task: str
+    future: "Future[RunResult]"
+    assigned_at: str
+    collected: bool = False
+    abandoned: bool = False
 
 
 class AgentRuntime:
@@ -99,7 +131,188 @@ class AgentRuntime:
         # out-of-process engine refuses rather than improvising one.
         self.workflow_transport = workflow_transport
         self.tenant_id = tenant_id
-        self._depth = 0
+        # Asynchronous delegation (ADR-0093). Depth is no longer a counter:
+        # a handle can outlive the turn that created it, so depth is derived
+        # from the `parent_session_id` chain instead — see `delegation_depth`.
+        self._assignments: dict[str, _Assignment] = {}
+        self._assign_lock = threading.RLock()
+        self._pool: Optional[ThreadPoolExecutor] = None
+        # The live budget of each running session, so a settled child's spend
+        # can be charged to the parent that commissioned it (rule 4).
+        self._budgets: dict[str, TurnBudget] = {}
+
+    # -- asynchronous delegation (ADR-0093) --------------------------------
+
+    def delegation_depth(self, session_id: str) -> int:
+        """How deep this session sits in the delegation tree.
+
+        Depth used to be a process-local counter incremented around a nested
+        `run`. That is only meaningful while delegation is a call stack: a
+        handle that outlives the turn which created it has no frame to sit in,
+        and two workers sharing one counter would each see the other's depth.
+
+        So depth is read from the tree — the number of ancestors reached by
+        walking `parent_session_id` upward. For every synchronous case that
+        exists today this is the same number the counter produced, and unlike
+        the counter it is correct under concurrency and survives a restart.
+        """
+        depth = 0
+        seen: set[str] = set()
+        session = self.sessions.get(session_id)
+        while session is not None and session.parent_session_id:
+            parent_id = session.parent_session_id
+            if parent_id in seen:          # a cycle cannot happen; not trusted to
+                break                      # be impossible, because this loop runs
+            seen.add(parent_id)            # inside a tool call
+            depth += 1
+            session = self.sessions.get(parent_id)
+        return depth
+
+    def _worker_pool(self) -> ThreadPoolExecutor:
+        if self._pool is None:
+            self._pool = ThreadPoolExecutor(
+                max_workers=8, thread_name_prefix="orgagents-assign"
+            )
+        return self._pool
+
+    def assigned_handles(self, session_id: str) -> list[str]:
+        """Every handle this session has assigned, in order."""
+        return [
+            e.payload["handle"]
+            for e in self.sessions.events(session_id)
+            if e.type == "delegation" and e.payload.get("mode") == "assign"
+            and e.payload.get("handle")
+        ]
+
+    def unsettled_handles(self, session_id: str) -> list[str]:
+        """Handles this session holds whose child has not reached a terminal state.
+
+        ``WAITING_HUMAN`` counts as unsettled, which is the point: a child
+        parked on an approval is still work this leader commissioned and has
+        not got back, and it still occupies one of the parallel slots.
+        """
+        out: list[str] = []
+        for handle in self.assigned_handles(session_id):
+            child = self.sessions.get(handle)
+            if child is None or child.state not in TERMINAL_STATES:
+                out.append(handle)
+        return out
+
+    def settle_lost_handles(self, session_id: str) -> list[str]:
+        """Fail any handle this session assigned that no live worker holds.
+
+        A handle that hangs forever is worse than one that fails, because the
+        leader waiting on it never gets a turn in which to notice (ADR-0093
+        rule 5). After a restart the session store still shows the child as
+        running while the thread that was running it is gone; this is what
+        closes that gap, and `run` calls it whenever a session resumes.
+
+        A child a live worker is still running is left alone, and so is a
+        child of a *synchronous* delegation — that one is running on this
+        thread, so it cannot be lost while anything is asking.
+        """
+        lost: list[str] = []
+        for handle in self.unsettled_handles(session_id):
+            with self._assign_lock:
+                assignment = self._assignments.get(handle)
+            if assignment is not None and not assignment.future.done():
+                continue                       # a worker is still on it
+            if assignment is not None:
+                continue                       # settled by `check`/`gather`
+            reason = ("assignment lost: no worker in this process holds this "
+                      "handle (the runtime restarted, or the worker died)")
+            self.sessions.log(handle, "assignment_lost", actor="runtime",
+                              payload={"error": reason})
+            self.sessions.set_state(handle, SessionState.FAILED)
+            lost.append(handle)
+        return lost
+
+    def _run_assigned(self, agent_id: str, task: str, handle: str,
+                      created_by: str) -> RunResult:
+        """Run one assigned child on a worker thread.
+
+        `run` already turns a failure into a FAILED session and a `RunResult`
+        carrying the error. This exists for what `run` cannot catch — anything
+        raised before or outside that handling — because a worker that dies
+        without settling its session is exactly the hang rule 5 forbids.
+        """
+        try:
+            return self.run(agent_id, task, session_id=handle,
+                            created_by=created_by)
+        except BaseException as e:                      # noqa: BLE001
+            error = f"{type(e).__name__}: {e}"
+            self.sessions.log(handle, "error", actor=created_by,
+                              payload={"error": error})
+            self.sessions.set_state(handle, SessionState.FAILED)
+            return RunResult(
+                session_id=handle, session_url=self.sessions.url(handle),
+                output="", state=SessionState.FAILED, error=error,
+            )
+
+    def _collect(self, assignment: _Assignment) -> dict[str, Any]:
+        """Take the result of a settled handle, charging it to the parent.
+
+        Charging happens exactly once. Without it, fan-out would be a way to
+        spend past a ceiling by spending through somebody else: four children
+        at a million tokens each cost the leader nothing, while the same work
+        done serially would have stopped at the leader's own budget.
+        """
+        result: Optional[RunResult] = None
+        error: Optional[str] = None
+        if assignment.future.done():
+            try:
+                result = assignment.future.result()
+            except BaseException as e:                  # noqa: BLE001
+                error = f"{type(e).__name__}: {e}"
+        child = self.sessions.get(assignment.handle)
+        out: dict[str, Any] = {
+            "output": result.output if result else "",
+            "error": error or (result.error if result else None),
+            "tokens": child.token_usage if child else 0,
+            "cost_usd": round(child.cost_usd, 6) if child else 0.0,
+        }
+
+        with self._assign_lock:
+            first = not assignment.collected
+            assignment.collected = True
+        if not first:
+            return out
+
+        # Rule 1: authority was checked at assignment and is not re-checked
+        # here. A mission grant is date-bounded, so it can lapse while the work
+        # is in flight; stranding a lawfully commissioned result would punish
+        # the leader for the calendar and teach everyone to avoid time-bounded
+        # grants. The lapse is recorded instead, so the audit trail shows the
+        # window the work was assigned under.
+        if not self.org.can_delegate(assignment.by_agent_id,
+                                     assignment.to_agent_id):
+            out["authority_lapsed"] = True
+            out["note"] = (
+                f"{assignment.by_agent_id} may no longer delegate to "
+                f"{assignment.to_agent_id}; this result was assigned while it "
+                "could, and is delivered on that basis"
+            )
+
+        budget = self._budgets.get(assignment.parent_session_id)
+        if budget is not None and out["tokens"]:
+            budget.spend(int(out["tokens"]))
+        self.sessions.log(
+            assignment.parent_session_id, "delegation_collected",
+            actor=assignment.by_agent_id,
+            payload={
+                "handle": assignment.handle,
+                "to": assignment.to_agent_id,
+                "state": child.state.value if child else "unknown",
+                "tokens": out["tokens"],
+                "cost_usd": out["cost_usd"],
+                # Cost is recorded, not enforced: `TurnBudget` bounds tokens
+                # and wall clock, and inventing a money ceiling it does not
+                # have would be a control that reads as enforced and is not.
+                "charged_to_budget": budget is not None,
+                "authority_lapsed": bool(out.get("authority_lapsed")),
+            },
+        )
+        return out
 
     # -- public API --------------------------------------------------------
 
@@ -129,6 +342,9 @@ class AgentRuntime:
         if session is None:
             raise KeyError(f"no session {session_id}")
 
+        # A handle nothing in this process holds is failed before the agent
+        # can be told it is still running (ADR-0093 rule 5).
+        self.settle_lost_handles(session.id)
         self.sessions.set_state(session.id, SessionState.RUNNING)
         self.sessions.log(session.id, "message", actor=created_by or "human",
                           payload={"role": "user", "content": prompt})
@@ -156,6 +372,10 @@ class AgentRuntime:
             subagents=self._subagent_specs(agent),
         )
 
+        # The adapter owns the budget for this run; delegation tools charge a
+        # collected child's tokens against it (ADR-0093 rule 4).
+        self._budgets[session.id] = adapter.budget
+
         result = RunResult(
             session_id=session.id,
             session_url=self.sessions.url(session.id),
@@ -170,6 +390,7 @@ class AgentRuntime:
                 session.id, SessionState.FAILED).state
             self.sessions.log(session.id, "error", actor=agent.id,
                               payload={"error": result.error})
+            self._budgets.pop(session.id, None)
             return result
         prompt = inbound.content if isinstance(inbound.content, str) else prompt
 
@@ -239,6 +460,7 @@ class AgentRuntime:
             for e in self.sessions.events(session.id)
             if e.type == "delegation"
         ]
+        self._budgets.pop(session.id, None)
         return result
 
     # -- guardrails and workspace (ADR-0035, ADR-0036) ---------------------
@@ -630,18 +852,14 @@ class AgentRuntime:
                     "ok": False,
                     "error": f"{agent.name} may not delegate to {to_agent_id}",
                 }
-            if self._depth >= agent.harness.max_subagent_depth:
+            if self.delegation_depth(session_id) >= agent.harness.max_subagent_depth:
                 return {"ok": False, "error": "max sub-agent depth reached"}
-            self._depth += 1
-            try:
-                child = self.run(
-                    to_agent_id,
-                    task,
-                    created_by=agent.id,
-                    parent_session_id=session_id,
-                )
-            finally:
-                self._depth -= 1
+            child = self.run(
+                to_agent_id,
+                task,
+                created_by=agent.id,
+                parent_session_id=session_id,
+            )
             self.sessions.log(
                 session_id,
                 "delegation",
@@ -652,6 +870,7 @@ class AgentRuntime:
                     "child_session": child.session_id,
                     "child_session_url": child.session_url,
                     "state": child.state.value,
+                    "mode": "delegate",
                 },
             )
             return {
@@ -659,6 +878,190 @@ class AgentRuntime:
                 "output": child.output,
                 "session_url": child.session_url,
                 "error": child.error,
+            }
+
+        def assign(to_agent_id: str, task: str) -> dict[str, Any]:
+            """Hand a task to another agent and get a handle back immediately.
+
+            Use this to ask several agents at once, or when the answer is not
+            needed before this turn ends. `delegate` is still the right tool
+            when you want the answer now: it is simpler to read and most
+            delegation genuinely wants an answer now.
+
+            Who you may hand work to is decided here and does not change: the
+            same check `delegate` makes, with the same refusal.
+            """
+            if not self.org.can_delegate(agent.id, to_agent_id):
+                return {
+                    "ok": False,
+                    "error": f"{agent.name} may not delegate to {to_agent_id}",
+                }
+            if self.delegation_depth(session_id) >= agent.harness.max_subagent_depth:
+                return {"ok": False, "error": "max sub-agent depth reached"}
+
+            # `max_parallel_subagents` is declared on every harness and until
+            # now bound nothing, because serial delegation could not fan out.
+            # It refuses rather than queueing: a queue nobody declared is a
+            # bound nobody reviewed, with a latency nobody reviewed either.
+            bound = agent.harness.max_parallel_subagents
+            held = self.unsettled_handles(session_id)
+            if bound and len(held) >= bound:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"{agent.name} already holds {len(held)} unsettled "
+                        f"handles and max_parallel_subagents is {bound}; "
+                        "collect one with check or gather before assigning more"
+                    ),
+                    "outstanding": held,
+                    "max_parallel_subagents": bound,
+                }
+
+            # The child session is created here, on the calling thread, so the
+            # handle is a real, addressable session before this returns.
+            child = self.sessions.create(
+                to_agent_id,
+                title=task[:80],
+                created_by=agent.id,
+                parent_session_id=session_id,
+            )
+            assignment = _Assignment(
+                handle=child.id,
+                parent_session_id=session_id,
+                by_agent_id=agent.id,
+                to_agent_id=to_agent_id,
+                task=task,
+                future=Future(),            # replaced by the submitted one below
+                assigned_at=now_iso(),
+            )
+            with self._assign_lock:
+                self._assignments[child.id] = assignment
+            self.sessions.log(
+                session_id,
+                "delegation",
+                actor=agent.id,
+                payload={
+                    "to": to_agent_id,
+                    "task": task,
+                    "child_session": child.id,
+                    "child_session_url": self.sessions.url(child.id),
+                    "state": child.state.value,
+                    "mode": "assign",
+                    "handle": child.id,
+                },
+            )
+            assignment.future = self._worker_pool().submit(
+                self._run_assigned, to_agent_id, task, child.id, agent.id,
+            )
+            return {
+                "ok": True,
+                "handle": child.id,
+                "to": to_agent_id,
+                "state": child.state.value,
+                "settled": False,
+                "session_url": self.sessions.url(child.id),
+            }
+
+        def _held(handle: str) -> Optional[_Assignment]:
+            with self._assign_lock:
+                assignment = self._assignments.get(handle)
+            if assignment is None or assignment.parent_session_id != session_id:
+                return None
+            return assignment
+
+        def check(handle: str) -> dict[str, Any]:
+            """Ask what a handle is doing, without waiting for it.
+
+            A handle parked on a human decision comes back as `waiting_human`.
+            That is a state to report and get on with something else around,
+            not one to wait on: the person may take hours.
+            """
+            assignment = _held(handle)
+            if assignment is None:
+                return {"ok": False, "handle": handle, "settled": True,
+                        "state": SessionState.FAILED.value,
+                        "error": f"{agent.name} does not hold handle {handle}"}
+            child = self.sessions.get(handle)
+            if child is None:
+                return {"ok": False, "handle": handle, "settled": True,
+                        "state": SessionState.FAILED.value,
+                        "error": f"handle {handle} no longer exists"}
+            settled = child.state in TERMINAL_STATES
+            out: dict[str, Any] = {
+                "ok": True,
+                "handle": handle,
+                "to": assignment.to_agent_id,
+                "task": assignment.task,
+                "state": child.state.value,
+                "settled": settled,
+                "waiting_human": child.state is SessionState.WAITING_HUMAN,
+                "session_url": self.sessions.url(handle),
+            }
+            if child.state is SessionState.WAITING_HUMAN:
+                out["note"] = (
+                    "parked on a human decision; this is reported, not waited "
+                    "on, and the handle still counts against your parallel bound"
+                )
+            if settled:
+                out.update(self._collect(assignment))
+                out["ok"] = out.get("error") is None
+            return out
+
+        def gather(handles: Any, timeout_s: float = 0.0) -> dict[str, Any]:
+            """Wait for several handles and return what each one came back with.
+
+            Every handle settles. One that cannot be resolved before the
+            deadline comes back failed with the reason, because a handle that
+            hangs forever leaves you with no turn in which to notice.
+            """
+            if isinstance(handles, str):
+                handles = [handles]
+            window = float(timeout_s) or float(
+                agent.harness.wall_clock_budget_s or 0
+            ) or 300.0
+            deadline = time.monotonic() + window
+
+            results: list[dict[str, Any]] = []
+            for handle in list(handles):
+                assignment = _held(handle)
+                if assignment is None:
+                    results.append({
+                        "ok": False, "handle": handle, "settled": True,
+                        "state": SessionState.FAILED.value,
+                        "error": f"{agent.name} does not hold handle {handle}",
+                    })
+                    continue
+                remaining = max(0.0, deadline - time.monotonic())
+                try:
+                    assignment.future.result(timeout=remaining)
+                except FutureTimeout:
+                    # The worker may still be running. Its result is discarded
+                    # and the handle fails, rather than being left open: the
+                    # `assignment_abandoned` event records that this is a
+                    # deadline, not a failure of the work itself.
+                    with self._assign_lock:
+                        assignment.abandoned = True
+                        assignment.collected = True
+                    reason = (
+                        f"deadline passed after {round(window, 1)}s with the "
+                        "work still running; the result is abandoned"
+                    )
+                    self.sessions.log(handle, "assignment_abandoned",
+                                      actor=agent.id, payload={"error": reason})
+                    self.sessions.set_state(handle, SessionState.FAILED)
+                    results.append({
+                        "ok": False, "handle": handle, "settled": True,
+                        "to": assignment.to_agent_id,
+                        "state": SessionState.FAILED.value, "error": reason,
+                    })
+                    continue
+                except BaseException:                   # noqa: BLE001
+                    pass                                # surfaced by _collect
+                results.append(check(handle))
+            return {
+                "ok": all(r.get("ok") for r in results),
+                "results": results,
+                "outstanding": self.unsettled_handles(session_id),
             }
 
         def spawn_subagent(name: str, task: str, instructions: str = "") -> dict[str, Any]:
@@ -681,7 +1084,8 @@ class AgentRuntime:
             self.org.add_agent(sub)
             return delegate(sub.id, task)
 
-        return {"delegate": delegate, "spawn_subagent": spawn_subagent}
+        return {"delegate": delegate, "assign": assign, "check": check,
+                "gather": gather, "spawn_subagent": spawn_subagent}
 
     def workflow_binding(self, workflow_id: str) -> Optional[WorkflowBinding]:
         exact = next(

@@ -1,8 +1,8 @@
 ---
 id: ADR-0093
 title: Delegation that returns a handle
-status: Proposed
-version: 0.1.0
+status: Accepted
+version: 1.0.0
 date: 2026-09-22
 updated: 2026-09-22
 deciders: [Platform Architecture]
@@ -54,8 +54,6 @@ process-local counter (`self._depth += 1 … finally: self._depth -= 1`), which
 is meaningful only while delegation is a call stack.
 
 ## Decision
-*(Proposed — this is a sketch for review, not an accepted design.)*
-
 Add an **asynchronous delegation** alongside the synchronous one. It does not
 replace it: a leader that wants an answer now should keep saying so, and most
 delegation is that.
@@ -132,25 +130,40 @@ proposal until somebody wants it.
 No change to the phase gate, the IR shape, any target, or `Org.can_delegate`.
 
 ## Implementation
-Sketch, not a plan:
+Built as described. What landed, and where it differs from the sketch:
 
-- `SessionStore` gains `outstanding(session_id)` — children whose state is not
-  terminal — which `check`/`gather` and the depth rule read.
+- `SessionManager.outstanding(session_id)` returns children that have not
+  reached one of `TERMINAL_STATES` (completed, failed, archived).
+  `WAITING_HUMAN` is deliberately not terminal.
 - `_delegation_tools` gains `assign` / `check` / `gather` beside `delegate`.
-  `delegate` stays as it is and may be expressed as `assign` followed
-  immediately by `gather` on one handle, if that turns out not to complicate
-  the synchronous path.
-- Depth derives from the `parent_session_id` chain; the `self._depth` counter
-  goes.
-- A settled child's `token_usage` / `cost_usd` are charged to the parent's
-  `TurnBudget` at collection.
-- The runtime engine's honesty reports gain the parallel bound, since it is now
-  a control rather than a field.
+  **`delegate` was left exactly as it was** rather than re-expressed as
+  `assign` + `gather`: the synchronous path runs the child on the calling
+  thread, and routing it through a worker would have put a thread handoff
+  under the common case to save a few lines.
+- Depth comes from `AgentRuntime.delegation_depth`, which walks
+  `parent_session_id`; the `self._depth` counter is gone.
+- A settled child's tokens are charged once to the parent's `TurnBudget` by
+  `_collect`, and the `delegation_collected` event records tokens and cost.
+  **Cost is recorded, not enforced**: `TurnBudget` bounds tokens and wall
+  clock, and inventing a money ceiling it does not have would be exactly the
+  control that reads as enforced and is not.
+- `settle_lost_handles` fails any handle no worker in this process holds, and
+  `run` calls it whenever a session resumes. That is what closes the restart
+  case in rule 5.
+- The runtime grew **no honesty report**, because it has none to grow: the
+  reports are per target, and no target carries this. That is now held by a
+  test asserting no generated `CONFORMANCE.md` names `assign`, `gather` or
+  `max_parallel_subagents`.
+
+Work still open: a handle collected several turns later returns into a
+conversation that has moved on, and nothing makes the leader re-read what it
+asked for — see the disadvantage below. And a `gather` deadline abandons a
+result whose worker may still be running; the `assignment_abandoned` event
+records that it was a deadline rather than a failure of the work.
 
 ## Timeline
-Not scheduled. This is a proposal for review; nothing should be built until the
-authority-at-collection rule (rule 1) is agreed, because it is the one decision
-the rest hangs off.
+Delivered with this ADR. The eight Verification bullets below are
+`tests/test_async_delegation.py`.
 
 ## Advantages
 - A leader can fan out and reconcile, so wall-clock cost becomes the maximum
@@ -220,4 +233,5 @@ What would have to be true, if this is built:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.0.0 | 2026-09-22 | Accepted and implemented: `assign`/`check`/`gather`, depth from the session tree, `max_parallel_subagents` enforced, a child's tokens charged to the parent, lost handles settled on resume. |
 | 0.1.0 | 2026-09-22 | Proposed. Asynchronous delegation returning a handle, backed by the existing session tree; authority checked at assignment; `max_parallel_subagents` enforced; children's spend charged to the parent. |

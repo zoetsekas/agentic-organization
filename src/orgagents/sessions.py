@@ -12,6 +12,14 @@ from .ids import new_id, now_iso
 from .models import AgentSession, SessionEvent, SessionState
 from .store import EVENTS, SESSIONS, Store
 
+#: The states a session never leaves. A handle held by a leader is settled
+#: exactly when its child session reaches one of these (ADR-0093 rule 5).
+TERMINAL_STATES = frozenset({
+    SessionState.COMPLETED,
+    SessionState.FAILED,
+    SessionState.ARCHIVED,
+})
+
 
 class SessionManager:
     def __init__(self, store: Store, base_url: str = "http://localhost:8000") -> None:
@@ -54,6 +62,22 @@ class SessionManager:
             for s in self.store.list(SESSIONS, AgentSession, limit=2000)
             if s.parent_session_id == session_id
         ]
+
+    def outstanding(self, session_id: str) -> list[AgentSession]:
+        """Child sessions of `session_id` that have not settled.
+
+        Settled means one of the terminal states in :data:`TERMINAL_STATES`.
+        ``WAITING_HUMAN`` is deliberately **not** terminal: a child parked on
+        an approval is still outstanding work, and a leader that treated it as
+        finished would report a task done that nobody has decided (ADR-0093).
+
+        This is the whole store behind asynchronous delegation. There is no
+        second work-item table: parent, state, spend and audit already live on
+        the session, so the tree answers "what have I got outstanding, and
+        what is stuck?" without inventing anything to keep in sync with it.
+        """
+        return [c for c in self.children(session_id)
+                if c.state not in TERMINAL_STATES]
 
     def url(self, session_id: str) -> str:
         return f"{self.base_url}/sessions/{session_id}"
