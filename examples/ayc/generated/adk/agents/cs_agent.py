@@ -3,16 +3,25 @@
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
+from ._backends import mcp_call
 
 def order_query(**kwargs):
     """Read orders and their fulfillment status."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind order_query in host code")
+    return mcp_call(
+        "shopify", "https://ayc.myshopify.com/admin/api/mcp",
+        "streamable_http", "order_query",
+        secret_env=None,
+        **kwargs,
+    )
 
 def refund_processing(**kwargs):
     """Issue a refund or a store credit against an order."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind refund_processing in host code")
+    return mcp_call(
+        "shopify", "https://ayc.myshopify.com/admin/api/mcp",
+        "streamable_http", "refund_processing",
+        secret_env=None,
+        **kwargs,
+    )
 
 cs_agent = LlmAgent(
     name="cs_agent",

@@ -3,11 +3,16 @@
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
+from ._backends import mcp_call
 
 def receivable_management(**kwargs):
     """Record or write off a customer receivable."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind receivable_management in host code")
+    return mcp_call(
+        "accounting", "https://accounting.ayc.internal/mcp",
+        "streamable_http", "receivable_management",
+        secret_env=None,
+        **kwargs,
+    )
 
 ar_agent = LlmAgent(
     name="ar_agent",

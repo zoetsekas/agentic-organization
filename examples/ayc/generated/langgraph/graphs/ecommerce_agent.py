@@ -3,21 +3,32 @@
 
 from deepagents import create_deep_agent
 from langchain_core.tools import StructuredTool
+from ._backends import bounded_sql, mcp_call
 
 def order_query(**kwargs):
     """Read orders and their fulfillment status."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind order_query in host code")
+    return mcp_call(
+        "shopify", "https://ayc.myshopify.com/admin/api/mcp",
+        "streamable_http", "order_query",
+        secret_env=None,
+        **kwargs,
+    )
 
 def product_publishing(**kwargs):
     """Create or update a product listing on Shopify."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind product_publishing in host code")
+    return mcp_call(
+        "shopify", "https://ayc.myshopify.com/admin/api/mcp",
+        "streamable_http", "product_publishing",
+        secret_env=None,
+        **kwargs,
+    )
 
-def stock_check(**kwargs):
-    """Check stock levels in Fishbowl for a product."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind stock_check in host code")
+def stock_check(query, params=None):
+    """Check stock levels in Fishbowl for a product.
+
+    Bounded to operations ["select"] and 500 row cap; the query is yours, the bound is the design's.
+    """
+    return bounded_sql("FISHBOWL_DSN", ["select"], 500, query, params)
 
 SUBAGENTS = [
     {

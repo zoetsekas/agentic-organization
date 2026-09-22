@@ -3,11 +3,16 @@
 
 from deepagents import create_deep_agent
 from langchain_core.tools import StructuredTool
+from ._backends import mcp_call
 
 def invoice_payment(**kwargs):
     """Pay a supplier invoice."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind invoice_payment in host code")
+    return mcp_call(
+        "accounting", "https://accounting.ayc.internal/mcp",
+        "streamable_http", "invoice_payment",
+        secret_env=None,
+        **kwargs,
+    )
 
 SUBAGENTS = [
     {

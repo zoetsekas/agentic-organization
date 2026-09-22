@@ -4,3 +4,5 @@ langgraph-cli[inmem]>=0.1
 langchain>=0.3
 langchain-anthropic>=0.2
 # add the langchain-<provider> package your binding's model uses
+langchain-mcp-adapters>=0.1  # wired MCP capabilities
+sqlalchemy>=2.0  # wired database capabilities

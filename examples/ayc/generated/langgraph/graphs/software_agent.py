@@ -3,11 +3,16 @@
 
 from deepagents import create_deep_agent
 from langchain_core.tools import StructuredTool
+from ._backends import mcp_call
 
 def software_deploy(**kwargs):
     """Deploy a change to a production system."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind software_deploy in host code")
+    return mcp_call(
+        "deploy_pipeline", "https://deploy.ayc.internal/mcp",
+        "streamable_http", "software_deploy",
+        secret_env=None,
+        **kwargs,
+    )
 
 software_agent = create_deep_agent(
     model="anthropic:claude-sonnet-4-5",

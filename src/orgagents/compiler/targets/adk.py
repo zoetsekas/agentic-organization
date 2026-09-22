@@ -26,6 +26,7 @@ from typing import Any
 
 from ..base import GeneratedFile
 from ..ir import SystemIR
+from ._wiring import BACKENDS_SHIM, emit_wired_def, shim_imports, wired_and_stubbed
 
 #: What an ADK `LlmAgent` can actually carry, verified against the ADK API.
 EXPRESSIBLE = (
@@ -106,7 +107,12 @@ class GoogleADKTarget:
             GeneratedFile("agent_engine.py", self._deploy_script(ir))
             .with_header(ir, comment="#")
         )
-        files.append(GeneratedFile("requirements.txt", self._requirements()))
+        if self._any_wired(ir):
+            files.append(
+                GeneratedFile("agents/_backends.py", BACKENDS_SHIM)
+                .with_header(ir, comment="#")
+            )
+        files.append(GeneratedFile("requirements.txt", self._requirements(ir)))
         files.append(
             GeneratedFile("CONFORMANCE.md", self._conformance(ir))
             .with_header(ir, comment="<!--")
@@ -120,21 +126,30 @@ class GoogleADKTarget:
         model = self._model_id(agent)
         instruction = _pytext(agent.system_prompt() or "")
         tools = self._tool_surface(agent)
+        wired, stubbed = wired_and_stubbed(ir, tools)
+        needs = {t["backend"]["kind"] for t in wired}
 
         lines = [
             "from google.adk.agents import LlmAgent",
         ]
         if tools:
             lines.append("from google.adk.tools import FunctionTool")
+        shim = shim_imports(needs)
+        if shim:
+            lines.append(f"from ._backends import {', '.join(shim)}")
         lines.append("")
 
-        # Tool stubs: the callable is the host's, so these raise until wired.
-        for tool in tools:
+        # Wired tools: a real client to the declared backend, not a stub.
+        for tool in wired:
+            lines += emit_wired_def(tool)
+            lines.append("")
+        # Stubs remain only where the design binds no backend (ADR-0085).
+        for tool in stubbed:
             lines += [
                 f"def {_mod(tool['name'])}(**kwargs):",
                 f'    """{tool["description"] or tool["name"]}"""',
-                "    # Supplied by the host at registration; the design names "
-                "the tool, not its code.",
+                "    # No server bound for this capability; the callable is the "
+                "host's.",
                 f'    raise NotImplementedError("bind {tool["name"]} in host '
                 'code")',
                 "",
@@ -249,32 +264,60 @@ if __name__ == "__main__":
     main()
 '''.format(display=json.dumps(ir.name))
 
-    def _requirements(self) -> str:
-        return (
-            "google-adk>=1.0\n"
-            "google-cloud-aiplatform[agent_engines]>=1.60\n"
+    def _any_wired(self, ir: SystemIR) -> bool:
+        return any(
+            t.get("backend")
+            for agent in ir.agents
+            for t in wired_and_stubbed(ir, self._tool_surface(agent))[0]
         )
+
+    def _requirements(self, ir: SystemIR) -> str:
+        kinds = {
+            t["backend"]["kind"]
+            for agent in ir.agents
+            for t in wired_and_stubbed(ir, self._tool_surface(agent))[0]
+        }
+        lines = [
+            "google-adk>=1.0",
+            "google-cloud-aiplatform[agent_engines]>=1.60",
+        ]
+        if "mcp" in kinds:
+            lines.append("langchain-mcp-adapters>=0.1  # wired MCP capabilities")
+        if "database" in kinds:
+            lines.append("sqlalchemy>=2.0  # wired database capabilities")
+        return "\n".join(lines) + "\n"
 
     # -- shared with the MAF target in spirit ------------------------------
 
     def _tool_surface(self, agent: Any) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
+        gated = set(agent.requires_approval_for)
+        by_cap = {c.id: c for c in agent.capabilities}
         for tool in agent.tools:
-            out.append({
+            cap = by_cap.get(tool.wraps) if tool.wraps_kind == "capability" else None
+            out.append(self._constraints({
                 "name": tool.id, "description": tool.description,
                 "gated": tool.requires_approval,
-            })
-        gated = set(agent.requires_approval_for)
+            }, cap))
         for capability in agent.capabilities:
             if any(t["name"] == capability.id for t in out):
                 continue
-            out.append({
+            out.append(self._constraints({
                 "name": capability.id,
                 "description": capability.description,
                 "gated": capability.id in gated
                 or bool(capability.constraints.requires_approval),
-            })
+            }, capability))
         return out
+
+    def _constraints(self, tool: dict[str, Any], cap: Any) -> dict[str, Any]:
+        if cap is not None:
+            tool["allowed_operations"] = list(cap.constraints.allowed_operations)
+            tool["max_rows"] = cap.constraints.max_rows or 0
+        else:
+            tool["allowed_operations"] = []
+            tool["max_rows"] = 0
+        return tool
 
     def _generate_content_config(self, agent: Any) -> dict[str, Any]:
         model = agent.model or {}
@@ -349,10 +392,14 @@ if __name__ == "__main__":
              "ADK has `output_schema`; the design carries an output-contract "
              "id, and mapping it to a pydantic model is a one-liner the host "
              "supplies."),
-            ("Tool callables", "**not in the IR**", "host code",
-             "A FunctionTool needs its Python callable. The design names the "
-             "tool; its code is the host's. The emitted tools raise until "
-             "wired."),
+            ("Tool callables", "emitted for bound capabilities", "the "
+             "servers catalog",
+             "A capability the binding puts behind a declared server (MCP or "
+             "database, ADR-0085) is emitted as a working client in "
+             "`_backends.py` and wrapped in a FunctionTool — an MCP call, or a "
+             "bounded SQL query enforcing the design's operation allowlist and "
+             "row cap. Only a capability with no server bound stays a stub, and "
+             "credentials are env-var names, never values."),
             ("The rest of the tool surface", "**not in the IR**",
              "our harness only",
              "MCP mounts and built-in tool families are assembled by this "
@@ -453,9 +500,11 @@ A Python ADK package:
 Run locally with `adk run agents`, or deploy with
 `python agent_engine.py --project YOUR_PROJECT --location us-central1`.
 
-Tool callables are stubs that raise until you bind them: a binding names a
-Python callable in your process, which is a property of your application, not
-of this design.
+Tools behind a declared server are wired for real: a capability the binding
+puts on an MCP or database server (ADR-0085) is emitted in `agents/_backends.py`
+as a working client — an MCP call, or a bounded SQL query that enforces the
+design's operation allowlist and row cap. Set the credential env vars the
+binding named. Only a capability with no server bound stays a stub you fill in.
 
 **Read `CONFORMANCE.md` first.** {len(ir.agents)} agents come across; the
 authority model does not, and the report says what that costs.

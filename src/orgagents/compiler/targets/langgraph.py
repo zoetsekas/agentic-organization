@@ -32,6 +32,7 @@ from typing import Any
 
 from ..base import GeneratedFile
 from ..ir import SystemIR
+from ._wiring import BACKENDS_SHIM, emit_wired_def, shim_imports, wired_and_stubbed
 
 #: What a deepagents graph on LangGraph Platform can actually carry.
 EXPRESSIBLE = (
@@ -114,8 +115,13 @@ class LangGraphPlatformTarget:
             GeneratedFile("graphs/__init__.py", self._package_init(ir))
             .with_header(ir, comment="#")
         )
+        if self._any_wired(ir):
+            files.append(
+                GeneratedFile("graphs/_backends.py", BACKENDS_SHIM)
+                .with_header(ir, comment="#")
+            )
         files.append(GeneratedFile("langgraph.json", self._manifest(ir)))
-        files.append(GeneratedFile("requirements.txt", self._requirements()))
+        files.append(GeneratedFile("requirements.txt", self._requirements(ir)))
         files.append(
             GeneratedFile(".env.example", self._env_example(ir),
                           preserve_if_exists=True)
@@ -135,21 +141,30 @@ class LangGraphPlatformTarget:
         system_prompt = _pytext(agent.system_prompt() or "")
         tools = self._tool_surface(agent)
         gated = [t["name"] for t in tools if t["gated"]]
+        wired, stubbed = wired_and_stubbed(ir, tools)
+        needs = {t["backend"]["kind"] for t in wired}
 
         lines = [
             "from deepagents import create_deep_agent",
         ]
         if tools:
             lines.append("from langchain_core.tools import StructuredTool")
+        shim = shim_imports(needs)
+        if shim:
+            lines.append(f"from ._backends import {', '.join(shim)}")
         lines.append("")
 
-        # Tool stubs: the callable is the host's, so these raise until wired.
-        for tool in tools:
+        # Wired tools: a real client to the declared backend, not a stub.
+        for tool in wired:
+            lines += emit_wired_def(tool)
+            lines.append("")
+        # Stubs remain only where the design binds no backend (ADR-0085).
+        for tool in stubbed:
             lines += [
                 f"def {_mod(tool['name'])}(**kwargs):",
                 f'    """{tool["description"] or tool["name"]}"""',
-                "    # Supplied by the host at registration; the design names "
-                "the tool, not its code.",
+                "    # No server bound for this capability; the callable is the "
+                "host's.",
                 f'    raise NotImplementedError("bind {tool["name"]} in host '
                 'code")',
                 "",
@@ -243,15 +258,32 @@ class LangGraphPlatformTarget:
         }
         return json.dumps(manifest, indent=2) + "\n"
 
-    def _requirements(self) -> str:
-        return (
-            "deepagents>=0.0.5\n"
-            "langgraph>=0.2\n"
-            "langgraph-cli[inmem]>=0.1\n"
-            "langchain>=0.3\n"
-            "langchain-anthropic>=0.2\n"
-            "# add the langchain-<provider> package your binding's model uses\n"
+    def _any_wired(self, ir: SystemIR) -> bool:
+        return any(
+            t.get("backend")
+            for agent in ir.agents
+            for t in wired_and_stubbed(ir, self._tool_surface(agent))[0]
         )
+
+    def _requirements(self, ir: SystemIR) -> str:
+        kinds = {
+            t["backend"]["kind"]
+            for agent in ir.agents
+            for t in wired_and_stubbed(ir, self._tool_surface(agent))[0]
+        }
+        lines = [
+            "deepagents>=0.0.5",
+            "langgraph>=0.2",
+            "langgraph-cli[inmem]>=0.1",
+            "langchain>=0.3",
+            "langchain-anthropic>=0.2",
+            "# add the langchain-<provider> package your binding's model uses",
+        ]
+        if "mcp" in kinds:
+            lines.append("langchain-mcp-adapters>=0.1  # wired MCP capabilities")
+        if "database" in kinds:
+            lines.append("sqlalchemy>=2.0  # wired database capabilities")
+        return "\n".join(lines) + "\n"
 
     def _env_example(self, ir: SystemIR) -> str:
         return (
@@ -273,21 +305,34 @@ class LangGraphPlatformTarget:
     def _tool_surface(self, agent: Any) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         gated = set(agent.requires_approval_for)
+        by_cap = {c.id: c for c in agent.capabilities}
         for tool in agent.tools:
-            out.append({
+            cap = by_cap.get(tool.wraps) if tool.wraps_kind == "capability" else None
+            out.append(self._constraints({
                 "name": tool.id, "description": tool.description,
                 "gated": tool.requires_approval or tool.id in gated,
-            })
+            }, cap))
         for capability in agent.capabilities:
             if any(t["name"] == capability.id for t in out):
                 continue
-            out.append({
+            out.append(self._constraints({
                 "name": capability.id,
                 "description": capability.description,
                 "gated": capability.id in gated
                 or bool(capability.constraints.requires_approval),
-            })
+            }, capability))
         return out
+
+    def _constraints(self, tool: dict[str, Any], cap: Any) -> dict[str, Any]:
+        """Attach a capability's read bound (operation allowlist, row cap) so a
+        database-backed tool can enforce it."""
+        if cap is not None:
+            tool["allowed_operations"] = list(cap.constraints.allowed_operations)
+            tool["max_rows"] = cap.constraints.max_rows or 0
+        else:
+            tool["allowed_operations"] = []
+            tool["max_rows"] = 0
+        return tool
 
     def _model_id(self, agent: Any) -> str:
         model = agent.model or {}
@@ -362,10 +407,14 @@ class LangGraphPlatformTarget:
             ("Filesystem permissions", "emitted", "deepagents",
              "The virtual filesystem is governed by FilesystemPermission "
              "rules; the harness derives the same rules it runs with."),
-            ("Tool callables", "**not in the IR**", "host code",
-             "A StructuredTool needs its Python callable. The design names the "
-             "tool; its code is the host's. The emitted tools raise until "
-             "wired."),
+            ("Tool callables", "emitted for bound capabilities", "the "
+             "servers catalog",
+             "A capability the binding puts behind a declared server (MCP or "
+             "database, ADR-0085) is emitted as a working client in "
+             "`_backends.py` — an MCP call, or a bounded SQL query enforcing "
+             "the design's operation allowlist and row cap. Only a capability "
+             "with no server bound stays a stub, and credentials are env-var "
+             "names, never values."),
             ("The rest of the tool surface", "**not in the IR**",
              "our harness only",
              "MCP mounts and built-in tool families are assembled by this "
@@ -483,9 +532,11 @@ This is the **same `langchain_deepagents` runtime** this platform runs under
 LangChain platform here, your own Google Cloud there. The runtime is a binding
 choice; the destination is a target. They compose.
 
-Tool callables are stubs that raise until you bind them: a binding names a
-Python callable in your process, which is a property of your application, not of
-this design.
+Tools behind a declared server are wired for real: a capability the binding
+puts on an MCP or database server (ADR-0085) is emitted in `graphs/_backends.py`
+as a working client — an MCP call, or a bounded SQL query that enforces the
+design's operation allowlist and row cap. Set the credential env vars the
+binding named. Only a capability with no server bound stays a stub you fill in.
 
 **Read `CONFORMANCE.md` first.** {len(ir.agents)} agents come across, with
 their delegation hierarchy and a real interrupt gate; the authority model does

@@ -3,16 +3,25 @@
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
+from ._backends import mcp_call
 
 def content_publishing(**kwargs):
     """Publish marketing or product content."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind content_publishing in host code")
+    return mcp_call(
+        "cms", "https://cms.ayc.internal/mcp",
+        "streamable_http", "content_publishing",
+        secret_env=None,
+        **kwargs,
+    )
 
 def promotion_run(**kwargs):
     """Run a promotion or a discount on the storefront."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind promotion_run in host code")
+    return mcp_call(
+        "shopify", "https://ayc.myshopify.com/admin/api/mcp",
+        "streamable_http", "promotion_run",
+        secret_env=None,
+        **kwargs,
+    )
 
 marketing_agent = LlmAgent(
     name="marketing_agent",

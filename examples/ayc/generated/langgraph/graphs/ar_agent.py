@@ -3,11 +3,16 @@
 
 from deepagents import create_deep_agent
 from langchain_core.tools import StructuredTool
+from ._backends import mcp_call
 
 def receivable_management(**kwargs):
     """Record or write off a customer receivable."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind receivable_management in host code")
+    return mcp_call(
+        "accounting", "https://accounting.ayc.internal/mcp",
+        "streamable_http", "receivable_management",
+        secret_env=None,
+        **kwargs,
+    )
 
 ar_agent = create_deep_agent(
     model="anthropic:claude-sonnet-4-5",

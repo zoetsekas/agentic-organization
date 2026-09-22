@@ -3,11 +3,16 @@
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
+from ._backends import mcp_call
 
 def invoice_payment(**kwargs):
     """Pay a supplier invoice."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind invoice_payment in host code")
+    return mcp_call(
+        "accounting", "https://accounting.ayc.internal/mcp",
+        "streamable_http", "invoice_payment",
+        secret_env=None,
+        **kwargs,
+    )
 
 ap_agent = LlmAgent(
     name="ap_agent",

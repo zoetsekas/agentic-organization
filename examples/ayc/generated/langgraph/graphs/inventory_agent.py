@@ -3,16 +3,21 @@
 
 from deepagents import create_deep_agent
 from langchain_core.tools import StructuredTool
+from ._backends import bounded_sql
 
-def inventory_adjustment(**kwargs):
-    """Adjust an inventory record on a cycle count."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind inventory_adjustment in host code")
+def inventory_adjustment(query, params=None):
+    """Adjust an inventory record on a cycle count.
 
-def stock_check(**kwargs):
-    """Check stock levels in Fishbowl for a product."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind stock_check in host code")
+    Bounded to operations [] and no row cap; the query is yours, the bound is the design's.
+    """
+    return bounded_sql("FISHBOWL_DSN", [], 0, query, params)
+
+def stock_check(query, params=None):
+    """Check stock levels in Fishbowl for a product.
+
+    Bounded to operations ["select"] and 500 row cap; the query is yours, the bound is the design's.
+    """
+    return bounded_sql("FISHBOWL_DSN", ["select"], 500, query, params)
 
 SUBAGENTS = [
     {

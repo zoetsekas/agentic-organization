@@ -3,16 +3,25 @@
 
 from deepagents import create_deep_agent
 from langchain_core.tools import StructuredTool
+from ._backends import mcp_call
 
 def order_query(**kwargs):
     """Read orders and their fulfillment status."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind order_query in host code")
+    return mcp_call(
+        "shopify", "https://ayc.myshopify.com/admin/api/mcp",
+        "streamable_http", "order_query",
+        secret_env=None,
+        **kwargs,
+    )
 
 def refund_processing(**kwargs):
     """Issue a refund or a store credit against an order."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind refund_processing in host code")
+    return mcp_call(
+        "shopify", "https://ayc.myshopify.com/admin/api/mcp",
+        "streamable_http", "refund_processing",
+        secret_env=None,
+        **kwargs,
+    )
 
 cs_agent = create_deep_agent(
     model="anthropic:claude-sonnet-4-5",

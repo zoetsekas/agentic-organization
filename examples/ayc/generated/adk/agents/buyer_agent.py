@@ -3,21 +3,28 @@
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
+from ._backends import bounded_sql
 
-def goods_receiving(**kwargs):
-    """Receive goods against a purchase order."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind goods_receiving in host code")
+def goods_receiving(query, params=None):
+    """Receive goods against a purchase order.
 
-def purchase_ordering(**kwargs):
-    """Raise a purchase order to a supplier in Fishbowl."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind purchase_ordering in host code")
+    Bounded to operations [] and no row cap; the query is yours, the bound is the design's.
+    """
+    return bounded_sql("FISHBOWL_DSN", [], 0, query, params)
 
-def stock_check(**kwargs):
-    """Check stock levels in Fishbowl for a product."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind stock_check in host code")
+def purchase_ordering(query, params=None):
+    """Raise a purchase order to a supplier in Fishbowl.
+
+    Bounded to operations [] and no row cap; the query is yours, the bound is the design's.
+    """
+    return bounded_sql("FISHBOWL_DSN", [], 0, query, params)
+
+def stock_check(query, params=None):
+    """Check stock levels in Fishbowl for a product.
+
+    Bounded to operations ["select"] and 500 row cap; the query is yours, the bound is the design's.
+    """
+    return bounded_sql("FISHBOWL_DSN", ["select"], 500, query, params)
 
 buyer_agent = LlmAgent(
     name="buyer_agent",

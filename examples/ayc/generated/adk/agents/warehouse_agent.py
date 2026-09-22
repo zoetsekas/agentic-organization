@@ -3,16 +3,23 @@
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
+from ._backends import bounded_sql, mcp_call
 
-def order_fulfillment(**kwargs):
-    """Pick, pack and ship a customer order."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind order_fulfillment in host code")
+def order_fulfillment(query, params=None):
+    """Pick, pack and ship a customer order.
+
+    Bounded to operations [] and no row cap; the query is yours, the bound is the design's.
+    """
+    return bounded_sql("FISHBOWL_DSN", [], 0, query, params)
 
 def order_query(**kwargs):
     """Read orders and their fulfillment status."""
-    # Supplied by the host at registration; the design names the tool, not its code.
-    raise NotImplementedError("bind order_query in host code")
+    return mcp_call(
+        "shopify", "https://ayc.myshopify.com/admin/api/mcp",
+        "streamable_http", "order_query",
+        secret_env=None,
+        **kwargs,
+    )
 
 warehouse_agent = LlmAgent(
     name="warehouse_agent",
