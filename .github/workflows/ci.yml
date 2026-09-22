@@ -25,22 +25,27 @@ jobs:
           orgagents records index
           git diff --exit-code docs/decisions/index.md docs/workstreams/index.md
 
-      # ADR-0004: the example spec must stay valid and neutral.
-      - name: Validate the example system spec
-        run: orgagents spec validate examples/acme.system.yaml
+      # ADR-0004: every shipped example spec must stay valid and neutral.
+      # Examples live one per folder under examples/<name>/ (ADR-0085 era).
+      - name: Validate every example system spec
+        run: |
+          for spec in examples/*/*.system.yaml; do
+            echo "== $spec"
+            orgagents spec validate "$spec"
+          done
 
       # ADR-0019: both phases must be complete before anything compiles.
       - name: Check definition and implementation phases
         run: |
           for target in local terraform:gcp terraform:aws terraform:azure; do
-            orgagents phase examples/acme.system.yaml \
-              --binding examples/acme.binding.yaml --target "$target"
+            orgagents phase examples/acme/acme.system.yaml \
+              --binding examples/acme/acme.binding.yaml --target "$target"
           done
 
       - name: Compile every target
         run: |
-          orgagents compile examples/acme.system.yaml \
-            --binding examples/acme.binding.yaml \
+          orgagents compile examples/acme/acme.system.yaml \
+            --binding examples/acme/acme.binding.yaml \
             --target local --target terraform:gcp \
             --target terraform:aws --target terraform:azure \
             --out build
