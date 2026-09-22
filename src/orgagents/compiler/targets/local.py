@@ -153,6 +153,8 @@ class LocalTarget:
         files = [
             GeneratedFile("docker-compose.yaml", self._compose(ir)).with_header(ir),
             GeneratedFile("Makefile", self._makefile(ir)).with_header(ir),
+            GeneratedFile("overlays/README.md", self._overlays_readme(ir),
+                          preserve_if_exists=True),
             GeneratedFile(".env.example", self._env(ir), preserve_if_exists=False)
             .with_header(ir),
             GeneratedFile("system.ir.json", json.dumps(ir.model_dump(mode="json"),
@@ -857,33 +859,93 @@ WORKDIR /workspace
             width=100,
         )
 
+    def _overlays_readme(self, ir: SystemIR) -> str:
+        """How to extend *this* target. The mechanism differs per target, so a
+        single 'put customizations in overlays/' line was never the whole
+        truth (ADR-0092)."""
+        return f"""# Your overlays — {ir.name} (local)
+
+Everything beside this folder is generated and will be rewritten. **This folder
+is yours**: the compiler creates it and then never reads or writes inside it.
+
+## How it works here
+
+Any `*.yaml` (or `*.yml`) you put here is merged over the generated stack by
+Compose's own layering, in sorted order. The generated `Makefile` builds the
+`-f` chain for you, so `make up` already includes your overlays.
+
+```bash
+make overlays     # which overlay files are in effect
+make config       # the merged stack, overlays applied
+make up           # start it, overlays and all
+```
+
+## Example — swap an image and add a volume
+
+`overlays/10-local-dev.yaml`:
+
+```yaml
+services:
+  designer:
+    image: my-registry/designer:dev
+    volumes:
+      - ./src:/app/src:ro
+```
+
+Name files so they sort in the order you want them applied: `10-`, `20-`, and
+so on. Later files win, which is Compose's rule, not ours.
+
+## What this cannot do
+
+An overlay changes the *deployment*, never the design. It cannot grant an agent
+a permission, widen a sandbox or remove an approval — those are resolved once
+from the spec into the IR, and an overlay is applied long after. If you need a
+different permission, change the design and recompile; a control you can edit
+away in a compose file was never a control.
+"""
+
     def _makefile(self, ir: SystemIR) -> str:
         spec_file = f"{ir.name}.system.yaml"
         return f"""\
 # {ir.name} — local development loop
 
-.PHONY: up down logs seed ps single validate
+.PHONY: up down logs seed ps single validate overlays
 
-up:            ## start the whole stack
-\tdocker compose up -d --remove-orphans
+# Anything you drop in overlays/*.yaml is merged over the generated stack, in
+# sorted order, by Compose's own layering (ADR-0092). Your files are yours: the
+# compiler never writes or reads inside overlays/, so a regeneration cannot
+# lose them. This is how you change an image, add a volume or bolt on a
+# sidecar without editing a generated file.
+COMPOSE_OVERLAYS := $(sort $(wildcard overlays/*.yaml) $(wildcard overlays/*.yml))
+COMPOSE := docker compose -f docker-compose.yaml \\
+\t$(foreach f,$(COMPOSE_OVERLAYS),-f $(f))
+
+overlays:      ## show which overlay files are in effect
+\t@echo "$(if $(COMPOSE_OVERLAYS),$(COMPOSE_OVERLAYS),none — drop a *.yaml in overlays/)"
+
+up:            ## start the whole stack (generated + your overlays)
+\t$(COMPOSE) up -d --remove-orphans
 
 down:          ## stop and remove the stack
-\tdocker compose down -v
+\t$(COMPOSE) down -v
 
 logs:          ## follow agent logs
-\tdocker compose logs -f $(filter-out $@,$(MAKECMDGOALS))
+\t$(COMPOSE) logs -f $(filter-out $@,$(MAKECMDGOALS))
 
 ps:            ## show running services
-\tdocker compose ps
+\t$(COMPOSE) ps
+
+config:        ## show the merged stack, overlays applied
+\t$(COMPOSE) config
 
 seed:          ## load the compiled organization into the platform
-\tdocker compose exec designer orgagents seed
+\t$(COMPOSE) exec designer orgagents seed
 
 single:        ## run everything in one process (no container runtime needed)
 \tpython run_local.py
 
 images:        ## list the images this system defines
-	docker compose config --images
+	$(COMPOSE) config --images
 
 validate:      ## re-validate the source spec
 \torgagents spec validate ../../{ir.name}.system.yaml

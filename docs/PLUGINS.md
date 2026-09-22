@@ -11,6 +11,47 @@ orgagents providers --feature handoffs  # who supports one thing
 orgagents providers --format json       # what the designer reads
 ```
 
+## Three ways in, cheapest first
+
+| You want | Do this | Cost |
+|---|---|---|
+| A different output format | **Templates** — a directory of `*.tmpl` | no Python |
+| A different stack from a generated one | **Overlays** — see the `overlays/README.md` beside the output | no Python |
+| Anything with logic | **A Python target** under an entry point | a package |
+
+### Templates — no Python at all
+
+```bash
+orgagents compile acme.system.yaml --target template \
+    --template-dir ./my-templates --out build
+```
+
+Every `*.tmpl` is rendered against the IR and written with the suffix stripped.
+A path containing `{agent}` renders **once per agent** — that is how iteration
+is expressed, because substitution is `string.Template` (`$name`) and has no
+loops or conditionals by design.
+
+```
+my-templates/
+  README.md.tmpl              -> README.md          (rendered once)
+  jobs/{agent}.nomad.tmpl     -> jobs/<id>.nomad     (once per agent)
+```
+
+```hcl
+job "$agent_id" {
+  # $agent_description   team: $team
+  # approval required for: $requires_approval_for
+}
+```
+
+An unknown `$placeholder` is left exactly as written — `$HOME` in a shell
+fragment is legitimate — and every one is listed in the generated
+`CONFORMANCE.md`, so a genuine typo is still findable. `system.ir.json` is
+written alongside, so a template is never the ceiling.
+
+If you find yourself wanting logic, you have outgrown this; write a Python
+target below.
+
 ## The three groups
 
 | You are adding | Entry-point group | You implement |

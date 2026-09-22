@@ -349,6 +349,8 @@ class TerraformTarget:
             GeneratedFile("system.ir.json",
                           json.dumps(ir.model_dump(mode="json"), indent=2) + "\n"),
             GeneratedFile("MAPPING.md", self._mapping_report(ir)),
+            GeneratedFile("overlays/README.md", self._overlays_readme(ir),
+                          preserve_if_exists=True),
         ]
 
     def _main(self, ir: SystemIR) -> str:
@@ -854,6 +856,47 @@ terraform {{
   }}
 }}
 '''
+
+    def _overlays_readme(self, ir: SystemIR) -> str:
+        """Terraform's own idiom, which is not this folder (ADR-0092)."""
+        return f"""# Extending this configuration — {ir.name} ({self.profile.display})
+
+**For Terraform, your files belong in the directory above, not in here.**
+
+Terraform auto-loads every `*.tf` in the *root module* — the folder beside this
+one. It does **not** descend into subdirectories, so a `.tf` file placed here
+would be silently inert, which is the worst kind of wrong.
+
+## The rule
+
+Write your own `*.tf` next to the generated ones, under any name the compiler
+does not generate. `custom-*.tf` is a good habit. The compiler only ever writes
+files it generated and refuses to overwrite one that changed since, so your
+file survives every regeneration untouched.
+
+```hcl
+# ../custom-monitoring.tf
+resource "google_monitoring_alert_policy" "agent_errors" {{
+  display_name = "{ir.name} agent errors"
+  # reference generated resources directly — same module, same scope
+}}
+```
+
+Because it is the same root module, your code can reference the generated
+resources by name. That is exactly what a subdirectory would have cost you.
+
+## What is generated, and what is yours
+
+`manifest.json` lists every file this target wrote, with a digest. Anything not
+in it is yours. Run `terraform plan` to see your additions folded in.
+
+## What an overlay cannot do
+
+It changes the *deployment*, never the design. It cannot grant an agent a
+permission, widen a sandbox or remove an approval — those resolve once from the
+spec into the IR long before any HCL is written. A control you can edit away in
+a `.tf` file was never a control; change the design and recompile instead.
+"""
 
     def _mapping_report(self, ir: SystemIR) -> str:
         """Every IR permission, named as mapped or explicitly coarsened."""

@@ -353,7 +353,7 @@ def test_the_readme_names_who_is_co_resident():
         result = compile_system(
             _spec(), targets=["local"], out_dir=pathlib.Path(tmp)
         )[0]
-    readme = next(f for f in result.files if f.path.endswith("README.md")).content
+    readme = next(f for f in result.files if f.path == "README.md").content
     assert "## Placements" in readme
     assert "`hr_lead`, `recruiter`" in readme
     assert "not** a security boundary" in readme

@@ -191,6 +191,15 @@ def _compiler_command(args: argparse.Namespace) -> int:
     from .compiler.tenancy import TenantIsolationError
     from .spec import load_binding, load_spec, validate_spec
 
+    # A template directory turns the template target on: it is inert without
+    # one, so it registers only when the user points it somewhere (ADR-0092).
+    if getattr(args, "template_dir", None):
+        from .compiler.base import REGISTRY
+        from .compiler.targets.template import TemplateTarget
+
+        register_builtin_targets()
+        REGISTRY.register(TemplateTarget(args.template_dir), replace=True)
+
     if args.cmd == "targets":
         for description in register_builtin_targets().describe_all():
             print(f"{description['id']:18} {description['title']}")
@@ -837,7 +846,15 @@ def main(argv: list[str] | None = None) -> int:
     p_comp.add_argument("--db", default="orgagents.db",
                         help="fabric database holding the tenant registry")
 
-    sub.add_parser("targets", help="list available deployment targets")
+    p_targets = sub.add_parser("targets",
+                               help="list available deployment targets")
+
+    # Bring your own output format without writing Python (ADR-0092).
+    for parser_ in (p_comp, p_targets):
+        parser_.add_argument(
+            "--template-dir",
+            help="render this directory of *.tmpl files against the IR "
+                 "(use with --target template)")
 
     p_phase = sub.add_parser(
         "phase", help="check definition- and implementation-phase readiness"
