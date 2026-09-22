@@ -351,6 +351,35 @@ def validate_spec(
                         agent_id,
                     )
 
+    # -- scale (ADR-0095) --------------------------------------------------
+    # Bounds that cannot hold. Caught here rather than by a cloud rejecting
+    # the apply, because a design that says something impossible about its own
+    # capacity should not reach a deployment to find out.
+    for agent in agents:
+        policy = getattr(agent, "scaling", None)
+        if policy is None:
+            continue
+        if policy.max_instances < 1:
+            err("scale_ceiling_below_one",
+                f"agent '{agent.id}' has max_instances "
+                f"{policy.max_instances}, so it can never run. To stop an "
+                "agent, do not deploy it", agent.id)
+        if policy.min_instances < 0:
+            err("scale_floor_negative",
+                f"agent '{agent.id}' has min_instances "
+                f"{policy.min_instances}", agent.id)
+        elif policy.min_instances > policy.max_instances:
+            err("scale_floor_above_ceiling",
+                f"agent '{agent.id}' keeps {policy.min_instances} instances "
+                f"warm and allows at most {policy.max_instances}. The floor "
+                "cannot be above the ceiling", agent.id)
+        if policy.concurrent_sessions_per_instance < 1:
+            err("scale_concurrency_below_one",
+                f"agent '{agent.id}' has "
+                f"concurrent_sessions_per_instance "
+                f"{policy.concurrent_sessions_per_instance}, so an instance "
+                "would accept no work", agent.id)
+
     # -- succession (ADR-0094) ---------------------------------------------
     # A declared successor stands in laterally, so it does not already hold
     # the failed leader's mandate the way a manager does. Checking the union

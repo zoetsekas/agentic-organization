@@ -58,6 +58,41 @@ class ProviderProfile:
     # set it emit a network.tf that says the isolation was NOT generated,
     # rather than letting a reader assume it was.
     network: Optional["NetworkProfile"] = None
+    # How this provider expresses instance bounds (ADR-0095). Unset means it
+    # expresses none, and every declared bound is then reported as uncarried
+    # rather than dropped.
+    scaling: Optional["ScalingProfile"] = None
+
+
+@dataclass(frozen=True)
+class ScalingProfile:
+    """How one provider expresses "how many of this run" (ADR-0095).
+
+    A profile that omits a field is declaring that this cloud cannot express
+    it. That is the useful half: anything the design declared and the cloud
+    cannot carry is reported in `MAPPING.md` and in the agent's conformance
+    entry, rather than being quietly dropped. A target that silently discarded
+    a ceiling would be worse than one that never offered the field, because
+    the design would read as bounded.
+    """
+
+    #: The block the bounds go inside, e.g. "scaling" on Cloud Run v2. Empty
+    #: means the arguments sit directly on the resource.
+    block: str = ""
+    #: Argument names, empty where this cloud cannot express that bound.
+    min_argument: str = ""
+    max_argument: str = ""
+    #: Per-instance concurrency, which sits outside the scaling block on some
+    #: providers — hence its own block field.
+    concurrency_argument: str = ""
+    concurrency_block: str = ""
+
+    def expresses(self, field_name: str) -> bool:
+        return bool({
+            "min_instances": self.min_argument,
+            "max_instances": self.max_argument,
+            "concurrent_sessions_per_instance": self.concurrency_argument,
+        }.get(field_name, ""))
 
 
 @dataclass(frozen=True)
@@ -109,6 +144,14 @@ PROFILES: dict[str, ProviderProfile] = {
         secret_resource="google_secret_manager_secret",
         region_variable="region",
         coarse_actions=("approve",),
+        # Cloud Run v2 expresses all three: the floor and ceiling inside
+        # `scaling`, and per-instance concurrency on the template beside it.
+        scaling=ScalingProfile(
+            block="scaling",
+            min_argument="min_instance_count",
+            max_argument="max_instance_count",
+            concurrency_argument="max_instance_request_concurrency",
+        ),
         network=NetworkProfile(
             vpc_resource="google_compute_network",
             subnet_resource="google_compute_subnetwork",
@@ -158,6 +201,12 @@ PROFILES: dict[str, ProviderProfile] = {
         secret_resource="aws_secretsmanager_secret",
         region_variable="region",
         coarse_actions=("approve", "delegate"),
+        # An ECS service holds a desired count, not a range: the ceiling lives
+        # on an `aws_appautoscaling_target` this profile does not create, and
+        # per-task concurrency is a property of the application rather than of
+        # the service. So only the floor is carried, and the other two are
+        # reported as uncarried rather than quietly dropped.
+        scaling=ScalingProfile(min_argument="desired_count"),
         boundary_kind="account",
         boundary_argument="allowed_account_ids",
         boundary_enforcement=(
@@ -200,6 +249,14 @@ PROFILES: dict[str, ProviderProfile] = {
         secret_resource="azurerm_key_vault_secret",
         region_variable="location",
         coarse_actions=("approve", "delegate", "publish"),
+        # Container Apps expresses the range on the template. Per-replica
+        # concurrency is expressed as a scale *rule* rather than a bound, and
+        # a rule is not the same claim, so it is left uncarried.
+        scaling=ScalingProfile(
+            block="template",
+            min_argument="min_replicas",
+            max_argument="max_replicas",
+        ),
         boundary_kind="subscription",
         boundary_argument="subscription_id",
         boundary_enforcement=(
@@ -322,6 +379,141 @@ TIER_SIZING = {
     "large": {"cpu": "4", "memory": "16Gi"},
     "accelerated": {"cpu": "8", "memory": "32Gi"},
 }
+
+
+
+
+def _scale_section(profile: ProviderProfile, ir: Any) -> str:
+    """What each agent's declared bound became here, and what it did not.
+
+    A ceiling this cloud cannot express is listed rather than dropped, in the
+    same voice as a coarsened permission: the design still carries it, this
+    stack does not, and a reader should not have to diff the Terraform against
+    the spec to find that out.
+    """
+    sp = profile.scaling
+    fields = ("min_instances", "max_instances",
+              "concurrent_sessions_per_instance")
+    uncarried = [f for f in fields if not (sp and sp.expresses(f))]
+    rows, zeros = [], []
+    for agent in ir.agents:
+        policy = agent.scaling
+        declared = policy != type(policy)()
+        rows.append(
+            f"| `{agent.id}` | {policy.min_instances} | "
+            f"{policy.max_instances} | "
+            f"{policy.concurrent_sessions_per_instance} | "
+            f"{policy.concurrency_ceiling} | "
+            f"{'declared' if declared else 'platform default'} |"
+        )
+        if policy.scales_to_zero:
+            zeros.append(agent.id)
+
+    parts = [
+        "## Scale",
+        "",
+        "Every workload above carries an explicit bound. Where the design "
+        "declared none, the platform default was emitted and marked as such — "
+        "an absent bound is not an absent ceiling, it is a ceiling chosen by "
+        "whoever wrote this provider's defaults (ADR-0095).",
+        "",
+        "| Agent | min | max | per instance | concurrent ceiling | source |",
+        "|---|---|---|---|---|---|",
+        *rows,
+        "",
+        "The concurrent ceiling is `max × per instance`. It is **not** "
+        "`max_parallel_subagents`, which bounds one leader's fan-out inside a "
+        "single process. Both are real and they bound different things.",
+    ]
+    if uncarried:
+        parts += [
+            "",
+            "### Bounds this cloud does not carry",
+            "",
+            f"{profile.display} cannot express "
+            f"{', '.join(f'`{u}`' for u in uncarried)} in this profile, so "
+            "those numbers are carried by the design and by nothing in this "
+            "configuration. They are listed here rather than dropped, because "
+            "a stack that silently discarded a ceiling would read as bounded.",
+        ]
+    if zeros:
+        parts += [
+            "",
+            "### Agents that scale to zero",
+            "",
+            "`" + "`, `".join(sorted(zeros)) + "`",
+            "",
+            "An instance that goes away takes with it any asynchronous "
+            "handles that agent was holding (ADR-0093) and any standing-in it "
+            "was doing for a failed leader (ADR-0094). Those handles are not "
+            "lost silently — they settle as failed with a reason on the next "
+            "run — but at zero that stops being an exceptional path and "
+            "becomes the normal one. Whoever chose zero to save money is "
+            "usually not whoever reads the failed handles.",
+        ]
+    return "\n".join(parts) + "\n"
+
+
+def _scaling_block(profile: ProviderProfile, agent: Any,
+                   indent: str = "  ") -> tuple[str, list[str]]:
+    """The instance bounds for one agent, and what this cloud could not carry.
+
+    Never returns nothing. A workload emitted without a bound is a workload
+    bounded by whoever wrote the provider's defaults, which is the single
+    outcome ADR-0095 rules out. Where the design declared no policy the
+    platform default is emitted and *marked* as the default, because the point
+    was never the number — it is that a reviewer sees one and can tell whether
+    anybody chose it.
+    """
+    policy = agent.scaling
+    declared = policy != type(policy)()
+    sp = profile.scaling
+    uncarried: list[str] = []
+    fields = (
+        ("min_instances", policy.min_instances),
+        ("max_instances", policy.max_instances),
+        ("concurrent_sessions_per_instance",
+         policy.concurrent_sessions_per_instance),
+    )
+    if sp is None:
+        return (
+            f"{indent}# NOT BOUNDED HERE: {profile.display} expresses no "
+            f"instance bounds in this profile, so {policy.describe()} is "
+            "carried by the design and not by this stack. See MAPPING.md.\n",
+            [f for f, _ in fields],
+        )
+
+    args: dict[str, list[str]] = {}
+    for field_name, value in fields:
+        if not sp.expresses(field_name):
+            uncarried.append(field_name)
+            continue
+        argument = {
+            "min_instances": sp.min_argument,
+            "max_instances": sp.max_argument,
+            "concurrent_sessions_per_instance": sp.concurrency_argument,
+        }[field_name]
+        block = (sp.concurrency_block if field_name ==
+                 "concurrent_sessions_per_instance" and sp.concurrency_block
+                 else sp.block)
+        args.setdefault(block, []).append(f"{argument} = {value}")
+
+    source = "declared by the design" if declared else (
+        "PLATFORM DEFAULT — no scaling was declared for this agent")
+    lines = [f"{indent}# scale: {policy.describe()} ({source})"]
+    if uncarried:
+        lines.append(
+            f"{indent}# NOT CARRIED by {profile.display}: "
+            f"{', '.join(uncarried)} — see MAPPING.md"
+        )
+    for block, entries in args.items():
+        if block:
+            lines.append(f"{indent}{block} {{")
+            lines += [f"{indent}  {e}" for e in entries]
+            lines.append(f"{indent}}}")
+        else:
+            lines += [f"{indent}{e}" for e in entries]
+    return "\n".join(lines) + "\n", uncarried
 
 
 def _tf_name(value: str) -> str:
@@ -534,7 +726,9 @@ locals {{
   # team: {' / '.join(agent.team_path)}
   # reports to: {agent.reports_to or 'no one'}
   # runtime adapter: {agent.runtime_adapter}
-  template {{
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+{_scaling_block(p, agent)[0]}  template {{
     service_account = {p.identity_resource}.{name}.email
     containers {{
       image = var.image
@@ -1066,6 +1260,7 @@ see is a gap you cannot review (ADR-0012).
 {tenant_section}
 
 {sandbox_section}
+{_scale_section(p, ir)}
 ## Resource mapping
 
 | Neutral resource | {p.display} |

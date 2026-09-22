@@ -496,6 +496,57 @@ def autonomy_rank(posture: "AutonomyPosture") -> int:
     return AUTONOMY_ORDER.index(posture)
 
 
+
+#: The ceiling an agent gets when its design declares none. Written down and
+#: emitted as an explicit bound rather than inherited from a provider default,
+#: so a reviewer reading the generated stack can see a number and tell whether
+#: anybody chose it (ADR-0095 rule 2).
+DEFAULT_MAX_INSTANCES = 3
+
+
+class ScalingPolicy(BaseModel):
+    """How many of this agent run, and how much each one takes on (ADR-0095).
+
+    Vendor-neutral on purpose: these are statements about expected load and
+    tolerated latency, which are facts about the organization's work rather
+    than about whichever cloud was chosen to run it. A binding that changed
+    them would mean two deployments of one design disagreed about how much
+    work an agent does.
+
+    Scale-to-zero is not a field here. It is `min_instances == 0`, because a
+    flag that could disagree with the number beside it is a bug waiting to
+    happen. What it costs is real and stated where it is chosen: an agent at
+    zero loses the process holding its asynchronous handles (ADR-0093) and any
+    standing-in it was doing (ADR-0094).
+    """
+
+    #: Instances kept warm. 0 means scale to zero.
+    min_instances: int = 0
+    #: The ceiling. Never unset: an absent bound is a bound chosen by whoever
+    #: wrote the provider's defaults.
+    max_instances: int = DEFAULT_MAX_INSTANCES
+    #: Sessions one instance handles at once. The true concurrency ceiling is
+    #: this times `max_instances`, which is a different thing from
+    #: `max_parallel_subagents` — that bounds one leader's fan-out inside one
+    #: process.
+    concurrent_sessions_per_instance: int = 1
+
+    @property
+    def scales_to_zero(self) -> bool:
+        return self.min_instances == 0
+
+    @property
+    def concurrency_ceiling(self) -> int:
+        return self.max_instances * self.concurrent_sessions_per_instance
+
+    def describe(self) -> str:
+        floor = "scales to zero" if self.scales_to_zero else \
+            f"{self.min_instances} warm"
+        return (f"{floor}, at most {self.max_instances} instance(s) × "
+                f"{self.concurrent_sessions_per_instance} session(s) = "
+                f"{self.concurrency_ceiling} concurrent")
+
+
 class SeparationRule(BaseModel):
     """Decisions no single principal may hold together (ADR-0070).
 
@@ -1251,6 +1302,10 @@ class AgentSpec(BaseModel):
     shared_service: bool = False
     runtime_requirements: list[RuntimeRequirement] = Field(default_factory=list)
     max_delegation_depth: int = 3
+    #: How many of this agent run (ADR-0095). Unset gets the platform default,
+    #: which is still emitted explicitly — the one outcome ruled out is a
+    #: ceiling nobody chose and nothing names.
+    scaling: ScalingPolicy = Field(default_factory=ScalingPolicy)
     # Whether the agent keeps an explicit task plan while it works. A
     # multi-step coordinator benefits from one; a single-shot responder does
     # not. Runtimes that have a planning tool (deep agents' write_todos) are

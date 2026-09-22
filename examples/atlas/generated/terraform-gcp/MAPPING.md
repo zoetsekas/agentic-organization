@@ -24,6 +24,33 @@ What the environment class cannot express here:
 - the environment class is handed to the target unchanged; this seam cannot state what the target enforces (every environment class)
 - no tenant id was assigned (ADR-0050) (every environment class)
 
+## Scale
+
+Every workload above carries an explicit bound. Where the design declared none, the platform default was emitted and marked as such — an absent bound is not an absent ceiling, it is a ceiling chosen by whoever wrote this provider's defaults (ADR-0095).
+
+| Agent | min | max | per instance | concurrent ceiling | source |
+|---|---|---|---|---|---|
+| `group_ceo_agent` | 0 | 3 | 1 | 3 | platform default |
+| `consumer_head_agent` | 0 | 3 | 1 | 3 | platform default |
+| `loan_officer_agent` | 0 | 3 | 1 | 3 | platform default |
+| `cib_head_agent` | 0 | 3 | 1 | 3 | platform default |
+| `markets_head_agent` | 0 | 3 | 1 | 3 | platform default |
+| `trader_agent` | 0 | 3 | 1 | 3 | platform default |
+| `research_analyst_agent` | 0 | 3 | 1 | 3 | platform default |
+| `banker_agent` | 0 | 3 | 1 | 3 | platform default |
+| `cro_agent` | 0 | 3 | 1 | 3 | platform default |
+| `aml_agent` | 0 | 3 | 1 | 3 | platform default |
+| `audit_agent` | 0 | 3 | 1 | 3 | platform default |
+| `platform_engineer_agent` | 0 | 3 | 1 | 3 | platform default |
+
+The concurrent ceiling is `max × per instance`. It is **not** `max_parallel_subagents`, which bounds one leader's fan-out inside a single process. Both are real and they bound different things.
+
+### Agents that scale to zero
+
+`aml_agent`, `audit_agent`, `banker_agent`, `cib_head_agent`, `consumer_head_agent`, `cro_agent`, `group_ceo_agent`, `loan_officer_agent`, `markets_head_agent`, `platform_engineer_agent`, `research_analyst_agent`, `trader_agent`
+
+An instance that goes away takes with it any asynchronous handles that agent was holding (ADR-0093) and any standing-in it was doing for a failed leader (ADR-0094). Those handles are not lost silently — they settle as failed with a reason on the next run — but at zero that stops being an exceptional path and becomes the normal one. Whoever chose zero to save money is usually not whoever reads the failed handles.
+
 ## Resource mapping
 
 | Neutral resource | Google Cloud |

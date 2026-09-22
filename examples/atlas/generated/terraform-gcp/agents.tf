@@ -8,6 +8,14 @@ resource "google_cloud_run_v2_service" "group_ceo_agent" {
   # team: Atlas Global
   # reports to: no one
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.group_ceo_agent.email
     containers {
@@ -38,6 +46,14 @@ resource "google_cloud_run_v2_service" "consumer_head_agent" {
   # team: Atlas Global / Consumer Bank
   # reports to: group_ceo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.consumer_head_agent.email
     containers {
@@ -68,6 +84,14 @@ resource "google_cloud_run_v2_service" "loan_officer_agent" {
   # team: Atlas Global / Consumer Bank / Retail Lending
   # reports to: consumer_head_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.loan_officer_agent.email
     containers {
@@ -116,6 +140,14 @@ resource "google_cloud_run_v2_service" "cib_head_agent" {
   # team: Atlas Global / Corporate and Investment Bank
   # reports to: group_ceo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.cib_head_agent.email
     containers {
@@ -146,6 +178,14 @@ resource "google_cloud_run_v2_service" "markets_head_agent" {
   # team: Atlas Global / Corporate and Investment Bank / Markets
   # reports to: cib_head_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.markets_head_agent.email
     containers {
@@ -176,6 +216,14 @@ resource "google_cloud_run_v2_service" "trader_agent" {
   # team: Atlas Global / Corporate and Investment Bank / Markets / Trading Desk
   # reports to: markets_head_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.trader_agent.email
     containers {
@@ -224,6 +272,14 @@ resource "google_cloud_run_v2_service" "research_analyst_agent" {
   # team: Atlas Global / Corporate and Investment Bank / Markets / Research
   # reports to: markets_head_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.research_analyst_agent.email
     containers {
@@ -272,6 +328,14 @@ resource "google_cloud_run_v2_service" "banker_agent" {
   # team: Atlas Global / Corporate and Investment Bank / Investment Banking
   # reports to: cib_head_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.banker_agent.email
     containers {
@@ -320,6 +384,14 @@ resource "google_cloud_run_v2_service" "cro_agent" {
   # team: Atlas Global / Risk
   # reports to: group_ceo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.cro_agent.email
     containers {
@@ -368,6 +440,14 @@ resource "google_cloud_run_v2_service" "aml_agent" {
   # team: Atlas Global / Financial Crime
   # reports to: group_ceo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.aml_agent.email
     containers {
@@ -416,6 +496,14 @@ resource "google_cloud_run_v2_service" "audit_agent" {
   # team: Atlas Global / Internal Audit
   # reports to: group_ceo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.audit_agent.email
     containers {
@@ -464,6 +552,14 @@ resource "google_cloud_run_v2_service" "platform_engineer_agent" {
   # team: Atlas Global / Technology
   # reports to: group_ceo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.platform_engineer_agent.email
     containers {

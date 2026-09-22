@@ -8,6 +8,14 @@ resource "google_cloud_run_v2_service" "ceo_agent" {
   # team: AYC
   # reports to: no one
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.ceo_agent.email
     containers {
@@ -38,6 +46,14 @@ resource "google_cloud_run_v2_service" "coo_agent" {
   # team: AYC / Operations
   # reports to: ceo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.coo_agent.email
     containers {
@@ -68,6 +84,14 @@ resource "google_cloud_run_v2_service" "buyer_agent" {
   # team: AYC / Operations / Purchasing
   # reports to: coo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.buyer_agent.email
     containers {
@@ -116,6 +140,14 @@ resource "google_cloud_run_v2_service" "warehouse_agent" {
   # team: AYC / Operations / Warehouse and Shipping
   # reports to: coo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.warehouse_agent.email
     containers {
@@ -164,6 +196,14 @@ resource "google_cloud_run_v2_service" "inventory_agent" {
   # team: AYC / Operations / Inventory Audit
   # reports to: coo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.inventory_agent.email
     containers {
@@ -212,6 +252,14 @@ resource "google_cloud_run_v2_service" "ap_agent" {
   # team: AYC / Operations / Finance
   # reports to: coo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.ap_agent.email
     containers {
@@ -260,6 +308,14 @@ resource "google_cloud_run_v2_service" "ar_agent" {
   # team: AYC / Operations / Finance
   # reports to: ap_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.ar_agent.email
     containers {
@@ -308,6 +364,14 @@ resource "google_cloud_run_v2_service" "software_agent" {
   # team: AYC / Operations / IT
   # reports to: coo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.software_agent.email
     containers {
@@ -356,6 +420,14 @@ resource "google_cloud_run_v2_service" "cgo_agent" {
   # team: AYC / Growth
   # reports to: ceo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.cgo_agent.email
     containers {
@@ -386,6 +458,14 @@ resource "google_cloud_run_v2_service" "ecommerce_agent" {
   # team: AYC / Growth / E-Commerce and Web
   # reports to: cgo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.ecommerce_agent.email
     containers {
@@ -434,6 +514,14 @@ resource "google_cloud_run_v2_service" "cs_agent" {
   # team: AYC / Growth / Customer Service
   # reports to: cgo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.cs_agent.email
     containers {
@@ -482,6 +570,14 @@ resource "google_cloud_run_v2_service" "marketing_agent" {
   # team: AYC / Growth / Marketing
   # reports to: cgo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.marketing_agent.email
     containers {

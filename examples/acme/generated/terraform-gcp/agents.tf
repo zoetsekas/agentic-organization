@@ -8,6 +8,14 @@ resource "google_cloud_run_v2_service" "ceo" {
   # team: Acme Corp
   # reports to: no one
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.ceo.email
     containers {
@@ -56,6 +64,14 @@ resource "google_cloud_run_v2_service" "cfo" {
   # team: Acme Corp / Finance
   # reports to: ceo
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.cfo.email
     containers {
@@ -104,6 +120,14 @@ resource "google_cloud_run_v2_service" "analyst" {
   # team: Acme Corp / Finance
   # reports to: cfo
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.analyst.email
     containers {
@@ -152,6 +176,14 @@ resource "google_cloud_run_v2_service" "reconciler" {
   # team: Acme Corp / Finance
   # reports to: cfo
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.reconciler.email
     containers {
@@ -200,6 +232,14 @@ resource "google_cloud_run_v2_service" "cto" {
   # team: Acme Corp / Technology
   # reports to: ceo
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.cto.email
     containers {
@@ -248,6 +288,14 @@ resource "google_cloud_run_v2_service" "platform_lead" {
   # team: Acme Corp / Technology / Platform Engineering
   # reports to: cto
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.platform_lead.email
     containers {
@@ -296,6 +344,14 @@ resource "google_cloud_run_v2_service" "platform_engineer" {
   # team: Acme Corp / Technology / Platform Engineering
   # reports to: platform_lead
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.platform_engineer.email
     containers {
@@ -344,6 +400,14 @@ resource "google_cloud_run_v2_service" "sre" {
   # team: Acme Corp / Technology / Platform Engineering
   # reports to: platform_lead
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.sre.email
     containers {
@@ -392,6 +456,14 @@ resource "google_cloud_run_v2_service" "cro" {
   # team: Acme Corp / Revenue
   # reports to: ceo
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.cro.email
     containers {

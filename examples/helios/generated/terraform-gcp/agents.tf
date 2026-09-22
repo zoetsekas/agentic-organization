@@ -8,6 +8,14 @@ resource "google_cloud_run_v2_service" "ceo_agent" {
   # team: Helios Therapeutics
   # reports to: no one
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.ceo_agent.email
     containers {
@@ -38,6 +46,14 @@ resource "google_cloud_run_v2_service" "cso_agent" {
   # team: Helios Therapeutics / Research and Development
   # reports to: ceo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.cso_agent.email
     containers {
@@ -68,6 +84,14 @@ resource "google_cloud_run_v2_service" "discovery_agent" {
   # team: Helios Therapeutics / Research and Development / Discovery
   # reports to: cso_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.discovery_agent.email
     containers {
@@ -116,6 +140,14 @@ resource "google_cloud_run_v2_service" "bioinfo_agent" {
   # team: Helios Therapeutics / Research and Development / Bioinformatics
   # reports to: cso_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.bioinfo_agent.email
     containers {
@@ -164,6 +196,14 @@ resource "google_cloud_run_v2_service" "cmo_agent" {
   # team: Helios Therapeutics / Clinical Development
   # reports to: ceo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.cmo_agent.email
     containers {
@@ -194,6 +234,14 @@ resource "google_cloud_run_v2_service" "trial_manager_agent" {
   # team: Helios Therapeutics / Clinical Development / Trial Operations
   # reports to: cmo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.trial_manager_agent.email
     containers {
@@ -242,6 +290,14 @@ resource "google_cloud_run_v2_service" "biostat_agent" {
   # team: Helios Therapeutics / Clinical Development / Biostatistics
   # reports to: cmo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.biostat_agent.email
     containers {
@@ -290,6 +346,14 @@ resource "google_cloud_run_v2_service" "pv_agent" {
   # team: Helios Therapeutics / Clinical Development / Pharmacovigilance
   # reports to: cmo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.pv_agent.email
     containers {
@@ -338,6 +402,14 @@ resource "google_cloud_run_v2_service" "vp_mfg_agent" {
   # team: Helios Therapeutics / Manufacturing
   # reports to: ceo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.vp_mfg_agent.email
     containers {
@@ -368,6 +440,14 @@ resource "google_cloud_run_v2_service" "process_agent" {
   # team: Helios Therapeutics / Manufacturing / Process Development
   # reports to: vp_mfg_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.process_agent.email
     containers {
@@ -416,6 +496,14 @@ resource "google_cloud_run_v2_service" "qa_agent" {
   # team: Helios Therapeutics / Manufacturing / Quality Assurance
   # reports to: vp_mfg_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.qa_agent.email
     containers {
@@ -464,6 +552,14 @@ resource "google_cloud_run_v2_service" "regulatory_agent" {
   # team: Helios Therapeutics / Regulatory Affairs
   # reports to: ceo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.regulatory_agent.email
     containers {
@@ -512,6 +608,14 @@ resource "google_cloud_run_v2_service" "commercial_agent" {
   # team: Helios Therapeutics / Commercial
   # reports to: ceo_agent
   # runtime adapter: langchain_deepagents
+  # max_parallel_subagents bounds one leader's fan-out inside one process and
+  # is a different ceiling from the one below (ADR-0095 rule 5).
+  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  scaling {
+    min_instance_count = 0
+    max_instance_count = 3
+    max_instance_request_concurrency = 1
+  }
   template {
     service_account = google_service_account.commercial_agent.email
     containers {

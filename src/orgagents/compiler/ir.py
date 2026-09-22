@@ -48,6 +48,7 @@ from ..spec.model import (
     RecallMode,
     Permission,
     PolicyRule,
+    ScalingPolicy,
     SeparationRule,
     Resilience,
     ResourceKind,
@@ -407,6 +408,9 @@ class AgentIR(BaseModel):
     #: Who stands in when this agent cannot run (ADR-0094); empty means its
     #: manager, who already holds this mandate and is granted nothing.
     successor_agent_id: str = ""
+    #: How many of this agent run (ADR-0095). Always present, so no target can
+    #: emit a workload without a bound.
+    scaling: ScalingPolicy = Field(default_factory=ScalingPolicy)
     #: Whether the agent keeps an explicit task plan (ADR-0083 companion).
     planning: bool = False
     requires_approval_for: list[str] = Field(default_factory=list)
@@ -1390,6 +1394,7 @@ def build_ir(
                 identity=identity,
                 max_delegation_depth=agent.max_delegation_depth,
                 successor_agent_id=agent.successor or "",
+                scaling=agent.scaling,
                 planning=agent.planning,
                 requires_approval_for=sorted(
                     {*agent.approval_required_for,
