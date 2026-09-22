@@ -110,6 +110,23 @@ def main() -> dict:
         print(f"  adk (Vertex AI Agent Engine): {len(adk.files)} files")
         print(f"  terraform:gcp (governed runtime): {len(gcp.files)} files")
 
+        # The GCP network isolation: placement → VPC/subnets/firewall (ADR-0084).
+        net = next(f.content for f in gcp.files if f.path == "network.tf")
+        subnets = net.count('resource "google_compute_subnetwork"')
+        allows = net.count('"allow_')
+        denies_egress = net.count("deny_egress_")
+        print(f"  network.tf: 1 VPC, {subnets} per-placement subnets, "
+              f"a default-deny, {allows} identity-scoped allow rules, "
+              f"{denies_egress} egress-deny (offline sandboxes)")
+        iam = next(f.content for f in gcp.files if f.path == "iam.tf")
+        sas = iam.count('resource "google_service_account"')
+        binds = iam.count('resource "google_project_iam_member"')
+        print(f"  iam.tf: {sas} per-agent service accounts, {binds} IAM bindings")
+        # The servers catalog (ADR-0085): the deployment's systems inventory.
+        target = binding.targets[0]
+        print(f"  systems inventory (servers catalog): {len(target.servers)} "
+              f"backing systems for {len(target.capabilities)} capabilities")
+
         # The Gemini models came from the binding.
         trader = next(f.content for f in adk.files
                       if f.path.endswith("trader_agent.py"))

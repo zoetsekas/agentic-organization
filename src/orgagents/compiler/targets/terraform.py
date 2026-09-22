@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from ..base import GeneratedFile
 from ..ir import NEUTRAL_RESOURCES, SystemIR
@@ -47,6 +47,32 @@ class ProviderProfile:
     boundary_argument: str = "project"
     boundary_enforcement: str = ""
     boundary_coarser_than_model: str = ""
+    # Network isolation (ADR-0084). When `network` is set, the target emits a
+    # VPC, one subnet per placement, and firewall rules that implement the
+    # placement rules with the agents' own identities. Providers that do not
+    # set it emit a network.tf that says the isolation was NOT generated,
+    # rather than letting a reader assume it was.
+    network: Optional["NetworkProfile"] = None
+
+
+@dataclass(frozen=True)
+class NetworkProfile:
+    """How one provider realizes the placement network model (ADR-0069/0084).
+
+    Firewall rules are scoped by *service account*, not by IP range: the
+    agents' workload identities are what the placement rules are really about,
+    and GCP firewall can target a rule at a source and destination service
+    account directly. So the network isolation and the IAM identities are the
+    same fact, expressed once.
+    """
+
+    vpc_resource: str
+    subnet_resource: str
+    firewall_resource: str
+    # Whether firewall rules can be scoped to service accounts (GCP) rather
+    # than only to IP ranges/tags. When true, a placement rule becomes a rule
+    # from the source agents' SAs to the target agents' SAs.
+    firewall_by_service_account: bool = True
 
 
 PROFILES: dict[str, ProviderProfile] = {
@@ -78,6 +104,12 @@ PROFILES: dict[str, ProviderProfile] = {
         secret_resource="google_secret_manager_secret",
         region_variable="region",
         coarse_actions=("approve",),
+        network=NetworkProfile(
+            vpc_resource="google_compute_network",
+            subnet_resource="google_compute_subnetwork",
+            firewall_resource="google_compute_firewall",
+            firewall_by_service_account=True,
+        ),
         boundary_kind="project",
         boundary_argument="project",
         boundary_enforcement=(
@@ -272,6 +304,7 @@ class TerraformTarget:
             GeneratedFile("variables.tf", self._variables(ir)).with_header(ir),
             GeneratedFile("iam.tf", self._iam(ir)).with_header(ir),
             GeneratedFile("agents.tf", self._agents(ir)).with_header(ir),
+            GeneratedFile("network.tf", self._network(ir)).with_header(ir),
             GeneratedFile("triggers.tf", self._triggers(ir)).with_header(ir),
             GeneratedFile("channels.tf", self._channels(ir)).with_header(ir),
             GeneratedFile("REGISTRY.md", registry_report(ir)),
@@ -461,15 +494,200 @@ locals {{
 }}'''
             )
             if env:
+                net = p.network
+                vpc_block = ""
+                if net is not None:
+                    # Attach the sandbox to the subnet of its placement, so the
+                    # firewall rules in network.tf actually govern this
+                    # workload (ADR-0084). A `none` sandbox keeps to private
+                    # ranges; the belt-and-braces egress-deny is in network.tf.
+                    subnet = self._subnet_for(ir, agent.id, env.id)
+                    egress = ("PRIVATE_RANGES_ONLY" if posture == "none"
+                              else "ALL_TRAFFIC")
+                    if subnet:
+                        vpc_block = f'''
+  template {{
+    template {{
+      vpc_access {{
+        network_interfaces {{
+          network    = {net.vpc_resource}.{_tf_name(ir.name)}_vpc.id
+          subnetwork = {net.subnet_resource}.{subnet}.id
+        }}
+        egress = "{egress}"
+      }}
+    }}
+  }}'''
                 blocks.append(
                     f'''resource "{job_type}" "{name}_sandbox" {{
   # Execution environment '{env.id}' — tier {env.tier.value}, network {posture},
   # timeout {env.timeout_seconds}s, mounts: {', '.join(env.mounts) or 'none'}
   name     = "{ir.qualified(f'env-{agent.id}')}"
-  {p.region_variable} = var.{p.region_variable}
+  {p.region_variable} = var.{p.region_variable}{vpc_block}
 }}'''
                 )
         return "\n\n".join(blocks) + "\n" if blocks else "# no agents\n"
+
+    def _subnet_for(self, ir: SystemIR, agent_id: str, env_id: str) -> str:
+        """The subnet resource name for the placement an agent runs in for an
+        environment, or "" if there is none (ADR-0084)."""
+        for pl in ir.placements:
+            if pl.environment == env_id and agent_id in pl.agents:
+                return _tf_name(pl.id)
+        return ""
+
+    def _network(self, ir: SystemIR) -> str:
+        """Translate the placement model into real network isolation (ADR-0084).
+
+        A placement is a unit crossed with a sandbox environment (ADR-0069):
+        two units in the same sandbox are two placements, two blast radii, and
+        by default they cannot reach each other. That maps onto cloud
+        networking directly: one VPC for the system, one subnet per placement,
+        a default-deny firewall, and one allow rule per placement rule the IR
+        resolved -- and only those. The placement rules are the declared
+        channels, flows and the manager chain (ADR-0069 rules 6/7), so "teams
+        talk only through official channels" becomes exactly the set of allow
+        rules and everything else is denied.
+
+        Allow rules are scoped to the agents' service accounts, not IP ranges:
+        the workload identities in iam.tf are what a placement rule is about,
+        so the network boundary and the identity are one fact. Egress follows
+        the sandbox's posture: a `none` sandbox gets an all-egress deny.
+        """
+        net = self.profile.network
+        if net is None:
+            return (
+                "# Network isolation is NOT generated for '"
+                + self.profile.display + "' yet.\n"
+                "# The placement model (ADR-0069) is resolved in the IR, but\n"
+                "# this provider profile has no network mapping -- so team\n"
+                "# isolation here is whatever your landing zone already does.\n"
+            )
+        if not ir.placements:
+            return ("# No placements: no agent declares a sandbox, so there "
+                    "is nothing to isolate.\n")
+
+        rv = self.profile.region_variable
+        vpc = _tf_name(ir.name) + "_vpc"
+        blocks = [
+            'resource "' + net.vpc_resource + '" "' + vpc + '" {\n'
+            '  name                    = "' + ir.qualified("vpc") + '"\n'
+            '  auto_create_subnetworks = false\n'
+            '  # One VPC for the whole system. Every placement gets its own\n'
+            '  # subnet below, and nothing crosses without a firewall rule the\n'
+            '  # design asked for (ADR-0084).\n'
+            '}'
+        ]
+
+        posture = {e.id: e.network.value for e in ir.environments}
+        order = sorted(ir.placements, key=lambda pl: pl.id)
+        cidr = {pl.id: "10." + str(8 + i) + ".0.0/24"
+                for i, pl in enumerate(order)}
+        sub = {pl.id: _tf_name(pl.id) for pl in order}
+        by_id = {pl.id: pl for pl in order}
+
+        def sas(agent_ids):
+            ids = [self.profile.identity_resource + "." + _tf_name(a) + ".email"
+                   for a in agent_ids]
+            return "[" + ", ".join(ids) + "]"
+
+        for pl in order:
+            blocks.append(
+                'resource "' + net.subnet_resource + '" "' + sub[pl.id]
+                + '" {\n'
+                '  name          = "' + ir.qualified("subnet-" + pl.id) + '"\n'
+                '  ' + rv + ' = var.' + rv + '\n'
+                '  network       = ' + net.vpc_resource + '.' + vpc + '.id\n'
+                '  ip_cidr_range = "' + cidr[pl.id] + '"\n'
+                "  # placement '" + pl.id + "' -- unit '" + pl.unit
+                + "', sandbox '" + pl.environment + "',\n"
+                "  # posture '" + posture.get(pl.environment, "none")
+                + "', agents: " + (", ".join(pl.agents) or "none") + "\n"
+                '}'
+            )
+
+        blocks.append(
+            'resource "' + net.firewall_resource + '" "deny_cross_placement" {\n'
+            '  name      = "' + ir.qualified("deny-cross-placement") + '"\n'
+            '  network   = ' + net.vpc_resource + '.' + vpc + '.id\n'
+            '  priority  = 65534\n'
+            '  direction = "INGRESS"\n'
+            '  # Default-deny between placements (ADR-0069 rule 7). Only the\n'
+            '  # allow rules below open a path.\n'
+            '  deny { protocol = "all" }\n'
+            '  source_ranges = ["10.0.0.0/8"]\n'
+            '}'
+        )
+
+        for pl in order:
+            if not pl.agents:
+                continue
+            blocks.append(
+                'resource "' + net.firewall_resource + '" "allow_within_'
+                + sub[pl.id] + '" {\n'
+                '  name      = "' + ir.qualified("allow-within-" + pl.id) + '"\n'
+                '  network   = ' + net.vpc_resource + '.' + vpc + '.id\n'
+                '  priority  = 1000\n'
+                '  direction = "INGRESS"\n'
+                "  # Traffic inside placement '" + pl.id + "' is permitted "
+                "and unlisted (ADR-0069).\n"
+                '  allow { protocol = "tcp" }\n'
+                '  source_service_accounts = ' + sas(pl.agents) + '\n'
+                '  target_service_accounts = ' + sas(pl.agents) + '\n'
+                '}'
+            )
+
+        for i, rule in enumerate(ir.placement_rules):
+            src, dst = by_id.get(rule.source), by_id.get(rule.target)
+            if not src or not dst or not src.agents or not dst.agents:
+                continue
+            blocks.append(
+                'resource "' + net.firewall_resource + '" "allow_' + str(i)
+                + '_' + sub[rule.source] + '_to_' + sub[rule.target] + '" {\n'
+                '  name      = "' + ir.qualified("allow-" + str(i)) + '"\n'
+                '  network   = ' + net.vpc_resource + '.' + vpc + '.id\n'
+                '  priority  = 900\n'
+                '  direction = "INGRESS"\n'
+                "  # " + rule.reason + " (via " + rule.via + ").\n"
+                "  # A declared, official path (ADR-0069 rule 7); without it\n"
+                "  # the default-deny above stands.\n"
+                '  allow { protocol = "tcp" }\n'
+                '  source_service_accounts = ' + sas(src.agents) + '\n'
+                '  target_service_accounts = ' + sas(dst.agents) + '\n'
+                '}'
+            )
+
+        for pl in order:
+            if posture.get(pl.environment) != "none" or not pl.agents:
+                continue
+            blocks.append(
+                'resource "' + net.firewall_resource + '" "deny_egress_'
+                + sub[pl.id] + '" {\n'
+                '  name      = "' + ir.qualified("deny-egress-" + pl.id) + '"\n'
+                '  network   = ' + net.vpc_resource + '.' + vpc + '.id\n'
+                '  priority  = 900\n'
+                '  direction = "EGRESS"\n'
+                "  # sandbox '" + pl.environment + "' posture 'none': its "
+                "agents reach\n"
+                "  # nothing outbound -- PII, MNPI or a live sample never "
+                "calls home.\n"
+                '  deny { protocol = "all" }\n'
+                '  destination_ranges = ["0.0.0.0/0"]\n'
+                '  target_service_accounts = ' + sas(pl.agents) + '\n'
+                '}'
+            )
+
+        allowlisted = sorted({e.id for e in ir.environments
+                              if e.network.value == "allowlist"})
+        note = ""
+        if allowlisted:
+            note = (
+                "\n# NOTE: sandboxes " + ", ".join(allowlisted) + " declare a\n"
+                "# hostname egress allowlist. A firewall rule works on IP\n"
+                "# ranges and service accounts, not FQDNs, so the allowlist is\n"
+                "# enforced by an egress proxy / Cloud NAT with an FQDN policy,\n"
+                "# wired in overlays/ -- not by these rules (ADR-0084).\n"
+            )
+        return "\n\n".join(blocks) + "\n" + note
 
     def _triggers(self, ir: SystemIR) -> str:
         """Schedulers and event subscriptions (ADR-0020).
@@ -737,8 +955,27 @@ These grants are **broader** than the spec asked for. Review them before apply.
 
 {', '.join(f'`{u}`' for u in unmapped) if unmapped else 'None — every neutral resource has a mapping.'}
 
+## Network isolation
+
+When this provider profile has a network mapping, `network.tf` translates the
+placement model (ADR-0069) into real isolation (ADR-0084):
+
+- one VPC for the system, and **one subnet per placement** (unit × sandbox);
+- a **default-deny** firewall between placements, then one **allow** rule per
+  placement rule the IR resolved — scoped to the agents' own service accounts,
+  so the network boundary and the workload identity are one fact;
+- an **egress-deny** for every `none`-posture sandbox, so PII, MNPI or a live
+  sample cannot call home.
+
+What a firewall rule cannot do is a **hostname** egress allowlist: it works on
+IP ranges and service accounts, not FQDNs. An `allowlist`-posture sandbox
+therefore needs an egress proxy or Cloud NAT with an FQDN policy, wired in
+`overlays/`; `network.tf` names which sandboxes that applies to.
+
 ## What this target does not do
 
-It does not create your landing zone, VPC backbone or organization policies —
-those are inputs. It does not apply anything; run `terraform plan` yourself.
+It does not create your **organization-level** landing zone (the folder
+hierarchy, org policies, or a shared-VPC host project) — those are inputs it
+attaches into. It does not resolve the hostname allowlists above into proxy
+config. And it does not apply anything; run `terraform plan` yourself.
 """

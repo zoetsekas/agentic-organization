@@ -1,13 +1,16 @@
-# Atlas's binding: where the vendor-neutral design meets Google's stack.
+# Atlas's binding: the vendor-neutral design met with Google's stack.
+#
+# This binding uses a **servers catalog** (ADR-0085): each enterprise system —
+# the LOS, the CRM, the OMS, the risk system, the fincrime platform — is
+# declared once under `servers:`, and each capability references it by `server`
+# rather than repeating a URL and credential. The catalog is also the
+# deployment's systems inventory, and the two sides of every separation sit on
+# different servers on purpose, so a barrier decided in the spec survives into
+# the wiring (ADR-0071); the phase gate checks it.
 #
 # The `adk` target runs the agents on Gemini via Vertex AI Agent Engine; the
-# `terraform:gcp` target places the governed runtime on Google Cloud. Both name
-# Gemini models — this is where a vendor is finally allowed (ADR-0002) — and the
-# model policy in the spec already required the eu/us regions these deploy to.
-#
-# The two sides of each information barrier and separation bind to different
-# servers, so a control decided in the spec survives into the wiring (ADR-0071):
-# the phase gate checks it.
+# `terraform:gcp` target places the governed runtime — VPC, per-placement
+# subnets and firewall — on Google Cloud (ADR-0084).
 targets:
   - target: adk
     runtime:
@@ -16,24 +19,38 @@ targets:
       provider: google
       model: gemini-2.5-pro
       subagent_model: gemini-2.5-flash
+    servers:
+      - {id: los, kind: http_api, description: "Loan origination system", transport: http, url: "https://los.internal/mcp"}
+      - {id: kyc, kind: http_api, description: "Know-your-customer / identity verification", transport: http, url: "https://kyc.internal/mcp"}
+      - {id: crm, kind: database, description: "Customer records and servicing", engine: postgres, dsn_secret_ref: CRM_DSN}
+      - {id: oms, kind: http_api, description: "Order management system (the trading floor)", transport: http, url: "https://oms.internal/mcp"}
+      - {id: research_platform, kind: http_api, description: "Investment research publishing", transport: http, url: "https://research-platform.internal/mcp"}
+      - {id: deal_platform, kind: http_api, description: "M&A / capital-markets deal room", transport: http, url: "https://deal-platform.internal/mcp"}
+      - {id: control_room, kind: http_api, description: "Information-barrier control room", transport: http, url: "https://control-room.internal/mcp"}
+      - {id: risk_system, kind: http_api, description: "Risk limits, VaR and breach control", transport: http, url: "https://risk-system.internal/mcp"}
+      - {id: credit_system, kind: http_api, description: "Credit-risk approval", transport: http, url: "https://credit-system.internal/mcp"}
+      - {id: fincrime_platform, kind: http_api, description: "Financial-crime case management", transport: http, url: "https://fincrime-platform.internal/mcp"}
+      - {id: regulator_gateway, kind: http_api, description: "Regulator filing gateway (SARs)", transport: http, url: "https://regulator-gateway.internal/mcp"}
+      - {id: audit_platform, kind: http_api, description: "Internal audit testing", transport: http, url: "https://audit-platform.internal/mcp"}
+      - {id: deploy_pipeline, kind: http_api, description: "Production deployment pipeline", transport: http, url: "https://deploy-pipeline.internal/mcp"}
     capabilities:
-      - {capability: loan_origination, server_name: loan_origination_svc, transport: http, url: "https://loan-origination.internal/mcp"}
-      - {capability: identity_verification, server_name: identity_verification_svc, transport: http, url: "https://identity-verification.internal/mcp"}
-      - {capability: transaction_trace, server_name: transaction_trace_svc, transport: http, url: "https://transaction-trace.internal/mcp"}
-      - {capability: customer_lookup, server_name: customer_lookup_svc, transport: http, url: "https://customer-lookup.internal/mcp"}
-      - {capability: trade_execution, server_name: trade_execution_svc, transport: http, url: "https://trade-execution.internal/mcp"}
-      - {capability: position_query, server_name: position_query_svc, transport: http, url: "https://position-query.internal/mcp"}
-      - {capability: research_publishing, server_name: research_publishing_svc, transport: http, url: "https://research-publishing.internal/mcp"}
-      - {capability: deal_advisory, server_name: deal_advisory_svc, transport: http, url: "https://deal-advisory.internal/mcp"}
-      - {capability: wall_crossing, server_name: wall_crossing_svc, transport: http, url: "https://wall-crossing.internal/mcp"}
-      - {capability: limit_setting, server_name: limit_setting_svc, transport: http, url: "https://limit-setting.internal/mcp"}
-      - {capability: risk_analytics_run, server_name: risk_analytics_run_svc, transport: http, url: "https://risk-analytics-run.internal/mcp"}
-      - {capability: breach_override, server_name: breach_override_svc, transport: http, url: "https://breach-override.internal/mcp"}
-      - {capability: credit_approval, server_name: credit_approval_svc, transport: http, url: "https://credit-approval.internal/mcp"}
-      - {capability: aml_triage, server_name: aml_triage_svc, transport: http, url: "https://aml-triage.internal/mcp"}
-      - {capability: sar_filing, server_name: sar_filing_svc, transport: http, url: "https://sar-filing.internal/mcp"}
-      - {capability: audit_testing, server_name: audit_testing_svc, transport: http, url: "https://audit-testing.internal/mcp"}
-      - {capability: production_deploy, server_name: production_deploy_svc, transport: http, url: "https://production-deploy.internal/mcp"}
+      - {capability: loan_origination, server: los}
+      - {capability: identity_verification, server: kyc}
+      - {capability: transaction_trace, server: crm}
+      - {capability: customer_lookup, server: crm}
+      - {capability: trade_execution, server: oms}
+      - {capability: position_query, server: oms}
+      - {capability: research_publishing, server: research_platform}
+      - {capability: deal_advisory, server: deal_platform}
+      - {capability: wall_crossing, server: control_room}
+      - {capability: limit_setting, server: risk_system}
+      - {capability: risk_analytics_run, server: risk_system}
+      - {capability: breach_override, server: risk_system}
+      - {capability: credit_approval, server: credit_system}
+      - {capability: aml_triage, server: fincrime_platform}
+      - {capability: sar_filing, server: regulator_gateway}
+      - {capability: audit_testing, server: audit_platform}
+      - {capability: production_deploy, server: deploy_pipeline}
     environments:
       - {environment: clean_room, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
       - {environment: banking_ops, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
@@ -70,24 +87,38 @@ targets:
       region: europe-west1
       project: atlas-prod
       state_backend: gcs
+    servers:
+      - {id: los, kind: http_api, description: "Loan origination system", transport: http, url: "https://los.internal/mcp"}
+      - {id: kyc, kind: http_api, description: "Know-your-customer / identity verification", transport: http, url: "https://kyc.internal/mcp"}
+      - {id: crm, kind: database, description: "Customer records and servicing", engine: postgres, dsn_secret_ref: CRM_DSN}
+      - {id: oms, kind: http_api, description: "Order management system (the trading floor)", transport: http, url: "https://oms.internal/mcp"}
+      - {id: research_platform, kind: http_api, description: "Investment research publishing", transport: http, url: "https://research-platform.internal/mcp"}
+      - {id: deal_platform, kind: http_api, description: "M&A / capital-markets deal room", transport: http, url: "https://deal-platform.internal/mcp"}
+      - {id: control_room, kind: http_api, description: "Information-barrier control room", transport: http, url: "https://control-room.internal/mcp"}
+      - {id: risk_system, kind: http_api, description: "Risk limits, VaR and breach control", transport: http, url: "https://risk-system.internal/mcp"}
+      - {id: credit_system, kind: http_api, description: "Credit-risk approval", transport: http, url: "https://credit-system.internal/mcp"}
+      - {id: fincrime_platform, kind: http_api, description: "Financial-crime case management", transport: http, url: "https://fincrime-platform.internal/mcp"}
+      - {id: regulator_gateway, kind: http_api, description: "Regulator filing gateway (SARs)", transport: http, url: "https://regulator-gateway.internal/mcp"}
+      - {id: audit_platform, kind: http_api, description: "Internal audit testing", transport: http, url: "https://audit-platform.internal/mcp"}
+      - {id: deploy_pipeline, kind: http_api, description: "Production deployment pipeline", transport: http, url: "https://deploy-pipeline.internal/mcp"}
     capabilities:
-      - {capability: loan_origination, server_name: loan_origination_svc, transport: http, url: "https://loan-origination.internal/mcp"}
-      - {capability: identity_verification, server_name: identity_verification_svc, transport: http, url: "https://identity-verification.internal/mcp"}
-      - {capability: transaction_trace, server_name: transaction_trace_svc, transport: http, url: "https://transaction-trace.internal/mcp"}
-      - {capability: customer_lookup, server_name: customer_lookup_svc, transport: http, url: "https://customer-lookup.internal/mcp"}
-      - {capability: trade_execution, server_name: trade_execution_svc, transport: http, url: "https://trade-execution.internal/mcp"}
-      - {capability: position_query, server_name: position_query_svc, transport: http, url: "https://position-query.internal/mcp"}
-      - {capability: research_publishing, server_name: research_publishing_svc, transport: http, url: "https://research-publishing.internal/mcp"}
-      - {capability: deal_advisory, server_name: deal_advisory_svc, transport: http, url: "https://deal-advisory.internal/mcp"}
-      - {capability: wall_crossing, server_name: wall_crossing_svc, transport: http, url: "https://wall-crossing.internal/mcp"}
-      - {capability: limit_setting, server_name: limit_setting_svc, transport: http, url: "https://limit-setting.internal/mcp"}
-      - {capability: risk_analytics_run, server_name: risk_analytics_run_svc, transport: http, url: "https://risk-analytics-run.internal/mcp"}
-      - {capability: breach_override, server_name: breach_override_svc, transport: http, url: "https://breach-override.internal/mcp"}
-      - {capability: credit_approval, server_name: credit_approval_svc, transport: http, url: "https://credit-approval.internal/mcp"}
-      - {capability: aml_triage, server_name: aml_triage_svc, transport: http, url: "https://aml-triage.internal/mcp"}
-      - {capability: sar_filing, server_name: sar_filing_svc, transport: http, url: "https://sar-filing.internal/mcp"}
-      - {capability: audit_testing, server_name: audit_testing_svc, transport: http, url: "https://audit-testing.internal/mcp"}
-      - {capability: production_deploy, server_name: production_deploy_svc, transport: http, url: "https://production-deploy.internal/mcp"}
+      - {capability: loan_origination, server: los}
+      - {capability: identity_verification, server: kyc}
+      - {capability: transaction_trace, server: crm}
+      - {capability: customer_lookup, server: crm}
+      - {capability: trade_execution, server: oms}
+      - {capability: position_query, server: oms}
+      - {capability: research_publishing, server: research_platform}
+      - {capability: deal_advisory, server: deal_platform}
+      - {capability: wall_crossing, server: control_room}
+      - {capability: limit_setting, server: risk_system}
+      - {capability: risk_analytics_run, server: risk_system}
+      - {capability: breach_override, server: risk_system}
+      - {capability: credit_approval, server: credit_system}
+      - {capability: aml_triage, server: fincrime_platform}
+      - {capability: sar_filing, server: regulator_gateway}
+      - {capability: audit_testing, server: audit_platform}
+      - {capability: production_deploy, server: deploy_pipeline}
     environments:
       - {environment: clean_room, image: "us-docker.pkg.dev/atlas/agents/base:py312", cpu: "2", memory: 4Gi}
       - {environment: banking_ops, image: "us-docker.pkg.dev/atlas/agents/base:py312", cpu: "2", memory: 4Gi}
