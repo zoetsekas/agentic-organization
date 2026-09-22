@@ -2,7 +2,7 @@
 id: ADR-0093
 title: Delegation that returns a handle
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-22
 updated: 2026-09-22
 deciders: [Platform Architecture]
@@ -155,11 +155,23 @@ Built as described. What landed, and where it differs from the sketch:
   test asserting no generated `CONFORMANCE.md` names `assign`, `gather` or
   `max_parallel_subagents`.
 
-Work still open: a handle collected several turns later returns into a
-conversation that has moved on, and nothing makes the leader re-read what it
-asked for — see the disadvantage below. And a `gather` deadline abandons a
-result whose worker may still be running; the `assignment_abandoned` event
-records that it was a deadline rather than a failure of the work.
+Both items v1.0.0 left open are now closed, neither of them by pretending the
+underlying constraint went away:
+
+- **A deadline cannot stop the worker.** Nothing here can interrupt a thread
+  mid tool call, and a half-executed tool call is worse than a late result —
+  the same reasoning `TurnBudget` already uses. So the deadline binds on the
+  leader's side only: the handle stays `FAILED`, and when the worker finishes
+  anyway its output is kept on the child session as an `assignment_late_result`
+  event rather than flipping the session back to `COMPLETED`. What the leader
+  was told and what the store says no longer diverge, and the work is not
+  thrown away.
+- **Stale results are flagged, not prevented.** A handle collected several
+  turns later still returns into a conversation that has moved on, and nothing
+  can make an agent re-read its own question. What `check` can do is stop the
+  staleness having to be inferred: it returns the original `task` text, the
+  number of messages the leader has exchanged since assigning it, and, when
+  that is not zero, a `staleness` line naming the task and saying to re-read it.
 
 ## Timeline
 Delivered with this ADR. The eight Verification bullets below are
@@ -185,8 +197,13 @@ Delivered with this ADR. The eight Verification bullets below are
   defensible, and it is still a grant the calendar had closed. The alternative
   strands work. Neither is free.
 - **A leader can now hold stale context.** A handle collected several turns
-  later returns into a conversation that has moved on, and nothing makes the
-  leader re-read what it asked for.
+  later returns into a conversation that has moved on. Since v1.1.0 `check`
+  says so — the original task, the messages since, and an instruction to
+  re-read — but saying so is not the same as the leader acting on it, and
+  nothing here can make it.
+- **A deadline is the leader's, not the worker's.** `gather` stops waiting; the
+  work does not stop running. It is kept as an event rather than delivered,
+  which is honest but still means tokens spent on a result nobody used.
 - **More surface to explain.** Four delegation tools rather than one, and the
   difference between `delegate` and `assign`+`gather` is exactly the kind of
   thing an agent gets wrong in a prompt.
@@ -227,11 +244,16 @@ What would have to be true, if this is built:
 - A child parked on an approval reports `WAITING_HUMAN` and does not block the
   parent's turn.
 - Every handle reaches a terminal state, including across a simulated restart.
+- A worker that finishes after its deadline does not resurrect the handle, and
+  its output is kept rather than discarded.
+- A handle collected after the conversation has moved on comes back flagged,
+  carrying the task it answers.
 - No target's conformance report claims to carry any of this.
 
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-22 | Closed both open items: a worker finishing after its deadline no longer resurrects the handle (its output is kept as `assignment_late_result`), and `check` flags a result collected after the conversation moved on, carrying the task it answers. |
 | 1.0.0 | 2026-09-22 | Accepted and implemented: `assign`/`check`/`gather`, depth from the session tree, `max_parallel_subagents` enforced, a child's tokens charged to the parent, lost handles settled on resume. |
 | 0.1.0 | 2026-09-22 | Proposed. Asynchronous delegation returning a handle, backed by the existing session tree; authority checked at assignment; `max_parallel_subagents` enforced; children's spend charged to the parent. |

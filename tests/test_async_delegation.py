@@ -384,3 +384,78 @@ def test_no_generated_conformance_report_claims_asynchronous_delegation():
         text = report.read_text()
         for claim in ("assign(", "gather(", "max_parallel_subagents"):
             assert claim not in text, f"{report} claims {claim}"
+
+
+# -- the two items ADR-0093 left open (v1.1.0) ------------------------------
+
+
+def test_an_abandoned_worker_does_not_resurrect_the_handle(platform):
+    """What the leader was told and what the store says must not diverge.
+
+    A `gather` deadline cannot stop the worker — nothing here can interrupt a
+    thread mid tool call, and a half-executed tool call is worse than a late
+    result. So the deadline is honoured on the leader's side and the session
+    stays failed, while the work itself is kept as an event: the output is
+    real and may be worth reading, it was simply never delivered.
+    """
+    gate = threading.Event()
+    real_run = platform.runtime.run
+
+    def gated(agent_id, prompt, **kw):
+        if kw.get("session_id"):
+            assert gate.wait(timeout=10)
+        return real_run(agent_id, prompt, **kw)
+
+    platform.runtime.run = gated
+    session = platform.sessions.create("agt_cfo")
+    tools = _tools(platform, "agt_cfo", session.id)
+    try:
+        handle = tools["assign"]("agt_fin_analyst", "Something slow.")["handle"]
+        assert tools["gather"]([handle], timeout_s=0.2)["ok"] is False
+    finally:
+        gate.set()
+        platform.runtime.run = real_run
+
+    # Let the worker finish the run the leader already gave up on.
+    with platform.runtime._assign_lock:
+        future = platform.runtime._assignments[handle].future
+    future.result(timeout=10)
+
+    assert platform.sessions.get(handle).state is SessionState.FAILED, \
+        "the leader was told this failed; the store must not say otherwise"
+    late = [e for e in platform.sessions.events(handle)
+            if e.type == "assignment_late_result"]
+    assert late and late[0].payload["output"], \
+        "the work was thrown away rather than kept"
+    assert "never delivered" in late[0].payload["note"]
+
+
+def test_a_handle_collected_late_says_the_conversation_has_moved_on(platform):
+    """A result returning into a conversation that has moved on.
+
+    Nothing can make an agent re-read what it asked for. What can be done is
+    to stop the staleness being something it has to infer from a timestamp:
+    the original task comes back with the result, and so does the fact that
+    the leader has said other things since.
+    """
+    session = platform.sessions.create("agt_cfo")
+    tools = _tools(platform, "agt_cfo", session.id)
+    handle = tools["assign"]("agt_fin_analyst", "Pull invoice aging.")["handle"]
+    _settled(platform, handle)
+
+    prompt = tools["check"](handle)
+    assert prompt["settled"] and prompt["stale"] is False
+    assert prompt["messages_since_assigned"] == 0
+
+    # The leader's conversation carries on while the handle sits collected.
+    platform.sessions.log(session.id, "message", actor="human",
+                          payload={"role": "user", "content": "Actually, hold that."})
+    platform.sessions.log(session.id, "message", actor="agt_cfo",
+                          payload={"role": "assistant", "content": "Holding."})
+
+    later = tools["check"](handle)
+    assert later["stale"] is True
+    assert later["messages_since_assigned"] == 2
+    assert "Pull invoice aging." in later["staleness"]
+    assert later["task"] == "Pull invoice aging."
+    assert later["output"], "a stale result is still delivered, just flagged"

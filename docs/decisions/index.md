@@ -95,7 +95,7 @@
 | [ADR-0090](ADR-0090-a-starter-design-and-a-gate-scaffold.md) | A starter design and a gate scaffold | Accepted | 1.1.0 | cli, spec | WS-002 | — |
 | [ADR-0091](ADR-0091-one-extension-seam-for-targets-runtimes-and-clouds.md) | One extension seam for targets, runtimes and clouds | Accepted | 1.0.0 | compiler, runtime, cli | WS-003 | — |
 | [ADR-0092](ADR-0092-bring-your-own-implementation-templates-and-overlays.md) | Bring your own implementation — templates, and overlays that work | Accepted | 1.0.0 | compiler, cli | WS-003 | — |
-| [ADR-0093](ADR-0093-delegation-that-returns-a-handle.md) | Delegation that returns a handle | Accepted | 1.0.0 | runtime, spec | WS-003 | — |
+| [ADR-0093](ADR-0093-delegation-that-returns-a-handle.md) | Delegation that returns a handle | Accepted | 1.1.0 | runtime, spec | WS-003 | — |
 
 ## By status
 

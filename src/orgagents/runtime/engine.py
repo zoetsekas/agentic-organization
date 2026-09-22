@@ -88,6 +88,7 @@ class _Assignment:
     task: str
     future: "Future[RunResult]"
     assigned_at: str
+    assigned_at_mark: int = 0       # the parent's message count when assigned
     collected: bool = False
     abandoned: bool = False
 
@@ -237,8 +238,8 @@ class AgentRuntime:
         without settling its session is exactly the hang rule 5 forbids.
         """
         try:
-            return self.run(agent_id, task, session_id=handle,
-                            created_by=created_by)
+            result = self.run(agent_id, task, session_id=handle,
+                              created_by=created_by)
         except BaseException as e:                      # noqa: BLE001
             error = f"{type(e).__name__}: {e}"
             self.sessions.log(handle, "error", actor=created_by,
@@ -248,6 +249,38 @@ class AgentRuntime:
                 session_id=handle, session_url=self.sessions.url(handle),
                 output="", state=SessionState.FAILED, error=error,
             )
+
+        # A `gather` deadline may have passed while this was running. The
+        # leader has already been told the handle failed, so letting `run`'s
+        # COMPLETED stand would leave the store contradicting what the agent
+        # was told, and a later reader unable to tell which was true. The
+        # session stays failed and the work is kept as an event: the output
+        # is real and may be worth reading, it was simply not delivered.
+        with self._assign_lock:
+            assignment = self._assignments.get(handle)
+            abandoned = bool(assignment and assignment.abandoned)
+        if abandoned:
+            self.sessions.log(
+                handle, "assignment_late_result", actor=created_by,
+                payload={
+                    "state": result.state.value,
+                    "output": result.output,
+                    "error": result.error,
+                    "note": "the leader stopped waiting before this finished; "
+                            "the work completed but was never delivered",
+                },
+            )
+            self.sessions.set_state(handle, SessionState.FAILED)
+        return result
+
+    def _parent_turn_mark(self, session_id: str) -> int:
+        """How many messages this session has exchanged so far.
+
+        A cheap clock for one purpose: telling a leader that the conversation
+        has moved on since it assigned something (ADR-0093 v1.1.0).
+        """
+        return sum(1 for e in self.sessions.events(session_id)
+                   if e.type == "message")
 
     def _collect(self, assignment: _Assignment) -> dict[str, Any]:
         """Take the result of a settled handle, charging it to the parent.
@@ -933,6 +966,7 @@ class AgentRuntime:
                 task=task,
                 future=Future(),            # replaced by the submitted one below
                 assigned_at=now_iso(),
+                assigned_at_mark=self._parent_turn_mark(session_id),
             )
             with self._assign_lock:
                 self._assignments[child.id] = assignment
@@ -992,6 +1026,7 @@ class AgentRuntime:
                 "handle": handle,
                 "to": assignment.to_agent_id,
                 "task": assignment.task,
+                "assigned_at": assignment.assigned_at,
                 "state": child.state.value,
                 "settled": settled,
                 "waiting_human": child.state is SessionState.WAITING_HUMAN,
@@ -1005,6 +1040,23 @@ class AgentRuntime:
             if settled:
                 out.update(self._collect(assignment))
                 out["ok"] = out.get("error") is None
+                # A handle collected several turns later returns into a
+                # conversation that has moved on. Nothing here can make an
+                # agent re-read what it asked for, but leaving it to notice
+                # on its own is how a leader acts on an answer to a question
+                # that is no longer the question. The task text comes back
+                # with the result, and the fact that time passed is said out
+                # loud rather than inferred from a timestamp.
+                since = (self._parent_turn_mark(session_id)
+                         - assignment.assigned_at_mark)
+                out["messages_since_assigned"] = max(0, since)
+                out["stale"] = since > 0
+                if since > 0:
+                    out["staleness"] = (
+                        f"this was assigned {since} message(s) ago; re-read "
+                        f"the task it answers — {assignment.task!r} — before "
+                        "acting on it, because the conversation has moved on"
+                    )
             return out
 
         def gather(handles: Any, timeout_s: float = 0.0) -> dict[str, Any]:
