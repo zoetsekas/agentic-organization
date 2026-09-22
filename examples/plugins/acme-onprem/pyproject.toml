@@ -1,0 +1,21 @@
+# A third-party deployment target, packaged as its own distribution.
+#
+# `pip install .` is the whole installation step: the entry point below is how
+# orgagents discovers this target (ADR-0091). Nothing in the orgagents package
+# is edited, and an upgrade of orgagents does not conflict with this.
+[project]
+name = "acme-onprem-target"
+version = "0.1.0"
+description = "Deploy an orgagents design to Acme's on-prem Nomad cluster."
+requires-python = ">=3.11"
+dependencies = ["orgagents"]
+
+[project.entry-points."orgagents.targets"]
+"acme:onprem" = "acme_onprem.target:AcmeOnPremTarget"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

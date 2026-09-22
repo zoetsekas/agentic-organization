@@ -1,0 +1,15 @@
+# $system_name — Nomad deployment
+
+Generated from the `$system_name` design (spec_version $spec_version) by the
+`template` target. $agent_count agents:
+
+$agent_ids
+
+## What this carries, and what it does not
+
+Each job below names the agent, its team, its model and the tools it may call.
+Those are **descriptive**: Nomad runs the container, it does not check them.
+
+The authority model — who may decide what, which duties stay separated, which
+human approves a gated action — is enforced at this platform's harness
+boundary, never by a scheduler. See `CONFORMANCE.md`.

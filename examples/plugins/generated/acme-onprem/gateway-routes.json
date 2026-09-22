@@ -1,0 +1,59 @@
+{
+  "system": "ayc",
+  "note": "Descriptive. Acme's gateway must be configured to honour this; generating it does not apply it.",
+  "routes": [
+    {
+      "from": "ceo_agent",
+      "to": [
+        "cgo_agent",
+        "coo_agent"
+      ]
+    },
+    {
+      "from": "coo_agent",
+      "to": [
+        "ap_agent",
+        "buyer_agent",
+        "inventory_agent",
+        "software_agent",
+        "warehouse_agent"
+      ]
+    },
+    {
+      "from": "inventory_agent",
+      "to": [
+        "ecommerce_agent",
+        "marketing_agent"
+      ]
+    },
+    {
+      "from": "ap_agent",
+      "to": [
+        "ar_agent"
+      ]
+    },
+    {
+      "from": "cgo_agent",
+      "to": [
+        "cs_agent",
+        "ecommerce_agent",
+        "inventory_agent",
+        "marketing_agent"
+      ]
+    },
+    {
+      "from": "ecommerce_agent",
+      "to": [
+        "inventory_agent",
+        "marketing_agent"
+      ]
+    },
+    {
+      "from": "marketing_agent",
+      "to": [
+        "ecommerce_agent",
+        "inventory_agent"
+      ]
+    }
+  ]
+}

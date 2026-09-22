@@ -1,0 +1,22 @@
+{
+  "system": "ayc",
+  "target": "acme:onprem",
+  "spec_version": "1.4.0",
+  "ir_version": "1.0.0",
+  "files": {
+    "jobs/ceo_agent.nomad": "3f38416a5a1cacc8",
+    "jobs/coo_agent.nomad": "6548ece88535068b",
+    "jobs/buyer_agent.nomad": "8aa0acb1b54e3943",
+    "jobs/warehouse_agent.nomad": "d1ccb6c04d97b83c",
+    "jobs/inventory_agent.nomad": "beefc6bce49c327e",
+    "jobs/ap_agent.nomad": "82029b7c90c015cb",
+    "jobs/ar_agent.nomad": "8b266980f6cc87b2",
+    "jobs/software_agent.nomad": "14d4bee0cc7eef4e",
+    "jobs/cgo_agent.nomad": "a42dfe9c4c00119d",
+    "jobs/ecommerce_agent.nomad": "d1f6b0c84a969a11",
+    "jobs/cs_agent.nomad": "02fda4fa7155acb5",
+    "jobs/marketing_agent.nomad": "7d0b7ef397eaf836",
+    "gateway-routes.json": "5658979b09b28b9d",
+    "CONFORMANCE.md": "60de19d66650806a"
+  }
+}

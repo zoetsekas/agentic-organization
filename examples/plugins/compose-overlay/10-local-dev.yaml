@@ -1,0 +1,30 @@
+# An overlay for the `local` target (ADR-0092).
+#
+# Copy this into the generated stack's overlays/ directory:
+#
+#     cp examples/plugins/compose-overlay/10-local-dev.yaml \
+#        build/local/overlays/
+#     cd build/local && make overlays && make up
+#
+# The generated Makefile merges every overlays/*.yaml over the stack in sorted
+# order, so the `10-` prefix decides when this one applies. Nothing here is
+# ever regenerated: the compiler creates overlays/ and then never reads or
+# writes inside it.
+services:
+  designer:
+    # Point at a locally built image instead of the pinned one.
+    image: orgagents-designer:dev
+    # Live-reload the source while developing.
+    volumes:
+      - ../../src:/app/src:ro
+    environment:
+      ORGAGENTS_LOG_LEVEL: debug
+
+  # A sidecar the design knows nothing about — which is fine: an overlay
+  # changes the deployment, never the design. It cannot grant an agent a
+  # permission, widen a sandbox or remove an approval; those resolved into the
+  # IR long before this file is read.
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "8025:8025"

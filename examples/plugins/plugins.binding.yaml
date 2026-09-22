@@ -1,0 +1,26 @@
+# A binding for the plugin examples.
+#
+# A plugin target is bound exactly like a built-in one: the spec stays
+# vendor-neutral (ADR-0002) and this file names the runtime and model. Without
+# an entry for a target you still get a compile — the neutral defaults stand in
+# — which is why the generated Nomad jobs would otherwise say `echo`.
+targets:
+  # The template target (ADR-0092): no Python, just a directory of *.tmpl.
+  - target: template
+    runtime:
+      adapter: langchain_deepagents
+    model:
+      provider: anthropic
+      model: claude-sonnet-5
+
+  # A third-party Python target, discovered through an entry point (ADR-0091).
+  # Its id is the plugin's, not ours; binding it needs no change here.
+  - target: acme:onprem
+    runtime:
+      adapter: langchain_deepagents
+    model:
+      provider: anthropic
+      model: claude-sonnet-5
+    infrastructure:
+      provider: local
+      region: dc1

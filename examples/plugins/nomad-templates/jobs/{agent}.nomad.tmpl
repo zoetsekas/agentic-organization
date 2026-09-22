@@ -1,0 +1,49 @@
+# $agent_name — generated from the $system_name design. Do not hand-edit;
+# change the spec and recompile.
+job "$agent_id" {
+  datacenters = ["dc1"]
+  type        = "service"
+
+  meta {
+    # Provenance, so an operator can trace a running job back to the design.
+    orgagents_system  = "$system_name"
+    orgagents_agent   = "$agent_id"
+    orgagents_team    = "$team"
+    reports_to        = "$reports_to"
+    accountable_human = "$humans"
+  }
+
+  group "$agent_id" {
+    count = 1
+
+    task "agent" {
+      driver = "docker"
+
+      config {
+        image = "$model_provider-agent:latest"
+      }
+
+      env {
+        ORGAGENTS_AGENT_ID = "$agent_id"
+        ORGAGENTS_MODEL    = "$model_provider:$model_name"
+        ORGAGENTS_RUNTIME  = "$runtime_adapter"
+      }
+
+      resources {
+        cpu    = 500
+        memory = 1024
+      }
+    }
+  }
+
+  # ---- Carried by the design, NOT enforced by Nomad -----------------------
+  #   sandboxes.......... $environments
+  #   placements......... $placements
+  #   capabilities....... $capabilities
+  #   tools.............. $tools
+  #   decisions it holds. $decisions
+  #   needs approval for. $requires_approval_for
+  #   resolved grants.... $permission_count
+  # A scheduler cannot hold a mandate. Deploy `terraform:gcp` or `local`
+  # alongside if you want those enforced rather than documented.
+}

@@ -1,0 +1,24 @@
+{
+  "system": "ayc",
+  "target": "template",
+  "spec_version": "1.4.0",
+  "ir_version": "1.0.0",
+  "files": {
+    "README.md": "bbe9ad23039575de",
+    "inventory.csv": "acaf4401f592b31b",
+    "jobs/ceo_agent.nomad": "cc2422104d9926f9",
+    "jobs/coo_agent.nomad": "f8c329b4aa19b7a0",
+    "jobs/buyer_agent.nomad": "b791ba820ed28ee9",
+    "jobs/warehouse_agent.nomad": "e60c15529e82f974",
+    "jobs/inventory_agent.nomad": "9cbec4195137e9fa",
+    "jobs/ap_agent.nomad": "3f9d4e7556f97185",
+    "jobs/ar_agent.nomad": "10ba0f02aee3ec37",
+    "jobs/software_agent.nomad": "b3a7a88c15ee666d",
+    "jobs/cgo_agent.nomad": "fab019e7329ca3c5",
+    "jobs/ecommerce_agent.nomad": "d23e6026c1f67dc8",
+    "jobs/cs_agent.nomad": "e522c5217e9b8af3",
+    "jobs/marketing_agent.nomad": "b986937edd1bcfa0",
+    "system.ir.json": "f06cd31cf7dce265",
+    "CONFORMANCE.md": "1ee634d0837dfdc5"
+  }
+}

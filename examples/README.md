@@ -33,9 +33,15 @@ Two routes, and the second is usually faster for a real organization:
 `house.platform-policy.yaml` is a shared fabric policy the phase-gate examples
 judge against; it belongs to no single design.
 
+`plugins/` is not an organization — it is the **extension** examples: the same
+`ayc` design rendered three ways without forking this repository (a template
+directory, a Compose overlay, and a third-party Python target packaged as its
+own distribution). See [`plugins/README.md`](plugins/README.md).
+
 | Folder | Organization | Generated |
 |---|---|---|
 | `acme/` | Breadth example — every field the spec has | `generated/terraform-gcp/` |
+| `plugins/` | **Not an org** — extending the implementation phase three ways | `generated/nomad-from-templates/`, `generated/acme-onprem/` |
 | `northwind/` | CFO finance function; segregation of duties over a payment | — (local binding) |
 | `meridian/` | Consumer lender under three lines of defence | — |
 | `lumiere/` | Beauty & salon products; control on what an agent may say | — |

@@ -1,0 +1,3 @@
+# One row per system, for an auditor who wants the shape at a glance.
+system,spec_version,agents
+ayc,1.4.0,12
