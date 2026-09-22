@@ -25,7 +25,13 @@ import pytest
 
 from orgagents.compiler.engine import compile_system
 from orgagents.phases import review
-from orgagents.scaffold import GATE_BLOCKS, scaffold_for, starter_spec
+from orgagents.scaffold import (
+    GATE_BLOCKS,
+    binding_template,
+    catalog_blocks,
+    scaffold_for,
+    starter_spec,
+)
 from orgagents.spec.loader import load_spec_text
 from orgagents.spec.validate import validate_spec
 
@@ -185,6 +191,80 @@ def test_filling_in_the_scaffold_closes_the_definition_gate():
     report = review(spec)
     assert report.definition_complete, [
         c.title for c in report.failures("definition")]
+
+
+# -- the approved catalog feeds the scaffold -------------------------------
+
+class _Entry:
+    """A stand-in for a CatalogEntry; the scaffold reads it duck-typed."""
+
+    def __init__(self, kind, name, summary, status="approved", **attributes):
+        self.kind, self.name, self.summary = kind, name, summary
+        self.status, self.attributes = status, attributes
+
+
+CATALOG = [
+    _Entry("environment_template", "reasoning",
+           "No code execution; delegation and tool calls only.",
+           tier="minimal", network="none", toolchains=["none"]),
+    _Entry("environment_template", "build",
+           "Developer environment.", status="restricted",
+           tier="large", network="allowlist"),
+    _Entry("permission_set", "finance-read",
+           "Read finance data and query the warehouse.",
+           permissions=[{"action": "read", "resource_kind": "data_class",
+                         "resource": "finance_internal"}]),
+    _Entry("guardrail", "no-credentials-out",
+           "Block credential-shaped content leaving an agent.",
+           checks=["secrets"], on_violation="block",
+           applies_to=["output"]),
+    _Entry("model", "claude-sonnet-5", "The everyday choice.",
+           provider="anthropic"),
+    _Entry("model", "half-finished", "Not reviewed yet.", status="proposed",
+           provider="somebody"),
+    _Entry("mcp_server", "relational-sql", "Policy-enforcing SQL access.",
+           transport="stdio", command="orgagents-mcp-sql", engine="postgres"),
+]
+
+
+def test_the_scaffold_offers_the_approved_shelf():
+    blocks = catalog_blocks(CATALOG)
+    envs = blocks["environments_declared"]
+    assert "id: reasoning" in envs
+    assert "network: none" in envs
+    assert "finance_read" in blocks["agents_have_roles"]
+
+
+def test_only_approved_entries_are_ever_offered():
+    """Scaffolding a restricted or proposed entry would route the author
+    around the approval the status records."""
+    blocks = catalog_blocks(CATALOG)
+    assert "build" not in blocks["environments_declared"]
+    binding = binding_template("acme", "local", catalog=CATALOG)
+    assert "claude-sonnet-5" in binding
+    assert "half-finished" not in binding
+
+
+def test_a_guardrail_is_offered_as_recommended_not_required():
+    text = starter_spec("acme", catalog=CATALOG)
+    assert "Guardrails (recommended)" in text
+    assert "no_credentials_out" in text
+    # Still a valid design: everything offered is commented.
+    spec = load_spec_text(text)
+    assert not [f for f in validate_spec(spec) if f.severity == "error"]
+
+
+def test_an_empty_catalog_falls_back_to_the_generic_template():
+    assert catalog_blocks([]) == {}
+    assert catalog_blocks(None) == {}
+    # And the starter still carries a generic environments block.
+    assert "environments:" in starter_spec("acme")
+
+
+def test_the_binding_names_approved_servers():
+    binding = binding_template("acme", "local", catalog=CATALOG)
+    assert "relational_sql" in binding
+    assert "engine: postgres" in binding
 
 
 # -- the CLI journey -------------------------------------------------------

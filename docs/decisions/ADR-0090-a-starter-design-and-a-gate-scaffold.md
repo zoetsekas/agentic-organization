@@ -2,7 +2,7 @@
 id: ADR-0090
 title: A starter design and a gate scaffold
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-22
 updated: 2026-09-22
 deciders: [Platform Architecture]
@@ -53,6 +53,17 @@ still exits non-zero: scaffolding an answer is not having answered it.
 A failing check with no template — a separation of duties, say — is listed
 under "only you can decide these" with the gate's own `fix` text rather than
 guessed at.
+
+**The blocks are drawn from the platform catalog where it has one.** The
+catalog already holds reviewed building blocks — environment templates,
+permission sets, guardrails, models, MCP servers — each carrying an approval
+status (ADR-0031), and they were going unused: `installs: 0`. So the scaffold
+offers the organization's own approved shelf instead of a generic placeholder,
+and falls back to the generic template for any kind the catalog has nothing
+approved for. Only `approved` entries are ever offered: scaffolding a
+`restricted` or `proposed` entry would route an author around the very
+approval the status records. Reading the catalog is best-effort, so a missing
+or unreadable one leaves the author no worse off than before it existed.
 
 ## Scope
 The CLI (`spec new`, `phase --scaffold`) and a new `orgagents.scaffold` module.
@@ -105,11 +116,14 @@ Accepted 2026-09-22.
 compiles; it does *not* pass the gate (the honesty property); it carries a
 block per check; the scaffold answers only the checks that actually fail;
 every emitted line is a comment; a design written from the scaffold's shapes
-closes the definition phase; and the CLI journey works end to end, including
-that `spec new` refuses to clobber and `phase --scaffold` still exits 1.
+closes the definition phase; that the approved shelf is offered while a
+`restricted` or `proposed` entry never is; that an empty catalog falls back to
+the generic template; and the CLI journey works end to end, including that
+`spec new` refuses to clobber and `phase --scaffold` still exits 1.
 
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-22 | The scaffold draws its blocks from the platform catalog's **approved** entries where it has them (environments, permission sets, guardrails, models, MCP servers), falling back to the generic template otherwise. |
 | 1.0.0 | 2026-09-22 | Accepted. `orgagents spec new` writes a valid starter design carrying the gate's remaining checks as commented blocks; `orgagents phase --scaffold` prints the blocks a design still owes. |

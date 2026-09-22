@@ -204,7 +204,129 @@ def _blocks_by_id() -> dict[str, GateBlock]:
     return {b.check_id: b for b in GATE_BLOCKS}
 
 
-def starter_spec(name: str, *, owner: str = "", leader: str = "lead") -> str:
+# --------------------------------------------------------------------------
+# Catalog-aware blocks
+#
+# The platform catalog already holds reviewed building blocks — environment
+# templates, guardrails, permission sets, MCP servers, models — each with an
+# approval status (ADR-0031). A scaffold that printed a generic placeholder
+# while the organization's own *approved* shelf sat unused was wasting the
+# review that put them there.
+#
+# Only `approved` entries are ever offered. Scaffolding a `restricted` or
+# `proposed` entry would route an author around the very approval the status
+# records, which is the same class of mistake as declaring governance nobody
+# agreed.
+# --------------------------------------------------------------------------
+
+
+def _approved(entries: Optional[list], kind: str) -> list:
+    """Approved entries of one kind, by name. Duck-typed so a test can pass
+    simple stand-ins and the CLI can pass real `CatalogEntry` objects."""
+    out = []
+    for entry in entries or []:
+        entry_kind = getattr(getattr(entry, "kind", None), "value",
+                             getattr(entry, "kind", ""))
+        status = getattr(getattr(entry, "status", None), "value",
+                         getattr(entry, "status", ""))
+        if entry_kind == kind and status == "approved":
+            out.append(entry)
+    return sorted(out, key=lambda e: getattr(e, "name", ""))
+
+
+def _shelf_note(kind: str) -> str:
+    return (f"# These are your platform's APPROVED {kind.replace('_', ' ')}s "
+            f"—\n# see `orgagents catalogs list --kind {kind}`. Uncomment what "
+            "you need.")
+
+
+def _environments_block(entries: list) -> str:
+    lines = ["# TODO declare the isolation classes agents run in (ADR-0009), "
+             "then",
+             "# reference them per agent with `environments: "
+             "[{environment: <id>}]`.",
+             _shelf_note("environment_template"),
+             "# environments:"]
+    for entry in entries:
+        attrs = getattr(entry, "attributes", {}) or {}
+        lines.append(f"#   - id: {entry.name}")
+        lines.append(f"#     description: {entry.summary}")
+        if attrs.get("tier"):
+            lines.append(f"#     tier: {attrs['tier']}")
+        if attrs.get("network"):
+            lines.append(f"#     network: {attrs['network']}")
+        chains = attrs.get("toolchains") or []
+        if chains:
+            lines.append(f"#     toolchains: [{', '.join(chains)}]")
+    return "\n".join(lines) + "\n"
+
+
+def _roles_block(entries: list) -> str:
+    lines = ["# TODO declare roles, then give each agent `roles: [<id>]`.",
+             "# A role is what states an agent's accountability — its "
+             "responsibilities in",
+             "# plain sentences, and the permissions they justify.",
+             _shelf_note("permission_set"),
+             "# roles:"]
+    for entry in entries:
+        attrs = getattr(entry, "attributes", {}) or {}
+        safe = entry.name.replace("-", "_")
+        lines.append(f"#   - id: {safe}")
+        lines.append(f"#     title: {entry.summary.rstrip('.')}")
+        lines.append("#     responsibilities:")
+        lines.append(f"#       - {entry.summary}")
+        perms = attrs.get("permissions") or []
+        if perms:
+            lines.append("#     permissions:")
+            for perm in perms:
+                lines.append(
+                    f"#       - {{action: {perm.get('action')}, "
+                    f"resource_kind: {perm.get('resource_kind')}, "
+                    f"resource: {perm.get('resource')}}}")
+    return "\n".join(lines) + "\n"
+
+
+def _guardrails_block(entries: list) -> str:
+    lines = ["# RECOMMENDED (a warning, not a gate failure): permissions "
+             "decide what",
+             "# agents may reach; a guardrail checks what may pass.",
+             _shelf_note("guardrail"),
+             "# guardrails:"]
+    for entry in entries:
+        attrs = getattr(entry, "attributes", {}) or {}
+        lines.append(f"#   - id: {entry.name.replace('-', '_')}")
+        lines.append(f"#     description: {entry.summary}")
+        for key in ("applies_to", "checks"):
+            if attrs.get(key):
+                lines.append(f"#     {key}: [{', '.join(attrs[key])}]")
+        if attrs.get("on_violation"):
+            lines.append(f"#     on_violation: {attrs['on_violation']}")
+    return "\n".join(lines) + "\n"
+
+
+def catalog_blocks(entries: Optional[list]) -> dict[str, str]:
+    """Blocks rebuilt from the approved catalog, keyed by gate check id.
+
+    A kind with no approved entry is absent, and the generic template stands.
+    """
+    out: dict[str, str] = {}
+    envs = _approved(entries, "environment_template")
+    if envs:
+        out["environments_declared"] = _environments_block(envs)
+    perms = _approved(entries, "permission_set")
+    if perms:
+        out["agents_have_roles"] = _roles_block(perms)
+    return out
+
+
+def recommended_blocks(entries: Optional[list]) -> list[tuple[str, str]]:
+    """(title, body) for blocks worth offering that no gate check demands."""
+    rails = _approved(entries, "guardrail")
+    return [("Guardrails (recommended)", _guardrails_block(rails))] if rails else []
+
+
+def starter_spec(name: str, *, owner: str = "", leader: str = "lead",
+                 catalog: Optional[list] = None) -> str:
     """A design that is valid the moment it is written, plus the gate's
     remaining work as commented blocks.
 
@@ -256,19 +378,25 @@ organization:
 # ---------------------------------------------------------------------------
 
 """
+    from_catalog = catalog_blocks(catalog)
     parts = [head]
     for block in GATE_BLOCKS:
         if block.check_id == "production_gate":
             continue                      # folded into the lifecycle block
         parts.append(f"# ---- {block.title} " + "-" * max(
             0, 58 - len(block.title)) + "\n")
-        parts.append(block.body)
+        parts.append(from_catalog.get(block.check_id, block.body))
+        parts.append("\n")
+    for title, body in recommended_blocks(catalog):
+        parts.append(f"# ---- {title} " + "-" * max(0, 58 - len(title)) + "\n")
+        parts.append(body)
         parts.append("\n")
     return "".join(parts)
 
 
 def scaffold_for(failures: list, *, name: str = "system",
-                 target: Optional[str] = None) -> str:
+                 target: Optional[str] = None,
+                 catalog: Optional[list] = None) -> str:
     """The YAML blocks that answer the checks this design still fails.
 
     `failures` is the phase report's failing checks. A failure with no block
@@ -276,6 +404,7 @@ def scaffold_for(failures: list, *, name: str = "system",
     duties) is listed as a note rather than invented.
     """
     blocks = _blocks_by_id()
+    from_catalog = catalog_blocks(catalog)
     lines: list[str] = [
         f"# Scaffold for '{name}' — the blocks the phase gate is still asking",
         "# for. Uncomment and fill what is true for your organization; nothing",
@@ -301,7 +430,7 @@ def scaffold_for(failures: list, *, name: str = "system",
             continue
         lines.append(f"# ---- {block.title} " + "-" * max(
             0, 58 - len(block.title)))
-        lines.append(block.body.rstrip("\n"))
+        lines.append(from_catalog.get(block.check_id, block.body).rstrip("\n"))
         lines.append("")
 
     if unhandled:
@@ -313,8 +442,49 @@ def scaffold_for(failures: list, *, name: str = "system",
     if any(getattr(c, "id", "") == "binding_exists" for c in failures):
         lines.append("# ---- A binding for the target " + "-" * 33)
         lines.append(f"# Write this to {name}.binding.yaml (a separate file):")
-        for line in BINDING_TEMPLATE.format(
-                name=name, target=target or "local").splitlines():
-            lines.append(f"# {line}" if line else "#")
+        for line in binding_template(name, target or "local",
+                                     catalog=catalog).splitlines():
+            # The template is a real file elsewhere, so it carries its own
+            # comments; only its YAML needs commenting out here.
+            if not line:
+                lines.append("#")
+            else:
+                lines.append(line if line.lstrip().startswith("#")
+                             else f"# {line}")
         lines.append("")
     return "\n".join(lines) + "\n"
+
+
+def binding_template(name: str, target: str = "local", *,
+                     catalog: Optional[list] = None) -> str:
+    """The binding a target still needs, naming the approved shelf where there
+    is one. Models and MCP servers are implementation facts, so they belong
+    here and never in the spec (ADR-0002)."""
+    text = BINDING_TEMPLATE.format(name=name, target=target)
+    models = _approved(catalog, "model")
+    servers = _approved(catalog, "mcp_server")
+    if not models and not servers:
+        return text
+    extra = ["", "# ---- From your approved catalog " + "-" * 31]
+    if models:
+        extra.append("# Approved models (`orgagents catalogs models`):")
+        for entry in models:
+            attrs = getattr(entry, "attributes", {}) or {}
+            provider = attrs.get("provider", "")
+            extra.append(f"#   {entry.name}"
+                         + (f"  (provider: {provider})" if provider else "")
+                         + f" — {entry.summary}")
+    if servers:
+        extra.append("# Approved MCP servers — declare each once under"
+                     " `servers:` (ADR-0085):")
+        for entry in servers:
+            attrs = getattr(entry, "attributes", {}) or {}
+            bits = [f"id: {entry.name.replace('-', '_')}", "kind: mcp"]
+            if attrs.get("transport"):
+                bits.append(f"transport: {attrs['transport']}")
+            if attrs.get("command"):
+                bits.append(f"command: {attrs['command']}")
+            if attrs.get("engine"):
+                bits.append(f"engine: {attrs['engine']}")
+            extra.append(f"#   - {{{', '.join(bits)}}}  # {entry.summary}")
+    return text + "\n".join(extra) + "\n"

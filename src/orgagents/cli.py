@@ -95,6 +95,23 @@ def _spec_language_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _approved_catalog(args: argparse.Namespace) -> list:
+    """The platform's catalog, best-effort.
+
+    Scaffolding is a convenience, so a missing or unreadable catalog must not
+    stop it: the generic templates stand in and the author is no worse off
+    than before the catalog existed.
+    """
+    try:
+        from .catalogs import CatalogService
+        from .platform import Platform
+
+        return list(CatalogService(
+            Platform(args.db, configure_logs=False).store).list())
+    except Exception:                       # noqa: BLE001 - convenience only
+        return []
+
+
 def _spec_new_command(args: argparse.Namespace) -> int:
     """`spec new <name>` — a starter design that is valid from the first save.
 
@@ -109,7 +126,8 @@ def _spec_new_command(args: argparse.Namespace) -> int:
         print("error: spec new needs a name, e.g. `orgagents spec new acme`")
         return 2
     name = Path(name).stem.replace(".system", "")
-    text = starter_spec(name, owner=getattr(args, "owner", "") or "")
+    text = starter_spec(name, owner=getattr(args, "owner", "") or "",
+                        catalog=_approved_catalog(args))
     out = Path(args.out) if args.out else Path(f"{name}.system.yaml")
     if out.exists() and not args.force:
         print(f"error: {out} exists; pass --force to overwrite")
@@ -180,7 +198,8 @@ def _compiler_command(args: argparse.Namespace) -> int:
             from .scaffold import scaffold_for
 
             text = scaffold_for(report.failures(), name=spec.metadata.name,
-                                target=args.target)
+                                target=args.target,
+                                catalog=_approved_catalog(args))
             if args.out:
                 Path(args.out).write_text(text)
                 print(f"\nscaffold written to {args.out}")

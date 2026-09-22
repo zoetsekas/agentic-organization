@@ -92,7 +92,7 @@
 | [ADR-0087](ADR-0087-wiring-bound-capabilities-into-real-clients.md) | Wiring bound capabilities into real clients, not stubs | Accepted | 1.1.0 | compiler | WS-003 | — |
 | [ADR-0088](ADR-0088-planning-flag-and-deepagents-parameter-fidelity.md) | A planning flag, and deepagents parameter fidelity | Accepted | 1.0.0 | spec, compiler | WS-003 | — |
 | [ADR-0089](ADR-0089-engineer-owned-stub-files-merged-additively.md) | Engineer-owned stub files, merged additively on regeneration | Accepted | 1.0.0 | compiler | WS-003 | — |
-| [ADR-0090](ADR-0090-a-starter-design-and-a-gate-scaffold.md) | A starter design and a gate scaffold | Accepted | 1.0.0 | cli, spec | WS-002 | — |
+| [ADR-0090](ADR-0090-a-starter-design-and-a-gate-scaffold.md) | A starter design and a gate scaffold | Accepted | 1.1.0 | cli, spec | WS-002 | — |
 
 ## By status
 
