@@ -1,0 +1,26 @@
+{
+  "system": "ayc",
+  "target": "langgraph",
+  "spec_version": "1.3.0",
+  "ir_version": "1.0.0",
+  "files": {
+    "graphs/ceo_agent.py": "9702f19d3268854f",
+    "graphs/coo_agent.py": "1633f4049a0feb11",
+    "graphs/buyer_agent.py": "441656f8c0e6f8af",
+    "graphs/warehouse_agent.py": "5d98830eb5a48b85",
+    "graphs/inventory_agent.py": "6506af005d11b26e",
+    "graphs/ap_agent.py": "07885edb68fb875a",
+    "graphs/ar_agent.py": "a2de4331852c4493",
+    "graphs/software_agent.py": "c2be881fc86c807c",
+    "graphs/cgo_agent.py": "3645ea81e7ba6198",
+    "graphs/ecommerce_agent.py": "29db7bf67b04d421",
+    "graphs/cs_agent.py": "b29449a7e731fb2a",
+    "graphs/marketing_agent.py": "d3d6a6fb36d5c119",
+    "graphs/__init__.py": "85dc4bc0ccfd30bf",
+    "langgraph.json": "3d022f8df916ae39",
+    "requirements.txt": "99c50875ba46d8e9",
+    ".env.example": "a463442f99e35e81",
+    "CONFORMANCE.md": "2e920267ca859d17",
+    "README.md": "607d2f93c80cdcbc"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "dependencies": [
+    "."
+  ],
+  "graphs": {
+    "org": "./graphs/__init__.py:root",
+    "ceo_agent": "./graphs/ceo_agent.py:ceo_agent",
+    "coo_agent": "./graphs/coo_agent.py:coo_agent",
+    "buyer_agent": "./graphs/buyer_agent.py:buyer_agent",
+    "warehouse_agent": "./graphs/warehouse_agent.py:warehouse_agent",
+    "inventory_agent": "./graphs/inventory_agent.py:inventory_agent",
+    "ap_agent": "./graphs/ap_agent.py:ap_agent",
+    "ar_agent": "./graphs/ar_agent.py:ar_agent",
+    "software_agent": "./graphs/software_agent.py:software_agent",
+    "cgo_agent": "./graphs/cgo_agent.py:cgo_agent",
+    "ecommerce_agent": "./graphs/ecommerce_agent.py:ecommerce_agent",
+    "cs_agent": "./graphs/cs_agent.py:cs_agent",
+    "marketing_agent": "./graphs/marketing_agent.py:marketing_agent"
+  },
+  "env": ".env",
+  "python_version": "3.12"
+}

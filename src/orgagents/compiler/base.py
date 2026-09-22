@@ -81,6 +81,7 @@ def register_builtin_targets() -> TargetRegistry:
     """Register the targets that ship with the platform."""
     from .targets.local import LocalTarget
     from .targets.adk import GoogleADKTarget
+    from .targets.langgraph import LangGraphPlatformTarget
     from .targets.maf import MicrosoftAgentFrameworkTarget
     from .targets.terraform import TerraformTarget
 
@@ -92,4 +93,5 @@ def register_builtin_targets() -> TargetRegistry:
         # somebody else's agent definitions (ADR-0005).
         REGISTRY.register(MicrosoftAgentFrameworkTarget())
         REGISTRY.register(GoogleADKTarget())
+        REGISTRY.register(LangGraphPlatformTarget())
     return REGISTRY

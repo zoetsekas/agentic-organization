@@ -114,3 +114,57 @@ targets:
       provider: cloud_scheduler
       queue: ayc-triggers
     secrets_backend: gcp_secret_manager
+  # The same langchain deepagents runtime as the terraform:gcp target above —
+  # here served on the hosted LangChain platform (LangGraph Platform), with
+  # tracing and evaluation in LangSmith, instead of on AYC's own Google Cloud.
+  # The runtime is a binding choice; the destination is a target. They compose:
+  # "deepagents on GCP" and "deepagents on LangSmith" are one design, two
+  # targets (ADR-0005).
+  - target: langgraph
+    runtime:
+      adapter: langchain_deepagents
+    model:
+      provider: anthropic
+      model: claude-sonnet-4-5
+      subagent_model: claude-haiku-4-5
+    servers:
+      - {id: shopify, kind: http_api, description: "Shopify storefront (products, orders, refunds)", transport: http, url: "https://ayc.myshopify.com/admin/api/mcp"}
+      - {id: fishbowl, kind: database, description: "Fishbowl inventory, purchasing and warehouse", engine: mysql, dsn_secret_ref: FISHBOWL_DSN}
+      - {id: accounting, kind: http_api, description: "Accounting system (payables and receivables)", transport: http, url: "https://accounting.ayc.internal/mcp"}
+      - {id: cms, kind: http_api, description: "Marketing content management system", transport: http, url: "https://cms.ayc.internal/mcp"}
+      - {id: deploy_pipeline, kind: http_api, description: "Production deployment pipeline", transport: http, url: "https://deploy.ayc.internal/mcp"}
+    capabilities:
+      - {capability: product_publishing, server: shopify}
+      - {capability: price_update, server: shopify}
+      - {capability: order_query, server: shopify}
+      - {capability: refund_processing, server: shopify}
+      - {capability: promotion_run, server: shopify}
+      - {capability: stock_check, server: fishbowl}
+      - {capability: purchase_ordering, server: fishbowl}
+      - {capability: goods_receiving, server: fishbowl}
+      - {capability: inventory_adjustment, server: fishbowl}
+      - {capability: order_fulfillment, server: fishbowl}
+      - {capability: invoice_payment, server: accounting}
+      - {capability: receivable_management, server: accounting}
+      - {capability: content_publishing, server: cms}
+      - {capability: software_deploy, server: deploy_pipeline}
+    environments:
+      - {environment: storefront_ops, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: warehouse_ops, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: finance_ops, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: studio, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: build, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+    channels:
+      - {channel: ops_desk, provider: google_chat, workspace: ayc, address: "spaces/ops", bot_identity_ref: CHAT_BOT_TOKEN}
+      - {channel: growth_desk, provider: google_chat, workspace: ayc, address: "spaces/growth", bot_identity_ref: CHAT_BOT_TOKEN}
+    knowledge:
+      - {knowledge: product_specs, provider: document_store, location: "gs://ayc-catalog/specs", index: specs-v1}
+    memory:
+      session_store: redis
+      long_term_store: vector
+      index: ayc-memory
+      embedding_model: text-embedding-3-small
+    scheduler:
+      provider: cloud_scheduler
+      queue: ayc-triggers
+    secrets_backend: gcp_secret_manager

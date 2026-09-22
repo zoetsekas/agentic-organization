@@ -102,13 +102,19 @@ def test_registry_exposes_infrastructure_targets_and_a_platform_target():
     """Two kinds, and the difference is the point.
 
     `local` and `terraform:*` are **infrastructure** targets: they deploy this
-    platform's runtime, which picks an adapter. `maf` and `adk` are **platform**
-    targets: they emit another vendor's agent definitions (Microsoft Agent
-    Framework, and Google ADK for Vertex AI Agent Engine), which is what the
+    platform's runtime, which picks an adapter. `maf`, `adk` and `langgraph` are
+    **platform** targets: they emit another vendor's agent definitions
+    (Microsoft Agent Framework; Google ADK for Vertex AI Agent Engine; and a
+    deepagents graph for LangGraph Platform / LangSmith), which is what the
     Terraform analogy promises and what nothing here did until they existed.
+
+    `langgraph` and `terraform:gcp` also make the *mix* explicit: the same
+    `langchain_deepagents` runtime deploys to the hosted LangChain platform or
+    to your own Google Cloud — the runtime is a binding choice, the destination
+    a target.
     """
     assert register_builtin_targets().ids() == [
-        "adk", "local", "maf", "terraform:aws", "terraform:azure",
+        "adk", "langgraph", "local", "maf", "terraform:aws", "terraform:azure",
         "terraform:gcp"
     ]
 

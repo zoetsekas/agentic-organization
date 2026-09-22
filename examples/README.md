@@ -19,7 +19,7 @@ judge against; it belongs to no single design.
 | `sentinel/` | Security operations centre; multi-sandbox + instructions | — |
 | `helios/` | Clinical-stage pharma; large, passes the phase gate | `generated/terraform-gcp/` |
 | `atlas/` | Multinational bank; every feature, deployed to Gemini/GCP | `generated/adk/`, `generated/terraform-gcp/` |
-| `ayc/` | Salon-furnishings distributor (Shopify + Fishbowl) on Google Cloud | `generated/adk/`, `generated/terraform-gcp/` |
+| `ayc/` | Salon-furnishings distributor (Shopify + Fishbowl); deepagents to GCP *and* to LangGraph Platform | `generated/adk/`, `generated/terraform-gcp/`, `generated/langgraph/` |
 
 The `generated/` folders are compiler output. Regenerate any of them with, e.g.:
 

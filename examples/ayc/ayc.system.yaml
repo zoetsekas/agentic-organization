@@ -1096,7 +1096,7 @@ lifecycle:
       applies_to: [software_agent]
 
 deployment:
-  targets: [adk, terraform:gcp]
+  targets: [adk, terraform:gcp, langgraph]
   regions: [us-central1]
   high_availability: false
   binding: examples/ayc/ayc.binding.yaml
