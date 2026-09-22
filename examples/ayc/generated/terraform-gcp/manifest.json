@@ -1,0 +1,19 @@
+{
+  "system": "ayc",
+  "target": "terraform:gcp",
+  "spec_version": "1.3.0",
+  "ir_version": "1.0.0",
+  "files": {
+    "main.tf": "8f574a4ab6e2754f",
+    "variables.tf": "6105ff15e783f57f",
+    "iam.tf": "1e7a5b282e0c97d6",
+    "agents.tf": "fa93caf35d339bdf",
+    "network.tf": "a67b44cd6ed081ea",
+    "triggers.tf": "7590379a309e6c83",
+    "channels.tf": "b24fee04e7b566ec",
+    "REGISTRY.md": "3d479e9fbce17ee9",
+    "backend.tf.example": "16ffc0d3058e74d8",
+    "system.ir.json": "915e7507003e3d3c",
+    "MAPPING.md": "0704be0022cbc810"
+  }
+}

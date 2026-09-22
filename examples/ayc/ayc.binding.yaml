@@ -1,0 +1,116 @@
+# AYC's binding: the vendor-neutral design met with Google Cloud.
+#
+# AYC runs its business on two systems — **Shopify** for the storefront and
+# **Fishbowl** for inventory, purchasing and the warehouse — plus a small
+# accounting system, a CMS and a deploy pipeline. Each is declared once under a
+# **servers catalog** (ADR-0085), and every capability references it by
+# `server` instead of repeating a URL and a credential. The catalog is also the
+# deployment's systems inventory: the two sides of every separation (a buyer's
+# purchase order vs. Finance's payment; a cycle-count adjustment vs. a
+# shipment; a refund vs. the receivable) sit on different servers on purpose,
+# so a barrier decided in the spec survives into the wiring (ADR-0071).
+#
+# The `adk` target runs the agents on Gemini via Vertex AI Agent Engine; the
+# `terraform:gcp` target places the governed runtime — VPC, per-placement
+# subnets and firewall — on Google Cloud (ADR-0084).
+targets:
+  - target: adk
+    runtime:
+      adapter: google_adk
+    model:
+      provider: google
+      model: gemini-2.5-pro
+      subagent_model: gemini-2.5-flash
+    servers:
+      - {id: shopify, kind: http_api, description: "Shopify storefront (products, orders, refunds)", transport: http, url: "https://ayc.myshopify.com/admin/api/mcp"}
+      - {id: fishbowl, kind: database, description: "Fishbowl inventory, purchasing and warehouse", engine: mysql, dsn_secret_ref: FISHBOWL_DSN}
+      - {id: accounting, kind: http_api, description: "Accounting system (payables and receivables)", transport: http, url: "https://accounting.ayc.internal/mcp"}
+      - {id: cms, kind: http_api, description: "Marketing content management system", transport: http, url: "https://cms.ayc.internal/mcp"}
+      - {id: deploy_pipeline, kind: http_api, description: "Production deployment pipeline", transport: http, url: "https://deploy.ayc.internal/mcp"}
+    capabilities:
+      - {capability: product_publishing, server: shopify}
+      - {capability: price_update, server: shopify}
+      - {capability: order_query, server: shopify}
+      - {capability: refund_processing, server: shopify}
+      - {capability: promotion_run, server: shopify}
+      - {capability: stock_check, server: fishbowl}
+      - {capability: purchase_ordering, server: fishbowl}
+      - {capability: goods_receiving, server: fishbowl}
+      - {capability: inventory_adjustment, server: fishbowl}
+      - {capability: order_fulfillment, server: fishbowl}
+      - {capability: invoice_payment, server: accounting}
+      - {capability: receivable_management, server: accounting}
+      - {capability: content_publishing, server: cms}
+      - {capability: software_deploy, server: deploy_pipeline}
+    environments:
+      - {environment: storefront_ops, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: warehouse_ops, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: finance_ops, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: studio, image: "python:3.12-slim", cpu: "1", memory: 2Gi}
+      - {environment: build, image: "python:3.12-slim", cpu: "2", memory: 4Gi}
+    channels:
+      - {channel: ops_desk, provider: google_chat, workspace: ayc, address: "spaces/ops", bot_identity_ref: CHAT_BOT_TOKEN}
+      - {channel: growth_desk, provider: google_chat, workspace: ayc, address: "spaces/growth", bot_identity_ref: CHAT_BOT_TOKEN}
+    knowledge:
+      - {knowledge: product_specs, provider: document_store, location: "gs://ayc-catalog/specs", index: specs-v1}
+    memory:
+      session_store: redis
+      long_term_store: vector
+      index: ayc-memory
+      embedding_model: text-embedding-005
+    scheduler:
+      provider: cloud_scheduler
+      queue: ayc-triggers
+    secrets_backend: gcp_secret_manager
+  - target: terraform:gcp
+    runtime:
+      adapter: langchain_deepagents
+    model:
+      provider: google
+      model: gemini-2.5-pro
+    infrastructure:
+      provider: gcp
+      region: us-central1
+      project: ayc-prod
+      state_backend: gcs
+    servers:
+      - {id: shopify, kind: http_api, description: "Shopify storefront (products, orders, refunds)", transport: http, url: "https://ayc.myshopify.com/admin/api/mcp"}
+      - {id: fishbowl, kind: database, description: "Fishbowl inventory, purchasing and warehouse", engine: mysql, dsn_secret_ref: FISHBOWL_DSN}
+      - {id: accounting, kind: http_api, description: "Accounting system (payables and receivables)", transport: http, url: "https://accounting.ayc.internal/mcp"}
+      - {id: cms, kind: http_api, description: "Marketing content management system", transport: http, url: "https://cms.ayc.internal/mcp"}
+      - {id: deploy_pipeline, kind: http_api, description: "Production deployment pipeline", transport: http, url: "https://deploy.ayc.internal/mcp"}
+    capabilities:
+      - {capability: product_publishing, server: shopify}
+      - {capability: price_update, server: shopify}
+      - {capability: order_query, server: shopify}
+      - {capability: refund_processing, server: shopify}
+      - {capability: promotion_run, server: shopify}
+      - {capability: stock_check, server: fishbowl}
+      - {capability: purchase_ordering, server: fishbowl}
+      - {capability: goods_receiving, server: fishbowl}
+      - {capability: inventory_adjustment, server: fishbowl}
+      - {capability: order_fulfillment, server: fishbowl}
+      - {capability: invoice_payment, server: accounting}
+      - {capability: receivable_management, server: accounting}
+      - {capability: content_publishing, server: cms}
+      - {capability: software_deploy, server: deploy_pipeline}
+    environments:
+      - {environment: storefront_ops, image: "us-docker.pkg.dev/ayc/agents/base:py312", cpu: "1", memory: 2Gi}
+      - {environment: warehouse_ops, image: "us-docker.pkg.dev/ayc/agents/base:py312", cpu: "1", memory: 2Gi}
+      - {environment: finance_ops, image: "us-docker.pkg.dev/ayc/agents/base:py312", cpu: "1", memory: 2Gi}
+      - {environment: studio, image: "us-docker.pkg.dev/ayc/agents/base:py312", cpu: "1", memory: 2Gi}
+      - {environment: build, image: "us-docker.pkg.dev/ayc/agents/base:py312", cpu: "2", memory: 4Gi}
+    channels:
+      - {channel: ops_desk, provider: google_chat, workspace: ayc, address: "spaces/ops", bot_identity_ref: CHAT_BOT_TOKEN}
+      - {channel: growth_desk, provider: google_chat, workspace: ayc, address: "spaces/growth", bot_identity_ref: CHAT_BOT_TOKEN}
+    knowledge:
+      - {knowledge: product_specs, provider: document_store, location: "gs://ayc-catalog/specs", index: specs-v1}
+    memory:
+      session_store: redis
+      long_term_store: vector
+      index: ayc-memory
+      embedding_model: text-embedding-005
+    scheduler:
+      provider: cloud_scheduler
+      queue: ayc-triggers
+    secrets_backend: gcp_secret_manager
