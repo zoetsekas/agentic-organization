@@ -4,9 +4,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Optional
 
+from .continuity import ActingAssignment, open_assignment
 from .missions import open_peers
 from .models import Agent, AgentKind, OrgUnit
-from .store import AGENTS, ORG_UNITS, Store
+from .store import ACTING, AGENTS, ORG_UNITS, Store
 
 
 class OrgChart:
@@ -19,6 +20,12 @@ class OrgChart:
 
     def __init__(self, store: Store) -> None:
         self.store = store
+        #: Decisions no one principal may hold together (ADR-0070), loaded
+        #: from the IR. Standing in for a failed leader consults these to
+        #: decide what it may *not* confer (ADR-0094 rule 4). Left empty, a
+        #: standing-in would confer everything and honestly report that it
+        #: withheld nothing, which is why the loader fills it.
+        self.separations: list[dict] = []
 
     # -- units -------------------------------------------------------------
 
@@ -140,7 +147,114 @@ class OrgChart:
             return True
         # Shared-service agents are callable by anyone.
         dst = self.agent(to_agent_id)
-        return bool(dst and dst.kind is AgentKind.SERVICE)
+        if dst and dst.kind is AgentKind.SERVICE:
+            return True
+        # Reach lent by standing in for a leader that cannot run (ADR-0094).
+        # A stand-in that may not hand work to the failed leader's reports
+        # cannot lead them, which would leave the team stopped rather than
+        # covered. Checked last, so it can only ever widen reach that the
+        # chart already refused, and evaluated through `acting_for`, so a
+        # lapsed standing-in lends nothing.
+        for assignment in self.standing_in_as(from_agent_id, on):
+            if assignment.failed_agent_id == to_agent_id:
+                continue      # standing in for it, not delegating to it
+            if self.can_delegate(assignment.failed_agent_id, to_agent_id, on):
+                return True
+        return False
+
+
+    # -- standing in for a leader that cannot run (ADR-0094) ---------------
+
+    def successor_of(self, agent_id: str) -> Optional[Agent]:
+        """Who stands in for this agent, and nothing about whether it should.
+
+        An unset `successor_agent_id` resolves to the manager. That is not a
+        fallback for want of a better idea: under ADR-0065 a manager already
+        holds a superset of its reports' mandates, so it is the one stand-in
+        that confers no new authority on anybody.
+        """
+        agent = self.agent(agent_id)
+        if agent is None:
+            return None
+        if agent.successor_agent_id:
+            return self.agent(agent.successor_agent_id)
+        return self.escalation_target(agent_id)
+
+    def stand_in_for(
+        self,
+        agent_id: str,
+        *,
+        separations: Optional[list[dict]] = None,
+        reason: str = "",
+        ends_on: str = "",
+        adopted_handles: Optional[list[str]] = None,
+    ) -> Optional[ActingAssignment]:
+        """Open a standing-in assignment for a leader that cannot run.
+
+        Returns `None` when there is nobody to stand in — the top of a chain
+        with no declared successor. That is a refusal, not a promotion of
+        somebody arbitrary: silence never grants authority.
+
+        Standing in does not chain (rule 5). If the successor is *itself*
+        already being stood in for, this refuses rather than walking on,
+        because each hop is a step further from anyone who reviewed it.
+        """
+        failed = self.agent(agent_id)
+        successor = self.successor_of(agent_id)
+        if failed is None or successor is None or successor.id == failed.id:
+            return None
+        if self.acting_for(successor.id) is not None:
+            return None                     # no chaining
+        by_hierarchy = not failed.successor_agent_id
+        rules = separations if separations is not None else self.separations
+        assignment = open_assignment(
+            failed_agent_id=failed.id,
+            successor_agent_id=successor.id,
+            leader_mandate=failed.mandate,
+            successor_mandate=successor.mandate,
+            separations=rules or [],
+            by_hierarchy=by_hierarchy,
+            reason=reason,
+            ends_on=ends_on,
+        )
+        assignment.adopted_handles = list(adopted_handles or [])
+        self.store.put(ACTING, assignment, parent=failed.id)
+        return assignment
+
+    def acting_assignments(self) -> list[ActingAssignment]:
+        return self.store.list(ACTING, ActingAssignment, limit=2000)
+
+    def acting_for(
+        self, failed_agent_id: str, on: Optional[date] = None
+    ) -> Optional[ActingAssignment]:
+        """The live assignment standing in for this agent, if any.
+
+        The window is evaluated here, per call, so a lapsed standing-in
+        confers nothing from the moment it lapsed — whether or not anybody
+        swept it. Mission grants work the same way, for the same reason.
+        """
+        return next(
+            (a for a in self.acting_assignments()
+             if a.failed_agent_id == failed_agent_id and a.is_open(on)),
+            None,
+        )
+
+    def standing_in_as(
+        self, successor_agent_id: str, on: Optional[date] = None
+    ) -> list[ActingAssignment]:
+        """Everyone this agent is currently acting for."""
+        return [a for a in self.acting_assignments()
+                if a.successor_agent_id == successor_agent_id and a.is_open(on)]
+
+    def close_standing_in(self, failed_agent_id: str) -> int:
+        """End every standing-in for this agent, because it is back."""
+        closed = 0
+        for a in self.acting_assignments():
+            if a.failed_agent_id == failed_agent_id and a.status == "active":
+                a.status = "closed"
+                self.store.put(ACTING, a, parent=failed_agent_id)
+                closed += 1
+        return closed
 
     def mandate_holder(self, agent_id: str, decision: str) -> Optional[Agent]:
         """The nearest agent from here upward whose mandate covers `decision`.
@@ -158,6 +272,18 @@ class OrgChart:
         while current and current.id not in seen:
             seen.add(current.id)
             if decision in current.mandate:
+                # A holder that is currently stood down points at whoever is
+                # standing in *for this decision*. A manager standing in by
+                # hierarchy confers nothing and so matches nothing here —
+                # correctly, because walking up would have reached it anyway.
+                # A decision the stand-in had withheld under a separation is
+                # likewise not covered, so it keeps escalating rather than
+                # landing on somebody a control says may not take it.
+                acting = self.acting_for(current.id)
+                if acting is not None and acting.covers(decision):
+                    stand_in = self.agent(acting.successor_agent_id)
+                    if stand_in is not None:
+                        return stand_in
                 return current
             current = (
                 self.agent(current.manager_agent_id)

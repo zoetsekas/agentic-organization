@@ -1240,6 +1240,13 @@ class AgentSpec(BaseModel):
     # What this agent may decide without asking; None inherits its team's
     # (ADR-0065). Effective authority is the intersection up the tree.
     mandate: Optional[Mandate] = None
+    #: Who stands in when this agent cannot run (ADR-0094). Unset means its
+    #: manager, who already holds a superset of this mandate under ADR-0065
+    #: and is therefore granted nothing by standing in. Naming a peer here is
+    #: a real grant of authority the chart did not give, so it is declared
+    #: rather than inferred — and validation refuses one that would collapse
+    #: a separation of duties.
+    successor: Optional[str] = None
     # Shared services are callable from anywhere in the organization.
     shared_service: bool = False
     runtime_requirements: list[RuntimeRequirement] = Field(default_factory=list)

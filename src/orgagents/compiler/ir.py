@@ -48,6 +48,7 @@ from ..spec.model import (
     RecallMode,
     Permission,
     PolicyRule,
+    SeparationRule,
     Resilience,
     ResourceKind,
     OutputContract,
@@ -403,6 +404,9 @@ class AgentIR(BaseModel):
     groups: list[str] = Field(default_factory=list)
     identity: Optional[IdentityIR] = None
     max_delegation_depth: int = 3
+    #: Who stands in when this agent cannot run (ADR-0094); empty means its
+    #: manager, who already holds this mandate and is granted nothing.
+    successor_agent_id: str = ""
     #: Whether the agent keeps an explicit task plan (ADR-0083 companion).
     planning: bool = False
     requires_approval_for: list[str] = Field(default_factory=list)
@@ -689,6 +693,12 @@ class SystemIR(BaseModel):
     environments: list[EnvironmentClass] = Field(default_factory=list)
     capabilities: list[Capability] = Field(default_factory=list)
     policies: list[PolicyRule] = Field(default_factory=list)
+    #: Decisions no one principal may hold together (ADR-0070). Carried into
+    #: the IR because the runtime needs them: standing in for a failed leader
+    #: withholds any decision that would collapse one (ADR-0094), and a
+    #: runtime that cannot see the rules would confer every decision and
+    #: report that it had withheld nothing.
+    separations: list[SeparationRule] = Field(default_factory=list)
     workflows: list[WorkflowSpec] = Field(default_factory=list)
     observability: Observability = Field(default_factory=Observability)
     identities: list[IdentityIR] = Field(default_factory=list)
@@ -1379,6 +1389,7 @@ def build_ir(
                 groups=list(team_ir.groups),
                 identity=identity,
                 max_delegation_depth=agent.max_delegation_depth,
+                successor_agent_id=agent.successor or "",
                 planning=agent.planning,
                 requires_approval_for=sorted(
                     {*agent.approval_required_for,
@@ -1452,6 +1463,7 @@ def build_ir(
         environments=spec.environments,
         capabilities=spec.capabilities,
         policies=spec.policies,
+        separations=spec.separations,
         workflows=spec.workflows,
         observability=spec.observability,
         identities=identities,

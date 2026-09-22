@@ -254,6 +254,13 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
             ),
         )
 
+    # Separations of duties, which the runtime needs in order to know what a
+    # standing-in may *not* confer (ADR-0094 rule 4). Loaded before the agents
+    # so nothing can stand in before the rules are in place.
+    platform.org.separations = [
+        dict(rule) for rule in data.get("separations", [])
+    ]
+
     # Teams → org units.
     for team in data.get("teams", []):
         platform.org.add_unit(
@@ -305,6 +312,9 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
                     if p not in (agent.get("reports_to"),)
                 ],
                 mission_grants=list(agent.get("mission_grants", [])),
+                # Empty means the manager, who already holds this mandate
+                # (ADR-0094 rule 1), so it is left unset rather than filled in.
+                successor_agent_id=agent.get("successor_agent_id") or None,
                 mandate=list((agent.get("mandate") or {}).get("decisions", [])),
                 mandate_conditions=list(
                     (agent.get("mandate") or {}).get("conditions", [])

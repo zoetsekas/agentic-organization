@@ -147,3 +147,4 @@ WORKFLOWS = "workflows"
 SANDBOX_TEMPLATES = "sandbox_templates"
 CATALOG = "catalog"
 ALERTS = "alerts"
+ACTING = "acting"      # standing-in assignments (ADR-0094)

@@ -21,6 +21,7 @@ from typing import Any, Optional
 from datetime import datetime, timezone
 
 from ..catalog import Catalog
+from ..continuity import ActingAssignment
 from ..data.planes import AccessDenied, DataPlanes
 from ..harness.builder import HarnessBuilder
 from ..ids import now_iso
@@ -141,6 +142,76 @@ class AgentRuntime:
         # The live budget of each running session, so a settled child's spend
         # can be charged to the parent that commissioned it (rule 4).
         self._budgets: dict[str, TurnBudget] = {}
+
+    # -- leader continuity (ADR-0094) --------------------------------------
+
+    def consecutive_failures(self, agent_id: str) -> int:
+        """How many of this agent's most recent sessions failed in a row.
+
+        `escalate_to_human_after_failures` has been declared on every harness
+        and told to the model in its system prompt, while nothing counted. A
+        threshold nobody counts is the class of control this platform refuses
+        to ship, so it is counted here.
+        """
+        recent = sorted(self.sessions.list(agent_id, limit=50),
+                        key=lambda s: s.created_at, reverse=True)
+        count = 0
+        for session in recent:
+            if session.state is SessionState.FAILED:
+                count += 1
+                continue
+            if session.state is SessionState.RUNNING:
+                continue          # the run in progress is not yet a verdict
+            break
+        return count
+
+    def stand_down(self, agent_id: str, *, reason: str = "",
+                   ends_on: str = "") -> Optional[ActingAssignment]:
+        """Hand a failed leader's work and mandate to whoever stands in.
+
+        Returns `None` when nobody does — the top of a chain with no declared
+        successor, or a successor already standing in for somebody else, which
+        rule 5 refuses rather than chaining. A refusal here leaves the work
+        escalating to humans, which is the honest outcome: silence never
+        grants authority.
+        """
+        agent = self.org.agent(agent_id)
+        if agent is None or self.org.acting_for(agent_id) is not None:
+            return None
+        # Work the failed leader commissioned and never collected. Without
+        # this the handles settle (ADR-0093 rule 5) with nobody to act on what
+        # came back.
+        handles: list[str] = []
+        for session in self.sessions.list(agent_id, limit=50):
+            handles += self.unsettled_handles(session.id)
+        assignment = self.org.stand_in_for(
+            agent_id,
+            reason=reason or (
+                f"{self.consecutive_failures(agent_id)} consecutive failed "
+                "sessions"
+            ),
+            ends_on=ends_on,
+            adopted_handles=sorted(set(handles)),
+        )
+        if assignment is None:
+            self.obs.raise_alert(
+                "no_successor",
+                f"{agent.name} has stood down and nobody stands in for it: "
+                "its decisions escalate to a human until it is back",
+                severity=Severity.ERROR,
+                agent_id=agent_id,
+            )
+            return None
+        self.obs.raise_alert(
+            "standing_in",
+            assignment.describe() + (
+                f"; withheld {[w.decision for w in assignment.withheld]}"
+                if assignment.withheld else ""
+            ),
+            severity=Severity.WARNING,
+            agent_id=assignment.successor_agent_id,
+        )
+        return assignment
 
     # -- asynchronous delegation (ADR-0093) --------------------------------
 
@@ -379,6 +450,21 @@ class AgentRuntime:
         # can be told it is still running (ADR-0093 rule 5).
         self.settle_lost_handles(session.id)
         self.sessions.set_state(session.id, SessionState.RUNNING)
+        # A decision that reads as the successor's own is a decision nobody
+        # can audit, so every run under an inherited mandate says so on the
+        # session itself (ADR-0094 rule 6).
+        for standing in self.org.standing_in_as(agent.id):
+            self.sessions.log(
+                session.id, "acting_for", actor=agent.id,
+                payload={
+                    "for_agent": standing.failed_agent_id,
+                    "decisions": standing.decisions,
+                    "withheld": [w.model_dump() for w in standing.withheld],
+                    "by_hierarchy": standing.by_hierarchy,
+                    "ends_on": standing.ends_on,
+                    "reason": standing.reason,
+                },
+            )
         self.sessions.log(session.id, "message", actor=created_by or "human",
                           payload={"role": "user", "content": prompt})
         self.preload_memories(agent, session.id, prompt)
@@ -481,6 +567,25 @@ class AgentRuntime:
                 result.escalated_to = agent.human.email
             elif escalation:
                 result.escalated_to = escalation.name
+        # Continuity (ADR-0094). One failed run is a bad turn, not an outage:
+        # the threshold that decides is the one already declared on the
+        # harness for exactly this judgement.
+        if result.state is SessionState.FAILED:
+            threshold = agent.harness.escalate_to_human_after_failures
+            if threshold and self.consecutive_failures(agent.id) >= threshold:
+                self.stand_down(agent.id)
+        elif result.state is SessionState.COMPLETED:
+            # It is back. A standing-in that outlives the outage is a
+            # reorganisation nobody approved.
+            if self.org.close_standing_in(agent.id):
+                self.obs.raise_alert(
+                    "standing_in_ended",
+                    f"{agent.name} is running again; nobody is standing in "
+                    "for it any more",
+                    severity=Severity.INFO,
+                    agent_id=agent.id,
+                )
+
         log_event(
             "agent_run",
             agent=agent.name,

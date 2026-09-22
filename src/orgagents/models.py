@@ -390,6 +390,12 @@ class Agent(BaseModel):
     # Reach lent by a mission, each with the window it is good for. Kept apart
     # from `peer_agent_ids` because it expires (ADR-0039 v1.1.0).
     mission_grants: list[dict[str, Any]] = Field(default_factory=list)
+    # Who stands in when this agent cannot run (ADR-0094). Unset means the
+    # manager, who already holds a superset of this mandate under ADR-0065 and
+    # is therefore granted nothing by standing in. Naming a *peer* here is a
+    # real grant of authority the chart did not give, which is why it must be
+    # said out loud rather than inferred.
+    successor_agent_id: Optional[str] = None
     # Effective authority, resolved at the phase gate and never re-derived
     # here (ADR-0065): which decision classes this agent may take alone.
     mandate: list[str] = Field(default_factory=list)
