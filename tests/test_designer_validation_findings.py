@@ -108,7 +108,7 @@ def test_a_validator_finding_that_names_a_component_stays_traceable(client,
 
     root = pathlib.Path(__file__).resolve().parents[1]
     spec = yaml.safe_load(
-        (root / "examples" / "northwind.finance.system.yaml").read_text())
+        (root / "examples" / "northwind" / "northwind.finance.system.yaml").read_text())
     validation = open_draft(client, spec)
     attributed = [f for f in validation["findings"] if f["component"]]
     assert attributed, "findings that name a component should carry its id"

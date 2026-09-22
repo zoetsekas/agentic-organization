@@ -15,7 +15,7 @@ import yaml
 from orgagents.spec.model import SystemSpec
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-ATLAS = ROOT / "examples" / "atlas.bank.system.yaml"
+ATLAS = ROOT / "examples" / "atlas" / "atlas.bank.system.yaml"
 
 
 def test_every_top_level_block_is_populated():
@@ -24,7 +24,7 @@ def test_every_top_level_block_is_populated():
     missing = [b for b in blocks if not doc.get(b)]
     assert not missing, (
         f"the coverage example does not use: {missing}. Either add it to "
-        "examples/atlas.bank.system.yaml or record why it does not belong.")
+        "examples/atlas/atlas.bank.system.yaml or record why it does not belong.")
 
 
 def test_the_coverage_example_is_the_widest_one():
@@ -36,7 +36,7 @@ def test_the_coverage_example_is_the_widest_one():
     blocks = set(SystemSpec.model_fields)
     atlas = {b for b in blocks
              if yaml.safe_load(ATLAS.read_text()).get(b)}
-    for other in (ROOT / "examples").glob("*.system.yaml"):
+    for other in ROOT.glob("examples/*/*.system.yaml"):
         if other.name == "atlas.bank.system.yaml":
             continue
         doc = yaml.safe_load(other.read_text())

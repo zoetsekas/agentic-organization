@@ -31,7 +31,7 @@ it is built.
 ```
 
 ```bash
-$ orgagents phase examples/acme.system.yaml --binding examples/acme.binding.yaml \
+$ orgagents phase examples/acme/acme.system.yaml --binding examples/acme/acme.binding.yaml \
     --target terraform:gcp
 ── definition phase ───────────────────────────
   ✓ [def] Every agent has a human counterpart
@@ -43,7 +43,7 @@ ready to compile for 'terraform:gcp': yes
 ```
 
 Teams nest, and each has exactly one leader agent who is also a member of it —
-`examples/acme.system.yaml` is four levels deep:
+`examples/acme/acme.system.yaml` is four levels deep:
 
 ```
 Acme Corp                     leader: ceo         (human: Dana Whitfield)
@@ -65,11 +65,11 @@ Acme Corp                     leader: ceo         (human: Dana Whitfield)
 pip install -e '.[dev]'         # add '[langgraph]' or '[openai]' for real runtimes
 
 # Design → compile → run
-orgagents spec validate examples/acme.system.yaml
-orgagents spec show     examples/acme.system.yaml       # resolved org at a glance
+orgagents spec validate examples/acme/acme.system.yaml
+orgagents spec show     examples/acme/acme.system.yaml       # resolved org at a glance
 orgagents targets                                       # what we can generate
-orgagents compile examples/acme.system.yaml \
-  --binding examples/acme.binding.yaml \
+orgagents compile examples/acme/acme.system.yaml \
+  --binding examples/acme/acme.binding.yaml \
   --target local --target terraform:gcp --out build
 cd build/local && make up                               # or `make single`
 
@@ -77,9 +77,9 @@ cd build/local && make up                               # or `make single`
 orgagents seed && orgagents serve                       # UI on localhost:8000
 
 # Phase gate, scheduling and governance
-orgagents phase    examples/acme.system.yaml --binding examples/acme.binding.yaml \
+orgagents phase    examples/acme/acme.system.yaml --binding examples/acme/acme.binding.yaml \
                    --target terraform:gcp    # definition + implementation readiness
-orgagents schedule examples/acme.system.yaml --simulate-days 7
+orgagents schedule examples/acme/acme.system.yaml --simulate-days 7
 orgagents catalogs models                    # the approved model shelf
 orgagents records  validate                  # ADR/WS graph integrity
 pytest                                       # the whole suite, no network or API keys
@@ -97,29 +97,29 @@ waiting to be copied.
 
 | Example | The organisation | The control it exists to exercise |
 |---|---|---|
-| [`northwind.finance`](examples/northwind.finance.system.yaml) | A CFO function: controllership, treasury, FP&A, tax, internal audit | Segregation of duties over a payment — raise, approve and release are three principals, and internal audit does not report to the CFO |
-| [`meridian.lending`](examples/meridian.lending.system.yaml) | A consumer lender under three lines of defence | A declined applicant has a statutory right to a human, so `adverse_decision` is held by a person and no agent may claim it. Financial-crime casework is unreachable from the business the alert is about |
-| [`lumiere.beauty`](examples/lumiere.beauty.system.yaml) | A beauty and salon products company | What an agent may *say*: a cosmetic claim is legal and a medicinal one is not, and a reported reaction must never be closed with a refund |
-| [`northbeam.marketing`](examples/northbeam.marketing.system.yaml) | A marketing function | Consent as a legal basis rather than a preference, and measurement that cannot grade its own campaigns |
-| [`sentinel.secops`](examples/sentinel.secops.system.yaml) | A security operations centre | An agent in **two sandboxes** — triage in `analysis`, malware detonation in an offline `detonation` range (ADR-0082) — and every agent authored with its own **instructions** (ADR-0083) |
-| [`helios.pharma`](examples/helios.pharma.system.yaml) | A clinical-stage pharma company: R&D, clinical, manufacturing, regulatory, commercial | The large one — four levels deep, 13 agents, **three multi-sandbox** (patient data stays in an offline `phi_enclave`), a scoped sub-agent, and a trial readout as a mission. Passes the **phase gate** under a production platform policy |
-| [`atlas.bank`](examples/atlas.bank.system.yaml) | A multinational universal bank: consumer, markets, banking, risk, financial crime, audit, technology | The largest, and the **feature-coverage** example — it exercises *every* top-level block. Five levels, the three lines of defence, information barriers as separations, three multi-sandbox agents. Compiles to **Google ADK on Gemini** (`adk`) and to **GCP** (`terraform:gcp`) |
+| [`northwind.finance`](examples/northwind/northwind.finance.system.yaml) | A CFO function: controllership, treasury, FP&A, tax, internal audit | Segregation of duties over a payment — raise, approve and release are three principals, and internal audit does not report to the CFO |
+| [`meridian.lending`](examples/meridian/meridian.lending.system.yaml) | A consumer lender under three lines of defence | A declined applicant has a statutory right to a human, so `adverse_decision` is held by a person and no agent may claim it. Financial-crime casework is unreachable from the business the alert is about |
+| [`lumiere.beauty`](examples/lumiere/lumiere.beauty.system.yaml) | A beauty and salon products company | What an agent may *say*: a cosmetic claim is legal and a medicinal one is not, and a reported reaction must never be closed with a refund |
+| [`northbeam.marketing`](examples/northbeam/northbeam.marketing.system.yaml) | A marketing function | Consent as a legal basis rather than a preference, and measurement that cannot grade its own campaigns |
+| [`sentinel.secops`](examples/sentinel/sentinel.secops.system.yaml) | A security operations centre | An agent in **two sandboxes** — triage in `analysis`, malware detonation in an offline `detonation` range (ADR-0082) — and every agent authored with its own **instructions** (ADR-0083) |
+| [`helios.pharma`](examples/helios/helios.pharma.system.yaml) | A clinical-stage pharma company: R&D, clinical, manufacturing, regulatory, commercial | The large one — four levels deep, 13 agents, **three multi-sandbox** (patient data stays in an offline `phi_enclave`), a scoped sub-agent, and a trial readout as a mission. Passes the **phase gate** under a production platform policy |
+| [`atlas.bank`](examples/atlas/atlas.bank.system.yaml) | A multinational universal bank: consumer, markets, banking, risk, financial crime, audit, technology | The largest, and the **feature-coverage** example — it exercises *every* top-level block. Five levels, the three lines of defence, information barriers as separations, three multi-sandbox agents. Compiles to **Google ADK on Gemini** (`adk`) and to **GCP** (`terraform:gcp`) |
 
 ```bash
-orgagents spec show examples/meridian.lending.system.yaml
-orgagents compile   examples/lumiere.beauty.system.yaml --target local --out build
+orgagents spec show examples/meridian/meridian.lending.system.yaml
+orgagents compile   examples/lumiere/lumiere.beauty.system.yaml --target local --out build
 
 # One design taken the whole distance — validate → IR → compile → run —
 # showing the multi-sandbox and instructions features end to end:
-PYTHONPATH=src python3 examples/end_to_end.py
+PYTHONPATH=src python3 examples/sentinel/end_to_end.py
 
 # The larger walk-through: the pharma design through the phase gate (against a
 # platform policy and binding), compiled to three targets, and run:
-PYTHONPATH=src python3 examples/end_to_end_pharma.py
+PYTHONPATH=src python3 examples/helios/end_to_end_pharma.py
 
 # The largest: a multinational bank that uses every feature, deployed to
 # Google Cloud on Gemini (the `adk` and `terraform:gcp` targets):
-PYTHONPATH=src python3 examples/end_to_end_bank_gcp.py
+PYTHONPATH=src python3 examples/atlas/end_to_end_bank_gcp.py
 ```
 
 Open <http://localhost:8000/ui/> for the **Agentic Designer**: org chart,
@@ -157,7 +157,7 @@ are not meant to be merged. State lives on a `/data` volume, the container runs
 as a non-root user, seeding is opt-in and first-start only, and the trigger
 scheduler sits behind a Compose profile because unattended execution should be
 something you asked for. Anything that is not `serve` is passed to the CLI, so
-`docker compose run --rm designer spec validate examples/acme.system.yaml`
+`docker compose run --rm designer spec validate examples/acme/acme.system.yaml`
 works from the same image. Details and limits: **[docs/DOCKER.md](docs/DOCKER.md)**,
 ADR-0048.
 
@@ -194,7 +194,7 @@ apart from association (ADR-0081), and live validation.*
 There is also the [org chart](docs/images/designer-org-chart.png).
 
 > Captured from the running application with a real browser, against the worked
-> finance example in `examples/northwind.finance.system.yaml`. Regenerate them
+> finance example in `examples/northwind/northwind.finance.system.yaml`. Regenerate them
 > with `scripts/screenshots.py`; drive the UI with
 > `scripts/interaction_check.py`, which drags a component off the palette,
 > edits its form, moves a node and saves; and `scripts/concurrency_check.py`,

@@ -1,6 +1,6 @@
 """The end-to-end example runs, every stage, on real code.
 
-`examples/end_to_end.py` takes one design the whole distance — load, validate,
+`examples/sentinel/end_to_end.py` takes one design the whole distance — load, validate,
 resolve to the IR, compile to two targets, and run in the runtime — and it is
 the worked demonstration of the two capabilities added this phase: an agent in
 more than one sandbox (ADR-0082) and an agent with its own instructions
@@ -19,7 +19,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 @pytest.fixture(scope="module")
 def outcome():
     spec = importlib.util.spec_from_file_location(
-        "e2e_example", ROOT / "examples" / "end_to_end.py")
+        "e2e_example", ROOT / "examples" / "sentinel" / "end_to_end.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.main()

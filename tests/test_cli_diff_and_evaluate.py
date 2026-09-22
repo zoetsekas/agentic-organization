@@ -11,8 +11,8 @@ import yaml
 
 from orgagents.cli import main
 
-SPEC = "examples/acme.system.yaml"
-BINDING = "examples/acme.binding.yaml"
+SPEC = "examples/acme/acme.system.yaml"
+BINDING = "examples/acme/acme.binding.yaml"
 
 
 @pytest.fixture

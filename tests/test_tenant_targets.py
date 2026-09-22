@@ -16,7 +16,7 @@ from orgagents.spec import load_spec
 from orgagents.store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = ROOT / "examples" / "acme.system.yaml"
+EXAMPLE = ROOT / "examples" / "acme" / "acme.system.yaml"
 CLOUD_TARGETS = ["terraform:gcp", "terraform:aws", "terraform:azure"]
 
 

@@ -23,8 +23,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 @pytest.fixture(scope="module")
 def atlas():
     register_builtin_targets()
-    spec = load_spec(ROOT / "examples" / "atlas.bank.system.yaml")
-    binding = load_binding(str(ROOT / "examples" / "atlas.binding.yaml"))
+    spec = load_spec(ROOT / "examples" / "atlas" / "atlas.bank.system.yaml")
+    binding = load_binding(str(ROOT / "examples" / "atlas" / "atlas.binding.yaml"))
     with tempfile.TemporaryDirectory() as tmp:
         result = compile_system(spec, targets=["terraform:gcp"],
                                 out_dir=pathlib.Path(tmp), binding=binding)[0]
@@ -95,8 +95,8 @@ def test_a_provider_without_a_network_mapping_says_so(atlas):
     """AWS has no network profile yet; its network.tf must admit it rather than
     let a reader assume isolation."""
     register_builtin_targets()
-    spec = load_spec(ROOT / "examples" / "atlas.bank.system.yaml")
-    binding = load_binding(str(ROOT / "examples" / "atlas.binding.yaml"))
+    spec = load_spec(ROOT / "examples" / "atlas" / "atlas.bank.system.yaml")
+    binding = load_binding(str(ROOT / "examples" / "atlas" / "atlas.binding.yaml"))
     # AWS is not bound here, but the network file is still emitted per target;
     # compile terraform:aws without a binding to read its network.tf.
     with tempfile.TemporaryDirectory() as tmp:

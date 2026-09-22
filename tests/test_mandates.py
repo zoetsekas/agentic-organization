@@ -384,7 +384,7 @@ def test_no_generated_artifact_names_a_framework():
     from orgagents.compiler.ir import build_ir
     from orgagents.spec.loader import load_spec
 
-    ir = build_ir(load_spec(pathlib.Path("examples/acme.system.yaml")))
+    ir = build_ir(load_spec(pathlib.Path("examples/acme/acme.system.yaml")))
     blob = ir.model_dump_json()
     for name in ("deepagents", "deep_agents", "langchain", "langgraph",
                  "openai_agents", "agents_sdk"):
@@ -485,7 +485,7 @@ def test_the_worked_finance_example_holds_its_own_controls():
 
     from orgagents.spec.loader import load_spec
 
-    spec = load_spec(pathlib.Path("examples/northwind.finance.system.yaml"))
+    spec = load_spec(pathlib.Path("examples/northwind/northwind.finance.system.yaml"))
     assert spec.separations, "the example must declare the controls it tests"
     assert not errors(validate_spec(spec))
 
@@ -581,8 +581,8 @@ def test_the_worked_binding_keeps_the_two_sides_of_the_payment_control_apart():
     from orgagents.phases import review
     from orgagents.spec import load_binding, load_spec
 
-    spec = load_spec(pathlib.Path("examples/northwind.finance.system.yaml"))
-    binding = load_binding(pathlib.Path("examples/northwind.binding.yaml"))
+    spec = load_spec(pathlib.Path("examples/northwind/northwind.finance.system.yaml"))
+    binding = load_binding(pathlib.Path("examples/northwind/northwind.binding.yaml"))
     report = review(spec, binding=binding, target="local")
     checks = [c for c in report.of("implementation")
               if c.id.startswith("separation_survives_binding")]

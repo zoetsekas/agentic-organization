@@ -53,8 +53,8 @@ Anything that is not `serve` is passed to the CLI unchanged, so there is no
 second image to keep in step:
 
 ```bash
-docker compose run --rm designer spec validate examples/acme.system.yaml
-docker compose run --rm designer compile examples/acme.system.yaml --target local
+docker compose run --rm designer spec validate examples/acme/acme.system.yaml
+docker compose run --rm designer compile examples/acme/acme.system.yaml --target local
 docker compose run --rm designer records validate
 ```
 
@@ -93,7 +93,7 @@ a separate application, whatever ADR-0051 says.
 A tenant plane is not in this repository as a file; it is *generated*:
 
 ```bash
-orgagents compile examples/acme.system.yaml --target local --out build
+orgagents compile examples/acme/acme.system.yaml --target local --out build
 cd build/local && cp .env.example .env && make up
 ```
 

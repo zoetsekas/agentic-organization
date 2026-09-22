@@ -31,7 +31,7 @@ from orgagents.spec.model import (
 from orgagents.store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = ROOT / "examples" / "acme.system.yaml"
+EXAMPLE = ROOT / "examples" / "acme" / "acme.system.yaml"
 
 
 # -- guardrails (ADR-0035) -------------------------------------------------
@@ -158,7 +158,7 @@ def test_the_runtime_records_a_contract_violation(tmp_path):
     from orgagents.runtime.loader import load_system
 
     ir = build_ir(load_spec(EXAMPLE),
-                  binding=load_binding(ROOT / "examples" / "acme.binding.yaml")
+                  binding=load_binding(ROOT / "examples" / "acme" / "acme.binding.yaml")
                   .for_target("local"))
     platform = Platform(str(tmp_path / "contract.db"), configure_logs=False)
     load_system(platform, ir)

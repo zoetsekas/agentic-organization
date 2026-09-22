@@ -1336,4 +1336,4 @@ deployment:
   targets: [adk, terraform:gcp]
   regions: [europe-west1, us-central1, asia-southeast1]
   high_availability: true
-  binding: examples/atlas.binding.yaml
+  binding: examples/atlas/atlas.binding.yaml

@@ -296,7 +296,7 @@ def test_the_ir_carries_a_persons_authority_and_no_access():
 
 @pytest.fixture(scope="module")
 def northwind() -> SystemSpec:
-    return load_spec(ROOT / "examples" / "northwind.finance.system.yaml")
+    return load_spec(ROOT / "examples" / "northwind" / "northwind.finance.system.yaml")
 
 
 def test_northwind_declares_one_finance_director_not_six(northwind):

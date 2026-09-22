@@ -82,7 +82,7 @@ def _is_floating(ref: str) -> bool:
 def tenant_compose(tmp_path_factory):
     register_builtin_targets()
     tmp = tmp_path_factory.mktemp("tenant")
-    spec = load_spec(ROOT / "examples" / "acme.system.yaml")
+    spec = load_spec(ROOT / "examples" / "acme" / "acme.system.yaml")
     tenant = TenantRegistry(Store(tmp / "fabric.db")).register(
         id="northwind", name="Northwind", cloud_boundary="proj-northwind")
     result = compile_system(spec, targets=["local"], out_dir=tmp,

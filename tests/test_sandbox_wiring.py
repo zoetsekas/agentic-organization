@@ -21,9 +21,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def local_stack(tmp_path_factory) -> str:
     out = tmp_path_factory.mktemp("local")
     compile_system(
-        load_spec(str(ROOT / "examples" / "acme.system.yaml")),
+        load_spec(str(ROOT / "examples" / "acme" / "acme.system.yaml")),
         targets=["local"], out_dir=out,
-        binding=load_binding(str(ROOT / "examples" / "acme.binding.yaml")),
+        binding=load_binding(str(ROOT / "examples" / "acme" / "acme.binding.yaml")),
     )
     return next(out.rglob("README.md")).read_text()
 
@@ -52,9 +52,9 @@ def test_the_readme_does_not_oversell_the_boundary(local_stack):
 
 def test_the_runtime_template_carries_the_boundary(tmp_path):
     ir = compile_system(
-        load_spec(str(ROOT / "examples" / "acme.system.yaml")),
+        load_spec(str(ROOT / "examples" / "acme" / "acme.system.yaml")),
         targets=["local"], out_dir=tmp_path,
-        binding=load_binding(str(ROOT / "examples" / "acme.binding.yaml")),
+        binding=load_binding(str(ROOT / "examples" / "acme" / "acme.binding.yaml")),
     )[0].ir
     platform = Platform(str(tmp_path / "rt.db"), configure_logs=False)
     load_system(platform, ir)

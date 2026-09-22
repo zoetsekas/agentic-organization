@@ -1,6 +1,6 @@
 """IR diffing for change review (WS-005 M4).
 
-Every fixture here is built by compiling `examples/acme.system.yaml` and
+Every fixture here is built by compiling `examples/acme/acme.system.yaml` and
 mutating a copy of the spec, so the diff is exercised against IRs that came out
 of the real resolution path — inheritance, narrowing, identities and all.
 """
@@ -24,8 +24,8 @@ from orgagents.spec import load_binding, load_spec, load_spec_text
 from orgagents.store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = ROOT / "examples" / "acme.system.yaml"
-BINDING = ROOT / "examples" / "acme.binding.yaml"
+EXAMPLE = ROOT / "examples" / "acme" / "acme.system.yaml"
+BINDING = ROOT / "examples" / "acme" / "acme.binding.yaml"
 
 
 @pytest.fixture(scope="module")

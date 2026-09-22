@@ -1,0 +1,25 @@
+{
+  "system": "atlas",
+  "target": "adk",
+  "spec_version": "1.3.0",
+  "ir_version": "1.0.0",
+  "files": {
+    "agents/group_ceo_agent.py": "39cef363d41fe7ae",
+    "agents/consumer_head_agent.py": "b08c777df98ceb59",
+    "agents/loan_officer_agent.py": "8927c49aaaa667bb",
+    "agents/cib_head_agent.py": "66eb3b306461656c",
+    "agents/markets_head_agent.py": "241fe03a49bb4b8d",
+    "agents/trader_agent.py": "5ba65cf8e879a14a",
+    "agents/research_analyst_agent.py": "dc3faa592779af02",
+    "agents/banker_agent.py": "507e35f47bd494da",
+    "agents/cro_agent.py": "0e474e455ac9e426",
+    "agents/aml_agent.py": "b6f47554cf3df550",
+    "agents/audit_agent.py": "14c7898f8f4d99cf",
+    "agents/platform_engineer_agent.py": "092bc443170edde5",
+    "agents/__init__.py": "0a5d69bfd3b69a0b",
+    "agent_engine.py": "ab34458b33f962d5",
+    "requirements.txt": "ff032295089c69a6",
+    "CONFORMANCE.md": "f08b884b44282ad3",
+    "README.md": "5d4db6cd86f02105"
+  }
+}

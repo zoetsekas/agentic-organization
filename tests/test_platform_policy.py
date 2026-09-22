@@ -18,7 +18,7 @@ from orgagents.spec.loader import load_spec
 from orgagents.spec.model import AutonomyPosture
 from orgagents.spec.validate import errors, validate_spec
 
-EXAMPLE = pathlib.Path("examples/northwind.finance.system.yaml")
+EXAMPLE = pathlib.Path("examples/northwind/northwind.finance.system.yaml")
 
 
 @pytest.fixture()
@@ -60,7 +60,7 @@ def test_the_design_cannot_supply_its_own_policy(spec):
 
 
 def test_a_required_block_a_design_omits_is_refused():
-    spec = load_spec(pathlib.Path("examples/acme.system.yaml"))
+    spec = load_spec(pathlib.Path("examples/acme/acme.system.yaml"))
     policy = PlatformPolicy(id="p", require_declared=["separations"])
     assert "platform_policy_requires" in _codes(spec, policy)
 

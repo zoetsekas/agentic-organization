@@ -356,7 +356,7 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
                 store.put(WORKSPACES, default_ws, name=default_ws.name)
 
         # Populate the Acme system spec into the designer
-        acme_spec_path = Path(__file__).resolve().parents[2] / "examples" / "acme.system.yaml"
+        acme_spec_path = Path(__file__).resolve().parents[2] / "examples" / "acme" / "acme.system.yaml"
         if acme_spec_path.is_file():
             spec_obj = load_spec(str(acme_spec_path))
             spec_dict = spec_obj.model_dump(mode="json")

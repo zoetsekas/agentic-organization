@@ -27,8 +27,8 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = ROOT / "examples" / "acme.system.yaml"
-BINDING = ROOT / "examples" / "acme.binding.yaml"
+SPEC = ROOT / "examples" / "acme" / "acme.system.yaml"
+BINDING = ROOT / "examples" / "acme" / "acme.binding.yaml"
 OUT = ROOT / "build" / "smoke"
 BASE = "http://localhost:8000"
 

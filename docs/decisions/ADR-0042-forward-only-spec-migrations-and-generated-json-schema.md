@@ -113,7 +113,7 @@ adds its step in the same commit as the model change.
 1.0.0 document migrating and loading, the accuracy of the change list,
 idempotency, refusal of both newer and pre-1.0.0 documents, round-tripping
 through `dump_spec`, and the exported schema accepting
-`examples/acme.system.yaml` (validated with `jsonschema` where installed,
+`examples/acme/acme.system.yaml` (validated with `jsonschema` where installed,
 structurally otherwise).
 
 ## Changelog

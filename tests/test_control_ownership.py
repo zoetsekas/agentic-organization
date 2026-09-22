@@ -177,7 +177,7 @@ def test_a_deployment_that_enforces_everything_says_so():
 
 @pytest.fixture()
 def northwind() -> SystemSpec:
-    return load_spec(pathlib.Path("examples/northwind.finance.system.yaml"))
+    return load_spec(pathlib.Path("examples/northwind/northwind.finance.system.yaml"))
 
 
 def test_the_finance_example_attributes_its_controls(northwind):

@@ -186,7 +186,7 @@ def test_an_assignment_may_not_loosen_it():
 
 @pytest.fixture()
 def northwind() -> SystemSpec:
-    return load_spec(pathlib.Path("examples/northwind.finance.system.yaml"))
+    return load_spec(pathlib.Path("examples/northwind/northwind.finance.system.yaml"))
 
 
 def test_the_finance_example_declares_a_posture_for_every_mutation(northwind):

@@ -8,7 +8,7 @@ from orgagents.security import PolicyEngine, Request, Subject
 from orgagents.spec import load_spec
 from orgagents.spec.model import Action, Effect, Permission, PolicyRule, ResourceKind
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "acme.system.yaml"
+EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "acme" / "acme.system.yaml"
 
 
 @pytest.fixture(scope="module")

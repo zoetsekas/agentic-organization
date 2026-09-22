@@ -32,8 +32,8 @@ from orgagents.spec.model import ModelClass, ModelPolicy
 from orgagents.store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = ROOT / "examples" / "acme.system.yaml"
-BINDING = ROOT / "examples" / "acme.binding.yaml"
+EXAMPLE = ROOT / "examples" / "acme" / "acme.system.yaml"
+BINDING = ROOT / "examples" / "acme" / "acme.binding.yaml"
 
 LONG_AGO = "2019-01-01T00:00:00+00:00"
 RECENT = "2026-09-01T00:00:00+00:00"

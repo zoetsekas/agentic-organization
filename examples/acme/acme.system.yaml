@@ -1213,4 +1213,4 @@ observability:
 
 deployment:
   targets: [local, "terraform:gcp"]
-  binding: examples/acme.binding.yaml
+  binding: examples/acme/acme.binding.yaml

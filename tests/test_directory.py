@@ -18,7 +18,7 @@ from orgagents.spec.model import HumanRole
 from orgagents.spec.validate import directory_findings
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = ROOT / "examples" / "acme.system.yaml"
+EXAMPLE = ROOT / "examples" / "acme" / "acme.system.yaml"
 
 
 @pytest.fixture(scope="module")

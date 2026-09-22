@@ -1,6 +1,6 @@
 """The bank-to-GCP end-to-end example runs, gate and Gemini and all.
 
-`examples/end_to_end_bank_gcp.py` takes the Atlas multinational bank through
+`examples/atlas/end_to_end_bank_gcp.py` takes the Atlas multinational bank through
 load, validate, a feature-coverage assertion, the phase gate for the `adk` and
 `terraform:gcp` targets under a platform policy, compilation to Google's stack
 (ADK agents on Gemini, plus the governed terraform runtime), and a runtime run.
@@ -19,7 +19,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 @pytest.fixture(scope="module")
 def outcome():
     spec = importlib.util.spec_from_file_location(
-        "e2e_bank_gcp", ROOT / "examples" / "end_to_end_bank_gcp.py")
+        "e2e_bank_gcp", ROOT / "examples" / "atlas" / "end_to_end_bank_gcp.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.main()

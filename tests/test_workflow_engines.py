@@ -304,7 +304,7 @@ def test_an_unbound_workflow_still_runs_natively_in_process(platform):
 def generated(tmp_path_factory):
     register_builtin_targets()
     tmp = tmp_path_factory.mktemp("langflow-stack")
-    spec = load_spec(ROOT / "examples" / "acme.system.yaml")
+    spec = load_spec(ROOT / "examples" / "acme" / "acme.system.yaml")
     binding = load_binding_with_langflow()
     tenant = TenantRegistry(Store(tmp / "fabric.db")).register(
         id="northwind", name="Northwind", cloud_boundary="proj-northwind")
@@ -316,7 +316,7 @@ def generated(tmp_path_factory):
 def load_binding_with_langflow():
     from orgagents.spec import load_binding
 
-    binding = load_binding(str(ROOT / "examples" / "acme.binding.yaml"))
+    binding = load_binding(str(ROOT / "examples" / "acme" / "acme.binding.yaml"))
     for target in binding.targets:
         target.workflows = [_service_binding(workflow="")]
     return binding

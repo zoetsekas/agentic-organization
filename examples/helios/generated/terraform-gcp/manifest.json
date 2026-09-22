@@ -1,0 +1,19 @@
+{
+  "system": "helios",
+  "target": "terraform:gcp",
+  "spec_version": "1.3.0",
+  "ir_version": "1.0.0",
+  "files": {
+    "main.tf": "b4aa69e33fbae46f",
+    "variables.tf": "c8e80d9912effd12",
+    "iam.tf": "4d670fab775d2039",
+    "agents.tf": "e826fc56935aa139",
+    "network.tf": "117c4c2d99babe6a",
+    "triggers.tf": "8cb3be20f0a05c64",
+    "channels.tf": "dbd8168838dab8a6",
+    "REGISTRY.md": "ba1e19ac123f8d5a",
+    "backend.tf.example": "1e1a1b58dd358e70",
+    "system.ir.json": "4575d02e7c07ddac",
+    "MAPPING.md": "4c07e05ff4b91926"
+  }
+}

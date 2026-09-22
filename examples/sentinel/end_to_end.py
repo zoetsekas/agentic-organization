@@ -24,7 +24,7 @@ import pathlib
 import sys
 import tempfile
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from orgagents.compiler.engine import compile_system
@@ -32,7 +32,7 @@ from orgagents.compiler.base import register_builtin_targets
 from orgagents.spec.loader import load_spec_text_with_migration
 from orgagents.spec.validate import validate_spec
 
-SPEC = ROOT / "examples" / "sentinel.secops.system.yaml"
+SPEC = ROOT / "examples" / "sentinel" / "sentinel.secops.system.yaml"
 
 
 def banner(step: str, title: str) -> None:

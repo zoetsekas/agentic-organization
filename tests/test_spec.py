@@ -11,7 +11,7 @@ from orgagents.spec import model as spec_model
 from orgagents.spec.loader import SpecVersionError, load_spec_text
 from orgagents.spec.model import NetworkPosture, SystemSpec
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "acme.system.yaml"
+EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "acme" / "acme.system.yaml"
 
 # Names that would make the spec an implementation decision (ADR-0004).
 FORBIDDEN = {

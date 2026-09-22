@@ -8,7 +8,7 @@ import json
 
 from orgagents.cli import main
 
-EXAMPLE = "examples/acme.system.yaml"
+EXAMPLE = "examples/acme/acme.system.yaml"
 
 
 def _directory(tmp_path, contact: str, status: str) -> str:

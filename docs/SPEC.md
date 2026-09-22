@@ -405,7 +405,7 @@ which runs under its own identity — and a trigger with neither `deliver_to` no
 production.
 
 ```bash
-orgagents schedule examples/acme.system.yaml --count 3 --simulate-days 7
+orgagents schedule examples/acme/acme.system.yaml --count 3 --simulate-days 7
 ```
 
 ## Channels: the human contract
@@ -773,22 +773,22 @@ binding. `orgagents phase` checks both and names the fix for each failure
 incomplete binding cannot be compiled.
 
 ```bash
-orgagents phase examples/acme.system.yaml \
-  --binding examples/acme.binding.yaml --target terraform:gcp
+orgagents phase examples/acme/acme.system.yaml \
+  --binding examples/acme/acme.binding.yaml --target terraform:gcp
 ```
 
 ## Commands
 
 ```bash
-orgagents spec validate examples/acme.system.yaml
-orgagents spec show     examples/acme.system.yaml      # resolved agents at a glance
-orgagents spec ir       examples/acme.system.yaml      # the full IR, for review
+orgagents spec validate examples/acme/acme.system.yaml
+orgagents spec show     examples/acme/acme.system.yaml      # resolved agents at a glance
+orgagents spec ir       examples/acme/acme.system.yaml      # the full IR, for review
 orgagents targets
-orgagents phase    examples/acme.system.yaml --binding examples/acme.binding.yaml \
+orgagents phase    examples/acme/acme.system.yaml --binding examples/acme/acme.binding.yaml \
                    --target local
-orgagents schedule examples/acme.system.yaml --simulate-days 7
-orgagents compile examples/acme.system.yaml \
-  --binding examples/acme.binding.yaml \
+orgagents schedule examples/acme/acme.system.yaml --simulate-days 7
+orgagents compile examples/acme/acme.system.yaml \
+  --binding examples/acme/acme.binding.yaml \
   --target local --target terraform:gcp --out build
 ```
 

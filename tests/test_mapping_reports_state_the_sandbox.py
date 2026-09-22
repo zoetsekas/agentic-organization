@@ -19,8 +19,8 @@ TARGETS = ["terraform:gcp", "terraform:aws", "terraform:azure"]
 @pytest.fixture(scope="module")
 def reports(tmp_path_factory) -> dict[str, str]:
     out = tmp_path_factory.mktemp("mapping")
-    spec = load_spec(str(ROOT / "examples" / "acme.system.yaml"))
-    binding = load_binding(str(ROOT / "examples" / "acme.binding.yaml"))
+    spec = load_spec(str(ROOT / "examples" / "acme" / "acme.system.yaml"))
+    binding = load_binding(str(ROOT / "examples" / "acme" / "acme.binding.yaml"))
     found: dict[str, str] = {}
     for target in TARGETS:
         target_dir = out / target.replace(":", "-")

@@ -366,7 +366,7 @@ def test_the_readme_names_who_is_co_resident():
 
 @pytest.fixture(scope="module")
 def northwind() -> SystemSpec:
-    return load_spec(ROOT / "examples" / "northwind.finance.system.yaml")
+    return load_spec(ROOT / "examples" / "northwind" / "northwind.finance.system.yaml")
 
 
 def test_northwind_keeps_internal_audit_out_of_the_function_it_audits(northwind):

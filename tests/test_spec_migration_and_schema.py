@@ -17,7 +17,7 @@ from orgagents.spec.migrations import CURRENT, MIGRATIONS, migrate
 from orgagents.spec.model import SPEC_VERSION
 from orgagents.spec.schema import SCHEMA_DIALECT, system_spec_schema
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "acme.system.yaml"
+EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "acme" / "acme.system.yaml"
 
 
 LEGACY_1_0 = """

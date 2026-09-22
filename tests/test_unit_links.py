@@ -27,7 +27,7 @@ from orgagents.spec.loader import load_spec, load_spec_text
 from orgagents.spec.validate import validate_spec
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-NORTHWIND = ROOT / "examples" / "northwind.finance.system.yaml"
+NORTHWIND = ROOT / "examples" / "northwind" / "northwind.finance.system.yaml"
 
 
 def doc() -> dict:
@@ -175,7 +175,7 @@ def test_an_association_grants_nothing():
 
 
 @pytest.mark.parametrize(
-    "path", sorted((ROOT / "examples").glob("*.system.yaml")),
+    "path", sorted(ROOT.glob("examples/*/*.system.yaml")),
     ids=lambda p: p.stem)
 def test_every_declared_link_names_two_real_units(path):
     spec = load_spec(path)

@@ -45,7 +45,7 @@ def client(app) -> TestClient:
 @pytest.fixture()
 def system(client) -> str:
     spec = yaml.safe_load(
-        (ROOT / "examples" / "northwind.finance.system.yaml").read_text()
+        (ROOT / "examples" / "northwind" / "northwind.finance.system.yaml").read_text()
     )
     ws = client.post("/api/designer/workspaces", json={"name": "ws"},
                      headers=ALICE).json()

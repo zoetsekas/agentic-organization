@@ -118,8 +118,8 @@ def test_from_manifest_round_trips_a_compiled_trigger(tmp_path):
 
     root = Path(__file__).resolve().parents[1]
     ir = build_ir(
-        load_spec(root / "examples" / "acme.system.yaml"),
-        binding=load_binding(root / "examples" / "acme.binding.yaml").for_target("local"),
+        load_spec(root / "examples" / "acme" / "acme.system.yaml"),
+        binding=load_binding(root / "examples" / "acme" / "acme.binding.yaml").for_target("local"),
     )
     manifest = [t.model_dump(mode="json") for t in ir.triggers]
     fired = []

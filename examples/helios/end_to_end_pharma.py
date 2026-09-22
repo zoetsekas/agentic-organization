@@ -23,7 +23,7 @@ import pathlib
 import sys
 import tempfile
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from orgagents.compiler.base import register_builtin_targets
@@ -33,8 +33,8 @@ from orgagents.platform_policy import load as load_platform_policy
 from orgagents.spec.loader import load_binding, load_spec_text_with_migration
 from orgagents.spec.validate import validate_spec
 
-SPEC = ROOT / "examples" / "helios.pharma.system.yaml"
-BINDING = ROOT / "examples" / "helios.binding.yaml"
+SPEC = ROOT / "examples" / "helios" / "helios.pharma.system.yaml"
+BINDING = ROOT / "examples" / "helios" / "helios.binding.yaml"
 POLICY = ROOT / "examples" / "house.platform-policy.yaml"
 
 

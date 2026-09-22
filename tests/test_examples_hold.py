@@ -24,7 +24,7 @@ from orgagents.spec.loader import load_spec
 from orgagents.spec.validate import validate_spec
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SYSTEMS = sorted(ROOT.glob("examples/*.system.yaml"))
+SYSTEMS = sorted(ROOT.glob("examples/*/*.system.yaml"))
 
 
 def test_the_examples_we_expect_are_all_here():

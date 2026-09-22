@@ -28,7 +28,7 @@ laptop or to any of three clouds.
 - `orgagents.spec.validate` — structural, referential and least-privilege rules.
 - `orgagents.spec.migrations` — ordered per-version steps and `migrate()` (ADR-0042).
 - `orgagents.spec.schema` — JSON Schema export for third-party editors.
-- `examples/acme.system.yaml` — a complete worked specification.
+- `examples/acme/acme.system.yaml` — a complete worked specification.
 - A neutrality test asserting the schema names no vendor, SDK or provider.
 
 ## Scope

@@ -23,7 +23,7 @@ ADR-0065 made a mandate a scope of decision that narrows down the org tree.
 Modelling a real finance function found the limit of that, and found it
 empirically rather than by argument.
 
-`examples/northwind.finance.system.yaml` is a nine-agent CFO organization built
+`examples/northwind/northwind.finance.system.yaml` is a nine-agent CFO organization built
 to the conventional split — Controllership owns the historical numbers, FP&A the
 forward look, Treasury cash, Tax compliance, with Internal Audit reporting
 outside the CFO. Its leaves segregate perfectly: payables holds `raise_payment`,

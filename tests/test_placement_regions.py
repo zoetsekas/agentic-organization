@@ -47,7 +47,7 @@ process.stdout.write(JSON.stringify(mod.derivedPlacements()));
 def northwind_dict() -> dict:
     return json.loads(
         load_spec(
-            ROOT / "examples" / "northwind.finance.system.yaml"
+            ROOT / "examples" / "northwind" / "northwind.finance.system.yaml"
         ).model_dump_json()
     )
 

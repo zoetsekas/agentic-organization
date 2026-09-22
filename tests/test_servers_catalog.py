@@ -86,7 +86,7 @@ def test_the_atlas_binding_uses_the_catalog():
     from orgagents.spec.loader import load_binding
 
     root = pathlib.Path(__file__).resolve().parents[1]
-    b = load_binding(str(root / "examples" / "atlas.binding.yaml"))
+    b = load_binding(str(root / "examples" / "atlas" / "atlas.binding.yaml"))
     target = b.targets[0]
     assert len(target.servers) >= 10
     # Every capability binds by reference, not inline.

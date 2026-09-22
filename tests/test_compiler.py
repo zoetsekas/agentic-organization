@@ -13,8 +13,8 @@ from orgagents.compiler.engine import CompileError
 from orgagents.spec import load_binding, load_spec
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = ROOT / "examples" / "acme.system.yaml"
-BINDING = ROOT / "examples" / "acme.binding.yaml"
+EXAMPLE = ROOT / "examples" / "acme" / "acme.system.yaml"
+BINDING = ROOT / "examples" / "acme" / "acme.binding.yaml"
 TARGETS_DIR = ROOT / "src" / "orgagents" / "compiler" / "targets"
 
 

@@ -633,8 +633,8 @@ class TestMattermostConformance(ChannelBridgeConformance):
 def generated(tmp_path_factory):
     register_builtin_targets()
     tmp = tmp_path_factory.mktemp("mattermost-stack")
-    spec = load_spec(ROOT / "examples" / "acme.system.yaml")
-    binding = load_binding(str(ROOT / "examples" / "acme.binding.yaml"))
+    spec = load_spec(ROOT / "examples" / "acme" / "acme.system.yaml")
+    binding = load_binding(str(ROOT / "examples" / "acme" / "acme.binding.yaml"))
     for target in binding.targets:
         for channel in target.channels:
             channel.provider = "mattermost"
@@ -696,8 +696,8 @@ def test_the_image_is_pinned_to_a_digest_in_the_lock(generated):
 def test_a_stack_bound_to_somebody_elses_workspace_hosts_no_chat_server(tmp_path):
     """Slack, Teams or an OpenClaw gateway: there is nothing for us to run."""
     register_builtin_targets()
-    spec = load_spec(ROOT / "examples" / "acme.system.yaml")
-    binding = load_binding(str(ROOT / "examples" / "acme.binding.yaml"))
+    spec = load_spec(ROOT / "examples" / "acme" / "acme.system.yaml")
+    binding = load_binding(str(ROOT / "examples" / "acme" / "acme.binding.yaml"))
     tenant = TenantRegistry(Store(tmp_path / "fabric.db")).register(
         id="northwind", name="Northwind", cloud_boundary="proj-northwind")
     compile_system(spec, targets=["local"], out_dir=tmp_path, binding=binding,

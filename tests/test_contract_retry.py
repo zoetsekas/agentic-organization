@@ -16,7 +16,7 @@ from orgagents.runtime.loader import load_system
 from orgagents.spec import load_binding, load_spec
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = ROOT / "examples" / "acme.system.yaml"
+EXAMPLE = ROOT / "examples" / "acme" / "acme.system.yaml"
 GOOD = '{"findings": [{"text": "revenue up", "source": "invoices"}]}'
 
 
@@ -44,7 +44,7 @@ def scripted(*replies) -> type[ScriptedAdapter]:
 @pytest.fixture()
 def system(tmp_path):
     ir = build_ir(load_spec(EXAMPLE),
-                  binding=load_binding(ROOT / "examples" / "acme.binding.yaml")
+                  binding=load_binding(ROOT / "examples" / "acme" / "acme.binding.yaml")
                   .for_target("local"))
     platform = Platform(str(tmp_path / "retry.db"), configure_logs=False)
     load_system(platform, ir)

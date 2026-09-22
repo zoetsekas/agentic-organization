@@ -28,7 +28,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 @pytest.fixture(scope="module")
 def emitted() -> dict[str, str]:
     register_builtin_targets()
-    spec = load_spec(ROOT / "examples" / "northwind.finance.system.yaml")
+    spec = load_spec(ROOT / "examples" / "northwind" / "northwind.finance.system.yaml")
     with tempfile.TemporaryDirectory() as tmp:
         result = compile_system(
             spec, targets=["maf"], out_dir=pathlib.Path(tmp)
