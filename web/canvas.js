@@ -1163,11 +1163,16 @@ function derivedPlacements() {
   const walk = (team, inherited) => {
     const unit = team.placement ? team.id : inherited;
     for (const agent of team.members || []) {
-      const environment = agent.environment?.environment;
-      if (!environment) continue;     // no environment class, so no place
-      const id = `${unit}--${environment}`;
-      if (!members.has(id)) members.set(id, { id, unit, environment, agents: [] });
-      members.get(id).agents.push(agent.id);
+      /* An agent may run in more than one sandbox (ADR-0082), and it is in
+         one placement per sandbox: the blast radius of reading a ledger and
+         of instructing a bank are not the same thing drawn twice. */
+      for (const override of agent.environments || []) {
+        const environment = override?.environment;
+        if (!environment) continue;   // no environment class, so no place
+        const id = `${unit}--${environment}`;
+        if (!members.has(id)) members.set(id, { id, unit, environment, agents: [] });
+        members.get(id).agents.push(agent.id);
+      }
     }
     for (const child of team.teams || []) walk(child, unit);
   };

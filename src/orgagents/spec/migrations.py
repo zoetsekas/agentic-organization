@@ -117,6 +117,40 @@ def _missions_and_model_policy(data: dict[str, Any]) -> list[str]:
     ]
 
 
+def _many_environments(data: dict[str, Any]) -> list[str]:
+    """`environment:` becomes `environments:` on agents and sub-agents.
+
+    A 1.2.0 agent declared at most one sandbox, so every such document maps
+    exactly onto a one-element list and nothing changes meaning. The bump is
+    not cosmetic though: from 1.3.0 an agent may hold several, and which one a
+    call runs in is derived from the data classes it touches rather than fixed
+    at the agent (ADR-0082).
+    """
+    changed: list[str] = []
+    for agent in _agents_of(data):
+        single = agent.pop("environment", None)
+        if single is not None and not agent.get("environments"):
+            agent["environments"] = [single]
+            changed.append(
+                f"agent '{agent.get('id', '?')}': environment "
+                f"'{single.get('environment', single)}' became a one-element "
+                "'environments:' list"
+            )
+        for sub in agent.get("subagents", []) or []:
+            if not isinstance(sub, dict):
+                continue
+            sub_single = sub.pop("environment", None)
+            if sub_single is not None and not sub.get("environments"):
+                sub["environments"] = [sub_single]
+                changed.append(
+                    f"sub-agent '{sub.get('id', '?')}': environment "
+                    f"'{sub_single}' became a one-element 'environments:' list"
+                )
+    return changed or [
+        "no data change: no agent declared an environment to lift"
+    ]
+
+
 MIGRATIONS: list[MigrationStep] = [
     MigrationStep(
         from_version="1.0.0",
@@ -129,6 +163,13 @@ MIGRATIONS: list[MigrationStep] = [
         to_version="1.2.0",
         summary="optional missions and model policy blocks added (ADR-0039, ADR-0040)",
         apply=_missions_and_model_policy,
+    ),
+    MigrationStep(
+        from_version="1.2.0",
+        to_version="1.3.0",
+        summary="agent and sub-agent 'environment:' becomes 'environments:' "
+                "(ADR-0082)",
+        apply=_many_environments,
     ),
 ]
 

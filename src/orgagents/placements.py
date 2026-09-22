@@ -83,9 +83,10 @@ class PlacementMap:
     """Every placement in one organization, and who may reach whom."""
 
     placements: dict[str, Placement] = field(default_factory=dict)
-    #: agent id -> placement id. Absent means the agent declares no environment
-    #: class and therefore has no sandbox environment to be placed in.
-    home: dict[str, str] = field(default_factory=dict)
+    #: agent id -> every placement it is in. Absent means the agent declares
+    #: no environment class and so has no sandbox environment to be placed in.
+    #: A list, because an agent may run work in more than one (ADR-0082).
+    home: dict[str, list[str]] = field(default_factory=dict)
     #: team id -> the unit whose placement it resolves to.
     boundary: dict[str, str] = field(default_factory=dict)
     #: Cross-placement traffic that is permitted. Everything absent is denied
@@ -94,23 +95,34 @@ class PlacementMap:
     #: Units that declared themselves a boundary, root first.
     declared: tuple[str, ...] = ()
 
-    def for_agent(self, agent_id: str) -> Optional[Placement]:
-        home = self.home.get(agent_id)
-        return self.placements.get(home) if home else None
+    def for_agent(self, agent_id: str) -> list[Placement]:
+        """Every sandbox environment this agent runs in (ADR-0082).
+
+        A list, because an agent may hold more than one. It was a single
+        placement when an agent could only run in one sandbox, and reading
+        "the" placement of an agent with two would have quietly answered
+        about one of them.
+        """
+        return [self.placements[p] for p in self.home.get(agent_id, [])
+                if p in self.placements]
 
     def co_resident(self, agent_id: str) -> list[str]:
-        """Agents that share a sandbox environment with this one."""
-        place = self.for_agent(agent_id)
-        if place is None:
-            return []
-        return [a for a in place.agents if a != agent_id]
+        """Agents that share *any* sandbox environment with this one.
+
+        Any, not all: sharing one volume and one process namespace is what
+        the separation check is about, and sharing it in one place out of two
+        is still sharing it.
+        """
+        out: list[str] = []
+        for place in self.for_agent(agent_id):
+            for other in place.agents:
+                if other != agent_id and other not in out:
+                    out.append(other)
+        return out
 
     def same_placement(self, one: str, other: str) -> bool:
-        return (
-            one in self.home
-            and other in self.home
-            and self.home[one] == self.home[other]
-        )
+        """Whether two agents share at least one sandbox environment."""
+        return bool(set(self.home.get(one, [])) & set(self.home.get(other, [])))
 
     def permits(self, source_agent: str, target_agent: str) -> bool:
         """Whether generated network policy lets one agent reach another.
@@ -123,8 +135,15 @@ class PlacementMap:
             return False
         if self.same_placement(source_agent, target_agent):
             return True
-        src, dst = self.home[source_agent], self.home[target_agent]
-        return any(r.source == src and r.target == dst for r in self.rules)
+        # With several placements each, a rule between any pair of them is
+        # reach: a path that exists in one direction from one sandbox is a
+        # path, however many others do not carry it.
+        return any(
+            r.source == src and r.target == dst
+            for src in self.home[source_agent]
+            for dst in self.home[target_agent]
+            for r in self.rules
+        )
 
 
 def _walk(team: Any, inherited_unit: str, out: PlacementMap,
@@ -166,9 +185,14 @@ def _unit_groups(spec: Any, unit_id: str) -> list[str]:
     return groups
 
 
-def _environment_of(agent: Any) -> Optional[str]:
-    override = getattr(agent, "environment", None)
-    return getattr(override, "environment", None) if override else None
+def _environments_of(agent: Any) -> list[str]:
+    """Every environment class an agent runs work in (ADR-0082).
+
+    An agent with two sandboxes is in two placements, and that is the point:
+    the blast radius of ledger analysis and of instructing a bank are not the
+    same, so they do not share a volume and a process namespace.
+    """
+    return [o.environment for o in getattr(agent, "environments", []) or []]
 
 
 def resolve(spec: Any) -> PlacementMap:
@@ -183,14 +207,16 @@ def resolve(spec: Any) -> PlacementMap:
     for team in spec.teams():
         unit = out.boundary.get(team.id, spec.organization.id)
         for agent in team.members:
-            environment = _environment_of(agent)
-            if environment is None:
+            environments = _environments_of(agent)
+            if not environments:
                 # No environment class, so no sandbox environment. Recording
                 # this as unplaced is better than inventing a placement for an
                 # agent that runs nowhere in particular.
                 continue
-            members.setdefault((unit, environment), []).append(agent.id)
-            out.home[agent.id] = placement_id(unit, environment)
+            for environment in environments:
+                members.setdefault((unit, environment), []).append(agent.id)
+                out.home.setdefault(agent.id, []).append(
+                    placement_id(unit, environment))
 
     protected = [
         dc for dc in spec.data_classes
@@ -224,12 +250,22 @@ def network_rules(spec: Any, resolved: PlacementMap) -> tuple[PlacementRule, ...
     found: dict[tuple[str, str], PlacementRule] = {}
 
     def permit(a: str, b: str, via: str, reason: str) -> None:
-        home_a, home_b = resolved.home.get(a), resolved.home.get(b)
-        if not home_a or not home_b or home_a == home_b:
-            return
-        found.setdefault(
-            (home_a, home_b), PlacementRule(home_a, home_b, via, reason)
-        )
+        """Permit every placement of one agent to reach every placement of the
+        other.
+
+        An agent with two sandboxes needs the reach from both, because the
+        rule is about the *agent* being allowed to hand work over and the
+        sandbox it happens to be in when it does is not knowable here. Within
+        a placement nothing is written: traffic there is permitted and
+        unlisted.
+        """
+        for home_a in resolved.home.get(a, []):
+            for home_b in resolved.home.get(b, []):
+                if home_a == home_b:
+                    continue
+                found.setdefault(
+                    (home_a, home_b), PlacementRule(home_a, home_b, via, reason)
+                )
 
     # 1. Declared lateral links and declared flows: the "declared channels" of
     #    rule 7, read off the spec rather than off `can_delegate`, which folds

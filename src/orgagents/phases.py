@@ -181,14 +181,14 @@ def review_definition(spec: SystemSpec, report: PhaseReport,
            "no allow/deny policy rules are declared",
            "declare at least the denies that must never be overridden", soft=True)
 
-    executing = [a for a in agents if a.environment]
+    executing = [a for a in agents if a.environments]
     _check(report, "definition", bool(spec.environments), "environments_declared",
            "Execution environments are declared",
            "no environment classes are declared",
            "declare the isolation classes agents run in (ADR-0009)")
     _check(report, "definition", len(executing) == len(agents), "agents_placed",
            "Every agent is placed in an environment",
-           f"unplaced: {[a.id for a in agents if not a.environment]}",
+           f"unplaced: {[a.id for a in agents if not a.environments]}",
            "select an environment class per agent", soft=True)
 
     # Triggers (ADR-0020)
@@ -497,7 +497,7 @@ def review_implementation(
             "them apart",
         )
 
-    used_envs = {a.environment.environment for a in spec.agents() if a.environment}
+    used_envs = {o.environment for a in spec.agents() for o in a.environments}
     unbound_envs = [e for e in used_envs if bound.environment_binding(e) is None]
     _check(report, "implementation", not unbound_envs, "environments_bound",
            "Every environment class in use is bound",

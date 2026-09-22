@@ -740,7 +740,14 @@ def _diff_agent(
         )
 
     _diff_permissions(out, "agent", agent_id, left.permissions, right.permissions)
-    _diff_environment(out, agent_id, left.environment, right.environment)
+    # An agent may run in several sandboxes (ADR-0082). Each is diffed
+    # against the one with the same id on the other side, because a sandbox
+    # gained or lost is a different change from one whose posture moved.
+    left_envs = {e.id: e for e in left.environments}
+    right_envs = {e.id: e for e in right.environments}
+    for env_id in sorted(set(left_envs) | set(right_envs)):
+        _diff_environment(out, agent_id, left_envs.get(env_id),
+                          right_envs.get(env_id))
     # A guardrail added or removed system-wide lands on every agent; it is
     # reported once against the system instead of once per agent.
     _diff_guardrails(

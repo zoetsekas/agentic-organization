@@ -34,7 +34,7 @@ def registry_report(
             f"| `{agent.id}` | {' / '.join(agent.team_path)} | {human} | "
             f"`{agent.identity.id if agent.identity else '—'}` | "
             f"{len(agent.permissions)} | "
-            f"{agent.environment.id if agent.environment else '—'} | "
+            f"{', '.join(e.id for e in agent.environments) or '—'} | "
             f"{triggers} | {channels} | {budget} |"
         )
 

@@ -326,7 +326,9 @@ class SubAgentIR(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
     knowledge: list[str] = Field(default_factory=list)
-    environment: Optional[str] = None
+    #: The sandbox(es) this sub-agent may run in, always a subset of its
+    #: parent's (ADR-0082).
+    environments: list[str] = Field(default_factory=list)
     returns: str = ""
     max_turns: int = 8
     max_runtime_seconds: int = 300
@@ -371,9 +373,9 @@ class AgentIR(BaseModel):
     description: str = ""
     team_id: str
     team_path: list[str] = Field(default_factory=list)
-    #: The sandbox environment this agent runs in (ADR-0069), or "" when it
-    #: declares no environment class and so has none.
-    placement: str = ""
+    #: Every sandbox environment this agent runs in (ADR-0069, ADR-0082).
+    #: Empty when it declares no environment class and so has none.
+    placements: list[str] = Field(default_factory=list)
     #: Placements this agent may reach, its own included. Everything absent is
     #: denied.
     reaches: list[str] = Field(default_factory=list)
@@ -389,7 +391,10 @@ class AgentIR(BaseModel):
     permissions: list[Permission] = Field(default_factory=list)
     capabilities: list[Capability] = Field(default_factory=list)
     data_access: list[DataAccessIR] = Field(default_factory=list)
-    environment: Optional[EnvironmentClass] = None
+    #: The resolved sandbox(es), narrowed by whatever the agent narrowed.
+    #: A list, because an agent that analyses a ledger and instructs a bank
+    #: has two different blast radii and one sandbox would take the wider.
+    environments: list[EnvironmentClass] = Field(default_factory=list)
     workflows: list[str] = Field(default_factory=list)
     channels: list[ChannelClass] = Field(default_factory=list)
     groups: list[str] = Field(default_factory=list)
@@ -1001,8 +1006,11 @@ def _resolve_subagents(agent: AgentSpec, held_caps: set[str]) -> list[SubAgentIR
                 capabilities=capabilities,
                 tools=list(sub.tools),
                 knowledge=list(sub.knowledge),
-                environment=sub.environment
-                or (agent.environment.environment if agent.environment else None),
+                # A sub-agent runs in one of its parent's sandboxes; where
+                # it names none, it inherits the parent's first (ADR-0082).
+                environments=list(sub.environments) or [
+                    o.environment for o in agent.environments
+                ][:1],
                 returns=sub.returns,
                 max_turns=sub.max_turns,
                 max_runtime_seconds=sub.max_runtime_seconds,
@@ -1206,11 +1214,11 @@ def build_ir(
                 if cap.action in (Action.WRITE, Action.PUBLISH):
                     entry.write = True
 
-        environment = None
-        if agent.environment:
-            base = spec.environment(agent.environment.environment)
+        environments: list[EnvironmentClass] = []
+        for override in agent.environments:
+            base = spec.environment(override.environment)
             if base:
-                environment = base.narrow(agent.environment)
+                environments.append(base.narrow(override))
 
         reports_to = None
         if team.leader and team.leader != agent.id:
@@ -1306,7 +1314,7 @@ def build_ir(
             permissions=[p.key() for p in permissions],
             secret_refs=sorted(
                 {c.secret_ref for c in capabilities if c.secret_ref}
-                | set(environment.secret_refs if environment else [])
+                | {r for e in environments for r in e.secret_refs}
                 | {
                     k.secret_ref
                     for k in (knowledge_by_id.get(i) for i in agent.knowledge)
@@ -1341,11 +1349,11 @@ def build_ir(
                 ),
                 shared_service=agent.shared_service,
                 mandate=_mandate_ir(mandates.for_agent(agent.id)),
-                placement=placed.home.get(agent.id, ""),
+                placements=list(placed.home.get(agent.id, [])),
                 reaches=sorted(
-                    {placed.home[agent.id]} | {
+                    set(placed.home[agent.id]) | {
                         r.target for r in placed.rules
-                        if r.source == placed.home.get(agent.id)
+                        if r.source in placed.home[agent.id]
                     }
                 ) if agent.id in placed.home else [],
                 humans=[_resolved_human(h, people_by_id) for h in agent.humans],
@@ -1354,7 +1362,7 @@ def build_ir(
                 permissions=permissions,
                 capabilities=capabilities,
                 data_access=list(access.values()),
-                environment=environment,
+                environments=environments,
                 workflows=list(agent.workflows),
                 channels=list(agent.channels),
                 groups=list(team_ir.groups),
@@ -1637,17 +1645,22 @@ def build_resources(ir: SystemIR) -> list[ResourceIR]:
                     ResourceIR(kind="secret", id=ref, owner=agent.id,
                                attributes={"accessor": agent.identity.id})
                 )
-        if agent.environment:
+        # One runner and one boundary *per sandbox* (ADR-0082). An agent with
+        # two of them is two resources, because that is the whole point: the
+        # blast radius of ledger analysis and of instructing a bank are not
+        # the same, and one runner for both would take the wider.
+        for environment in agent.environments:
+            suffix = f"{agent.id}-{environment.id}"
             resources.append(
-                ResourceIR(kind="job_runner", id=f"env-{agent.id}", owner=agent.id,
-                           attributes={"environment": agent.environment.id,
-                                       "tier": agent.environment.tier.value,
-                                       "timeout_seconds": agent.environment.timeout_seconds})
+                ResourceIR(kind="job_runner", id=f"env-{suffix}", owner=agent.id,
+                           attributes={"environment": environment.id,
+                                       "tier": environment.tier.value,
+                                       "timeout_seconds": environment.timeout_seconds})
             )
             resources.append(
-                ResourceIR(kind="network_boundary", id=f"net-{agent.id}", owner=agent.id,
-                           attributes={"posture": agent.environment.network.value,
-                                       "allowlist": agent.environment.egress_allowlist})
+                ResourceIR(kind="network_boundary", id=f"net-{suffix}", owner=agent.id,
+                           attributes={"posture": environment.network.value,
+                                       "allowlist": environment.egress_allowlist})
             )
     for trigger in ir.triggers:
         kind = "scheduler" if trigger.cron or trigger.interval_seconds else "event_subscription"

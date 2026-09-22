@@ -18,7 +18,7 @@
 
 metadata:
   name: northbeam
-  spec_version: "1.2.0"
+  spec_version: "1.3.0"
   version: "0.1.0"
   description: Northbeam's marketing function as an agentic organization.
   owner: Northbeam Marketing Operations
@@ -419,7 +419,8 @@ organization:
           roles: [owner]
         - person: p_privacy
           roles: [approver]
-      environment: {environment: analytics_workbench}
+      environments:
+        - environment: analytics_workbench
   teams:
     - id: growth
       name: Growth
@@ -447,7 +448,15 @@ organization:
               roles: [owner]
             - person: p_cmo
               roles: [approver]
-          environment: {environment: activation}
+          # Two sandboxes: pushing to the ad platforms reaches outward and
+          # mounts no contact data, while reading performance mounts
+          # behavioural data and reaches nothing. Collapsing them into one
+          # would put the behavioural data in the sandbox that talks to the
+          # platforms, which is the exact transfer `no_contact_data_outbound`
+          # exists to prevent (ADR-0082).
+          environments:
+            - environment: activation
+            - environment: analytics_workbench
     - id: crm
       name: CRM and Lifecycle
       description: Owned audiences, email and the customer data platform.
@@ -473,7 +482,8 @@ organization:
               roles: [owner]
             - person: p_privacy
               roles: [approver]
-          environment: {environment: audience}
+          environments:
+            - environment: audience
     - id: brand
       name: Brand
       description: The brand book, creative production and creative review.
@@ -498,7 +508,8 @@ organization:
               roles: [owner]
             - person: p_content
               roles: [approver]
-          environment: {environment: studio}
+          environments:
+            - environment: studio
         - id: brand_review_agent
           name: brand-reviewer
           description: Reviews creative against the brand book and approves it.
@@ -512,7 +523,8 @@ organization:
               roles: [owner]
             - person: p_cmo
               roles: [approver]
-          environment: {environment: studio}
+          environments:
+            - environment: studio
     - id: content
       name: Content
       description: Owned channels — the site, the blog and the newsletter.
@@ -534,7 +546,8 @@ organization:
               roles: [owner]
             - person: p_brand
               roles: [approver]
-          environment: {environment: studio}
+          environments:
+            - environment: studio
     - id: analytics
       name: Marketing Analytics
       description: >-
@@ -562,7 +575,8 @@ organization:
               roles: [owner]
             - person: p_finance_partner
               roles: [approver]
-          environment: {environment: analytics_workbench}
+          environments:
+            - environment: analytics_workbench
         - id: insight_agent
           name: insight-analyst
           description: Reads and summarises market and competitor research.
@@ -574,7 +588,8 @@ organization:
               roles: [owner]
             - person: p_cmo
               roles: [approver]
-          environment: {environment: analytics_workbench}
+          environments:
+            - environment: analytics_workbench
     - id: partnerships
       name: Partnerships
       description: Sponsorships, influencers and co-marketing.
@@ -596,7 +611,8 @@ organization:
               roles: [owner]
             - person: p_cmo
               roles: [approver]
-          environment: {environment: analytics_workbench}
+          environments:
+            - environment: analytics_workbench
     - id: governance
       name: Marketing Governance
       description: >-
@@ -622,7 +638,8 @@ organization:
               roles: [owner]
             - person: p_crm
               roles: [approver]
-          environment: {environment: audience}
+          environments:
+            - environment: audience
 
 interaction_flows:
   # Growth may ask CRM for an audience; it cannot instruct CRM to build one,

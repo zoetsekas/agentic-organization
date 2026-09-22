@@ -78,8 +78,8 @@ def test_team_permissions_inherit_downwards(spec):
 def test_environment_narrowing_is_resolved_once(spec):
     ir = build_ir(spec)
     analyst = ir.agent("analyst")
-    assert analyst.environment.timeout_seconds == 600      # narrowed from 900
-    assert ir.agent("reconciler").environment.egress_allowlist == []
+    assert analyst.environments[0].timeout_seconds == 600  # narrowed from 900
+    assert ir.agent("reconciler").environments[0].egress_allowlist == []
 
 
 def test_system_prompt_carries_responsibility_provenance(spec):

@@ -267,7 +267,7 @@ def _compiler_command(args: argparse.Namespace) -> int:
         else:
             for agent in ir.agents:
                 print(f"{agent.id:20} team={'/'.join(agent.team_path):28} "
-                      f"env={agent.environment.id if agent.environment else '-':16} "
+                      f"env={','.join(e.id for e in agent.environments) or '-':16} "
                       f"perms={len(agent.permissions)}")
         return 0
 

@@ -48,6 +48,16 @@ def _perm_keys(perms: list[Permission]) -> set[str]:
     return {p.key() for p in perms}
 
 
+def _agent_capability_ids(spec: SystemSpec, agent: Any) -> set[str]:
+    """Every capability an agent holds, bound directly or through a role."""
+    held = set(agent.capabilities)
+    for assignment in agent.roles:
+        role = spec.role(assignment.role)
+        if role is not None:
+            held |= set(role.capabilities)
+    return held
+
+
 def _assignment_permissions(spec: SystemSpec, assignment: RoleAssignment) -> set[str]:
     role = spec.role(assignment.role)
     if role is None:
@@ -397,8 +407,8 @@ def validate_spec(
                     "placement_denies_delegation",
                     f"'{source}' may hand work to '{target}' by {why}, and the "
                     f"network policy generated for placement "
-                    f"'{placed.home[source]}' does not reach "
-                    f"'{placed.home[target]}'. The org chart and the deployed "
+                    f"{sorted(placed.home[source])} does not reach "
+                    f"{sorted(placed.home[target])}. The org chart and the deployed "
                     "rules disagree, and nothing at run time will say so",
                     source,
                 )
@@ -776,13 +786,65 @@ def validate_spec(
             if peer not in agent_ids:
                 err("unknown_peer", f"agent '{agent.id}' references unknown peer "
                     f"'{peer}'", agent.id)
-        if agent.environment:
-            env = spec.environment(agent.environment.environment)
+        # -- sandboxes (ADR-0069, ADR-0082) --------------------------------
+        #
+        # An agent may run work in more than one, and which one a call uses is
+        # derived rather than declared: a capability names its data classes, a
+        # data class names the environments it is allowed in, and the
+        # intersection is the answer. So the checks are about whether that
+        # intersection is ever empty, and whether a declared sandbox is ever
+        # the answer to anything.
+        seen_environments: set[str] = set()
+        agent_environments: list[str] = []
+        for override in agent.environments:
+            env = spec.environment(override.environment)
             if env is None:
                 err("unknown_environment", f"agent '{agent.id}' references unknown "
-                    f"environment '{agent.environment.environment}'", agent.id)
-            else:
-                _check_narrowing(agent.id, env, agent.environment, err)
+                    f"environment '{override.environment}'", agent.id)
+                continue
+            if override.environment in seen_environments:
+                err("duplicate_environment", f"agent '{agent.id}' declares "
+                    f"environment '{override.environment}' twice; two narrowings "
+                    "of one class are two answers to one question", agent.id)
+            seen_environments.add(override.environment)
+            agent_environments.append(override.environment)
+            _check_narrowing(agent.id, env, override, err)
+
+        if agent_environments:
+            reachable: dict[str, set[str]] = {}
+            for capability_id in _agent_capability_ids(spec, agent):
+                capability = spec.capability(capability_id)
+                if capability is None:
+                    continue
+                allowed: Optional[set[str]] = None
+                for dc_id in capability.data_classes:
+                    data_class = spec.data_class(dc_id)
+                    if data_class is None:
+                        continue
+                    # An empty `allowed_environments` means "anywhere": the
+                    # class carries no environment restriction of its own.
+                    permitted = set(data_class.allowed_environments)
+                    if not permitted:
+                        continue
+                    allowed = permitted if allowed is None else allowed & permitted
+                usable = (set(agent_environments) if allowed is None
+                          else set(agent_environments) & allowed)
+                if not usable:
+                    err("capability_without_a_sandbox",
+                        f"agent '{agent.id}' holds capability '{capability_id}', "
+                        f"whose data classes are allowed only in "
+                        f"{sorted(allowed or [])}, and it runs in "
+                        f"{sorted(agent_environments)}. There is nowhere for "
+                        "that work to happen (ADR-0082)", agent.id)
+                for environment_id in usable:
+                    reachable.setdefault(environment_id, set()).add(capability_id)
+            for environment_id in agent_environments:
+                if environment_id not in reachable:
+                    warn("sandbox_without_work",
+                         f"agent '{agent.id}' declares environment "
+                         f"'{environment_id}', which no capability it holds can "
+                         "use. A sandbox nothing runs in is a boundary nobody "
+                         "is inside", agent.id)
         # -- human pairing (ADR-0026) --------------------------------------
         owners = agent.humans_with(HumanRole.OWNER)
         if not agent.humans:
@@ -898,12 +960,13 @@ def validate_spec(
                 err("subagent_widens_knowledge", f"sub-agent '{sub.id}' of "
                     f"'{agent.id}' requests knowledge its parent lacks: "
                     f"{sorted(extra_knowledge)}", agent.id)
-            if sub.environment and agent.environment and (
-                sub.environment != agent.environment.environment
-            ):
+            widened = set(sub.environments) - set(agent_environments)
+            if widened and agent_environments:
                 err("subagent_changes_environment", f"sub-agent '{sub.id}' of "
-                    f"'{agent.id}' requests a different environment; a sub-agent "
-                    "may not change the isolation boundary", agent.id)
+                    f"'{agent.id}' requests sandbox(es) its parent does not run "
+                    f"in: {sorted(widened)}. A sub-agent that could pick its own "
+                    "would be a way to reach a boundary the caller was never "
+                    "given", agent.id)
             if sub.max_runtime_seconds > spec.resilience.max_run_seconds:
                 err("subagent_exceeds_run_budget", f"sub-agent '{sub.id}' allows "
                     f"{sub.max_runtime_seconds}s beyond the system budget", agent.id)

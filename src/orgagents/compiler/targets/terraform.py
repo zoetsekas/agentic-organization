@@ -200,6 +200,27 @@ ACTION_ROLES = {
     },
 }
 
+#: Ordered widest-last, so "the widest sandbox an agent has" is a max().
+_TIER_ORDER = ("minimal", "small", "medium", "large", "accelerated")
+_POSTURE_ORDER = ("none", "allowlist", "internal", "open")
+
+
+def _widest(environments: list) -> object | None:
+    """The sandbox with the widest reach, for a decision that admits one.
+
+    A deployed workload is one shape. Where a target can only express one,
+    it takes the widest rather than the first, because under-sizing or
+    under-permitting a service makes the design undeployable — and says so
+    in its conformance notes rather than pretending the others do not exist.
+    """
+    if not environments:
+        return None
+    return max(environments, key=lambda e: (
+        _POSTURE_ORDER.index(e.network.value) if e.network.value in _POSTURE_ORDER else 0,
+        _TIER_ORDER.index(e.tier.value) if e.tier.value in _TIER_ORDER else 0,
+    ))
+
+
 TIER_SIZING = {
     "minimal": {"cpu": "0.25", "memory": "512Mi"},
     "small": {"cpu": "1", "memory": "2Gi"},
@@ -399,7 +420,12 @@ locals {{
         blocks = []
         for agent in ir.agents:
             name = _tf_name(agent.id)
-            env = agent.environment
+            # An agent with several sandboxes gets one service sized for the
+            # widest of them: a single deployed workload cannot be two shapes,
+            # and under-sizing it would make the design undeployable. The
+            # narrower sandboxes still bound what its *calls* may reach, which
+            # is where the isolation actually lives.
+            env = _widest(agent.environments)
             sizing = TIER_SIZING.get(env.tier.value if env else "minimal",
                                      TIER_SIZING["minimal"])
             posture = env.network.value if env else "none"

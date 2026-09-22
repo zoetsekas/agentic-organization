@@ -233,8 +233,8 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
         store.put(TEMPLATE_COLLECTION, _sandbox_template(env, system,
                                                         tenant_id=tenant_id))
     for agent in data.get("agents", []):
-        env = agent.get("environment")
-        if env:
+        # One narrowed template per sandbox the agent runs in (ADR-0082).
+        for env in agent.get("environments", []):
             env = {**env, "mount_scopes": [scopes[m] for m in env.get("mounts", [])
                                            if m in scopes]}
             store.put(TEMPLATE_COLLECTION,
@@ -319,11 +319,12 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
                 output_contract=agent.get("output_contract") or {},
                 harness=_harness(enriched, data),
                 workflow_ids=agent.get("workflows", []),
-                sandbox=SandboxSpec(
-                    template_id=f"sbx_{system}_{agent['environment']['id']}_{agent['id']}"
-                )
-                if agent.get("environment")
-                else None,
+                sandboxes=[
+                    SandboxSpec(
+                        template_id=f"sbx_{system}_{env['id']}_{agent['id']}"
+                    )
+                    for env in agent.get("environments", [])
+                ],
                 channels=[ChannelKind(_channel(c)) for c in agent.get("channels", [])],
                 groups=agent.get("groups", []),
                 tags=[agent.get("team_id", "")],

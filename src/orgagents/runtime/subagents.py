@@ -13,7 +13,7 @@ a sub-agent needs no permission model of its own.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from ..spec.model import SubAgentKind
 
@@ -71,7 +71,7 @@ class SubAgentTool:
     capabilities: tuple[str, ...] = ()
     tools: tuple[str, ...] = ()
     knowledge: tuple[str, ...] = ()
-    environment: Optional[str] = None
+    environments: tuple[str, ...] = ()
     returns: str = ""
     max_turns: int = 8
     max_runtime_seconds: int = 300
@@ -127,7 +127,7 @@ def resolve(
     parent_capabilities: set[str],
     parent_tools: Optional[set[str]] = None,
     parent_knowledge: Optional[set[str]] = None,
-    parent_environment: Optional[str] = None,
+    parent_environments: Optional[Sequence[str]] = None,
 ) -> SubAgentTool:
     """Resolve one sub-agent, enforcing narrow-only inheritance."""
     extra = set(subagent.capabilities) - parent_capabilities
@@ -150,14 +150,16 @@ def resolve(
                 f"sub-agent '{subagent.id}' requests knowledge its parent does not "
                 f"hold: {sorted(extra_knowledge)}"
             )
-    if subagent.environment and parent_environment and (
-        subagent.environment != parent_environment
-    ):
+    # A parent may run in several sandboxes (ADR-0082); a sub-agent may use
+    # any of them and none beyond, because one it could pick for itself would
+    # be a way to reach a boundary its caller was never given.
+    parent_sandboxes = set(parent_environments or ())
+    widened = set(subagent.environments) - parent_sandboxes
+    if widened and parent_sandboxes:
         raise SubAgentError(
-            f"sub-agent '{subagent.id}' requests environment "
-            f"'{subagent.environment}' but its parent runs in "
-            f"'{parent_environment}'; a sub-agent may not change the isolation "
-            "boundary"
+            f"sub-agent '{subagent.id}' requests sandbox(es) its parent does "
+            f"not run in: {sorted(widened)}; a sub-agent may not change the "
+            "isolation boundary"
         )
     return SubAgentTool(
         id=subagent.id,
@@ -171,7 +173,10 @@ def resolve(
         capabilities=tuple(subagent.capabilities),
         tools=tuple(subagent.tools),
         knowledge=tuple(subagent.knowledge),
-        environment=subagent.environment or parent_environment,
+        # Where it names none, it inherits the parent's first: a
+        # sub-agent always runs somewhere its parent does.
+        environments=tuple(subagent.environments)
+        or tuple(parent_environments or ())[:1],
         returns=subagent.returns,
         max_turns=subagent.max_turns,
         max_runtime_seconds=subagent.max_runtime_seconds,

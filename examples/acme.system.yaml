@@ -7,7 +7,7 @@
 
 metadata:
   name: acme
-  spec_version: "1.2.0"
+  spec_version: "1.3.0"
   version: "0.5.0"
   description: Finance, technology and revenue agents mirroring Acme's org chart.
   owner: Acme Platform Team
@@ -329,7 +329,8 @@ organization:
         classes: [frontier_reasoning]
         max_cost_per_million_tokens: 40
         require_regions: [eu-west]
-      environment: {environment: reasoning}
+      environments:
+        - environment: reasoning
       humans:
         - name: Dana Whitfield
           contact: dana@acme.example
@@ -363,7 +364,8 @@ organization:
           description: Owns financial reporting, budget and the close calendar.
           roles: [function_head]
           knowledge: [finance_handbook]
-          environment: {environment: documents}
+          environments:
+            - environment: documents
           humans:
             - name: Priya Raman
               contact: priya@acme.example
@@ -406,7 +408,8 @@ organization:
             require_regions: [eu-west]
             subagent_classes: [fast_cheap]
           knowledge: [finance_handbook, company_glossary]
-          environment: {environment: analysis, timeout_seconds: 600}
+          environments:
+            - {environment: analysis, timeout_seconds: 600}
           workflows: [governed_data_request]
           skills: [sql_authoring, close_narrative]
           artifact_store: finance_scratch
@@ -466,7 +469,8 @@ organization:
             require_no_training_on_data: true
             require_regions: [eu-west]
             max_cost_per_million_tokens: 20
-          environment: {environment: isolated_review}
+          environments:
+            - environment: isolated_review
           memory:
             long_term_enabled: false      # nothing from the clean room persists
             may_promote: false
@@ -499,7 +503,8 @@ organization:
           name: cto-agent
           description: Owns engineering delivery and platform reliability.
           roles: [function_head]
-          environment: {environment: reasoning}
+          environments:
+            - environment: reasoning
           humans:
             - name: Iris Nakamura
               contact: iris@acme.example
@@ -526,7 +531,8 @@ organization:
               name: platform-lead-agent
               description: Leads platform delivery; reviews proposed changes.
               roles: [function_head]
-              environment: {environment: reasoning}
+              environments:
+                - environment: reasoning
               knowledge: [engineering_runbooks, company_glossary]
               skills: [incident_response]
               humans:
@@ -549,7 +555,8 @@ organization:
                 classes: [code, balanced]
                 max_cost_per_million_tokens: 20
                 require_regions: [eu-west]
-              environment: {environment: build}
+              environments:
+                - environment: build
               knowledge: [engineering_runbooks, company_glossary]
               plugins: [engineering_pack]
               artifact_store: engineering_scratch
@@ -597,7 +604,8 @@ organization:
               name: sre-agent
               description: Shared service; any agent may call it for incident triage.
               roles: [reliability_engineer]
-              environment: {environment: integration}
+              environments:
+                - environment: integration
               shared_service: true
               channels: [direct, async_bus, team_chat]
               knowledge: [engineering_runbooks]
@@ -645,7 +653,8 @@ organization:
           name: cro-agent
           description: Owns pipeline, forecasting and customer expansion.
           roles: [function_head]
-          environment: {environment: reasoning}
+          environments:
+            - environment: reasoning
           peers: [cfo]
           endpoints: [market_research_desk]
           humans:

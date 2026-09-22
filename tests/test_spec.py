@@ -107,8 +107,8 @@ def test_child_leader_may_not_be_listed_in_the_parent():
 def test_environment_override_may_not_widen():
     spec = load_spec(EXAMPLE)
     agent = spec.agent("reconciler")
-    agent.environment.network = NetworkPosture.OPEN
-    agent.environment.egress_allowlist = ["exfiltration.example"]
+    agent.environments[0].network = NetworkPosture.OPEN
+    agent.environments[0].egress_allowlist = ["exfiltration.example"]
     errors = [f for f in validate_spec(spec) if f.severity == "error"]
     assert any(f.code == "environment_widened" for f in errors)
 
@@ -116,7 +116,7 @@ def test_environment_override_may_not_widen():
 def test_narrowing_is_applied_and_egress_dropped_on_isolated_class():
     spec = load_spec(EXAMPLE)
     isolated = spec.environment("isolated_review")
-    narrowed = isolated.narrow(spec.agent("reconciler").environment)
+    narrowed = isolated.narrow(spec.agent("reconciler").environments[0])
     assert narrowed.network is NetworkPosture.NONE
     assert narrowed.egress_allowlist == []
 

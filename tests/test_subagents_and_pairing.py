@@ -120,10 +120,30 @@ def test_subagent_cannot_widen_its_parents_access():
 def test_subagent_cannot_change_the_isolation_boundary():
     with pytest.raises(SubAgentError, match="isolation boundary"):
         resolve(
-            SubAgentSpec(id="escape", environment="build"),
+            SubAgentSpec(id="escape", environments=["build"]),
             parent_agent_id="analyst", parent_capabilities=set(),
-            parent_environment="isolated_review",
+            parent_environments=["isolated_review"],
         )
+
+
+def test_subagent_may_use_any_sandbox_its_parent_runs_in():
+    """A parent may hold several (ADR-0082); picking one of them is not an
+    escape, and picking one *beyond* them is."""
+    tool = resolve(
+        SubAgentSpec(id="scoped", environments=["payments_isolated"]),
+        parent_agent_id="treasurer", parent_capabilities=set(),
+        parent_environments=["analysis", "payments_isolated"],
+    )
+    assert tool.environments == ("payments_isolated",)
+
+
+def test_a_subagent_that_names_no_sandbox_inherits_one_its_parent_has():
+    tool = resolve(
+        SubAgentSpec(id="quiet"),
+        parent_agent_id="treasurer", parent_capabilities=set(),
+        parent_environments=["analysis", "payments_isolated"],
+    )
+    assert tool.environments == ("analysis",)
 
 
 def test_validator_rejects_a_widening_subagent(spec):

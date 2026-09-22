@@ -19,7 +19,7 @@
 
 metadata:
   name: meridian
-  spec_version: "1.2.0"
+  spec_version: "1.3.0"
   version: "0.1.0"
   description: Meridian Bank's consumer lending function as an agentic organization.
   owner: Meridian Platform Engineering
@@ -33,7 +33,11 @@ data_classes:
     description: Name, address, date of birth and identity documents.
     scope: protected
     groups: [lending]
-    allowed_environments: [casework]
+    # Also reachable inside the financial-crime sandbox: an investigator who
+    # cannot see who the subject is cannot work the alert, and what must not
+    # leave that sandbox is egress, not the customer's identity. The class
+    # says where it may be touched (ADR-0082).
+    allowed_environments: [casework, fincrime_isolated]
     may_appear_in_traces: false
   - id: bureau_data
     description: Credit reference agency files. Licensed, and the licence binds use.
@@ -400,7 +404,8 @@ organization:
           roles: [owner]
         - person: p_cro
           roles: [approver]
-      environment: {environment: casework}
+      environments:
+        - environment: casework
   teams:
     - id: lending
       name: Consumer Lending
@@ -421,7 +426,8 @@ organization:
           humans:
             - person: p_head_lending
               roles: [owner]
-          environment: {environment: casework}
+          environments:
+            - environment: casework
       teams:
         - id: underwriting
           name: Underwriting
@@ -445,7 +451,8 @@ organization:
               humans:
                 - person: p_underwriter
                   roles: [owner]
-              environment: {environment: casework}
+              environments:
+                - environment: casework
             - id: underwriter_agent
               name: credit-underwriter
               description: Decides applications within policy on evidence it did not produce.
@@ -460,7 +467,8 @@ organization:
                   roles: [owner]
                 - person: p_head_lending
                   roles: [approver]
-              environment: {environment: casework}
+              environments:
+                - environment: casework
         - id: collections
           name: Collections
           description: Customers in difficulty.
@@ -478,7 +486,8 @@ organization:
               humans:
                 - person: p_collections
                   roles: [owner]
-              environment: {environment: casework}
+              environments:
+                - environment: casework
     - id: risk
       name: Risk
       description: >-
@@ -506,7 +515,8 @@ organization:
               roles: [owner]
             - person: p_audit
               roles: [approver]
-          environment: {environment: modelling}
+          environments:
+            - environment: modelling
     - id: financial_crime
       name: Financial Crime
       description: Alerts, investigations and the reporting officer's file.
@@ -535,7 +545,8 @@ organization:
               roles: [owner]
             - person: p_mlro
               roles: [approver]
-          environment: {environment: fincrime_isolated}
+          environments:
+            - environment: fincrime_isolated
     - id: complaints
       name: Customer Complaints
       description: >-
@@ -560,7 +571,8 @@ organization:
               roles: [owner]
             - person: p_finance_ops
               roles: [approver]
-          environment: {environment: casework}
+          environments:
+            - environment: casework
     - id: internal_audit
       name: Internal Audit
       description: >-
@@ -582,7 +594,12 @@ organization:
           humans:
             - person: p_audit
               roles: [owner]
-          environment: {environment: casework}
+          # Two sandboxes, because the work is two shapes: reading a case in
+          # `casework`, and testing a scorecard against the book in
+          # `modelling`, which reaches nothing outward (ADR-0082).
+          environments:
+            - environment: casework
+            - environment: modelling
 
 interaction_flows:
   # Directional and named. The assessor may hand a case to the underwriter;

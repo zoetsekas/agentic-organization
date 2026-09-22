@@ -15,7 +15,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .ids import new_id, now_iso
 
@@ -360,6 +360,22 @@ class WorkflowRef(BaseModel):
 class Agent(BaseModel):
     """An organizational agent."""
 
+    @model_validator(mode="before")
+    @classmethod
+    def _lift_single_sandbox(cls, data):
+        """Accept the pre-ADR-0082 `sandbox=` kwarg as the first sandbox.
+
+        `sandbox` is a read-only property now, so a construction still passing
+        it would have the value silently dropped — leaving the agent with no
+        place to run, which is the exact failure a sandbox exists to prevent.
+        Lift it instead, and let an explicit `sandboxes` win if both are given.
+        """
+        if isinstance(data, dict) and data.get("sandbox") is not None:
+            data = dict(data)
+            single = data.pop("sandbox")
+            data.setdefault("sandboxes", [single])
+        return data
+
     id: str = Field(default_factory=lambda: new_id("agt"))
     name: str
     title: str = ""
@@ -398,7 +414,16 @@ class Agent(BaseModel):
     skill_ids: list[str] = Field(default_factory=list)
     plugin_ids: list[str] = Field(default_factory=list)
     workflow_ids: list[str] = Field(default_factory=list)
-    sandbox: Optional[SandboxSpec] = None
+    #: Every sandbox this agent runs work in (ADR-0082). `sandbox` is the
+    #: first of them and is what a caller that can only hold one uses; which
+    #: one a given *call* belongs in is derived from the data classes it
+    #: touches, and the derivation is enforced at the phase gate today rather
+    #: than selected here.
+    sandboxes: list[SandboxSpec] = Field(default_factory=list)
+
+    @property
+    def sandbox(self) -> Optional[SandboxSpec]:
+        return self.sandboxes[0] if self.sandboxes else None
     channels: list[ChannelKind] = Field(
         default_factory=lambda: [ChannelKind.DIRECT_TOOL, ChannelKind.INTERNAL_BUS]
     )

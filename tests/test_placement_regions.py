@@ -73,7 +73,7 @@ def test_an_agent_without_an_environment_class_is_in_no_region(northwind_dict):
     import copy
 
     spec = copy.deepcopy(northwind_dict)
-    spec["organization"]["members"][0].pop("environment", None)
+    spec["organization"]["members"][0].pop("environments", None)
     placed = {a for p in _js_placements(spec) for a in p["agents"]}
     assert "ceo" not in placed
 

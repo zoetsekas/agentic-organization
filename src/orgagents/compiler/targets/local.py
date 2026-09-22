@@ -33,6 +33,30 @@ TIER_RESOURCES = {
     "large": {"cpus": "4", "memory": "16G"},
     "accelerated": {"cpus": "8", "memory": "32G"},
 }
+#: Ordered widest-last, so "the widest sandbox an agent has" is a max().
+_TIER_ORDER = ("minimal", "small", "medium", "large", "accelerated")
+_POSTURE_ORDER = ("none", "allowlist", "internal", "open")
+
+
+def _widest_environment(environments: list) -> Any:
+    """The sandbox with the widest reach, for a decision that admits one.
+
+    An agent may run in several (ADR-0082) and a deployed workload is one
+    shape, so where a target can express only one it takes the widest:
+    under-sizing or under-permitting a service would make the design
+    undeployable. The narrower sandboxes still bound what its *code
+    execution* may reach, which is where the isolation actually lives.
+    """
+    if not environments:
+        return None
+    return max(environments, key=lambda e: (
+        _POSTURE_ORDER.index(e.network.value)
+        if e.network.value in _POSTURE_ORDER else 0,
+        _TIER_ORDER.index(e.tier.value)
+        if e.tier.value in _TIER_ORDER else 0,
+    ))
+
+
 # Toolchain class -> sandbox image. ADR-0053 names four toolchain images and
 # this vocabulary has eight classes, so the classes it does not name are mapped
 # onto the nearest one it does rather than to an image nobody reviewed; ADR-0055
@@ -236,13 +260,14 @@ class LocalTarget:
         # Channel bridges always need egress to reach the chat provider.
         if (
             any(c.human_facing for c in ir.channels)
-            or any(a.environment and a.environment.network.value != "none"
-                   for a in ir.agents)
+            or any(e.network.value != "none"
+                   for a in ir.agents for e in a.environments)
             or self._service_engines(ir)
         ):
             networks[ir.qualified("egress")] = {}
         if any(
-            a.environment and a.environment.network.value == "none" for a in ir.agents
+            all(e.network.value == "none" for e in a.environments) if a.environments
+            else True for a in ir.agents
         ):
             # An isolated network with no gateway: services on it reach nothing.
             networks[ir.qualified("isolated")] = {"internal": True}
@@ -262,7 +287,7 @@ class LocalTarget:
         placements sharing `analysis` build the same Dockerfile. What is no
         longer keyed this way is the sandbox *environment* — see `_placements`.
         """
-        used = {a.environment.id: a.environment for a in ir.agents if a.environment}
+        used = {e.id: e for a in ir.agents for e in a.environments}
         return [used[k] for k in sorted(used)]
 
     def _placements(self, ir: SystemIR) -> list[Any]:
@@ -458,7 +483,13 @@ WORKDIR /workspace
         return SubjectNamespace(tenant=ir.tenant.id if ir.tenant else "local")
 
     def _agent_service(self, ir: SystemIR, agent) -> dict[str, Any]:
-        env = agent.environment
+        # One service per agent, sized and permitted for the *widest* sandbox
+        # it runs in (ADR-0082). A deployed workload is one shape, and
+        # under-sizing or under-permitting it would make the design
+        # undeployable; the narrower sandboxes still bound what its code
+        # execution may reach, which is where the isolation actually lives —
+        # the `sandbox-<class>` services below are one per class.
+        env = _widest_environment(agent.environments)
         tier = env.tier.value if env else "minimal"
         toolchain = env.toolchains[0].value if env and env.toolchains else "none"
         posture = env.network.value if env else "none"
@@ -504,7 +535,10 @@ WORKDIR /workspace
                 # running container can tell whose it is without the manifest.
                 "org.agentic.tenant": ir.tenant.id if ir.tenant else "",
                 "org.agentic.team": agent.team_id,
-                "org.agentic.placement": agent.placement,
+                # An agent in several sandboxes carries all of them: a label
+                # naming one of two would answer the wrong question when
+                # somebody greps for what is in a placement (ADR-0082).
+                "org.agentic.placement": ",".join(agent.placements),
                 "org.agentic.network_posture": posture,
                 "org.agentic.identity": agent.identity.id if agent.identity else "",
             },
@@ -1023,8 +1057,8 @@ or version: it can change under a system that was already reviewed."""
         ) or "| — | — | — | — | — |"
         agents = "\n".join(
             f"| `{a.id}` | {' / '.join(a.team_path)} | "
-            f"{a.environment.id if a.environment else '—'} | "
-            f"{a.environment.network.value if a.environment else '—'} | "
+            f"{', '.join(e.id for e in a.environments) or '—'} | "
+            f"{', '.join(e.network.value for e in a.environments) or '—'} | "
             f"{len(a.permissions)} |"
             for a in ir.agents
         )

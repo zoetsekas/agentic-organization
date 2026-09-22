@@ -21,7 +21,7 @@
 
 metadata:
   name: lumiere
-  spec_version: "1.2.0"
+  spec_version: "1.3.0"
   version: "0.1.0"
   description: Lumière's beauty and salon products business as an agentic organization.
   owner: Lumière Digital
@@ -52,7 +52,12 @@ data_classes:
     description: Consumer and salon account records, orders and correspondence.
     scope: protected
     groups: [commercial, care]
-    allowed_environments: [service_desk]
+    # Also inside `regulatory_review`, because recording a reaction means
+    # recording who reported it: `reaction_intake` touches this class and
+    # `adverse_reactions` in one call, and a call happens in one sandbox.
+    # The validator found this by refusing the capability outright — its
+    # data classes had no environment in common (ADR-0082).
+    allowed_environments: [service_desk, regulatory_review]
     may_appear_in_traces: false
   - id: batch_records
     description: Manufacturing batches, QC results and where each batch shipped.
@@ -205,7 +210,11 @@ capabilities:
     description: Read an ingredient's restrictions, allergens and permitted levels.
     action: query
     resource_class: ingredient_db
-    data_classes: [public_knowledge, formulation]
+    # Reference data only. It claimed `formulation` too, which is lab-only,
+    # so a claims reviewer holding it had nowhere to run — and the fix is not
+    # to give Regulatory a lab, it is that a permitted level is published
+    # information and a recipe is not (ADR-0082 found this).
+    data_classes: [public_knowledge]
     constraints: {max_rows: 500, allowed_operations: [select]}
   - id: safety_assessment
     description: Assemble and sign a product safety assessment.
@@ -437,7 +446,8 @@ organization:
           roles: [owner]
         - person: p_safety_assessor
           roles: [approver]
-      environment: {environment: service_desk}
+      environments:
+        - environment: service_desk
   teams:
     - id: rnd
       name: Research and Development
@@ -464,7 +474,8 @@ organization:
               roles: [owner]
             - person: p_safety_assessor
               roles: [approver]
-          environment: {environment: lab}
+          environments:
+            - environment: lab
     - id: regulatory
       name: Regulatory Affairs
       description: >-
@@ -490,7 +501,8 @@ organization:
               roles: [owner]
             - person: p_safety_assessor
               roles: [approver]
-          environment: {environment: regulatory_review}
+          environments:
+            - environment: regulatory_review
         - id: vigilance_agent
           name: vigilance-officer
           description: Records a reported reaction and grades it for reportability.
@@ -505,7 +517,8 @@ organization:
               roles: [owner]
             - person: p_safety_assessor
               roles: [approver]
-          environment: {environment: regulatory_review}
+          environments:
+            - environment: regulatory_review
     - id: brand
       name: Brand and Marketing
       description: Consumer marketing and the product pages.
@@ -529,7 +542,8 @@ organization:
               roles: [owner]
             - person: p_reg_manager
               roles: [approver]
-          environment: {environment: service_desk}
+          environments:
+            - environment: service_desk
     - id: supply
       name: Supply Chain
       description: Manufacturing, quality control and distribution.
@@ -553,7 +567,8 @@ organization:
               roles: [owner]
             - person: p_qc
               roles: [approver]
-          environment: {environment: operations}
+          environments:
+            - environment: operations
         - id: qc_agent
           name: quality-controller
           description: Reads batch QC results and stops anything short of spec.
@@ -567,7 +582,8 @@ organization:
               roles: [owner]
             - person: p_supply
               roles: [approver]
-          environment: {environment: operations}
+          environments:
+            - environment: operations
     - id: professional
       name: Professional Channel
       description: Salons, distributors and professional-only products.
@@ -589,7 +605,8 @@ organization:
               roles: [owner]
             - person: p_care
               roles: [approver]
-          environment: {environment: service_desk}
+          environments:
+            - environment: service_desk
     - id: consumer_care
       name: Consumer Care
       description: The people consumers actually reach.
@@ -612,7 +629,8 @@ organization:
               roles: [owner]
             - person: p_reg_manager
               roles: [approver]
-          environment: {environment: service_desk}
+          environments:
+            - environment: service_desk
 
 interaction_flows:
   # Care escalates a possible reaction to vigilance, and cannot be instructed

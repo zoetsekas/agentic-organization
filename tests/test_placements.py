@@ -46,7 +46,7 @@ BASE = {
         "members": [
             {"id": "ceo", "name": "CEO",
              "mandate": {"decisions": []},
-             "environment": {"environment": "analysis"}},
+             "environments": [{"environment": "analysis"}]},
         ],
         "teams": [
             {
@@ -54,9 +54,9 @@ BASE = {
                 "groups": ["hr"], "placement": True,
                 "members": [
                     {"id": "hr_lead", "name": "HR lead",
-                     "environment": {"environment": "analysis"}},
+                     "environments": [{"environment": "analysis"}]},
                     {"id": "recruiter", "name": "Recruiter",
-                     "environment": {"environment": "analysis"}},
+                     "environments": [{"environment": "analysis"}]},
                 ],
             },
             {
@@ -64,14 +64,14 @@ BASE = {
                 "groups": ["finance"], "placement": True,
                 "members": [
                     {"id": "cfo", "name": "CFO",
-                     "environment": {"environment": "analysis"}},
+                     "environments": [{"environment": "analysis"}]},
                 ],
                 "teams": [
                     {
                         "id": "payables", "name": "Payables", "leader": "ap",
                         "members": [
                             {"id": "ap", "name": "AP",
-                             "environment": {"environment": "analysis"}},
+                             "environments": [{"environment": "analysis"}]},
                         ],
                     }
                 ],
@@ -101,16 +101,16 @@ def test_the_same_profile_in_two_units_is_two_places():
     sandbox environment, one volume and one process namespace.
     """
     resolved = resolve(_spec())
-    assert resolved.home["recruiter"] == "hr--analysis"
-    assert resolved.home["cfo"] == "finance--analysis"
+    assert resolved.home["recruiter"] == ["hr--analysis"]
+    assert resolved.home["cfo"] == ["finance--analysis"]
     assert not resolved.same_placement("recruiter", "cfo")
 
 
 def test_an_agent_is_placed_by_its_unit_and_never_by_its_profile():
     resolved = resolve(_spec())
     hr = resolved.for_agent("recruiter")
-    assert hr is not None and hr.unit == "hr"
-    assert hr.environment == "analysis"
+    assert len(hr) == 1 and hr[0].unit == "hr"
+    assert hr[0].environment == "analysis"
 
 
 # --------------------------------------------------------------------------
@@ -122,14 +122,14 @@ def test_a_team_declaring_nothing_lands_in_its_nearest_declaring_ancestor():
     """Payables declares nothing, so it is Finance's place, not its own."""
     resolved = resolve(_spec())
     assert resolved.boundary["payables"] == "finance"
-    assert resolved.home["ap"] == "finance--analysis"
+    assert resolved.home["ap"] == ["finance--analysis"]
     assert resolved.same_placement("ap", "cfo")
 
 
 def test_the_root_always_declares_so_every_placed_agent_has_one_answer():
     resolved = resolve(_spec())
     assert resolved.boundary["root"] == "root"
-    assert resolved.home["ceo"] == "root--analysis"
+    assert resolved.home["ceo"] == ["root--analysis"]
     for team in _spec().teams():
         assert team.id in resolved.boundary
 
@@ -161,10 +161,10 @@ def test_an_agent_with_no_environment_class_is_placed_nowhere():
     import copy
 
     d = copy.deepcopy(BASE)
-    d["organization"]["teams"][0]["members"][1].pop("environment")
+    d["organization"]["teams"][0]["members"][1].pop("environments")
     resolved = resolve(SystemSpec.model_validate(d))
     assert "recruiter" not in resolved.home
-    assert resolved.for_agent("recruiter") is None
+    assert resolved.for_agent("recruiter") == []
 
 
 # --------------------------------------------------------------------------
@@ -307,7 +307,7 @@ def test_the_ir_carries_placements_and_what_each_may_reach():
     ir = build_ir(_spec())
     ids = {p.id for p in ir.placements}
     assert ids == {"root--analysis", "hr--analysis", "finance--analysis"}
-    assert ir.agent("recruiter").placement == "hr--analysis"
+    assert ir.agent("recruiter").placements == ["hr--analysis"]
     # Its own, plus the root's: a recruiter reports up the manager chain, and
     # that is standing structure. It does not reach Finance.
     assert ir.agent("recruiter").reaches == ["hr--analysis", "root--analysis"]
@@ -371,7 +371,7 @@ def northwind() -> SystemSpec:
 
 def test_northwind_keeps_internal_audit_out_of_the_function_it_audits(northwind):
     resolved = resolve(northwind)
-    assert resolved.home["audit_lead"] == "internal_audit--analysis"
+    assert resolved.home["audit_lead"] == ["internal_audit--analysis"]
     assert not resolved.same_placement("audit_lead", "controller")
     assert not resolved.permits("audit_lead", "controller"), (
         "audit reports to the audit committee, not to the function it tests"
@@ -380,7 +380,7 @@ def test_northwind_keeps_internal_audit_out_of_the_function_it_audits(northwind)
 
 def test_northwind_keeps_treasury_apart_from_the_ledger(northwind):
     resolved = resolve(northwind)
-    assert resolved.home["treasurer"] == "treasury--payments_isolated"
+    assert resolved.home["treasurer"] == ["treasury--payments_isolated"]
     assert not resolved.same_placement("treasurer", "payables")
 
 

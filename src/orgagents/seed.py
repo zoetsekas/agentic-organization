@@ -176,7 +176,7 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
         workflow_ids=["wfl_delegate_review", "wfl_cross_team_request"],
         channels=[ChannelKind.DIRECT_TOOL, ChannelKind.SLACK, ChannelKind.EMAIL,
                   ChannelKind.INTERNAL_BUS],
-        sandbox=SandboxSpec(template_id="sbx_minimal_reasoning"),
+        sandboxes=[SandboxSpec(template_id="sbx_minimal_reasoning")],
         tags=["executive", "routing"],
     ))
 
@@ -197,7 +197,7 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
                             masked_columns=["tax_id"])]),
         skill_ids=["skl_board_reporting"], plugin_ids=["plg_erp"],
         workflow_ids=["wfl_delegate_review", "wfl_data_request"],
-        sandbox=SandboxSpec(template_id="sbx_document_processing"),
+        sandboxes=[SandboxSpec(template_id="sbx_document_processing")],
         channels=[ChannelKind.DIRECT_TOOL, ChannelKind.EMAIL, ChannelKind.INTERNAL_BUS],
         tags=["finance", "reporting"],
     ))
@@ -217,7 +217,7 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
                             allowed_statements=["select"], row_limit=1000,
                             masked_columns=["tax_id"])]),
         skill_ids=["skl_sql_authoring"], workflow_ids=["wfl_data_request"],
-        sandbox=SandboxSpec(template_id="sbx_data_analysis"),
+        sandboxes=[SandboxSpec(template_id="sbx_data_analysis")],
         tags=["finance", "analytics"],
     ))
 
@@ -230,7 +230,7 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
         harness=harness("You run Acme engineering. Delegate to platform and app teams.",
                         groups=["engineering"], mcp=[knowledge_mcp]),
         workflow_ids=["wfl_delegate_review"],
-        sandbox=SandboxSpec(template_id="sbx_minimal_reasoning"),
+        sandboxes=[SandboxSpec(template_id="sbx_minimal_reasoning")],
         tags=["engineering", "leadership"],
     ))
 
@@ -248,7 +248,7 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
                                                          "get_file_contents"],
                                           read_only=False)]),
         plugin_ids=["plg_jira"], skill_ids=["skl_incident_response"],
-        sandbox=SandboxSpec(template_id="sbx_software_engineering"),
+        sandboxes=[SandboxSpec(template_id="sbx_software_engineering")],
         tags=["engineering", "delivery"],
     ))
 
@@ -261,7 +261,7 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
         harness=harness("You triage incidents and page humans for SEV1/SEV2.",
                         groups=["engineering"]),
         skill_ids=["skl_incident_response"],
-        sandbox=SandboxSpec(template_id="sbx_integration_runner"),
+        sandboxes=[SandboxSpec(template_id="sbx_integration_runner")],
         channels=[ChannelKind.DIRECT_TOOL, ChannelKind.SLACK, ChannelKind.INTERNAL_BUS],
         tags=["reliability", "shared-service"],
     ))
@@ -275,7 +275,7 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
         harness=harness("You own revenue. Coordinate with finance on forecasts.",
                         groups=["revenue"]),
         workflow_ids=["wfl_cross_team_request"],
-        sandbox=SandboxSpec(template_id="sbx_minimal_reasoning"),
+        sandboxes=[SandboxSpec(template_id="sbx_minimal_reasoning")],
         tags=["revenue"],
     ))
 

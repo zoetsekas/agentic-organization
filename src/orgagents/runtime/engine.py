@@ -587,7 +587,7 @@ class AgentRuntime:
                 capabilities=tuple(sub.get("capabilities", [])),
                 tools=tuple(sub.get("tools", [])),
                 knowledge=tuple(sub.get("knowledge", [])),
-                environment=sub.get("environment"),
+                environments=tuple(sub.get("environments", [])),
                 returns=sub.get("returns", ""),
                 max_turns=sub.get("max_turns", 8),
                 max_runtime_seconds=sub.get("max_runtime_seconds", 300),

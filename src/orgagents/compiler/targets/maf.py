@@ -212,12 +212,12 @@ class MicrosoftAgentFrameworkTarget:
             )
         if agent.guardrails:
             out.append(f"{len(agent.guardrails)} guardrail(s)")
-        if agent.placement:
-            out.append(f"placement '{agent.placement}' and its network policy")
-        if agent.environment is not None:
+        for placement in agent.placements:
+            out.append(f"placement '{placement}' and its network policy")
+        for environment in agent.environments:
             out.append(
-                f"environment '{agent.environment.id}': network "
-                f"{agent.environment.network.value}"
+                f"environment '{environment.id}': network "
+                f"{environment.network.value}"
             )
         if agent.delegates_to:
             out.append(f"may delegate to {sorted(agent.delegates_to)}")

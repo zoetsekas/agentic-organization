@@ -193,7 +193,11 @@ class Catalog:
         elif entry.kind == "sandbox_template":
             from .models import SandboxSpec
 
-            agent.sandbox = SandboxSpec(template_id=entry.ref_id)
+            # An installed template becomes the agent's first sandbox: a
+            # marketplace install adds a place to run, it does not take away
+            # the ones already declared (ADR-0082).
+            agent.sandboxes = [SandboxSpec(template_id=entry.ref_id),
+                               *agent.sandboxes]
         elif entry.kind == "agent":
             # Installing an agent means hiring a copy into your own org unit.
             source = self.store.get(AGENTS, entry.ref_id, Agent)

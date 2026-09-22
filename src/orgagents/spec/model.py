@@ -27,7 +27,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-SPEC_VERSION = "1.2.0"
+SPEC_VERSION = "1.3.0"
 
 
 # --------------------------------------------------------------------------
@@ -965,12 +965,27 @@ class SubAgentSpec(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
     knowledge: list[str] = Field(default_factory=list)
-    environment: Optional[str] = None       # environment class id, if it executes
+    #: Sandboxes this sub-agent may run in, which must be among its parent's:
+    #: a sub-agent that could pick its own would be a way to reach a sandbox
+    #: the agent calling it was not given (ADR-0027, ADR-0082).
+    environments: list[str] = Field(default_factory=list)       # environment class id, if it executes
     returns: str = ""                       # what the caller gets back
     output_contract: Optional[str] = None   # a checkable shape (ADR-0037)
     max_turns: int = 8
     max_runtime_seconds: int = 300
     parallel_safe: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_the_pre_1_3_environment_key(cls, data: Any) -> Any:
+        """Same silent drop as on the agent, same answer: use the loader."""
+        if isinstance(data, dict) and "environment" in data:
+            raise ValueError(
+                "'environment:' on a sub-agent was replaced by "
+                "'environments:' in spec 1.3.0 (ADR-0082). Load the document "
+                "through `load_spec`, which migrates it"
+            )
+        return data
 
 
 class AgentEndpoint(BaseModel):
@@ -1135,13 +1150,41 @@ class HumanCounterpart(BaseModel):
 class AgentSpec(BaseModel):
     """One agent: who it answers to, what it is for, what it may reach."""
 
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_the_pre_1_3_environment_key(cls, data: Any) -> Any:
+        """A 1.2.0 document read without the loader loses its sandboxes.
+
+        Pydantic ignores unknown keys, so `environment:` on an agent would be
+        dropped in silence and the agent would come out running nowhere —
+        which is exactly the failure mode a sandbox is there to prevent. The
+        migration is the one place that translation happens (ADR-0004), so
+        this says to go through it rather than doing it a second time here.
+        """
+        if isinstance(data, dict) and "environment" in data:
+            raise ValueError(
+                "'environment:' on an agent was replaced by 'environments:' "
+                "in spec 1.3.0 (ADR-0082). Load the document through "
+                "`load_spec`, which migrates it, rather than validating the "
+                "raw dict — reading it here would drop the sandbox silently"
+            )
+        return data
+
     id: str
     name: str = ""
     description: str = ""
     roles: list[RoleAssignment] = Field(default_factory=list)
     # One or more paired humans; exactly one carries the `owner` role.
     humans: list[HumanCounterpart] = Field(default_factory=list)
-    environment: Optional[EnvironmentOverride] = None
+    #: Every sandbox this agent runs work in (ADR-0082). One or more: an
+    #: agent that analyses a ledger *and* instructs a bank has two different
+    #: blast radii, and giving both to one sandbox means the wider one wins.
+    #:
+    #: Which one a given call runs in is derived, not declared: a capability
+    #: names its data classes, a data class names the environments it is
+    #: allowed in, and the intersection is the answer. An agent holding a
+    #: capability no environment of its own admits is refused.
+    environments: list[EnvironmentOverride] = Field(default_factory=list)
     capabilities: list[str] = Field(default_factory=list)
     knowledge: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)

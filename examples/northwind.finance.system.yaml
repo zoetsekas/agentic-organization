@@ -13,7 +13,7 @@
 
 metadata:
   name: northwind
-  spec_version: "1.2.0"
+  spec_version: "1.3.0"
   version: "0.1.0"
   description: Northwind's finance function as an agentic organization.
   owner: Northwind Platform Team
@@ -552,7 +552,8 @@ organization:
       humans:
         - person: p_ceo
           roles: [owner]
-      environment: {environment: analysis}
+      environments:
+        - environment: analysis
   teams:
     - id: finance
       name: Finance
@@ -575,7 +576,8 @@ organization:
           humans:
             - person: p_cfo
               roles: [owner]
-          environment: {environment: analysis}
+          environments:
+            - environment: analysis
       teams:
         - id: controllership
           name: Controllership
@@ -609,7 +611,8 @@ organization:
                   roles: [owner]
                 - person: p_cfo
                   roles: [approver]
-              environment: {environment: analysis}
+              environments:
+                - environment: analysis
             - id: payables
               name: accounts-payable
               description: Enters supplier invoices and matches them to orders.
@@ -619,7 +622,8 @@ organization:
               humans:
                 - person: p_ap
                   roles: [owner]
-              environment: {environment: analysis}
+              environments:
+                - environment: analysis
             - id: receivables
               name: accounts-receivable
               description: Chases and applies customer receipts.
@@ -631,7 +635,8 @@ organization:
                   roles: [owner]
                 - person: p_controller
                   roles: [approver]
-              environment: {environment: analysis}
+              environments:
+                - environment: analysis
         - id: reporting
           name: Financial Reporting
           description: Turns the closed ledger into statements.
@@ -650,7 +655,8 @@ organization:
                   roles: [owner]
                 - person: p_cfo
                   roles: [approver]
-              environment: {environment: analysis}
+              environments:
+                - environment: analysis
         - id: treasury
           name: Treasury
           description: Cash, liquidity and the bank relationship.
@@ -672,7 +678,8 @@ organization:
                   roles: [owner]
                 - person: p_cfo
                   roles: [approver]
-              environment: {environment: payments_isolated}
+              environments:
+                - environment: payments_isolated
             - id: cash_manager
               name: cash-manager
               description: Holds the daily position; draws, places and hedges.
@@ -698,7 +705,8 @@ organization:
                   roles: [owner]
                 - person: p_treasurer
                   roles: [approver]
-              environment: {environment: payments_isolated}
+              environments:
+                - environment: payments_isolated
         - id: fpa
           name: Financial Planning and Analysis
           description: The forward look.
@@ -719,7 +727,8 @@ organization:
                   roles: [owner]
                 - person: p_cfo
                   roles: [approver]
-              environment: {environment: analysis}
+              environments:
+                - environment: analysis
         - id: tax
           name: Tax
           description: Statutory compliance.
@@ -737,7 +746,8 @@ organization:
                   roles: [owner]
                 - person: p_cfo
                   roles: [approver]
-              environment: {environment: analysis}
+              environments:
+                - environment: analysis
     # Internal Audit reports to the audit committee, NOT to the CFO. Its
     # independence is the control; putting it under Finance would make the
     # function test itself.
@@ -758,7 +768,8 @@ organization:
           humans:
             - person: p_corpdev
               roles: [owner]
-          environment: {environment: analysis}
+          environments:
+            - environment: analysis
     - id: internal_audit
       name: Internal Audit
       description: Independent assurance over the finance function's controls.
@@ -778,7 +789,8 @@ organization:
           humans:
             - person: p_audit
               roles: [owner]
-          environment: {environment: analysis}
+          environments:
+            - environment: analysis
 
 # Association, as against containment (ADR-0081). Internal Audit is not inside
 # Finance — that is what the tree says — and until now its independence was
