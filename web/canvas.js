@@ -1167,7 +1167,10 @@ function derivedPlacements() {
          one placement per sandbox: the blast radius of reading a ledger and
          of instructing a bank are not the same thing drawn twice. */
       for (const override of agent.environments || []) {
-        const environment = override?.environment;
+        // The list picker writes bare ids; a loaded spec may carry the
+        // `{environment: id}` override shape. Both mean the same sandbox.
+        const environment = typeof override === "string"
+          ? override : override?.environment;
         if (!environment) continue;   // no environment class, so no place
         const id = `${unit}--${environment}`;
         if (!members.has(id)) members.set(id, { id, unit, environment, agents: [] });
@@ -2082,7 +2085,7 @@ function fieldContext(componentKind, fieldName) {
       capabilities: { mode: "reflist", col: "capabilities" },
       knowledge:    { mode: "reflist", col: "knowledge" },
       endpoints:    { mode: "reflist", col: "endpoints" },
-      environment:  { mode: "ref",     col: "environments" },
+      environments: { mode: "reflist", col: "environments" },
     },
     subagent: {
       capabilities: { mode: "reflist", col: "capabilities" },

@@ -1150,6 +1150,18 @@ class HumanCounterpart(BaseModel):
 class AgentSpec(BaseModel):
     """One agent: who it answers to, what it is for, what it may reach."""
 
+    @field_validator("environments", mode="before")
+    @classmethod
+    def _accept_bare_environment_ids(cls, value: Any) -> Any:
+        """A plain environment-class id stands for an override that only names
+        it. The designer's list picker writes ids, and a bare id is the common
+        case (run here, narrow nothing), so `["analysis"]` and
+        `[{"environment": "analysis"}]` mean the same thing (ADR-0082)."""
+        if isinstance(value, list):
+            return [{"environment": v} if isinstance(v, str) else v
+                    for v in value]
+        return value
+
     @model_validator(mode="before")
     @classmethod
     def _refuse_the_pre_1_3_environment_key(cls, data: Any) -> Any:
@@ -1172,7 +1184,19 @@ class AgentSpec(BaseModel):
 
     id: str
     name: str = ""
+    #: What the agent is *for*: a one-line blurb used for discovery and for
+    #: deciding when to delegate to it — the thing another agent reads to
+    #: decide whether this is the one to hand work to.
     description: str = ""
+    #: How the agent operates: its system prompt, in the author's own words.
+    #: Distinct from `description` on purpose — the frameworks we surveyed all
+    #: separate the two, because "what it is for" and "how it behaves" are
+    #: different facts and conflating them means the discovery blurb leaks into
+    #: the prompt or the operating instructions leak into the router. The
+    #: compiler weaves this into the composed system prompt after the
+    #: accountability and organization context, never replacing them: the org
+    #: facts are not the author's to override (ADR-0083).
+    instructions: str = ""
     roles: list[RoleAssignment] = Field(default_factory=list)
     # One or more paired humans; exactly one carries the `owner` role.
     humans: list[HumanCounterpart] = Field(default_factory=list)

@@ -2197,7 +2197,13 @@ PALETTE: dict[str, Any] = {
                  "fields": [
                      {"name": "id", "type": "string", "required": True},
                      {"name": "name", "type": "string"},
-                     {"name": "description", "type": "text"},
+                     {"name": "description", "type": "text",
+                      "help": "what it is for — the blurb another agent reads "
+                              "to decide when to delegate to it"},
+                     {"name": "instructions", "type": "text",
+                      "help": "how it operates — its system prompt, in your "
+                              "words. The org context is added automatically; "
+                              "this does not replace it (ADR-0083)"},
                      {"name": "roles", "type": "list"},
                      {"name": "capabilities", "type": "list"},
                      {"name": "knowledge", "type": "list"},
@@ -2205,8 +2211,9 @@ PALETTE: dict[str, Any] = {
                      {"name": "plugins", "type": "list"},
                      {"name": "tools", "type": "list"},
                      {"name": "endpoints", "type": "list"},
-                     {"name": "environment", "type": "string",
-                      "help": "environment class id"},
+                     {"name": "environments", "type": "list",
+                      "help": "the sandbox class(es) it runs in; one or more "
+                              "(ADR-0082)"},
                      {"name": "mandate", "type": "decisions",
                       "help": "what this agent may decide alone; empty "
                               "inherits its team's"},

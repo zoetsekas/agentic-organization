@@ -371,6 +371,9 @@ class AgentIR(BaseModel):
     id: str
     name: str
     description: str = ""
+    #: The author's operating instructions, woven into `system_prompt`
+    #: after the org context (ADR-0083).
+    instructions: str = ""
     team_id: str
     team_path: list[str] = Field(default_factory=list)
     #: Every sandbox environment this agent runs in (ADR-0069, ADR-0082).
@@ -453,6 +456,11 @@ class AgentIR(BaseModel):
         lines = [f"You are {self.name}."]
         if self.description:
             lines.append(self.description)
+        # The author's own operating instructions, before the facts the
+        # organization fixes. They shape how the agent works; they do not get
+        # to rewrite who it answers to or what it may decide (ADR-0083).
+        if self.instructions:
+            lines += ["", "## Your instructions", self.instructions.strip()]
         lines += ["", "## Accountability"]
         for r in self.responsibilities:
             lines.append(f"- {r.text}  _(role: {r.source_role})_")
@@ -1331,6 +1339,7 @@ def build_ir(
                 id=agent.id,
                 name=agent.name or agent.id,
                 description=agent.description,
+                instructions=agent.instructions,
                 team_id=team.id,
                 team_path=team_ir.path,
                 leader_of=leader_of.get(agent.id),
