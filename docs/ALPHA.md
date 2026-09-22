@@ -3,7 +3,8 @@
 What exists, what is real, and what stands between here and a first alpha that
 somebody else can run on their own machine with `docker compose up`.
 
-Written 2026-09-20. **821 tests passing, 1 skipped. 92 records, 0 violations.**
+Written 2026-09-20, refreshed 2026-09-22. **1647 tests passing. 122 records,
+0 violations.**
 
 The single fact that shapes this document: **no Docker daemon, no cloud
 account, no provider credentials, no message broker, no chat server, no task
@@ -138,8 +139,8 @@ An alpha is not "more features". It is the first build where the claims are
 
 ## 4. The honest summary
 
-The **design** is further along than the **deployment** by a wide margin: 92
-governance records, 821 tests, four compile targets, three planes — and not one
+The **design** is further along than the **deployment** by a wide margin: 122
+governance records, 1647 tests, four compile targets, three planes — and not one
 container has ever started. That is a real risk and it is concentrated in A1
 and A2. Everything else on the blocking list is a day or two of work; those two
 are the ones that will find out what is actually wrong.

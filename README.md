@@ -64,6 +64,15 @@ Acme Corp                     leader: ceo         (human: Dana Whitfield)
 ```bash
 pip install -e '.[dev]'         # add '[langgraph]' or '[openai]' for real runtimes
 
+# Starting your own organization, from nothing
+orgagents spec new mycorp --owner "Platform Team"   # a design valid from the first save
+orgagents spec validate mycorp.system.yaml          # 0 errors, already
+orgagents compile mycorp.system.yaml --target local --out build
+orgagents phase mycorp.system.yaml --target local --scaffold -o gaps.yaml
+#   ^ the gate names what is still missing AND writes the blocks that answer
+#     it, commented, for you to fill in. Work `gaps.yaml` into your spec and
+#     the definition phase goes green.
+
 # Design → compile → run
 orgagents spec validate examples/acme/acme.system.yaml
 orgagents spec show     examples/acme/acme.system.yaml       # resolved org at a glance

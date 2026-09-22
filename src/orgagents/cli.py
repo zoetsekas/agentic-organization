@@ -95,6 +95,32 @@ def _spec_language_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _spec_new_command(args: argparse.Namespace) -> int:
+    """`spec new <name>` — a starter design that is valid from the first save.
+
+    It compiles immediately, so the author sees something real, and it carries
+    the phase gate's remaining checks as commented blocks so the next step is
+    never a blank page (ADR-0090).
+    """
+    from .scaffold import starter_spec
+
+    name = getattr(args, "path", None)
+    if not name:
+        print("error: spec new needs a name, e.g. `orgagents spec new acme`")
+        return 2
+    name = Path(name).stem.replace(".system", "")
+    text = starter_spec(name, owner=getattr(args, "owner", "") or "")
+    out = Path(args.out) if args.out else Path(f"{name}.system.yaml")
+    if out.exists() and not args.force:
+        print(f"error: {out} exists; pass --force to overwrite")
+        return 1
+    out.write_text(text)
+    print(f"wrote {out}")
+    print(f"  next: orgagents spec validate {out}")
+    print(f"        orgagents phase {out} --target local --scaffold")
+    return 0
+
+
 def _compiler_command(args: argparse.Namespace) -> int:
     from .compiler import build_ir, compile_system
     from .compiler.base import register_builtin_targets
@@ -115,6 +141,10 @@ def _compiler_command(args: argparse.Namespace) -> int:
     # reads no document at all.
     if args.cmd == "spec" and args.action in ("migrate", "schema"):
         return _spec_language_command(args)
+
+    # `spec new` reads no document either — it writes the first one.
+    if args.cmd == "spec" and args.action == "new":
+        return _spec_new_command(args)
 
     if not getattr(args, "path", None):
         print(f"error: {args.cmd} needs a path to a system spec")
@@ -144,6 +174,18 @@ def _compiler_command(args: argparse.Namespace) -> int:
                 if check.fix:
                     print(f"      → {check.fix}")
         print(f"\n{report.summary()}")
+        if getattr(args, "scaffold", False):
+            # The gate already knows what is missing; print the spec that
+            # answers it rather than leaving the author at a blank page.
+            from .scaffold import scaffold_for
+
+            text = scaffold_for(report.failures(), name=spec.metadata.name,
+                                target=args.target)
+            if args.out:
+                Path(args.out).write_text(text)
+                print(f"\nscaffold written to {args.out}")
+            else:
+                print("\n" + text)
         if args.target:
             print(
                 f"ready to compile for '{args.target}': "
@@ -679,9 +721,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p_spec = sub.add_parser("spec", help="work with a System Spec")
     p_spec.add_argument("action",
-                        choices=["validate", "ir", "show", "migrate", "schema",
-                                 "diff"])
-    p_spec.add_argument("path", nargs="?")
+                        choices=["new", "validate", "ir", "show", "migrate",
+                                 "schema", "diff"])
+    p_spec.add_argument("path", nargs="?",
+                        help="the spec to read; for 'new', the name to create")
+    p_spec.add_argument("--owner",
+                        help="for 'new': the team accountable for the system")
     p_spec.add_argument("--binding")
     p_spec.add_argument("--platform-policy", dest="platform_policy",
                         help="the fabric's house rules to judge against")
@@ -732,6 +777,11 @@ def main(argv: list[str] | None = None) -> int:
     p_phase.add_argument("--target")
     p_phase.add_argument("--platform-policy", dest="platform_policy",
                          help="the fabric's house rules to judge against")
+    p_phase.add_argument("--scaffold", action="store_true",
+                         help="print the spec blocks that answer each failing "
+                              "check, commented and ready to fill in")
+    p_phase.add_argument("-o", "--out", dest="out",
+                         help="for --scaffold: write to this file")
 
     p_sched = sub.add_parser("schedule", help="preview when triggers fire")
     p_sched.add_argument("path")
