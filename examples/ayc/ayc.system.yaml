@@ -933,6 +933,13 @@ workflows:
           args:
             on_hand: "{{ on_hand }}"
           output: listing
+      # Without these the stock check ran and the draft never did — a declared
+      # step that silently did not happen. The gate refuses that now (ADR-0096).
+      edges:
+        - from: stock
+          to: draft
+        - from: draft
+          to: END
 
 triggers:
   - id: nightly_stock_reconcile

@@ -27,6 +27,7 @@ from typing import Any
 from ..base import GeneratedFile
 from ..ir import SystemIR
 from ._wiring import (
+    workflow_conformance_rows,
     BACKENDS_SHIM,
     emit_wired_def,
     shim_imports,
@@ -363,6 +364,21 @@ if __name__ == "__main__":
 
     def _conformance(self, ir: SystemIR) -> str:
         rows = [
+            *workflow_conformance_rows(
+                ir, carried=False, platform="our runtime only",
+                reason=(
+                    "ADK has workflow agents — `SequentialAgent`, "
+                    "`ParallelAgent`, `LoopAgent` — and they express an ordered "
+                    "composition of *agents*. Our graph's nodes are tool calls, "
+                    "pure transforms, branch predicates and human interrupts, and "
+                    "a `transform` node evaluates a Python expression over "
+                    "workflow state that nothing here will evaluate. Mapping the "
+                    "one onto the other would produce something that runs, is not "
+                    "the declared process, and reads as if it were. So these are "
+                    "carried by the design and by this platform's own "
+                    "interpreter, and by nothing in this directory. "
+                ),
+            ),
             ("Instructions, model, tools", "emitted", "ADK",
              "The portable core. Every platform has it."),
             ("Sub-agent hierarchy", "emitted (approximate)", "ADK",

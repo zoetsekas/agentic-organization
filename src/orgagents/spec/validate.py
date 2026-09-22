@@ -351,6 +351,70 @@ def validate_spec(
                         agent_id,
                     )
 
+    # -- workflow graphs (ADR-0096) ----------------------------------------
+    # The graph is a free-form dict and nothing checked its shape, so a step
+    # that could never run was found at run time or not at all. That is the
+    # same failure as an edge silently dropped: a declared step that does not
+    # happen, and nothing saying so.
+    for workflow in spec.workflows:
+        graph = workflow.graph or {}
+        nodes = {n.get("id"): n for n in graph.get("nodes", []) if n.get("id")}
+        if not nodes:
+            warn("workflow_without_nodes",
+                 f"workflow '{workflow.id}' declares no nodes, so invoking it "
+                 "does nothing", workflow.id)
+            continue
+        entry = graph.get("entry") or next(iter(nodes))
+        if entry not in nodes:
+            err("workflow_entry_unknown",
+                f"workflow '{workflow.id}' starts at '{entry}', which is not "
+                "one of its nodes", workflow.id)
+            continue
+
+        # Every declared way out of a node, wherever it is declared.
+        edges_out: dict[str, list[str]] = {}
+        for edge in graph.get("edges", []):
+            source, target = edge.get("from"), edge.get("to")
+            if source not in nodes:
+                err("workflow_edge_from_unknown",
+                    f"workflow '{workflow.id}' has an edge from '{source}', "
+                    "which is not one of its nodes", workflow.id)
+                continue
+            if target != "END" and target not in nodes:
+                err("workflow_edge_to_unknown",
+                    f"workflow '{workflow.id}' has an edge from '{source}' to "
+                    f"'{target}', which is not one of its nodes", workflow.id)
+                continue
+            edges_out.setdefault(source, []).append(target)
+        for node_id, node in nodes.items():
+            if node.get("kind") != "branch":
+                continue
+            targets = [c.get("to") for c in node.get("cases", [])]
+            if node.get("default"):
+                targets.append(node["default"])
+            for target in targets:
+                if target != "END" and target not in nodes:
+                    err("workflow_branch_target_unknown",
+                        f"workflow '{workflow.id}' branches at '{node_id}' to "
+                        f"'{target}', which is not one of its nodes",
+                        workflow.id)
+                    continue
+                edges_out.setdefault(node_id, []).append(target)
+
+        reached, stack = {entry}, [entry]
+        while stack:
+            current = stack.pop()
+            for target in edges_out.get(current, []):
+                if target != "END" and target not in reached:
+                    reached.add(target)
+                    stack.append(target)
+        for node_id in sorted(set(nodes) - reached):
+            err("workflow_node_unreachable",
+                f"workflow '{workflow.id}' declares node '{node_id}', which "
+                f"nothing reaches from '{entry}'. A step that cannot run is "
+                "not a step: add the edge that leads to it, or remove it",
+                workflow.id)
+
     # -- scale (ADR-0095) --------------------------------------------------
     # Bounds that cannot hold. Caught here rather than by a cloud rejecting
     # the apply, because a design that says something impossible about its own

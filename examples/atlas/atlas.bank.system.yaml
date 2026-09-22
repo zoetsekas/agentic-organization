@@ -1107,6 +1107,16 @@ workflows:
           args:
             metrics: "{{ metrics }}"
           output: risk_pack
+      # Three steps in order. Without these edges only the first one ran, and
+      # the pack the whole workflow exists to produce was never built — which
+      # is what ADR-0096 now refuses.
+      edges:
+        - from: positions
+          to: analytics
+        - from: analytics
+          to: pack
+        - from: pack
+          to: END
 
 # A trigger: unattended work on a schedule (ADR-0018).
 triggers:

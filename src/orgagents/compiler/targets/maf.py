@@ -24,6 +24,7 @@ from typing import Any
 
 from ..base import GeneratedFile
 from ..ir import SystemIR
+from ._wiring import workflow_conformance_rows
 
 #: What a MAF declarative agent file may contain, as of the format read in
 #: LANDSCAPE §9. Anything else we hold has to be reported rather than emitted.
@@ -233,6 +234,18 @@ class MicrosoftAgentFrameworkTarget:
     def _conformance(self, ir: SystemIR) -> str:
         """What this target cannot enforce of the design it was given."""
         rows = [
+            *workflow_conformance_rows(
+                ir, carried=False, platform="our runtime only",
+                reason=(
+                    "MAF has its own workflow construct, and it composes "
+                    "agents rather than the tool calls, transforms, branch "
+                    "predicates and human interrupts our graphs are made of. "
+                    "An approximation that ran but was not the declared "
+                    "process would be worse than this line. Carried by the "
+                    "design and by this platform's own interpreter, and by "
+                    "nothing in this directory."
+                ),
+            ),
             ("Instructions, model, tools", "emitted", "MAF",
              "The portable core. Every platform has it."),
             ("Tool input schemas", "partial", "MAF",

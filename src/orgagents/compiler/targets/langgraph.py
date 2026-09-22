@@ -33,6 +33,7 @@ from typing import Any, Optional
 from ..base import GeneratedFile
 from ..ir import SystemIR
 from ._wiring import (
+    workflow_conformance_rows,
     BACKENDS_SHIM,
     emit_wired_def,
     shim_imports,
@@ -136,6 +137,19 @@ class LangGraphPlatformTarget:
             files.append(
                 GeneratedFile("graphs/tools.py", stub_module(ir),
                               merge_additive=True))
+        for workflow in getattr(ir, "workflows", []) or []:
+            files.append(
+                GeneratedFile(
+                    f"graphs/workflows/{_mod(workflow.id)}.py",
+                    self._workflow_module(workflow),
+                ).with_header(ir, comment="#")
+            )
+        if getattr(ir, "workflows", None):
+            files.append(
+                GeneratedFile("graphs/workflows/__init__.py",
+                              self._workflow_package_init(ir))
+                .with_header(ir, comment="#")
+            )
         files.append(GeneratedFile("langgraph.json", self._manifest(ir)))
         files.append(GeneratedFile("requirements.txt", self._requirements(ir)))
         files.append(
@@ -269,6 +283,119 @@ class LangGraphPlatformTarget:
             for item in gaps:
                 lines.append(f"#   - {item}")
         return "\n".join(lines) + "\n"
+
+
+    # -- one workflow (ADR-0096) -------------------------------------------
+
+    def _workflow_module(self, workflow: Any) -> str:
+        """A declared process graph, as a real `StateGraph`.
+
+        This is the one platform where a workflow survives translation, for
+        the plain reason that its primitives are the same primitives: a node
+        that runs and an edge that decides what runs next. Everywhere else the
+        conformance report names the workflow as not carried, because an
+        approximation that ran and was not the declared process would be worse
+        than an honest absence.
+
+        What still does not cross: the node bodies. A `tool` node names a tool
+        this stack may not hold, and a `transform` node evaluates an
+        expression over workflow state against our own restricted evaluator.
+        Each node is emitted as a function with the declaration in front of it
+        and a `NotImplementedError` in the body, so the *shape* is exact and
+        the *work* is visibly the host's — rather than a body that looks
+        finished and quietly is not.
+        """
+        graph = workflow.graph or {}
+        nodes = {n["id"]: n for n in graph.get("nodes", []) if n.get("id")}
+        entry = graph.get("entry") or (next(iter(nodes)) if nodes else "")
+        edges: dict[str, list[str]] = {}
+        for edge in graph.get("edges", []):
+            edges.setdefault(edge["from"], []).append(edge["to"])
+
+        lines = [
+            '"""Workflow `%s` — %s' % (workflow.id, workflow.name or workflow.id),
+            "",
+            (workflow.description or "").strip() or "No description declared.",
+            "",
+            "Generated from the design's process graph. The graph shape is",
+            "exact; every node body raises until the host implements it.",
+            '"""',
+            "from __future__ import annotations",
+            "",
+            "from typing import Any",
+            "",
+            "from langgraph.graph import END, START, StateGraph",
+            "",
+            "",
+            "State = dict[str, Any]",
+            "",
+        ]
+        for node_id, node in nodes.items():
+            kind = node.get("kind", "")
+            detail = {
+                "tool": f"calls tool {node.get('tool', '?')!r}",
+                "agent": f"delegates to agent {node.get('agent', '?')!r}",
+                "workflow": f"invokes workflow {node.get('workflow', '?')!r}",
+                "transform": f"evaluates {node.get('expr', '')!r}",
+                "branch": "chooses the next node from the state",
+                "human": "interrupts and waits for a person",
+            }.get(kind, kind)
+            lines += [
+                "",
+                f"def {_mod(node_id)}(state: State) -> State:",
+                f'    """{kind}: {detail}."""',
+                f"    raise NotImplementedError(",
+                f"        {_pystr(f'workflow node {node_id!r} ({kind}) is the host to implement')}",
+                "    )",
+                "",
+            ]
+
+        lines += ["", "def build() -> Any:",
+                  '    """Assemble the declared graph."""',
+                  "    builder = StateGraph(State)"]
+        for node_id in nodes:
+            lines.append(f"    builder.add_node({_pystr(node_id)}, {_mod(node_id)})")
+        if entry:
+            lines.append(f"    builder.add_edge(START, {_pystr(entry)})")
+        for node_id, node in nodes.items():
+            if node.get("kind") == "branch":
+                cases = node.get("cases", [])
+                targets = [c.get("to") for c in cases] + (
+                    [node["default"]] if node.get("default") else [])
+                lines += [
+                    f"    # branch {node_id}: the host supplies the predicate;",
+                    f"    #   declared targets are "
+                    f"{', '.join(repr(t) for t in targets) or 'none'}",
+                ]
+                continue
+            for target in edges.get(node_id, []):
+                arrow = "END" if target == "END" else _pystr(target)
+                lines.append(
+                    f"    builder.add_edge({_pystr(node_id)}, {arrow})")
+            if node_id not in edges:
+                lines.append(f"    builder.add_edge({_pystr(node_id)}, END)")
+        interrupts = [n for n, node in nodes.items()
+                      if node.get("kind") == "human"] + list(
+                          workflow.interrupt_before or [])
+        if interrupts:
+            lines.append(
+                "    return builder.compile(interrupt_before="
+                f"{sorted(set(interrupts))!r})")
+        else:
+            lines.append("    return builder.compile()")
+        lines += ["", "", "graph = build()", ""]
+        return "\n".join(lines)
+
+    def _workflow_package_init(self, ir: SystemIR) -> str:
+        names = [w.id for w in (getattr(ir, "workflows", []) or [])]
+        body = [
+            '"""Encoded workflows from the design (ADR-0096)."""',
+            "",
+        ]
+        for name in names:
+            body.append(f"from . import {_mod(name)}  # noqa: F401")
+        body += ["", f"WORKFLOWS = {sorted(names)!r}", ""]
+        return "\n".join(body)
 
     def _package_init(self, ir: SystemIR) -> str:
         """Import every graph and name the root — the org's entry point."""
@@ -459,6 +586,23 @@ class LangGraphPlatformTarget:
 
     def _conformance(self, ir: SystemIR) -> str:
         rows = [
+            *workflow_conformance_rows(
+                ir, carried=True, platform="LangGraph",
+                reason=(
+                    "Emitted as real `StateGraph`s under `graphs/workflows/`, "
+                    "one module each. This is the one platform whose "
+                    "primitives are the same primitives, so the **graph "
+                    "shape is exact** — nodes, edges, entry and interrupts. "
+                    "The node **bodies are not**: a `tool` node names a tool "
+                    "this stack may not hold and a `transform` node is an "
+                    "expression for our own restricted evaluator, so each "
+                    "body raises `NotImplementedError` until the host writes "
+                    "it. That is deliberate — a body that looked finished and "
+                    "quietly was not would be the worse failure. A `branch` "
+                    "node emits its declared targets as a comment and no "
+                    "predicate, for the same reason."
+                ),
+            ),
             ("Instructions, model, tools", "emitted", "deepagents",
              "The portable core. Every platform has it."),
             ("Sub-agent hierarchy", "emitted (one level)", "deepagents",

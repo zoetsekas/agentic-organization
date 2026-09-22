@@ -22,6 +22,7 @@ worse than no control (ADR-0073).
 
 | Construct | In this target | Enforced by | Why |
 |---|---|---|---|
+| Encoded workflows | **not carried** | our runtime only | 1 declared: `listing_readiness`. ADK has workflow agents — `SequentialAgent`, `ParallelAgent`, `LoopAgent` — and they express an ordered composition of *agents*. Our graph's nodes are tool calls, pure transforms, branch predicates and human interrupts, and a `transform` node evaluates a Python expression over workflow state that nothing here will evaluate. Mapping the one onto the other would produce something that runs, is not the declared process, and reads as if it were. So these are carried by the design and by this platform's own interpreter, and by nothing in this directory.  |
 | Instructions, model, tools | emitted | ADK | The portable core. Every platform has it. |
 | Sub-agent hierarchy | emitted (approximate) | ADK | Our org chart's delegation edges become ADK `sub_agents`. This is LLM-driven transfer, not authorized delegation: it carries the shape, not the rule about who may delegate to whom. |
 | Output schema | partial | ADK + host code | ADK has `output_schema`; the design carries an output-contract id, and mapping it to a pydantic model is a one-liner the host supplies. |

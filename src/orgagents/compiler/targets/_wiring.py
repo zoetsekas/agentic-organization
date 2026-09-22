@@ -385,3 +385,43 @@ def bounded_sql(dsn_env: str, allowed_operations: list[str], max_rows: int,
         rows = mappings.fetchmany(max_rows) if max_rows else mappings.fetchall()
         return [dict(r) for r in rows]
 '''
+
+
+# --------------------------------------------------------------------------
+# Workflows (ADR-0096)
+# --------------------------------------------------------------------------
+
+
+def workflows_for(ir: Any) -> list[Any]:
+    """Every workflow some agent in this system may invoke.
+
+    A workflow nobody may invoke is still declared and still listed: the
+    report is about what the design carries, not about what happened to be
+    reachable on the day it was compiled.
+    """
+    return list(getattr(ir, "workflows", []) or [])
+
+
+def workflow_conformance_rows(ir: Any, *, carried: bool,
+                              platform: str, reason: str) -> list[tuple]:
+    """Conformance rows accounting for every declared workflow.
+
+    This exists so that a target cannot forget. Before ADR-0096 the
+    agent-framework targets emitted no workflows and said nothing about it, in
+    a document whose entire purpose is naming what did not survive the
+    translation — which is the worst place for an omission, because a reader
+    trusts it to be complete.
+
+    `carried=False` is not an apology. Naming an absence is the honest half of
+    the contract, and it is what lets somebody reading the generated stack
+    decide whether they need to write the process themselves.
+    """
+    workflows = workflows_for(ir)
+    if not workflows:
+        return [("Encoded workflows", "none declared", "—",
+                 "This design declares no workflows, so there is nothing to "
+                 "carry or to miss.")]
+    listed = ", ".join(f"`{w.id}`" for w in workflows)
+    status = "emitted" if carried else "**not carried**"
+    return [("Encoded workflows", status, platform,
+             f"{len(workflows)} declared: {listed}. {reason}")]

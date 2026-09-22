@@ -142,7 +142,12 @@ def test_ayc_agent_modules_define_no_stubs(target, shim_path, tools_path, pkg):
                      if p.startswith(pkg) and p.endswith(".py")
                      and not p.endswith("_backends.py")
                      and not p.endswith("tools.py")
-                     and not p.endswith("__init__.py")]
+                     and not p.endswith("__init__.py")
+                     # Workflow modules are a different claim: their graph
+                     # shape is exact and their node bodies deliberately
+                     # raise, because a `tool` node names a tool this stack
+                     # may not hold (ADR-0096).
+                     and "/workflows/" not in p]
     assert agent_modules
     for path in agent_modules:
         assert "NotImplementedError" not in emitted[path], path
