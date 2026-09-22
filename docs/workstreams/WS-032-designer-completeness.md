@@ -58,7 +58,7 @@ small enough that failing it is a prompt rather than a permanent red mark.
 | M2 Guardrails, output contracts and model policy | Phase 6 | Done |
 | M3 Skills, plugins, tools and operating principles | Phase 6 | Done |
 | M4 The platform policy verdict in the designer | Phase 6 | Not started |
-| M5 Undo for canvas edits | Phase 6 | Not started |
+| M5 Undo for canvas edits | Phase 6 | Done |
 | M6 Keyboard node creation and a focus treatment | Phase 6 | Not started |
 | M7 A drift check between the palette and the spec model | Phase 6 | Done |
 | M8 Wire the placements route into the view — volumes, what crosses, who is placed nowhere | Phase 6 | Done |
@@ -86,7 +86,13 @@ the alpha: every gap has a working answer today, which is to edit the YAML.
   over them is either a text box in disguise or a schema we do not have.
 - **Undo across a shared design is not obvious.** Locks mean one editor at a
   time on a node, not on a design, and an undo stack that crosses somebody
-  else's merged change is worse than no undo.
+  else's merged change is worse than no undo. M5 answers it by refusing: the
+  stack is local, bounded, and thrown away on a merge or a reopen, and the
+  button says there is nothing to undo rather than offering a state that was
+  never true. Writing the browser check for it found the other half —
+  coalescing keyed on elapsed time merged two unrelated actions, so undoing a
+  rename also removed a component dropped a moment before. Coalescing is
+  opt-in, and only a form field asks for it.
 - **The accessibility work is unbounded as written.** M6 names two concrete
   things because "make the canvas accessible" is a project, not a milestone,
   and pretending otherwise would park it forever.

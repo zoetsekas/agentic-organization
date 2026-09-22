@@ -597,6 +597,99 @@ async def main() -> None:
               len(persisted["names"]) == 2 and "treasury" in persisted["roots"],
               json.dumps(persisted))
 
+        # -- 11. Undo, and the one place it must refuse ------------------
+        #
+        # Local, bounded, and thrown away the moment somebody else's change is
+        # merged in — an undo that crosses a merge restores a state that was
+        # never true for anybody, which is worse than having no undo.
+        before = await page.evaluate("""() => {
+          const d = window.designer;
+          return Object.keys(d.diagram().nodes).length;
+        }""")
+        await page.locator(".drag-item", has_text="Channel").first.drag_to(
+            page.locator("#canvas"), target_position={"x": 640, "y": 300})
+        await page.wait_for_timeout(600)
+        added = await page.evaluate(
+            "() => Object.keys(window.designer.diagram().nodes).length")
+        check("a drop is one undoable step", added == before + 1,
+              f"{before} -> {added}")
+        check("undo is offered once there is something to undo",
+              not await page.locator("#btn-undo").is_disabled())
+
+        await page.click("#btn-undo")
+        await page.wait_for_timeout(500)
+        undone = await page.evaluate("""() => {
+          const d = window.designer;
+          return { nodes: Object.keys(d.diagram().nodes).length,
+                   channels: (d.spec().channels || []).length };
+        }""")
+        check("undo puts back both the picture and the model",
+              undone["nodes"] == before, json.dumps(undone))
+
+        await page.click("#btn-redo")
+        await page.wait_for_timeout(500)
+        redone = await page.evaluate(
+            "() => Object.keys(window.designer.diagram().nodes).length")
+        check("redo puts it back again", redone == before + 1,
+              f"{before} -> {redone}")
+
+        # Typing is not one undo per keystroke.
+        await page.click(f'#canvas-nodes [data-id="treasury"]')
+        await page.wait_for_timeout(400)
+        depth_before = await page.evaluate(
+            "() => window.designer.state.history.past.length")
+        field = page.locator("#inspector input[name='name']").first
+        await field.click()
+        await field.press_sequentially("Group Treasury", delay=30)
+        await page.wait_for_timeout(900)
+        depth_after = await page.evaluate(
+            "() => window.designer.state.history.past.length")
+        typed = await page.evaluate("""() => ({
+          name: window.designer.find("team", "treasury")?.name,
+          dirty: window.designer.state.dirty,
+        })""")
+        steps = depth_after - depth_before
+        check("typing in a form reaches the model",
+              typed["name"] != "Treasury", json.dumps(typed))
+        check("a run of typing is one undo, not one per keystroke",
+              1 <= steps <= 3,
+              f"{steps} step(s) for 14 characters, name={typed['name']!r}")
+
+        # And the bug the loose version of this check hid: coalescing keyed
+        # on time alone merged two *unrelated* actions that happened close
+        # together, so undoing a rename also removed the component dropped a
+        # moment earlier.
+        quick = await page.evaluate("""() => {
+          const d = window.designer;
+          const depth = () => d.state.history.past.length;
+          const before = depth();
+          d.add("channel", "coalesce_probe");
+          d.markDirty();                       // a drop-shaped edit
+          const team = d.find("team", "treasury");
+          team.description = "typed right after";
+          d.markDirty("edited treasury.description", true);
+          return { steps: depth() - before };
+        }""")
+        check("two unrelated edits close together are two undo steps",
+              quick["steps"] == 2, json.dumps(quick))
+
+        # And the refusal that matters: a merge clears the stack.
+        await page.evaluate("""() => {
+          window.designer.state.history.past.push(
+            { state: "{}", reason: "pretend" });
+        }""")
+        await page.evaluate("""() => window.designer.handleSaveOutcome({
+          status: "merged", current_version: 99,
+          record: window.designer.state.record,
+        })""")
+        await page.wait_for_timeout(400)
+        after_merge = await page.evaluate(
+            "() => window.designer.state.history.past.length")
+        check("a merge throws the undo stack away", after_merge == 0,
+              f"{after_merge} step(s) left")
+        check("and undo says so rather than offering a lie",
+              await page.locator("#btn-undo").is_disabled())
+
         await page.screenshot(path="/tmp/interaction-final.png")
         await browser.close()
 

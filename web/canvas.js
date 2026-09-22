@@ -1707,8 +1707,21 @@ function ctxItem(label, fn, disabled = false) {
 
 /* ---------------------------------------------- keyboard shortcuts */
 function handleCanvasKey(e) {
-  /* ignore when typing in an input/textarea/select */
   const tag = document.activeElement?.tagName;
+  /* Undo is the exception to "ignore keys while typing": the browser's own
+     undo inside a text box is what you want there, and ours everywhere else.
+     So it is checked before the guard and skipped inside a field. */
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z"
+      && tag !== "INPUT" && tag !== "TEXTAREA") {
+    e.preventDefault();
+    return e.shiftKey ? redo() : undo();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y"
+      && tag !== "INPUT" && tag !== "TEXTAREA") {
+    e.preventDefault();
+    return redo();
+  }
+  /* ignore when typing in an input/textarea/select */
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
   if (e.key === "Escape" && canvas.linking) {
     e.preventDefault();
@@ -1972,7 +1985,9 @@ function renderInspector() {
         }
         component[field.name] = v;
       }
-      markDirty();
+      /* Named per field and per component: a run of typing in one box is one
+         step, and moving to the next box starts another. */
+      markDirty(`edited ${id}.${field.name}`, true);
       renderCanvas();
     }, kind, component));
   }
@@ -2579,6 +2594,9 @@ async function openSystem(systemId) {
   canvas.locks = payload.locks || [];
   canvas.dirty = false;
   canvas.selected = null;
+  /* A fresh read of the design: the history of the last one describes a
+     document this is not. */
+  resetHistory();
   renderOrgSelectors();
   updateBadges();
   canvas.validation = payload.validation;
@@ -2600,11 +2618,126 @@ function updateBadges() {
   $("#btn-save").textContent = canvas.dirty ? "Save •" : "Save";
 }
 
-function markDirty(reason = "edited") {
+/* ---------------------------------------------------------------- undo */
+/*
+   Undo is deliberately *local*, bounded, and thrown away the moment somebody
+   else's change is merged in. The workstream named the reason before this was
+   built: locks mean one editor at a time on a node, not on a design, so an
+   undo stack that crosses a merge would restore a state that was never true
+   for anybody. Better to have no undo past that point and say so.
+
+   Snapshots rather than inverse operations: the model is one JSON document
+   and the edits are arbitrary, so a diff of the whole thing is both the
+   simplest correct answer and the one that cannot go out of step with the
+   operations it is meant to invert.
+*/
+const UNDO_LIMIT = 60;
+const UNDO_COALESCE_MS = 700;
+
+function undoState() {
+  return JSON.stringify({ spec: canvas.record.spec,
+                          layout: canvas.record.layout });
+}
+
+function resetHistory() {
+  canvas.history = { past: [], future: [], last: null, at: 0, reason: "",
+                     coalescing: false };
+  if (canvas.record) canvas.history.last = undoState();
+  updateUndoButtons();
+}
+
+/* Called *after* a mutation, with the state from before it — which is what
+   `history.last` is holding at that moment.
+
+   Coalescing is opt-in, and that is the whole design. Typing in a form marks
+   the design dirty on every keystroke and one undo per character is not an
+   undo, so a run of keystrokes in one field collapses. Everything else is its
+   own step. The first version of this coalesced on time and a shared default
+   reason instead, and a drop followed within 700ms by a rename became one
+   step: undoing the rename also removed the component. A rule that merges two
+   unrelated actions because they were close together is worse than no
+   coalescing at all. */
+function pushHistory(reason, coalesce = false) {
+  const history = canvas.history;
+  if (!history || history.last === null) return;
+  const now = Date.now();
+  const continuing = coalesce
+    && history.coalescing
+    && history.reason === reason
+    && now - history.at < UNDO_COALESCE_MS
+    && history.past.length;
+  if (!continuing) {
+    history.past.push({ state: history.last, reason });
+    if (history.past.length > UNDO_LIMIT) history.past.shift();
+  }
+  history.future = [];
+  history.last = undoState();
+  history.at = now;
+  history.reason = reason;
+  history.coalescing = coalesce;
+  updateUndoButtons();
+}
+
+function applyHistory(state) {
+  const parsed = JSON.parse(state);
+  canvas.record.spec = parsed.spec;
+  canvas.record.layout = parsed.layout;
+  canvas.selected = null;
+  canvas.linking = null;
+  canvas.dirty = true;
+  canvas.history.last = state;
+  updateBadges();
+  renderCanvas();
+  renderInspector();
+  updateUndoButtons();
+}
+
+function undo() {
+  const history = canvas.history;
+  if (!history?.past.length) return setStatus("nothing to undo");
+  const entry = history.past.pop();
+  history.future.push({ state: history.last, reason: entry.reason });
+  history.reason = "";                 // never coalesce across an undo
+  history.coalescing = false;
+  applyHistory(entry.state);
+  setStatus(`undid: ${entry.reason}`);
+}
+
+function redo() {
+  const history = canvas.history;
+  if (!history?.future.length) return setStatus("nothing to redo");
+  const entry = history.future.pop();
+  history.past.push({ state: history.last, reason: entry.reason });
+  history.reason = "";
+  history.coalescing = false;
+  applyHistory(entry.state);
+  setStatus(`redid: ${entry.reason}`);
+}
+
+function updateUndoButtons() {
+  const history = canvas.history || { past: [], future: [] };
+  const undoBtn = $("#btn-undo");
+  const redoBtn = $("#btn-redo");
+  if (undoBtn) {
+    undoBtn.disabled = !history.past.length;
+    undoBtn.title = history.past.length
+      ? `undo: ${history.past[history.past.length - 1].reason}`
+      : "nothing to undo";
+  }
+  if (redoBtn) {
+    redoBtn.disabled = !history.future.length;
+    redoBtn.title = history.future.length
+      ? `redo: ${history.future[history.future.length - 1].reason}`
+      : "nothing to redo";
+  }
+}
+
+function markDirty(reason = "edited", coalesce = false) {
   canvas.dirty = true;
   canvas.record.layout.updated_at = new Date().toISOString();
   const open = diagram();
   if (open) open.updated_at = canvas.record.layout.updated_at;
+  pushHistory(reason, coalesce);
   updateBadges();
   announce(reason);
 }
@@ -2769,6 +2902,10 @@ function handleSaveOutcome(outcome) {
   canvas.conflicts = [];
   canvas.record = outcome.record;
   canvas.dirty = false;
+  /* A merge brought in somebody else's work, so every state before it is a
+     state that was never true for anybody. Undoing past that point would
+     silently delete their change, which is worse than having no undo. */
+  resetHistory();
   updateBadges();
   renderCanvas();
   renderInspector();
@@ -2846,6 +2983,8 @@ function wireCanvas() {
     });
   });
   /* Selecting a component is a request to read it, so the panel shows it. */
+  $("#btn-undo")?.addEventListener("click", undo);
+  $("#btn-redo")?.addEventListener("click", redo);
   $("#btn-save").addEventListener("click", () => saveSystem());
   $("#btn-lock").addEventListener("click", async () => {
     const mine = canvas.locks.find((l) => l.holder === canvas.user);
@@ -2974,6 +3113,10 @@ window.designer = {
   add: addComponent,
   remove: removeComponent,
   renameComponent,
+  undo,
+  redo,
+  handleSaveOutcome,
+  markDirty,
   renderCanvas,
   renderExplorer,
   diagram,
@@ -2984,7 +3127,6 @@ window.designer = {
   showLeft,
   declaredIds,
   namesInUse,
-  markDirty,
   save: saveSystem,
   reopen: () => (canvas.systemId ? openSystem(canvas.systemId) : null),
   reloadWorkspaces: loadWorkspaces,
