@@ -1027,7 +1027,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "metamodel":
-        from .metamodel import to_plantuml, to_plantuml_profile
+        from .metamodel import (to_plantuml, to_plantuml_ownership,
+                                to_plantuml_profile)
         if args.action == "model":
             print(to_plantuml(), end="")
         elif args.action == "profile":
@@ -1037,6 +1038,8 @@ def main(argv: list[str] | None = None) -> int:
             out.mkdir(parents=True, exist_ok=True)
             (out / "orgagents-model.puml").write_text(to_plantuml())
             (out / "orgagents-profile.puml").write_text(to_plantuml_profile())
+            (out / "orgagents-ownership.puml").write_text(
+                to_plantuml_ownership())
             print(f"wrote {out}/orgagents-model.puml, orgagents-profile.puml "
                   "(render with PlantUML)")
         return 0

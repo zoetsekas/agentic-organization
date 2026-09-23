@@ -1506,17 +1506,6 @@ class Team(BaseModel):
 Team.model_rebuild()
 
 
-class Organization(Team):
-    """The root of one organisation: the unit every team and agent descends
-    from (ADR-0101).
-
-    A Team by generalisation — it has a leader, members and sub-teams like any
-    unit, so the YAML under `organization:` is unchanged — and the one unit
-    that is *the organisation*: there is exactly one per system, it has no
-    parent, and it always declares placement (ADR-0069).
-    """
-
-    placement: bool = True
 Person.model_rebuild()
 HumanCounterpart.model_rebuild()
 Memory.model_rebuild()
@@ -1782,10 +1771,23 @@ class DeploymentSpec(BaseModel):
     binding: Optional[str] = None        # path or id of the binding document
 
 
-class SystemSpec(BaseModel):
-    """The whole implementation-neutral definition."""
+class Organization(Team):
+    """The root of one organisation, and the owner of everything in it
+    (ADR-0101).
 
-    metadata: Metadata
+    A Team by generalisation — it has a leader, members and sub-teams like any
+    unit — and the one unit that is *the organisation*: exactly one per
+    system, no parent, and it always declares placement (ADR-0069). Every
+    element of the organisation's model is composed here: its people, roles,
+    capabilities, data classes, environments, skills, knowledge, workflows and
+    the links between its units and agents. What stays on the System is how
+    the design is run and released, not what the organisation is.
+
+    `role_definitions` rather than `roles`: a Team's `roles` are the role
+    *assignments* the unit holds, which the organisation inherits as a team.
+    """
+
+    placement: bool = True
     data_classes: list[DataClass] = Field(default_factory=list)
     capabilities: list[Capability] = Field(default_factory=list)
     # The decision vocabulary a mandate draws from (ADR-0065).
@@ -1795,15 +1797,11 @@ class SystemSpec(BaseModel):
     # The humans in this organization, declared once (ADR-0079).
     people: list[Person] = Field(default_factory=list)
     environments: list[EnvironmentClass] = Field(default_factory=list)
-    roles: list[Role] = Field(default_factory=list)
+    role_definitions: list[Role] = Field(default_factory=list)
     policies: list[PolicyRule] = Field(default_factory=list)
-    organization: Organization = Field(
-        default_factory=lambda: Organization(id="root", name="root"))
     # Principles every agent in the organization carries (ADR-0038).
     operating_principles: list[str] = Field(default_factory=list)
     guardrails: list[Guardrail] = Field(default_factory=list)
-    artifact_stores: list[ArtifactStore] = Field(default_factory=list)
-    context: ContextPolicy = Field(default_factory=ContextPolicy)
     output_contracts: list[OutputContract] = Field(default_factory=list)
     skills: list[SkillSpec] = Field(default_factory=list)
     plugins: list[PluginSpec] = Field(default_factory=list)
@@ -1815,19 +1813,298 @@ class SystemSpec(BaseModel):
     triggers: list[TriggerSpec] = Field(default_factory=list)
     # Short-lived teams drawn from the standing organization (ADR-0039).
     missions: list[Mission] = Field(default_factory=list)
-    # The default model policy, narrowed per agent (ADR-0040).
-    model_policy: ModelPolicy = Field(default_factory=ModelPolicy)
     interaction_flows: list[InteractionFlow] = Field(default_factory=list)
     # How units are related when one does not contain the other (ADR-0081).
     # Containment is `team.teams`; this is oversight, escalation and service.
     unit_links: list[UnitLink] = Field(default_factory=list)
     knowledge: list[KnowledgeSource] = Field(default_factory=list)
+
+
+def org_collection(spec: Any, key: str) -> list:
+    """An organisation collection from a raw spec dict, in either layout —
+    for code that reads the document before it is validated."""
+    if not isinstance(spec, dict):
+        return []
+    org = spec.get("organization") if isinstance(spec.get("organization"),
+                                                 dict) else {}
+    nested = ORGANIZATION_COLLECTIONS.get(key, key)
+    return list(org.get(nested) or spec.get(key) or [])
+
+
+#: The organisation's own elements — kept on the Organization, reachable from
+#: the System by the same names for every reader that predates ADR-0101.
+ORGANIZATION_COLLECTIONS: dict[str, str] = {
+    "data_classes": "data_classes",
+    "capabilities": "capabilities",
+    "decisions": "decisions",
+    "separations": "separations",
+    "people": "people",
+    "environments": "environments",
+    "roles": "role_definitions",
+    "policies": "policies",
+    "operating_principles": "operating_principles",
+    "guardrails": "guardrails",
+    "output_contracts": "output_contracts",
+    "skills": "skills",
+    "plugins": "plugins",
+    "tools": "tools",
+    "endpoints": "endpoints",
+    "memory": "memory",
+    "workflows": "workflows",
+    "channels": "channels",
+    "triggers": "triggers",
+    "missions": "missions",
+    "interaction_flows": "interaction_flows",
+    "unit_links": "unit_links",
+    "knowledge": "knowledge",
+}
+
+
+class SystemSpec(BaseModel):
+    """The whole implementation-neutral definition."""
+
+    metadata: Metadata
+    organization: Organization = Field(
+        default_factory=lambda: Organization(id="root", name="root"))
+    artifact_stores: list[ArtifactStore] = Field(default_factory=list)
+    context: ContextPolicy = Field(default_factory=ContextPolicy)
+    # The default model policy, narrowed per agent (ADR-0040).
+    model_policy: ModelPolicy = Field(default_factory=ModelPolicy)
     budgets: list[Budget] = Field(default_factory=list)
     compliance: Compliance = Field(default_factory=Compliance)
     lifecycle: Lifecycle = Field(default_factory=Lifecycle)
     resilience: Resilience = Field(default_factory=Resilience)
     observability: Observability = Field(default_factory=Observability)
     deployment: DeploymentSpec = Field(default_factory=DeploymentSpec)
+
+    # -- the organisation's elements (ADR-0101) -----------------------------
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Assigning a plain Team as the root makes it the Organization it is,
+        # carrying over the collections the old root held.
+        if name == "organization" and isinstance(value, Team) \
+                and not isinstance(value, Organization):
+            old = self.__dict__.get("organization")
+            data = value.model_dump()
+            if isinstance(old, Organization):
+                for key in ORGANIZATION_COLLECTIONS.values():
+                    data.setdefault(key, getattr(old, key))
+            value = Organization.model_validate(data)
+        super().__setattr__(name, value)
+
+    @field_validator("organization", mode="before")
+    @classmethod
+    def _root_is_an_organization(cls, v: Any) -> Any:
+        # A plain Team handed in as the root becomes the Organization it is.
+        if isinstance(v, Team) and not isinstance(v, Organization):
+            return v.model_dump()
+        return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def _collections_belong_to_the_organization(cls, data: Any) -> Any:
+        """Accept the pre-ADR-0101 layout, with the organisation's collections
+        at the top level, by moving them under `organization`. The canonical
+        form — what is dumped and exported — is always the nested one."""
+        if not isinstance(data, dict):
+            return data
+        loose = [k for k in ORGANIZATION_COLLECTIONS if k in data]
+        if not loose:
+            return data
+        data = dict(data)
+        org = data.get("organization")
+        if isinstance(org, BaseModel):
+            org = org.model_dump()
+        org = dict(org or {"id": "root", "name": "root"})
+        for key in loose:
+            org.setdefault(ORGANIZATION_COLLECTIONS[key], data.pop(key))
+        data["organization"] = org
+        return data
+
+    @property
+    def data_classes(self):
+        return self.organization.data_classes
+
+    @data_classes.setter
+    def data_classes(self, value):
+        self.organization.data_classes = value
+
+    @property
+    def capabilities(self):
+        return self.organization.capabilities
+
+    @capabilities.setter
+    def capabilities(self, value):
+        self.organization.capabilities = value
+
+    @property
+    def decisions(self):
+        return self.organization.decisions
+
+    @decisions.setter
+    def decisions(self, value):
+        self.organization.decisions = value
+
+    @property
+    def separations(self):
+        return self.organization.separations
+
+    @separations.setter
+    def separations(self, value):
+        self.organization.separations = value
+
+    @property
+    def people(self):
+        return self.organization.people
+
+    @people.setter
+    def people(self, value):
+        self.organization.people = value
+
+    @property
+    def environments(self):
+        return self.organization.environments
+
+    @environments.setter
+    def environments(self, value):
+        self.organization.environments = value
+
+    @property
+    def roles(self):
+        return self.organization.role_definitions
+
+    @roles.setter
+    def roles(self, value):
+        self.organization.role_definitions = value
+
+    @property
+    def policies(self):
+        return self.organization.policies
+
+    @policies.setter
+    def policies(self, value):
+        self.organization.policies = value
+
+    @property
+    def operating_principles(self):
+        return self.organization.operating_principles
+
+    @operating_principles.setter
+    def operating_principles(self, value):
+        self.organization.operating_principles = value
+
+    @property
+    def guardrails(self):
+        return self.organization.guardrails
+
+    @guardrails.setter
+    def guardrails(self, value):
+        self.organization.guardrails = value
+
+    @property
+    def output_contracts(self):
+        return self.organization.output_contracts
+
+    @output_contracts.setter
+    def output_contracts(self, value):
+        self.organization.output_contracts = value
+
+    @property
+    def skills(self):
+        return self.organization.skills
+
+    @skills.setter
+    def skills(self, value):
+        self.organization.skills = value
+
+    @property
+    def plugins(self):
+        return self.organization.plugins
+
+    @plugins.setter
+    def plugins(self, value):
+        self.organization.plugins = value
+
+    @property
+    def tools(self):
+        return self.organization.tools
+
+    @tools.setter
+    def tools(self, value):
+        self.organization.tools = value
+
+    @property
+    def endpoints(self):
+        return self.organization.endpoints
+
+    @endpoints.setter
+    def endpoints(self, value):
+        self.organization.endpoints = value
+
+    @property
+    def memory(self):
+        return self.organization.memory
+
+    @memory.setter
+    def memory(self, value):
+        self.organization.memory = value
+
+    @property
+    def workflows(self):
+        return self.organization.workflows
+
+    @workflows.setter
+    def workflows(self, value):
+        self.organization.workflows = value
+
+    @property
+    def channels(self):
+        return self.organization.channels
+
+    @channels.setter
+    def channels(self, value):
+        self.organization.channels = value
+
+    @property
+    def triggers(self):
+        return self.organization.triggers
+
+    @triggers.setter
+    def triggers(self, value):
+        self.organization.triggers = value
+
+    @property
+    def missions(self):
+        return self.organization.missions
+
+    @missions.setter
+    def missions(self, value):
+        self.organization.missions = value
+
+    @property
+    def interaction_flows(self):
+        return self.organization.interaction_flows
+
+    @interaction_flows.setter
+    def interaction_flows(self, value):
+        self.organization.interaction_flows = value
+
+    @property
+    def unit_links(self):
+        return self.organization.unit_links
+
+    @unit_links.setter
+    def unit_links(self, value):
+        self.organization.unit_links = value
+
+    @property
+    def knowledge(self):
+        return self.organization.knowledge
+
+    @knowledge.setter
+    def knowledge(self, value):
+        self.organization.knowledge = value
+
 
     # -- lookups -----------------------------------------------------------
 

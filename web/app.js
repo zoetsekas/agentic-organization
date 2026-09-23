@@ -190,7 +190,7 @@ function showOrgForm(mode) {
   form.elements.environment.value = metadata.environment || "development";
   form.elements.labels.value = labelsToText(metadata.labels);
   form.elements.operating_principles.value =
-    (design().state.record?.spec?.operating_principles || []).join("\n");
+    (design().state.record?.spec?.organization?.operating_principles || []).join("\n");
   form.hidden = false;
   form.elements.name.focus();
 }
@@ -242,7 +242,8 @@ function applyOrgMetadata(values) {
   const record = design().state.record;
   // Principles sit on the spec, not in metadata: they are part of what the
   // organisation *is*, not a note about it.
-  record.spec.operating_principles = values.operating_principles;
+  (record.spec.organization = record.spec.organization || {}).operating_principles =
+    values.operating_principles;
   record.name = values.name;
   record.description = values.description;
   // The organisation node carries the name people read on the chart.
@@ -551,6 +552,7 @@ function renderAgentView() {
   const form = $("#agentform");
   const agent = currentAgent();
   const s = openSpec();
+  const o = s?.organization || {};
   $("#agentform-empty").hidden = !!agent;
   $("#agentform-empty").textContent = s
     ? "Select an agent, or add one."
@@ -573,17 +575,17 @@ function renderAgentView() {
 
   /* Every binding is chosen from what this spec declares: an agent cannot
      reach a capability the document does not define. */
-  bind("#pick-roles", s.roles, roleIds(agent.roles));
-  bind("#pick-capabilities", s.capabilities, agent.capabilities);
-  bind("#pick-knowledge", s.knowledge, agent.knowledge);
-  bind("#pick-workflows", s.workflows, agent.workflows);
-  bind("#pick-endpoints", s.endpoints, agent.endpoints);
-  bind("#pick-skills", s.skills, agent.skills);
-  bind("#pick-plugins", s.plugins, agent.plugins);
+  bind("#pick-roles", o.role_definitions, roleIds(agent.roles));
+  bind("#pick-capabilities", o.capabilities, agent.capabilities);
+  bind("#pick-knowledge", o.knowledge, agent.knowledge);
+  bind("#pick-workflows", o.workflows, agent.workflows);
+  bind("#pick-endpoints", o.endpoints, agent.endpoints);
+  bind("#pick-skills", o.skills, agent.skills);
+  bind("#pick-plugins", o.plugins, agent.plugins);
   checkboxes($("#pick-channels"), channelClasses().map((c) => [c, c]));
   check("#pick-channels", agent.channels || []);
   fillSelect(form.elements.environment,
-    [["", "— inherited —"], ...(s.environments || []).map((e2) => [e2.id, e2.id])]);
+    [["", "— inherited —"], ...(o.environments || []).map((e2) => [e2.id, e2.id])]);
   const envs = agentEnvironments(agent);
   form.elements.environment.value = envs[0] || "";
   form.elements.environment.title = envs.length > 1
@@ -594,7 +596,7 @@ function renderAgentView() {
     [["", "— none —"], ...(s.artifact_stores || []).map((a) => [a.id, a.id])]);
   form.elements.artifact_store.value = agent.artifact_store || "";
   fillSelect(form.elements.output_contract,
-    [["", "— none —"], ...(s.output_contracts || []).map((o) => [o.id, o.id])]);
+    [["", "— none —"], ...(o.output_contracts || []).map((o) => [o.id, o.id])]);
   form.elements.output_contract.value = agent.output_contract || "";
 
   const readOnly = !design().canEdit();
@@ -627,6 +629,7 @@ function check(selector, values) {
 
 function renderAgentSide() {
   const s = openSpec();
+  const o = s?.organization || {};
   $("#agent-list").replaceChildren(...(s
     ? design().agents().map(({ agent, team }) =>
       el("div", { class: agent.id === state.agentId ? "sel" : "" },
@@ -636,12 +639,12 @@ function renderAgentSide() {
         el("span", { class: "badge" }, team.name || team.id)))
     : [el("div", { class: "empty" }, NO_SYSTEM)]));
   $("#spec-inventory").replaceChildren(...(s
-    ? [["roles", s.roles], ["capabilities", s.capabilities],
-      ["data classes", s.data_classes], ["environments", s.environments],
-      ["knowledge", s.knowledge], ["workflows", s.workflows],
-      ["channels", s.channels], ["triggers", s.triggers],
-      ["endpoints", s.endpoints], ["skills", s.skills], ["plugins", s.plugins],
-      ["memory namespaces", s.memory?.namespaces]].map(([label, items]) =>
+    ? [["roles", o.role_definitions], ["capabilities", o.capabilities],
+      ["data classes", o.data_classes], ["environments", o.environments],
+      ["knowledge", o.knowledge], ["workflows", o.workflows],
+      ["channels", o.channels], ["triggers", o.triggers],
+      ["endpoints", o.endpoints], ["skills", o.skills], ["plugins", o.plugins],
+      ["memory namespaces", o.memory?.namespaces]].map(([label, items]) =>
       el("div", {}, el("span", { class: "grow" }, label),
         el("span", { class: "badge" }, String((items || []).length))))
     : []));

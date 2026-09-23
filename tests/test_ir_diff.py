@@ -52,11 +52,11 @@ def mutated(raw, change, binding, *, target="local"):
 
 
 def _role(data, role_id):
-    return next(r for r in data["roles"] if r["id"] == role_id)
+    return next(r for r in data["organization"]["role_definitions"] if r["id"] == role_id)
 
 
 def _environment(data, env_id):
-    return next(e for e in data["environments"] if e["id"] == env_id)
+    return next(e for e in data["organization"]["environments"] if e["id"] == env_id)
 
 
 def _find(diff, subject, field, kind=None):
@@ -199,8 +199,8 @@ def test_a_new_secret_reference_is_reported_against_the_identity_that_holds_it(
 
 def test_a_removed_guardrail_is_critical_and_adding_one_is_not(base_ir, raw, binding):
     def change(data):
-        data["guardrails"] = [
-            g for g in data["guardrails"] if g["id"] != "no_credentials_out"
+        data["organization"]["guardrails"] = [
+            g for g in data["organization"]["guardrails"] if g["id"] != "no_credentials_out"
         ]
 
     stripped = mutated(raw, change, binding)
@@ -223,7 +223,7 @@ def test_a_removed_guardrail_is_critical_and_adding_one_is_not(base_ir, raw, bin
 
 def test_raising_an_endpoints_trust_class_is_critical(base_ir, raw, binding):
     def change(data):
-        next(e for e in data["endpoints"]
+        next(e for e in data["organization"]["endpoints"]
              if e["id"] == "market_research_desk")["trust"] = "internal"
 
     diff = diff_ir(base_ir, mutated(raw, change, binding))
@@ -236,7 +236,7 @@ def test_no_longer_treating_an_endpoints_output_as_data_is_critical(
     base_ir, raw, binding
 ):
     def change(data):
-        next(e for e in data["endpoints"]
+        next(e for e in data["organization"]["endpoints"]
              if e["id"] == "market_research_desk")["treat_output_as_data"] = False
 
     diff = diff_ir(base_ir, mutated(raw, change, binding))

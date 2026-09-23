@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from ..spec.loader import load_spec_text
 from ..spec.validate import Finding, validate_spec
+from ..spec.model import org_collection
 from .audit import AuditAction, AuditEvent, AuditLog, AuditOutcome
 from .locks import LockConflict, LockManager
 from .merge import apply_resolutions, merge
@@ -724,7 +725,7 @@ class DiagramKindMismatch(ValueError):
 
 
 def _check_diagram_kinds(layout: Layout, spec: dict[str, Any]) -> None:
-    workflow_ids = {w.get("id") for w in (spec or {}).get("workflows", [])
+    workflow_ids = {w.get("id") for w in org_collection(spec or {}, "workflows")
                     if isinstance(w, dict)}
     for diagram in layout.diagrams.values():
         if diagram.kind is DiagramKind.PROCESS:

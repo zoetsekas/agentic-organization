@@ -1,0 +1,59 @@
+@startuml OrgAgentsOwnership
+!pragma layout smetana
+hide empty members
+left to right direction
+title OrgAgents ownership — composition from the root (ADR-0101)
+
+class Organization <<Organization>>
+class Team <<Team>>
+class Agent <<Agent>>
+class Subagent <<SubAgent>>
+class Skill <<Skill>>
+class Plugin <<Plugin>>
+class Tool <<Tool>>
+class Person <<Person>>
+class Role <<Role>>
+class Decision <<Decision>>
+class Separation <<Separation>>
+class Policy <<Policy>>
+class Capability <<Capability>>
+class DataClass <<DataClass>>
+class Environment <<Environment>>
+class Endpoint <<Endpoint>>
+class Mission <<Mission>>
+class Workflow <<Workflow>>
+class Trigger <<Trigger>>
+class Channel <<Channel>>
+class Knowledge <<Knowledge>>
+class MemoryNamespace <<MemoryNamespace>>
+class Guardrail <<Guardrail>>
+class OutputContract <<OutputContract>>
+class Evaluation <<Evaluation>>
+class System <<System>>
+Organization --|> Team
+Team "0..1" *-- "0..*" Team : teams
+Team "1" *-- "0..*" Agent : members
+Agent "1" *-- "0..*" Subagent : subagents
+System "1" *-- "1" Organization : organization
+Organization "1" *-- "0..*" Skill : skills
+Organization "1" *-- "0..*" Plugin : plugins
+Organization "1" *-- "0..*" Tool : tools
+Organization "1" *-- "0..*" Person : people
+Organization "1" *-- "0..*" Role : role_definitions
+Organization "1" *-- "0..*" Decision : decisions
+Organization "1" *-- "0..*" Separation : separations
+Organization "1" *-- "0..*" Policy : policies
+Organization "1" *-- "0..*" Capability : capabilities
+Organization "1" *-- "0..*" DataClass : data_classes
+Organization "1" *-- "0..*" Environment : environments
+Organization "1" *-- "0..*" Endpoint : endpoints
+Organization "1" *-- "0..*" Mission : missions
+Organization "1" *-- "0..*" Workflow : workflows
+Organization "1" *-- "0..*" Trigger : triggers
+Organization "1" *-- "0..*" Channel : channels
+Organization "1" *-- "0..*" Knowledge : knowledge
+Organization "1" *-- "0..*" MemoryNamespace : memory.namespaces
+Organization "1" *-- "0..*" Guardrail : guardrails
+Organization "1" *-- "0..*" OutputContract : output_contracts
+System "1" *-- "0..*" Evaluation : lifecycle.evaluations
+@enduml

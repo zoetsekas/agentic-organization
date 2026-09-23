@@ -19,7 +19,7 @@ BINDING = "examples/acme/acme.binding.yaml"
 def widened(tmp_path) -> str:
     """The same system with one extra permission on a role."""
     doc = yaml.safe_load(open(SPEC).read())
-    for role in doc["roles"]:
+    for role in doc["organization"]["role_definitions"]:
         if "analyst" in role["id"]:
             role.setdefault("permissions", []).append(
                 {"action": "write", "resource_kind": "workflow", "resource": "*"}

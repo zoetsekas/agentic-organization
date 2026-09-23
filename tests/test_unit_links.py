@@ -91,7 +91,7 @@ def test_oversight_that_shares_a_leader_is_refused():
 
 def test_an_escalation_may_not_land_in_your_own_subtree():
     d = doc()
-    d["unit_links"].append({
+    d["organization"]["unit_links"].append({
         "source": "finance", "target": "controllership",
         "kind": "escalates_to", "reason": "nowhere",
     })
@@ -102,7 +102,7 @@ def test_an_escalation_may_not_land_in_your_own_subtree():
 
 def test_a_link_to_a_unit_that_does_not_exist_is_refused():
     d = doc()
-    d["unit_links"].append({
+    d["organization"]["unit_links"].append({
         "source": "internal_audit", "target": "no_such_team",
         "kind": "oversees", "reason": "invented",
     })
@@ -111,7 +111,7 @@ def test_a_link_to_a_unit_that_does_not_exist_is_refused():
 
 def test_a_unit_linked_to_itself_is_refused():
     d = doc()
-    d["unit_links"].append({
+    d["organization"]["unit_links"].append({
         "source": "finance", "target": "finance",
         "kind": "oversees", "reason": "itself",
     })
@@ -120,7 +120,7 @@ def test_a_unit_linked_to_itself_is_refused():
 
 def test_the_same_link_twice_is_one_fact_said_twice():
     d = doc()
-    d["unit_links"].append({
+    d["organization"]["unit_links"].append({
         "source": "internal_audit", "target": "finance",
         "kind": "oversees", "reason": "again",
     })
@@ -130,7 +130,7 @@ def test_the_same_link_twice_is_one_fact_said_twice():
 def test_partnership_in_both_directions_is_a_duplicate():
     """Symmetric by definition, so the reverse is not a second fact."""
     d = doc()
-    d["unit_links"].append({
+    d["organization"]["unit_links"].append({
         "source": "corporate_development", "target": "fpa",
         "kind": "partners_with", "reason": "the other way round",
     })
@@ -141,7 +141,7 @@ def test_a_link_without_a_reason_is_a_warning_not_an_error():
     """An association nobody can explain is the decoration this model refuses,
     but it is a legibility problem rather than a wrong one."""
     d = doc()
-    d["unit_links"].append({
+    d["organization"]["unit_links"].append({
         "source": "treasury", "target": "tax", "kind": "serves",
     })
     findings = validate_spec(load_spec_text(yaml.safe_dump(d)))

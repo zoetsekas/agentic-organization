@@ -25,366 +25,6 @@ metadata:
   owner: Meridian Platform Engineering
   environment: development
 
-data_classes:
-  - id: public_knowledge
-    description: Product terms, rate cards and published policy.
-    scope: public
-  - id: applicant_pii
-    description: Name, address, date of birth and identity documents.
-    scope: protected
-    groups: [lending]
-    # Also reachable inside the financial-crime sandbox: an investigator who
-    # cannot see who the subject is cannot work the alert, and what must not
-    # leave that sandbox is egress, not the customer's identity. The class
-    # says where it may be touched (ADR-0082).
-    allowed_environments: [casework, fincrime_isolated]
-    may_appear_in_traces: false
-  - id: bureau_data
-    description: Credit reference agency files. Licensed, and the licence binds use.
-    scope: protected
-    groups: [lending]
-    allowed_environments: [casework]
-    may_appear_in_traces: false
-  - id: loan_book
-    description: Balances, arrears and the performance of what has been lent.
-    scope: protected
-    groups: [lending, risk]
-    allowed_environments: [casework, modelling]
-  - id: fincrime_case
-    description: Alerts, investigations and suspicious activity reports.
-    scope: private
-    groups: [fincrime]
-    allowed_environments: [fincrime_isolated]
-    may_appear_in_traces: false
-  - id: model_artifacts
-    description: Scorecards, their training data and their monitoring results.
-    scope: protected
-    groups: [risk]
-    allowed_environments: [modelling]
-
-# What Meridian's units may decide. `adverse_decision` is deliberately in this
-# list and deliberately held by nobody: a vocabulary that omitted it could not
-# express the refusal.
-decisions:
-  - id: assess_affordability
-    title: Assess whether an applicant can afford a loan
-    description: Compute and evidence the affordability position. Not a decision to lend.
-  - id: approve_credit
-    title: Approve a credit application within policy
-  - id: adverse_decision
-    title: Decline an application, or withdraw a facility
-    description: >-
-      A declined applicant has a statutory right to a human decision-maker.
-      Held by a person, never by an agent — see the `people` block.
-  - id: set_credit_policy
-    title: Set or change the credit policy
-  - id: approve_scorecard
-    title: Approve a scorecard for use in live decisions
-  - id: grant_forbearance
-    title: Grant forbearance to a customer in difficulty
-  - id: close_fincrime_alert
-    title: Close a financial-crime alert without escalating it
-  - id: file_sar
-    title: File a suspicious activity report
-    description: Leaves the bank and goes to the authority. Irreversible.
-  - id: uphold_complaint
-    title: Uphold or reject a customer complaint
-  - id: pay_redress
-    title: Pay redress to a customer
-  - id: open_audit_finding
-    title: Open or close an audit finding
-
-# The controls this organization is built around.
-separations:
-  - id: assess_and_decide
-    decisions: [assess_affordability, approve_credit]
-    enforcement:
-      enforced_by: both
-      authoritative: application
-      enforced_in: the originations platform's four-eyes rule
-    reason: >-
-      An agent that both produces the affordability evidence and decides on it
-      is marking its own homework, and the evidence is what a regulator reads
-      when the loan goes wrong.
-  - id: decide_and_hear_the_complaint
-    decisions: [approve_credit, uphold_complaint]
-    reason: >-
-      A complaint about a lending decision cannot be heard by whatever decided
-      it. Complaints sit outside the first line for exactly this reason.
-  - id: alert_and_report
-    decisions: [close_fincrime_alert, file_sar]
-    reason: >-
-      Closing an alert and filing the report are the two ends of the same
-      judgement. One principal holding both can bury what it should report.
-  - id: policy_and_audit
-    decisions: [set_credit_policy, open_audit_finding]
-    reason: >-
-      Internal Audit tests the credit policy. Writing the policy and settling
-      the finding against it is auditing yourself.
-  - id: redress_and_complaint
-    decisions: [uphold_complaint, pay_redress]
-    enforcement:
-      enforced_by: both
-      authoritative: application
-      enforced_in: the redress ledger's dual authorisation
-    reason: >-
-      Upholding a complaint and paying the money for it is a route to paying
-      an accomplice. The payment needs a second pair of hands.
-
-# The people (ADR-0079). A person holds a mandate and never a capability: none
-# of these humans reaches a bank system through this platform. What is
-# declared is what they may decide, because this platform routes the
-# escalation to them.
-people:
-  - id: p_cro
-    name: Dilnoza Rakhimova
-    contact: dilnoza.rakhimova@meridian.example
-    position: Chief Risk Officer
-    unit: risk
-    mandate:
-      decisions: [set_credit_policy, approve_scorecard]
-  - id: p_head_lending
-    name: Callum Ferreira
-    contact: callum.ferreira@meridian.example
-    position: Head of Consumer Lending
-    unit: lending
-    # Not `assess_affordability`: separation 'assess_and_decide' is the
-    # control, and a head of lending who holds both sides defeats it at the
-    # top of the tree where nobody looks.
-    mandate:
-      decisions: [approve_credit, grant_forbearance]
-  - id: p_underwriter
-    name: Beatrix Lindholm
-    contact: beatrix.lindholm@meridian.example
-    position: Senior Underwriter
-    unit: underwriting
-    # The statutory human behind a decline. An agent proposes it; she makes it.
-    mandate:
-      decisions: [approve_credit, adverse_decision]
-  - id: p_collections
-    name: Yusuf Demirel
-    contact: yusuf.demirel@meridian.example
-    position: Head of Collections
-    unit: collections
-    mandate:
-      decisions: [grant_forbearance]
-  - id: p_mlro
-    name: Anneli Korhonen
-    contact: anneli.korhonen@meridian.example
-    position: Money Laundering Reporting Officer
-    unit: financial_crime
-    # The reporting officer files; the investigators close alerts. That split
-    # is separation 'alert_and_report', and it is a named statutory role.
-    mandate:
-      decisions: [file_sar]
-  - id: p_fincrime_lead
-    name: Tobias Achebe
-    contact: tobias.achebe@meridian.example
-    position: Financial Crime Team Lead
-    unit: financial_crime
-    mandate:
-      decisions: [close_fincrime_alert]
-  - id: p_complaints
-    name: Marisol Aguirre
-    contact: marisol.aguirre@meridian.example
-    position: Head of Customer Complaints
-    unit: complaints
-    mandate:
-      decisions: [uphold_complaint]
-  - id: p_finance_ops
-    name: Henrik Solberg
-    contact: henrik.solberg@meridian.example
-    position: Finance Operations Manager
-    unit: complaints
-    # Pays what complaints upholds, and cannot uphold anything itself.
-    mandate:
-      decisions: [pay_redress]
-  - id: p_audit
-    name: Ngozi Balogun
-    contact: ngozi.balogun@meridian.example
-    position: Head of Internal Audit
-    unit: internal_audit
-    mandate:
-      decisions: [open_audit_finding]
-
-capabilities:
-  - id: bureau_pull
-    description: Retrieve a credit reference file for a named applicant.
-    action: query
-    resource_class: bureau
-    data_classes: [bureau_data, applicant_pii]
-    constraints: {max_rows: 1, allowed_operations: [select]}
-  - id: affordability_calc
-    description: Compute income, commitments and the resulting affordability position.
-    action: write
-    autonomy: autonomous
-    resource_class: originations
-    data_classes: [applicant_pii, bureau_data]
-    decision: assess_affordability
-  - id: credit_decision
-    description: Record an approval against an application within policy.
-    action: approve
-    autonomy: supervised
-    resource_class: originations
-    data_classes: [loan_book, applicant_pii]
-    decision: approve_credit
-    constraints: {requires_approval: true}
-  - id: scorecard_monitor
-    description: Monitor a live scorecard for drift and disparate outcome.
-    action: query
-    resource_class: modelling
-    data_classes: [model_artifacts, loan_book]
-  - id: scorecard_build
-    description: Train and document a candidate scorecard.
-    action: write
-    autonomy: supervised
-    resource_class: modelling
-    data_classes: [model_artifacts, loan_book]
-    decision: approve_scorecard
-    constraints: {requires_approval: true}
-  - id: arrears_query
-    description: Read balances, arrears and contact history on the loan book.
-    action: query
-    resource_class: servicing
-    data_classes: [loan_book]
-    constraints: {max_rows: 2000, allowed_operations: [select]}
-  - id: forbearance_arrangement
-    description: Put a customer in difficulty onto a reduced arrangement.
-    action: write
-    autonomy: supervised
-    resource_class: servicing
-    data_classes: [loan_book, applicant_pii]
-    decision: grant_forbearance
-    constraints: {requires_approval: true}
-  - id: alert_triage
-    description: Work a financial-crime alert to a documented conclusion.
-    action: write
-    autonomy: supervised
-    resource_class: fincrime
-    data_classes: [fincrime_case, applicant_pii]
-    decision: close_fincrime_alert
-    constraints: {requires_approval: true}
-  - id: complaint_assessment
-    description: Assemble the file behind a complaint and reach a view.
-    action: write
-    autonomy: supervised
-    resource_class: complaints
-    data_classes: [applicant_pii, loan_book]
-    decision: uphold_complaint
-    constraints: {requires_approval: true}
-  - id: controls_testing
-    description: Test a control and evidence whether it held.
-    action: query
-    resource_class: audit
-    data_classes: [loan_book, model_artifacts]
-
-environments:
-  - id: casework
-    description: Working an application or a servicing case.
-    toolchains: [data_analysis]
-    tier: medium
-    network: allowlist
-    egress_allowlist: ["bureau-gateway.internal", "originations.internal"]
-    mounts: [applicant_pii, loan_book]
-    persistence: ephemeral
-  - id: modelling
-    description: Scorecard work. Reads the book, reaches nothing outward.
-    toolchains: [data_analysis]
-    tier: large
-    network: none
-    mounts: [model_artifacts, loan_book]
-    persistence: ephemeral
-  - id: fincrime_isolated
-    description: >-
-      Financial-crime casework. Its own place, because tipping off is an
-      offence and the material must not be reachable from the business the
-      alert is about.
-    toolchains: [data_analysis]
-    tier: minimal
-    network: none
-    mounts: [fincrime_case]
-    persistence: ephemeral
-
-roles:
-  - id: lending_team
-    title: Consumer lending
-    kind: team
-    responsibilities:
-      - Lend within policy, and evidence every decision well enough to defend it.
-    permissions:
-      - {action: read, resource_kind: data_class, resource: public_knowledge}
-  - id: affordability_analyst
-    title: Affordability analyst
-    responsibilities:
-      - Produce the affordability evidence behind an application.
-      - Recommend. The decision is somebody else's.
-    capabilities: [affordability_calc, bureau_pull]
-    permissions:
-      - {action: write, resource_kind: capability, resource: affordability_calc}
-      - {action: query, resource_kind: capability, resource: bureau_pull}
-  - id: underwriter
-    title: Underwriter
-    responsibilities:
-      - Decide applications within policy, on evidence somebody else produced.
-    capabilities: [credit_decision, bureau_pull]
-    permissions:
-      - {action: approve, resource_kind: capability, resource: credit_decision}
-      - {action: query, resource_kind: capability, resource: bureau_pull}
-  - id: collections_agent
-    title: Collections and forbearance
-    responsibilities:
-      - Find an arrangement a customer in difficulty can actually keep.
-    capabilities: [arrears_query, forbearance_arrangement]
-    permissions:
-      - {action: query, resource_kind: capability, resource: arrears_query}
-      - {action: write, resource_kind: capability, resource: forbearance_arrangement}
-  - id: risk_team
-    title: Risk (second line)
-    kind: team
-    responsibilities:
-      - Set the credit policy, and test whether the first line followed it.
-    permissions:
-      - {action: read, resource_kind: data_class, resource: loan_book}
-  - id: model_analyst
-    title: Model risk analyst
-    responsibilities:
-      - Build scorecards, and monitor the live ones for drift and disparate outcome.
-    capabilities: [scorecard_build, scorecard_monitor]
-    permissions:
-      - {action: write, resource_kind: capability, resource: scorecard_build}
-      - {action: query, resource_kind: capability, resource: scorecard_monitor}
-  - id: fincrime_investigator
-    title: Financial crime investigator
-    responsibilities:
-      - Work alerts to a conclusion a reviewer can follow.
-      - Escalate; filing the report belongs to the reporting officer.
-    capabilities: [alert_triage]
-    permissions:
-      - {action: write, resource_kind: capability, resource: alert_triage}
-      - {action: read, resource_kind: data_class, resource: fincrime_case}
-  - id: complaints_handler
-    title: Complaints handler
-    responsibilities:
-      - Reach a fair view on a complaint, independent of whoever caused it.
-    capabilities: [complaint_assessment, arrears_query]
-    permissions:
-      - {action: write, resource_kind: capability, resource: complaint_assessment}
-      - {action: query, resource_kind: capability, resource: arrears_query}
-  - id: internal_audit_team
-    title: Internal audit (third line)
-    kind: team
-    responsibilities:
-      - Test what the first and second lines claim, and report to the board.
-    permissions:
-      - {action: read, resource_kind: data_class, resource: public_knowledge}
-  - id: controls_tester
-    title: Controls tester
-    responsibilities:
-      - Test a control and evidence whether it held.
-    capabilities: [controls_testing]
-    permissions:
-      - {action: query, resource_kind: capability, resource: controls_testing}
-
 organization:
   id: meridian
   name: Meridian Bank
@@ -601,50 +241,443 @@ organization:
             - environment: casework
             - environment: modelling
 
-interaction_flows:
-  # Directional and named. The assessor may hand a case to the underwriter;
-  # the underwriter cannot instruct the assessor to reach a different number.
-  - {source: affordability_agent, target: underwriter_agent, kind: notify}
-  - {source: underwriter_agent, target: fincrime_agent, kind: escalate}
-  - {source: collections_agent_1, target: complaints_agent, kind: notify}
-  - {source: audit_agent, target: model_agent, kind: consult}
+  data_classes:
+    - id: public_knowledge
+      description: Product terms, rate cards and published policy.
+      scope: public
+    - id: applicant_pii
+      description: Name, address, date of birth and identity documents.
+      scope: protected
+      groups: [lending]
+      # Also reachable inside the financial-crime sandbox: an investigator who
+      # cannot see who the subject is cannot work the alert, and what must not
+      # leave that sandbox is egress, not the customer's identity. The class
+      # says where it may be touched (ADR-0082).
+      allowed_environments: [casework, fincrime_isolated]
+      may_appear_in_traces: false
+    - id: bureau_data
+      description: Credit reference agency files. Licensed, and the licence binds use.
+      scope: protected
+      groups: [lending]
+      allowed_environments: [casework]
+      may_appear_in_traces: false
+    - id: loan_book
+      description: Balances, arrears and the performance of what has been lent.
+      scope: protected
+      groups: [lending, risk]
+      allowed_environments: [casework, modelling]
+    - id: fincrime_case
+      description: Alerts, investigations and suspicious activity reports.
+      scope: private
+      groups: [fincrime]
+      allowed_environments: [fincrime_isolated]
+      may_appear_in_traces: false
+    - id: model_artifacts
+      description: Scorecards, their training data and their monitoring results.
+      scope: protected
+      groups: [risk]
+      allowed_environments: [modelling]
 
-# The three lines of defence, said out loud (ADR-0081). The tree puts Risk,
-# Financial Crime and Internal Audit outside the Lending line; that absence is
-# what makes them independent, and until this block existed nothing checked it.
-unit_links:
-  - source: risk
-    target: lending
-    kind: oversees
-    reason: >-
-      The second line sets the credit policy and tests whether the first line
-      followed it. A risk function reporting into the business it supervises
-      approves whatever that business wants.
-  - source: internal_audit
-    target: lending
-    kind: oversees
-    reason: >-
-      The third line tests what the first line did and what the second line
-      claims about it, and reports to the board's audit committee.
-  - source: internal_audit
-    target: risk
-    kind: oversees
-    reason: >-
-      Auditing the first line and not the function that supervises it would
-      leave the scorecards and the credit policy untested.
-  - source: complaints
-    target: lending
-    kind: oversees
-    reason: >-
-      A complaint about a lending decision cannot be heard by the line that
-      made it, which is why Complaints sits outside it rather than within.
-  - source: lending
-    target: financial_crime
-    kind: escalates_to
-    reason: >-
-      An application that trips a financial-crime signal leaves the lending
-      line entirely. Tipping off is an offence, so the case does not come
-      back down.
+  # What Meridian's units may decide. `adverse_decision` is deliberately in this
+  # list and deliberately held by nobody: a vocabulary that omitted it could not
+  # express the refusal.
+  decisions:
+    - id: assess_affordability
+      title: Assess whether an applicant can afford a loan
+      description: Compute and evidence the affordability position. Not a decision to lend.
+    - id: approve_credit
+      title: Approve a credit application within policy
+    - id: adverse_decision
+      title: Decline an application, or withdraw a facility
+      description: >-
+        A declined applicant has a statutory right to a human decision-maker.
+        Held by a person, never by an agent — see the `people` block.
+    - id: set_credit_policy
+      title: Set or change the credit policy
+    - id: approve_scorecard
+      title: Approve a scorecard for use in live decisions
+    - id: grant_forbearance
+      title: Grant forbearance to a customer in difficulty
+    - id: close_fincrime_alert
+      title: Close a financial-crime alert without escalating it
+    - id: file_sar
+      title: File a suspicious activity report
+      description: Leaves the bank and goes to the authority. Irreversible.
+    - id: uphold_complaint
+      title: Uphold or reject a customer complaint
+    - id: pay_redress
+      title: Pay redress to a customer
+    - id: open_audit_finding
+      title: Open or close an audit finding
+
+  # The controls this organization is built around.
+  separations:
+    - id: assess_and_decide
+      decisions: [assess_affordability, approve_credit]
+      enforcement:
+        enforced_by: both
+        authoritative: application
+        enforced_in: the originations platform's four-eyes rule
+      reason: >-
+        An agent that both produces the affordability evidence and decides on it
+        is marking its own homework, and the evidence is what a regulator reads
+        when the loan goes wrong.
+    - id: decide_and_hear_the_complaint
+      decisions: [approve_credit, uphold_complaint]
+      reason: >-
+        A complaint about a lending decision cannot be heard by whatever decided
+        it. Complaints sit outside the first line for exactly this reason.
+    - id: alert_and_report
+      decisions: [close_fincrime_alert, file_sar]
+      reason: >-
+        Closing an alert and filing the report are the two ends of the same
+        judgement. One principal holding both can bury what it should report.
+    - id: policy_and_audit
+      decisions: [set_credit_policy, open_audit_finding]
+      reason: >-
+        Internal Audit tests the credit policy. Writing the policy and settling
+        the finding against it is auditing yourself.
+    - id: redress_and_complaint
+      decisions: [uphold_complaint, pay_redress]
+      enforcement:
+        enforced_by: both
+        authoritative: application
+        enforced_in: the redress ledger's dual authorisation
+      reason: >-
+        Upholding a complaint and paying the money for it is a route to paying
+        an accomplice. The payment needs a second pair of hands.
+
+  # The people (ADR-0079). A person holds a mandate and never a capability: none
+  # of these humans reaches a bank system through this platform. What is
+  # declared is what they may decide, because this platform routes the
+  # escalation to them.
+  people:
+    - id: p_cro
+      name: Dilnoza Rakhimova
+      contact: dilnoza.rakhimova@meridian.example
+      position: Chief Risk Officer
+      unit: risk
+      mandate:
+        decisions: [set_credit_policy, approve_scorecard]
+    - id: p_head_lending
+      name: Callum Ferreira
+      contact: callum.ferreira@meridian.example
+      position: Head of Consumer Lending
+      unit: lending
+      # Not `assess_affordability`: separation 'assess_and_decide' is the
+      # control, and a head of lending who holds both sides defeats it at the
+      # top of the tree where nobody looks.
+      mandate:
+        decisions: [approve_credit, grant_forbearance]
+    - id: p_underwriter
+      name: Beatrix Lindholm
+      contact: beatrix.lindholm@meridian.example
+      position: Senior Underwriter
+      unit: underwriting
+      # The statutory human behind a decline. An agent proposes it; she makes it.
+      mandate:
+        decisions: [approve_credit, adverse_decision]
+    - id: p_collections
+      name: Yusuf Demirel
+      contact: yusuf.demirel@meridian.example
+      position: Head of Collections
+      unit: collections
+      mandate:
+        decisions: [grant_forbearance]
+    - id: p_mlro
+      name: Anneli Korhonen
+      contact: anneli.korhonen@meridian.example
+      position: Money Laundering Reporting Officer
+      unit: financial_crime
+      # The reporting officer files; the investigators close alerts. That split
+      # is separation 'alert_and_report', and it is a named statutory role.
+      mandate:
+        decisions: [file_sar]
+    - id: p_fincrime_lead
+      name: Tobias Achebe
+      contact: tobias.achebe@meridian.example
+      position: Financial Crime Team Lead
+      unit: financial_crime
+      mandate:
+        decisions: [close_fincrime_alert]
+    - id: p_complaints
+      name: Marisol Aguirre
+      contact: marisol.aguirre@meridian.example
+      position: Head of Customer Complaints
+      unit: complaints
+      mandate:
+        decisions: [uphold_complaint]
+    - id: p_finance_ops
+      name: Henrik Solberg
+      contact: henrik.solberg@meridian.example
+      position: Finance Operations Manager
+      unit: complaints
+      # Pays what complaints upholds, and cannot uphold anything itself.
+      mandate:
+        decisions: [pay_redress]
+    - id: p_audit
+      name: Ngozi Balogun
+      contact: ngozi.balogun@meridian.example
+      position: Head of Internal Audit
+      unit: internal_audit
+      mandate:
+        decisions: [open_audit_finding]
+
+  capabilities:
+    - id: bureau_pull
+      description: Retrieve a credit reference file for a named applicant.
+      action: query
+      resource_class: bureau
+      data_classes: [bureau_data, applicant_pii]
+      constraints: {max_rows: 1, allowed_operations: [select]}
+    - id: affordability_calc
+      description: Compute income, commitments and the resulting affordability position.
+      action: write
+      autonomy: autonomous
+      resource_class: originations
+      data_classes: [applicant_pii, bureau_data]
+      decision: assess_affordability
+    - id: credit_decision
+      description: Record an approval against an application within policy.
+      action: approve
+      autonomy: supervised
+      resource_class: originations
+      data_classes: [loan_book, applicant_pii]
+      decision: approve_credit
+      constraints: {requires_approval: true}
+    - id: scorecard_monitor
+      description: Monitor a live scorecard for drift and disparate outcome.
+      action: query
+      resource_class: modelling
+      data_classes: [model_artifacts, loan_book]
+    - id: scorecard_build
+      description: Train and document a candidate scorecard.
+      action: write
+      autonomy: supervised
+      resource_class: modelling
+      data_classes: [model_artifacts, loan_book]
+      decision: approve_scorecard
+      constraints: {requires_approval: true}
+    - id: arrears_query
+      description: Read balances, arrears and contact history on the loan book.
+      action: query
+      resource_class: servicing
+      data_classes: [loan_book]
+      constraints: {max_rows: 2000, allowed_operations: [select]}
+    - id: forbearance_arrangement
+      description: Put a customer in difficulty onto a reduced arrangement.
+      action: write
+      autonomy: supervised
+      resource_class: servicing
+      data_classes: [loan_book, applicant_pii]
+      decision: grant_forbearance
+      constraints: {requires_approval: true}
+    - id: alert_triage
+      description: Work a financial-crime alert to a documented conclusion.
+      action: write
+      autonomy: supervised
+      resource_class: fincrime
+      data_classes: [fincrime_case, applicant_pii]
+      decision: close_fincrime_alert
+      constraints: {requires_approval: true}
+    - id: complaint_assessment
+      description: Assemble the file behind a complaint and reach a view.
+      action: write
+      autonomy: supervised
+      resource_class: complaints
+      data_classes: [applicant_pii, loan_book]
+      decision: uphold_complaint
+      constraints: {requires_approval: true}
+    - id: controls_testing
+      description: Test a control and evidence whether it held.
+      action: query
+      resource_class: audit
+      data_classes: [loan_book, model_artifacts]
+
+  environments:
+    - id: casework
+      description: Working an application or a servicing case.
+      toolchains: [data_analysis]
+      tier: medium
+      network: allowlist
+      egress_allowlist: ["bureau-gateway.internal", "originations.internal"]
+      mounts: [applicant_pii, loan_book]
+      persistence: ephemeral
+    - id: modelling
+      description: Scorecard work. Reads the book, reaches nothing outward.
+      toolchains: [data_analysis]
+      tier: large
+      network: none
+      mounts: [model_artifacts, loan_book]
+      persistence: ephemeral
+    - id: fincrime_isolated
+      description: >-
+        Financial-crime casework. Its own place, because tipping off is an
+        offence and the material must not be reachable from the business the
+        alert is about.
+      toolchains: [data_analysis]
+      tier: minimal
+      network: none
+      mounts: [fincrime_case]
+      persistence: ephemeral
+
+  role_definitions:
+    - id: lending_team
+      title: Consumer lending
+      kind: team
+      responsibilities:
+        - Lend within policy, and evidence every decision well enough to defend it.
+      permissions:
+        - {action: read, resource_kind: data_class, resource: public_knowledge}
+    - id: affordability_analyst
+      title: Affordability analyst
+      responsibilities:
+        - Produce the affordability evidence behind an application.
+        - Recommend. The decision is somebody else's.
+      capabilities: [affordability_calc, bureau_pull]
+      permissions:
+        - {action: write, resource_kind: capability, resource: affordability_calc}
+        - {action: query, resource_kind: capability, resource: bureau_pull}
+    - id: underwriter
+      title: Underwriter
+      responsibilities:
+        - Decide applications within policy, on evidence somebody else produced.
+      capabilities: [credit_decision, bureau_pull]
+      permissions:
+        - {action: approve, resource_kind: capability, resource: credit_decision}
+        - {action: query, resource_kind: capability, resource: bureau_pull}
+    - id: collections_agent
+      title: Collections and forbearance
+      responsibilities:
+        - Find an arrangement a customer in difficulty can actually keep.
+      capabilities: [arrears_query, forbearance_arrangement]
+      permissions:
+        - {action: query, resource_kind: capability, resource: arrears_query}
+        - {action: write, resource_kind: capability, resource: forbearance_arrangement}
+    - id: risk_team
+      title: Risk (second line)
+      kind: team
+      responsibilities:
+        - Set the credit policy, and test whether the first line followed it.
+      permissions:
+        - {action: read, resource_kind: data_class, resource: loan_book}
+    - id: model_analyst
+      title: Model risk analyst
+      responsibilities:
+        - Build scorecards, and monitor the live ones for drift and disparate outcome.
+      capabilities: [scorecard_build, scorecard_monitor]
+      permissions:
+        - {action: write, resource_kind: capability, resource: scorecard_build}
+        - {action: query, resource_kind: capability, resource: scorecard_monitor}
+    - id: fincrime_investigator
+      title: Financial crime investigator
+      responsibilities:
+        - Work alerts to a conclusion a reviewer can follow.
+        - Escalate; filing the report belongs to the reporting officer.
+      capabilities: [alert_triage]
+      permissions:
+        - {action: write, resource_kind: capability, resource: alert_triage}
+        - {action: read, resource_kind: data_class, resource: fincrime_case}
+    - id: complaints_handler
+      title: Complaints handler
+      responsibilities:
+        - Reach a fair view on a complaint, independent of whoever caused it.
+      capabilities: [complaint_assessment, arrears_query]
+      permissions:
+        - {action: write, resource_kind: capability, resource: complaint_assessment}
+        - {action: query, resource_kind: capability, resource: arrears_query}
+    - id: internal_audit_team
+      title: Internal audit (third line)
+      kind: team
+      responsibilities:
+        - Test what the first and second lines claim, and report to the board.
+      permissions:
+        - {action: read, resource_kind: data_class, resource: public_knowledge}
+    - id: controls_tester
+      title: Controls tester
+      responsibilities:
+        - Test a control and evidence whether it held.
+      capabilities: [controls_testing]
+      permissions:
+        - {action: query, resource_kind: capability, resource: controls_testing}
+
+  interaction_flows:
+    # Directional and named. The assessor may hand a case to the underwriter;
+    # the underwriter cannot instruct the assessor to reach a different number.
+    - {source: affordability_agent, target: underwriter_agent, kind: notify}
+    - {source: underwriter_agent, target: fincrime_agent, kind: escalate}
+    - {source: collections_agent_1, target: complaints_agent, kind: notify}
+    - {source: audit_agent, target: model_agent, kind: consult}
+
+  # The three lines of defence, said out loud (ADR-0081). The tree puts Risk,
+  # Financial Crime and Internal Audit outside the Lending line; that absence is
+  # what makes them independent, and until this block existed nothing checked it.
+  unit_links:
+    - source: risk
+      target: lending
+      kind: oversees
+      reason: >-
+        The second line sets the credit policy and tests whether the first line
+        followed it. A risk function reporting into the business it supervises
+        approves whatever that business wants.
+    - source: internal_audit
+      target: lending
+      kind: oversees
+      reason: >-
+        The third line tests what the first line did and what the second line
+        claims about it, and reports to the board's audit committee.
+    - source: internal_audit
+      target: risk
+      kind: oversees
+      reason: >-
+        Auditing the first line and not the function that supervises it would
+        leave the scorecards and the credit policy untested.
+    - source: complaints
+      target: lending
+      kind: oversees
+      reason: >-
+        A complaint about a lending decision cannot be heard by the line that
+        made it, which is why Complaints sits outside it rather than within.
+    - source: lending
+      target: financial_crime
+      kind: escalates_to
+      reason: >-
+        An application that trips a financial-crime signal leaves the lending
+        line entirely. Tipping off is an offence, so the case does not come
+        back down.
+
+  guardrails:
+    - id: no_pii_outbound
+      description: Applicant identity material must not leave on an outbound message.
+      applies_to: [output, tool_output]
+      checks: [data_class]
+      data_classes: [applicant_pii]
+      on_violation: block
+    - id: no_tipping_off
+      description: >-
+        Nothing about a financial-crime alert leaves the investigation. Telling a
+        customer they are under investigation is an offence.
+      applies_to: [output, tool_output]
+      checks: [data_class]
+      data_classes: [fincrime_case]
+      on_violation: block
+    - id: no_credentials_out
+      description: Nothing credential-shaped leaves an agent, ever.
+      applies_to: [output, tool_output]
+      checks: [secrets]
+      on_violation: block
+    - id: screen_inbound_documents
+      description: An applicant's uploaded documents are somebody else's writing.
+      applies_to: [input, tool_output]
+      checks: [prompt_injection]
+      on_violation: escalate
+      escalate_channel: lending_escalations
+
+  channels:
+    - id: lending_escalations
+      description: Where a screened document or a borderline case goes for a human.
+      purpose: escalation
+      members: [underwriter_agent, lending_head]
 
 observability:
   traces: true
@@ -654,39 +687,6 @@ observability:
   sample_rate: 1.0
   # Identity documents and alert material never reach a trace.
   redact_data_classes: [applicant_pii, fincrime_case, bureau_data]
-
-guardrails:
-  - id: no_pii_outbound
-    description: Applicant identity material must not leave on an outbound message.
-    applies_to: [output, tool_output]
-    checks: [data_class]
-    data_classes: [applicant_pii]
-    on_violation: block
-  - id: no_tipping_off
-    description: >-
-      Nothing about a financial-crime alert leaves the investigation. Telling a
-      customer they are under investigation is an offence.
-    applies_to: [output, tool_output]
-    checks: [data_class]
-    data_classes: [fincrime_case]
-    on_violation: block
-  - id: no_credentials_out
-    description: Nothing credential-shaped leaves an agent, ever.
-    applies_to: [output, tool_output]
-    checks: [secrets]
-    on_violation: block
-  - id: screen_inbound_documents
-    description: An applicant's uploaded documents are somebody else's writing.
-    applies_to: [input, tool_output]
-    checks: [prompt_injection]
-    on_violation: escalate
-    escalate_channel: lending_escalations
-
-channels:
-  - id: lending_escalations
-    description: Where a screened document or a borderline case goes for a human.
-    purpose: escalation
-    members: [underwriter_agent, lending_head]
 
 lifecycle:
   gates:

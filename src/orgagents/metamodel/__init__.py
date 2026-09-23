@@ -218,7 +218,7 @@ STEREOTYPES = [
     S("Plugin", "plugin", MC.COMPONENT, "plugins", "PluginSpec"),
     S("Tool", "tool", MC.INTERFACE, "tools", "ToolSpec"),
     S("Person", "person", MC.ACTOR, "people", "Person"),
-    S("Role", "role", MC.CLASS, "roles", "Role"),
+    S("Role", "role", MC.CLASS, "role_definitions", "Role"),
     S("Decision", "decision", MC.DATA_TYPE, "decisions", "DecisionClass"),
     S("Separation", "separation", MC.CONSTRAINT, "separations",
       "SeparationRule"),
@@ -372,14 +372,19 @@ RELATIONSHIPS = [
     R("subagent", "knowledge", K.ASSOCIATION, "consults", "knowledge", SH.REFS),
 ]
 
-# -- the Model owns every top-level element (composition from «System») -----
+# -- ownership: the System owns one Organization, which owns its elements --
+#: Collections that stay on the System: how the design is released, not what
+#: the organisation is (ADR-0101).
+SYSTEM_OWNED = {"organization", "lifecycle.evaluations"}
+
 RELATIONSHIPS += [
-    R("system", st.kind, K.COMPOSITION, "owns", st.collection, SH.PART,
+    R("system" if st.collection in SYSTEM_OWNED else "organization",
+      st.kind, K.COMPOSITION, "owns", st.collection, SH.PART,
       source_mult="1",
       target_mult="1" if st.kind == "organization" else "0..*",
       linkable=False, draw=Draw.NONE)
     for st in STEREOTYPES
-    if st.collection and st.kind != "system"
+    if st.collection and st.kind not in ("system",)
 ]
 
 PROFILE = Profile(name="OrgAgents", stereotypes=STEREOTYPES,
@@ -554,7 +559,9 @@ def to_plantuml(profile: Profile = None) -> str:  # type: ignore[assignment]
     out.append("}")
     out.append("")
     for r in p.relationships:
-        if r.source == "system":
+        # Ownership has its own view (`to_plantuml_ownership`): drawn here
+        # it would be two dozen lines to one box, burying everything else.
+        if r.stereotype == "owns":
             continue
         a, b = _cls(r.source), _cls(r.target)
         sm, tm = f'"{r.source_mult}"', f'"{r.target_mult}"'
@@ -577,5 +584,28 @@ def to_plantuml(profile: Profile = None) -> str:  # type: ignore[assignment]
         out.append(line)
         if r.association_class:
             out.append(f"({a}, {b}) .. {r.association_class}")
+    out.append("@enduml")
+    return "\n".join(out) + "\n"
+
+
+def to_plantuml_ownership(profile: Profile = None) -> str:  # type: ignore[assignment]
+    """Who owns what: the System owns one Organization; the Organization is
+    a Team and owns every element of its model. Each element has exactly one
+    owner, which is what makes the containment tree a tree."""
+    p = profile or PROFILE
+    out = ["@startuml OrgAgentsOwnership", "!pragma layout smetana",
+           "hide empty members", "left to right direction",
+           "title OrgAgents ownership — composition from the root (ADR-0101)",
+           ""]
+    for s in p.stereotypes:
+        if s.kind != "note":
+            out.append(f"class {_cls(s.kind)} <<{s.name}>>")
+    for r in p.relationships:
+        a, b = _cls(r.source), _cls(r.target)
+        if r.kind is RelKind.GENERALIZATION:
+            out.append(f"{a} --|> {b}")
+        elif r.stereotype == "owns" or r.kind is RelKind.COMPOSITION:
+            out.append(f'{a} "{r.source_mult}" *-- "{r.target_mult}" {b} : '
+                       f'{r.field}')
     out.append("@enduml")
     return "\n".join(out) + "\n"

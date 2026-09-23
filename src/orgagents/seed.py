@@ -32,6 +32,7 @@ from .models import (
 from .platform import Platform
 from .models import WorkflowRef
 from .store import PLUGINS, SKILLS, WORKFLOWS
+from .spec.model import org_collection
 
 DEMO_WAREHOUSE = "demo_warehouse.db"
 
@@ -402,7 +403,7 @@ def seed(db_path: str = "orgagents.db", base_url: str = "http://localhost:8000")
             # Also place capabilities, triggers, and data_classes
             misc_x = 40
             misc_y = row_y + 40
-            for cap in spec_dict.get("capabilities", []):
+            for cap in org_collection(spec_dict, "capabilities"):
                 c_id = cap.get("id")
                 if c_id:
                     main.nodes[c_id] = CanvasNode(

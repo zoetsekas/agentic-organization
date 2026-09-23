@@ -49,7 +49,7 @@ def test_every_relationship_names_a_field_the_spec_has(rel):
         assert issubclass(_model(rel.source), _model(rel.target))
         return
     if rel.shape is Shape.RECORD:
-        assert rel.field in spec_model.SystemSpec.model_fields
+        assert rel.field in spec_model.Organization.model_fields
         return
     owner = _model(rel.owner_kind())
     assert owner is not None, f"{rel.owner_kind()} has no model"
@@ -127,7 +127,7 @@ def test_a_link_with_attributes_is_an_association_class(rel):
         item = owner.model_fields[rel.field].annotation.__args__[0]
         assert item.__name__ == rel.association_class
     else:
-        item = spec_model.SystemSpec.model_fields[rel.field].annotation.__args__[0]
+        item = spec_model.Organization.model_fields[rel.field].annotation.__args__[0]
         assert item.__name__ == rel.association_class
 
 
@@ -140,11 +140,19 @@ def test_no_instance_link_is_a_bare_dependency():
                 if r.kind is RelKind.DEPENDENCY]
 
 
-def test_the_model_owns_every_top_level_element():
-    owned = {r.target for r in PROFILE.relationships if r.source == "system"}
+def test_every_element_has_exactly_one_owner():
+    """The System owns the Organization (and the release-time evaluations);
+    the Organization owns every other element of the model."""
+    owners = {}
+    for r in PROFILE.relationships:
+        if r.stereotype == "owns":
+            owners.setdefault(r.target, []).append(r.source)
     top = {s.kind for s in PROFILE.stereotypes
            if s.collection and s.kind != "system"}
-    assert owned == top
+    assert set(owners) == top
+    assert all(len(v) == 1 for v in owners.values())
+    assert owners["organization"] == ["system"]
+    assert owners["skill"] == ["organization"]
 
 
 def test_leadership_subsets_membership():
@@ -160,6 +168,9 @@ def test_the_committed_diagrams_are_current():
     root = Path(__file__).resolve().parents[1] / "docs" / "metamodel"
     assert (root / "orgagents-model.puml").read_text() == to_plantuml()
     assert (root / "orgagents-profile.puml").read_text() == to_plantuml_profile()
+    from orgagents.metamodel import to_plantuml_ownership
+    assert (root / "orgagents-ownership.puml").read_text() == \
+        to_plantuml_ownership()
 
 
 def test_each_system_has_exactly_one_organization_as_its_root():

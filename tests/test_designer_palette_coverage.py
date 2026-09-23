@@ -239,7 +239,7 @@ def test_operating_principles_belong_to_the_organisation(index_html, app_js):
     """Instructions every agent carries (ADR-0038) are an organisation-wide
     statement, not something dropped on a canvas."""
     assert 'name="operating_principles"' in index_html
-    assert "record.spec.operating_principles = values.operating_principles" in app_js
+    assert "(record.spec.organization = record.spec.organization || {}).operating_principles =\n    values.operating_principles" in app_js
 
 
 def test_principles_sit_on_the_spec_and_not_in_metadata(app_js):

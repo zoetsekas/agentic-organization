@@ -89,7 +89,7 @@ const COLLECTIONS = {
   capability: "capabilities",
   data_class: "data_classes",
   environment: "environments",
-  role: "roles",
+  role: "role_definitions",
   channel: "channels",
   trigger: "triggers",
   knowledge: "knowledge",
@@ -111,7 +111,7 @@ const COLLECTIONS = {
    way in, which is why they cannot just join COLLECTIONS. */
 const NESTED = {
   memory_namespace: {
-    container: (s) => (s.memory = s.memory || {}),
+    container: (s) => (org(s).memory = org(s).memory || {}),
     list: "namespaces",
     seed: (id) => ({ id, scope: "private", data_classes: [] }),
   },
@@ -134,6 +134,15 @@ function nestedList(s, kind) {
 
 function spec() {
   return canvas.record ? canvas.record.spec : null;
+}
+
+/* The Organization owns every element of the model (ADR-0101): skills,
+   knowledge, flows and the rest live under `spec.organization`, not at the
+   top of the spec. */
+function org(s) {
+  if (!s) return null;
+  s.organization = s.organization || { id: "root", name: "root" };
+  return s.organization;
 }
 
 function walkTeams(team, fn, path = []) {
@@ -229,7 +238,7 @@ function openDiagram(id) {
    is built on. */
 function addProcessDiagram(workflowId) {
   const layout = canvas.record?.layout;
-  const workflow = (spec()?.workflows || []).find((w) => w.id === workflowId);
+  const workflow = (org(spec())?.workflows || []).find((w) => w.id === workflowId);
   if (!layout || !workflow) {
     setStatus(`'${workflowId}' is not a workflow in this design`);
     return null;
@@ -354,11 +363,11 @@ function renderDiagramBar() {
     /* A process gets its own canvas, because a workflow's graph is a
        different thing from an organisation's containment and drawing them on
        one canvas produces a picture nobody can predict (ADR-0100). */
-    ...((spec()?.workflows || []).length && !readOnly ? [(() => {
+    ...((org(spec())?.workflows || []).length && !readOnly ? [(() => {
       const pick = el("select", { class: "dia-add-process",
                                   title: "a canvas for one workflow's process" },
         el("option", { value: "" }, "+ process"),
-        ...(spec().workflows || []).map((w) =>
+        ...(org(spec()).workflows || []).map((w) =>
           el("option", { value: w.id }, w.name || w.id)));
       pick.addEventListener("change", () => {
         if (pick.value) addProcessDiagram(pick.value);
@@ -444,7 +453,7 @@ async function arrangeDiagram(algorithm) {
    never stored on the diagram. That is the one rule the diagram model has,
    and a process canvas is exactly where a second copy would drift. */
 function processEdges(workflowId) {
-  const workflow = (spec()?.workflows || []).find((w) => w.id === workflowId);
+  const workflow = (org(spec())?.workflows || []).find((w) => w.id === workflowId);
   const graph = workflow?.graph || {};
   const edges = (graph.edges || [])
     .filter((e) => e.from && e.to && e.to !== "END")
@@ -478,7 +487,7 @@ function findComponent(kind, id) {
      itself rather than showing an empty form (ADR-0100). */
   if (kind === "step") {
     const open = diagram();
-    const workflow = (s.workflows || []).find((w) => w.id === open?.root);
+    const workflow = (org(s).workflows || []).find((w) => w.id === open?.root);
     return (workflow?.graph?.nodes || []).find((n) => n.id === id) || null;
   }
   if (kind === "team") return allTeams().find((t) => t.id === id) || null;
@@ -493,7 +502,7 @@ function findComponent(kind, id) {
   if (NESTED[kind]) return nestedList(s, kind).find((x) => x.id === id) || null;
   if (kind === "note") return layoutNodes()[id] || null;
   const collection = COLLECTIONS[kind];
-  return collection ? (s[collection] || []).find((x) => x.id === id) || null : null;
+  return collection ? (org(s)[collection] || []).find((x) => x.id === id) || null : null;
 }
 
 /* A dropped component lands **unlinked**, at the top of the organisation.
@@ -552,9 +561,9 @@ function addComponent(kind, id, at = null) {
   if (kind === "note") return { note: "" };
   const collection = COLLECTIONS[kind];
   if (!collection) throw new Error(`cannot place '${kind}' yet`);
-  s[collection] = s[collection] || [];
+  org(s)[collection] = org(s)[collection] || [];
   const item = { id };
-  s[collection].push(item);
+  org(s)[collection].push(item);
   return item;
 }
 
@@ -579,7 +588,7 @@ function removeComponent(kind, id) {
     container[shape.list] = (container[shape.list] || [])
       .filter((x) => x.id !== id);
   } else if (COLLECTIONS[kind]) {
-    s[COLLECTIONS[kind]] = (s[COLLECTIONS[kind]] || []).filter((x) => x.id !== id);
+    org(s)[COLLECTIONS[kind]] = (org(s)[COLLECTIONS[kind]] || []).filter((x) => x.id !== id);
   }
   delete layoutNodes()[id];
 }
@@ -643,10 +652,10 @@ const SCOPE_RANK = { public: 3, protected: 2, private: 1 };
 function classificationOf(agent) {
   const s = spec();
   if (!s || !agent) return "unclassified";
-  const byId = Object.fromEntries((s.data_classes || []).map((d) => [d.id, d]));
+  const byId = Object.fromEntries((org(s).data_classes || []).map((d) => [d.id, d]));
   const touched = new Set();
   for (const capabilityId of agent.capabilities || []) {
-    const capability = (s.capabilities || []).find((c) => c.id === capabilityId);
+    const capability = (org(s).capabilities || []).find((c) => c.id === capabilityId);
     for (const id of capability?.data_classes || []) touched.add(id);
   }
   let worst = null;
@@ -871,7 +880,7 @@ function renderNode(node) {
 function personLabel(human) {
   if (!human) return "";
   if (human.person) {
-    const person = (spec()?.people || []).find((p) => p.id === human.person);
+    const person = (org(spec())?.people || []).find((p) => p.id === human.person);
     if (person) return person.name || person.id;
     return human.person;
   }
@@ -1129,7 +1138,7 @@ function applyLink(rule, from, target) {
     if (!kinds.includes(kind)) {
       throw new Error(`'${kind}' is not one of ${kinds.join(", ")}`);
     }
-    const flows = (s.interaction_flows = s.interaction_flows || []);
+    const flows = (org(s).interaction_flows = org(s).interaction_flows || []);
     if (flows.some((f) => f.source === from.id && f.target === target.id
                           && f.kind === kind)) {
       throw new Error("that flow is already declared");
@@ -1154,7 +1163,7 @@ function applyLink(rule, from, target) {
     const reason = window.prompt(
       "Why does this relationship exist?\n\nAn association nobody can "
       + "explain is decoration, and the validator says so.", "") || "";
-    const links = (s.unit_links = s.unit_links || []);
+    const links = (org(s).unit_links = org(s).unit_links || []);
     if (links.some((l) => l.source === from.id && l.target === target.id
                           && l.kind === kind)) {
       throw new Error("that association is already declared");
@@ -1238,17 +1247,17 @@ function unlink(node) {
     setStatus(`${node.id} released from ${released} agent`
       + (released === 1 ? "" : "s"));
   }
-  const links = s.unit_links || [];
+  const links = org(s).unit_links || [];
   const keptLinks = links.filter(
     (l) => l.source !== node.id && l.target !== node.id);
   if (keptLinks.length !== links.length) {
-    s.unit_links = keptLinks;
+    org(s).unit_links = keptLinks;
     markDirty(`removed associations on ${node.id}`);
   }
-  const flows = s.interaction_flows || [];
+  const flows = org(s).interaction_flows || [];
   const kept = flows.filter((f) => f.source !== node.id && f.target !== node.id);
   if (kept.length !== flows.length) {
-    s.interaction_flows = kept;
+    org(s).interaction_flows = kept;
     markDirty(`removed flows on ${node.id}`);
   }
   renderCanvas();
@@ -1381,7 +1390,7 @@ function derivedPlacements() {
      declared. A region's border says it, so a reader sees which places can
      reach out at all without opening anything. */
   const postures = new Map(
-    (spec()?.environments || []).map((e) => [e.id, e.network || "none"]));
+    (org(spec())?.environments || []).map((e) => [e.id, e.network || "none"]));
   return [...members.values()]
     .map((p) => ({
       ...p,
@@ -1497,14 +1506,14 @@ function derivedEdges() {
         out.push({ source: agentId, target: id, kind: `holds:${kind}` }));
     }
   }
-  (spec()?.interaction_flows || []).forEach((f) =>
+  (org(spec())?.interaction_flows || []).forEach((f) =>
     out.push({ source: f.source, target: f.target, kind: f.kind }));
   /* Association, drawn as an association: dashed, labelled with its kind, and
      never mistakable for the containment line above (ADR-0081). */
-  (spec()?.unit_links || []).forEach((l) =>
+  (org(spec())?.unit_links || []).forEach((l) =>
     out.push({ source: l.source, target: l.target, kind: l.kind,
                association: true }));
-  (spec()?.triggers || []).forEach((t) =>
+  (org(spec())?.triggers || []).forEach((t) =>
     out.push({ source: t.id, target: t.agent, kind: "triggers" }));
   return out;
 }
@@ -1542,7 +1551,7 @@ function explorerModel() {
   const flat = (kind, collection, note) => ({
     id: `group:${kind}`, kind: "group",
     label: kindSpec(kind).label, group: true,
-    children: (s[collection] || []).map((item) => ({
+    children: (org(s)[collection] || []).map((item) => ({
       id: item.id, kind, label: item.name || item.id,
       note: note ? note(item) : "", children: [],
     })),
@@ -2325,7 +2334,7 @@ function renderInspector() {
 function effectivePermissions(agent) {
   const s = spec();
   if (!s || !agent) return [];
-  const capabilities = Object.fromEntries((s.capabilities || []).map((c) => [c.id, c]));
+  const capabilities = Object.fromEntries((org(s).capabilities || []).map((c) => [c.id, c]));
   const out = [];
   const seen = new Set();
   const add = (capabilityId, via) => {
@@ -2340,7 +2349,7 @@ function effectivePermissions(agent) {
   (agent.capabilities || []).forEach((c) => add(c, "bound directly"));
   for (const assignment of agent.roles || []) {
     const roleId = typeof assignment === "string" ? assignment : assignment.role;
-    const role = (s.roles || []).find((r) => r.id === roleId);
+    const role = (org(s).role_definitions || []).find((r) => r.id === roleId);
     (role?.capabilities || []).forEach((c) => add(c, roleId));
   }
   return out;
@@ -2421,7 +2430,7 @@ function fieldContext(componentKind, fieldName) {
       wraps: {
         mode: "ref",
         fn: (nodeId) => {
-          const tool = (s.tools || []).find((t) => t.id === nodeId);
+          const tool = (org(s).tools || []).find((t) => t.id === nodeId);
           const kind = tool?.wraps_kind || "capability";
           if (kind === "subagent") {
             return allAgents().flatMap(({ agent }) =>
@@ -2867,7 +2876,7 @@ function renderGraph(field, value, readOnly, onChange) {
 const POSTURE_RANK = ["autonomous", "supervised", "human_decides", "advisory"];
 
 function renderMandate(field, value, readOnly, onChange) {
-  const options = (spec()?.decisions || []).map((d) => d.id).filter(Boolean);
+  const options = (org(spec())?.decisions || []).map((d) => d.id).filter(Boolean);
   const wrap = el("div", { class: "mandate-wrap" });
   let current = value && typeof value === "object" ? { ...value } : null;
 
@@ -2912,8 +2921,8 @@ function renderMandate(field, value, readOnly, onChange) {
 
 function renderAutonomy(field, value, readOnly, onChange, component) {
   const s = spec();
-  const caps = new Map((s?.capabilities || []).map((c) => [c.id, c]));
-  const roles = new Map((s?.roles || []).map((r) => [r.id, r]));
+  const caps = new Map((org(s)?.capabilities || []).map((c) => [c.id, c]));
+  const roles = new Map((org(s)?.role_definitions || []).map((r) => [r.id, r]));
   const held = new Set(component?.capabilities || []);
   for (const assignment of component?.roles || []) {
     const role = roles.get(
@@ -2986,7 +2995,7 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
   if (field.type === "decisions" || field.type === "decision_refs"
       || field.type === "autonomy") {
     const decisionIds = () =>
-      (spec()?.decisions || []).map((d) => d.id).filter(Boolean);
+      (org(spec())?.decisions || []).map((d) => d.id).filter(Boolean);
     input = field.type === "decisions"
       // A mandate: absent inherits, present-and-empty decides nothing.
       ? renderMandate(field, value, readOnly, onChange)

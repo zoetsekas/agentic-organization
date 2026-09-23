@@ -26,351 +26,6 @@ metadata:
   owner: AYC Operations
   environment: development
 
-operating_principles:
-  - The stock number in Fishbowl and the listing on Shopify tell one story; keep them the same one.
-  - A control you route around is a control you do not have.
-
-data_classes:
-  - id: public_knowledge
-    description: The public catalog, published policies and price lists.
-    scope: public
-  - id: customer_pii
-    description: Shopify customer identity, addresses and order contact details.
-    scope: private
-    groups: [commerce]
-    allowed_environments: [storefront_ops]
-    may_appear_in_traces: false
-    # What it *is*, as distinct from how it is protected (ADR-0099).
-    semantics: subject
-  - id: order_data
-    description: Orders, fulfillments and shipment status.
-    scope: protected
-    groups: [commerce, operations]
-    allowed_environments: [storefront_ops, warehouse_ops]
-    semantics: event
-    relations:
-      # An order names the customer it is for. Saying so lets a rule about
-      # the customer follow the order, instead of relying on somebody to
-      # remember that it should.
-      - kind: identifies
-        target: customer_pii
-  - id: inventory_data
-    description: Fishbowl inventory, stock levels, cycle counts and locations.
-    scope: protected
-    groups: [operations]
-    allowed_environments: [warehouse_ops]
-    semantics: reference
-  - id: supplier_data
-    description: Suppliers, purchase orders and cost prices.
-    scope: protected
-    groups: [operations]
-    allowed_environments: [warehouse_ops]
-  - id: financial_records
-    description: Payables, receivables and the ledger.
-    scope: protected
-    groups: [finance]
-    allowed_environments: [finance_ops]
-  - id: product_content
-    description: Product copy, imagery and merchandising drafts.
-    scope: protected
-    groups: [commerce, marketing]
-    allowed_environments: [storefront_ops, studio]
-
-decisions:
-  - id: publish_product
-    title: Publish or change a product listing on the storefront
-  - id: change_price
-    title: Change a selling price
-  - id: raise_po
-    title: Raise a purchase order to a supplier
-  - id: receive_goods
-    title: Receive goods against a purchase order
-  - id: adjust_inventory
-    title: Adjust an inventory record on a cycle count
-    description: The classic shrinkage cover-up if the shipper can also do it.
-  - id: fulfill_order
-    title: Fulfill and ship a customer order
-  - id: issue_refund
-    title: Issue a refund or a store credit
-  - id: pay_invoice
-    title: Pay a supplier invoice
-  - id: record_receivable
-    title: Record or write off a customer receivable
-  - id: run_promotion
-    title: Run a promotion or a discount
-  - id: publish_content
-    title: Publish marketing or product content
-  - id: deploy_change
-    title: Deploy a change to a production system
-
-separations:
-  - id: purchasing_and_payment
-    decisions: [raise_po, pay_invoice]
-    enforcement:
-      enforced_by: both
-      authoritative: application
-      enforced_in: the accounting system's three-way match
-    reason: >-
-      A buyer who both raises the purchase order and pays the invoice can pay a
-      supplier that does not exist. Purchasing raises; Finance pays.
-  - id: inventory_and_fulfillment
-    decisions: [adjust_inventory, fulfill_order]
-    enforcement:
-      enforced_by: both
-      authoritative: application
-      enforced_in: Fishbowl's cycle-count approval
-    reason: >-
-      Whoever ships the goods must not also adjust the count, or shrinkage
-      disappears into an "adjustment". The cycle count is independent of the dock.
-  - id: refund_and_receivable
-    decisions: [issue_refund, record_receivable]
-    reason: >-
-      Issuing a refund and clearing the receivable it should offset, in one
-      hand, is how money leaves without a trail.
-
-people:
-  - id: p_ceo
-    name: Philip
-    contact: philip@ayc.example
-    position: Chief Executive Officer
-    unit: ayc
-    mandate:
-      decisions: [change_price]
-  - id: p_coo
-    name: Clark
-    contact: clark@ayc.example
-    position: Chief Operating Officer
-    unit: operations
-    mandate:
-      decisions: [receive_goods, deploy_change]
-  - id: p_cgo
-    name: Lea
-    contact: lea@ayc.example
-    position: Chief Growth Officer
-    unit: growth
-    mandate:
-      decisions: [publish_product, run_promotion, publish_content]
-  - id: p_buyer
-    name: Katy
-    contact: katy@ayc.example
-    position: Buyer
-    unit: purchasing
-    mandate:
-      decisions: [raise_po, receive_goods]
-  - id: p_warehouse
-    name: Andrew
-    contact: andrew@ayc.example
-    position: Warehouse and Shipping Lead
-    unit: warehouse
-    mandate:
-      decisions: [fulfill_order]
-  - id: p_inventory
-    name: Liang
-    contact: liang@ayc.example
-    position: Inventory Audit and Cycle Count
-    unit: inventory_audit
-    # Adjusts the count, and cannot ship — separation 'inventory_and_fulfillment'.
-    mandate:
-      decisions: [adjust_inventory]
-  - id: p_ap
-    name: Beverly
-    contact: beverly@ayc.example
-    position: Accounts Payable
-    unit: finance
-    mandate:
-      decisions: [pay_invoice]
-  - id: p_ar
-    name: Sherry
-    contact: sherry@ayc.example
-    position: Accounts Receivable
-    unit: finance
-    mandate:
-      decisions: [record_receivable]
-  - id: p_ecom
-    name: Ping
-    contact: ping@ayc.example
-    position: E-Commerce and Web
-    unit: ecommerce
-    mandate:
-      decisions: [publish_product]
-  - id: p_sales
-    name: Jacob
-    contact: jacob@ayc.example
-    position: Offline Sales and Customer Service
-    unit: customer_service
-    mandate:
-      decisions: [issue_refund]
-
-capabilities:
-  - id: product_publishing
-    description: Create or update a product listing on Shopify.
-    action: write
-    autonomy: supervised
-    resource_class: shopify
-    data_classes: [product_content]
-    decision: publish_product
-    constraints: {requires_approval: true}
-  - id: price_update
-    description: Change a selling price on the storefront.
-    action: write
-    autonomy: supervised
-    resource_class: shopify
-    data_classes: [product_content]
-    decision: change_price
-    constraints: {requires_approval: true}
-  - id: order_query
-    description: Read orders and their fulfillment status.
-    action: query
-    resource_class: shopify
-    data_classes: [order_data]
-    constraints: {max_rows: 1000, allowed_operations: [select]}
-  - id: stock_check
-    description: Check stock levels in Fishbowl for a product.
-    action: query
-    resource_class: fishbowl
-    data_classes: [inventory_data]
-    constraints: {max_rows: 500, allowed_operations: [select]}
-  - id: refund_processing
-    description: Issue a refund or a store credit against an order.
-    action: write
-    autonomy: supervised
-    resource_class: shopify
-    data_classes: [order_data, customer_pii]
-    decision: issue_refund
-    constraints: {requires_approval: true}
-  - id: purchase_ordering
-    description: Raise a purchase order to a supplier in Fishbowl.
-    action: write
-    autonomy: supervised
-    resource_class: fishbowl
-    data_classes: [supplier_data, inventory_data]
-    decision: raise_po
-    constraints: {requires_approval: true}
-  - id: goods_receiving
-    description: Receive goods against a purchase order.
-    action: write
-    autonomy: supervised
-    resource_class: fishbowl
-    data_classes: [inventory_data, supplier_data]
-    decision: receive_goods
-    constraints: {requires_approval: true}
-  - id: inventory_adjustment
-    description: Adjust an inventory record on a cycle count.
-    action: write
-    autonomy: supervised
-    resource_class: fishbowl
-    data_classes: [inventory_data]
-    decision: adjust_inventory
-    constraints: {requires_approval: true}
-  - id: order_fulfillment
-    description: Pick, pack and ship a customer order.
-    action: write
-    autonomy: supervised
-    resource_class: fishbowl
-    data_classes: [inventory_data, order_data]
-    decision: fulfill_order
-    constraints: {requires_approval: true}
-  - id: invoice_payment
-    description: Pay a supplier invoice.
-    action: write
-    autonomy: supervised
-    resource_class: accounting
-    data_classes: [financial_records]
-    decision: pay_invoice
-    constraints: {requires_approval: true}
-  - id: receivable_management
-    description: Record or write off a customer receivable.
-    action: write
-    autonomy: supervised
-    resource_class: accounting
-    data_classes: [financial_records]
-    decision: record_receivable
-    constraints: {requires_approval: true}
-  - id: promotion_run
-    description: Run a promotion or a discount on the storefront.
-    action: write
-    autonomy: supervised
-    resource_class: shopify
-    data_classes: [product_content]
-    decision: run_promotion
-    constraints: {requires_approval: true}
-  - id: content_publishing
-    description: Publish marketing or product content.
-    action: publish
-    autonomy: autonomous
-    resource_class: cms
-    data_classes: [product_content, public_knowledge]
-    decision: publish_content
-  - id: software_deploy
-    description: Deploy a change to a production system.
-    action: administer
-    autonomy: supervised
-    resource_class: deploy_pipeline
-    data_classes: [public_knowledge]
-    decision: deploy_change
-    constraints: {requires_approval: true}
-
-# A skill, a plugin, a tool, an endpoint and an output contract — the feature
-# surface, exercised.
-skills:
-  - id: listing_copy
-    description: Write product listing copy that is accurate to the spec sheet.
-    instructions: >-
-      Never invent a dimension or a material. If the spec sheet is silent, say
-      so rather than guessing; a wrong measurement on a spa is a return.
-    triggers: [listing, merchandising]
-    requires_capabilities: [product_publishing]
-
-plugins:
-  - id: commerce_pack
-    description: Storefront helpers for the e-commerce team.
-    provides_skills: [listing_copy]
-    provides_tools: [stock_lookup]
-    requires_capabilities: [stock_check]
-
-tools:
-  - id: stock_lookup
-    description: Look up the Fishbowl stock level for one SKU, already scoped.
-    wraps_kind: capability
-    wraps: stock_check
-    input_schema:
-      sku: string
-    output_schema:
-      on_hand: number
-      location: string
-    constraints:
-      max_rows: 1
-      allowed_operations: [select]
-
-endpoints:
-  - id: freight_carrier
-    description: A contracted freight carrier's rating and tracking agent.
-    trust: partner
-    provides: [rate_quote, tracking]
-    send_data_classes: [order_data]
-    treat_output_as_data: true
-    requires_approval: false
-    response_sla_seconds: 30
-    secret_ref: FREIGHT_CARRIER_KEY
-
-output_contracts:
-  - id: sourced_listing
-    description: A listing whose every spec claim cites the spec sheet.
-    schema:
-      type: object
-      required: [claims]
-      properties:
-        claims:
-          type: array
-          items:
-            type: object
-            required: [text, source]
-            properties:
-              text: {type: string}
-              source: {type: string}
-    on_violation: retry
-    max_retries: 2
-
 artifact_stores:
   - id: commerce_scratch
     description: Working files for the storefront and merchandising teams.
@@ -388,141 +43,6 @@ context:
   offload_tool_output_bytes: 24000
   offload_to: commerce_scratch
   retain_summaries: true
-
-knowledge:
-  - id: product_specs
-    description: Spec sheets and manufacturer documentation for the catalog.
-    kind: document_store
-    data_classes: [public_knowledge]
-
-environments:
-  - id: storefront_ops
-    description: Shopify storefront, orders and merchandising.
-    toolchains: [data_analysis]
-    tier: medium
-    network: allowlist
-    egress_allowlist: ["admin.shopify.com", "cms.internal"]
-    mounts: [order_data, customer_pii, product_content]
-    persistence: ephemeral
-  - id: warehouse_ops
-    description: Fishbowl inventory, purchasing and fulfillment.
-    toolchains: [data_analysis]
-    tier: medium
-    network: allowlist
-    egress_allowlist: ["fishbowl.internal"]
-    mounts: [inventory_data, order_data, supplier_data]
-    persistence: ephemeral
-  - id: finance_ops
-    description: Payables and receivables against the ledger.
-    toolchains: [data_analysis]
-    tier: minimal
-    network: allowlist
-    egress_allowlist: ["accounting.internal"]
-    mounts: [financial_records]
-    persistence: ephemeral
-  - id: studio
-    description: Content and merchandising drafts.
-    toolchains: [scripting]
-    tier: minimal
-    network: allowlist
-    egress_allowlist: ["cms.internal"]
-    mounts: [product_content]
-    persistence: ephemeral
-  - id: build
-    description: Building and deploying platform changes.
-    toolchains: [software_build]
-    tier: medium
-    network: allowlist
-    egress_allowlist: ["registry.internal", "deploy.internal"]
-    mounts: [public_knowledge]
-    persistence: ephemeral
-
-roles:
-  - id: ayc_team
-    title: AYC
-    kind: team
-    responsibilities:
-      - Sell salon furnishings honestly and ship them on time.
-    permissions:
-      - {action: read, resource_kind: data_class, resource: public_knowledge}
-  - id: division_lead
-    title: Division lead
-    responsibilities:
-      - Own a division's outcomes and the judgement its mandate carries.
-      - Never reach around a control.
-    permissions:
-      - {action: read, resource_kind: data_class, resource: public_knowledge}
-  - id: ecommerce_manager
-    title: E-commerce manager
-    responsibilities:
-      - Publish accurate listings on Shopify and check stock in Fishbowl before doing so.
-    capabilities: [product_publishing, order_query, stock_check]
-    permissions:
-      - {action: write, resource_kind: capability, resource: product_publishing}
-      - {action: query, resource_kind: capability, resource: order_query}
-      - {action: query, resource_kind: capability, resource: stock_check}
-  - id: buyer
-    title: Buyer
-    responsibilities:
-      - Raise purchase orders and receive goods against them in Fishbowl.
-    capabilities: [purchase_ordering, goods_receiving, stock_check]
-    permissions:
-      - {action: write, resource_kind: capability, resource: purchase_ordering}
-      - {action: write, resource_kind: capability, resource: goods_receiving}
-      - {action: query, resource_kind: capability, resource: stock_check}
-  - id: warehouse_officer
-    title: Warehouse officer
-    responsibilities:
-      - Pick, pack and ship customer orders from Fishbowl.
-    capabilities: [order_fulfillment, order_query]
-    permissions:
-      - {action: write, resource_kind: capability, resource: order_fulfillment}
-      - {action: query, resource_kind: capability, resource: order_query}
-  - id: inventory_auditor
-    title: Inventory auditor
-    responsibilities:
-      - Run cycle counts and adjust inventory records in Fishbowl, independent of the dock.
-    capabilities: [inventory_adjustment, stock_check]
-    permissions:
-      - {action: write, resource_kind: capability, resource: inventory_adjustment}
-      - {action: query, resource_kind: capability, resource: stock_check}
-  - id: payables_clerk
-    title: Payables clerk
-    responsibilities:
-      - Pay supplier invoices against a matched purchase order.
-    capabilities: [invoice_payment]
-    permissions:
-      - {action: write, resource_kind: capability, resource: invoice_payment}
-  - id: receivables_clerk
-    title: Receivables clerk
-    responsibilities:
-      - Record and reconcile customer receivables.
-    capabilities: [receivable_management]
-    permissions:
-      - {action: write, resource_kind: capability, resource: receivable_management}
-  - id: customer_service_rep
-    title: Customer service representative
-    responsibilities:
-      - Resolve customer issues and issue refunds where they are owed.
-    capabilities: [refund_processing, order_query]
-    permissions:
-      - {action: write, resource_kind: capability, resource: refund_processing}
-      - {action: query, resource_kind: capability, resource: order_query}
-  - id: marketer
-    title: Marketer
-    responsibilities:
-      - Run promotions and publish content that matches the live catalog.
-    capabilities: [promotion_run, content_publishing]
-    permissions:
-      - {action: write, resource_kind: capability, resource: promotion_run}
-      - {action: publish, resource_kind: capability, resource: content_publishing}
-  - id: engineer
-    title: Platform engineer
-    responsibilities:
-      - Build and deploy platform changes safely.
-    capabilities: [software_deploy]
-    permissions:
-      - {action: administer, resource_kind: capability, resource: software_deploy}
 
 organization:
   id: ayc
@@ -919,188 +439,695 @@ organization:
               environments:
                 - environment: studio
 
-# Oversight and service relationships that are not containment (ADR-0081).
-unit_links:
-  - source: inventory_audit
-    target: warehouse
-    kind: oversees
-    reason: >-
-      Inventory audit counts what the warehouse ships. An audit inside the dock
-      it checks is not a control.
-  - source: finance
-    target: purchasing
-    kind: oversees
-    reason: >-
-      Finance pays what purchasing orders and holds the spend to a match.
-  - source: it
-    target: ecommerce
-    kind: serves
-    reason: >-
-      IT runs the Shopify and Fishbowl integrations the storefront depends on.
-      A service relationship, not authority over merchandising.
-  - source: ecommerce
-    target: marketing
-    kind: partners_with
-    reason: >-
-      The storefront and marketing share the catalog and neither directs the
-      other. Declared inert.
+  operating_principles:
+    - The stock number in Fishbowl and the listing on Shopify tell one story; keep them the same one.
+    - A control you route around is a control you do not have.
 
-interaction_flows:
-  - {source: ecommerce_agent, target: inventory_agent, kind: consult}
-  - {source: warehouse_agent, target: inventory_agent, kind: escalate}
-  - {source: cs_agent, target: ar_agent, kind: notify}
-  - {source: buyer_agent, target: ap_agent, kind: notify}
-  - {source: marketing_agent, target: ecommerce_agent, kind: consult}
+  data_classes:
+    - id: public_knowledge
+      description: The public catalog, published policies and price lists.
+      scope: public
+    - id: customer_pii
+      description: Shopify customer identity, addresses and order contact details.
+      scope: private
+      groups: [commerce]
+      allowed_environments: [storefront_ops]
+      may_appear_in_traces: false
+      # What it *is*, as distinct from how it is protected (ADR-0099).
+      semantics: subject
+    - id: order_data
+      description: Orders, fulfillments and shipment status.
+      scope: protected
+      groups: [commerce, operations]
+      allowed_environments: [storefront_ops, warehouse_ops]
+      semantics: event
+      relations:
+        # An order names the customer it is for. Saying so lets a rule about
+        # the customer follow the order, instead of relying on somebody to
+        # remember that it should.
+        - kind: identifies
+          target: customer_pii
+    - id: inventory_data
+      description: Fishbowl inventory, stock levels, cycle counts and locations.
+      scope: protected
+      groups: [operations]
+      allowed_environments: [warehouse_ops]
+      semantics: reference
+    - id: supplier_data
+      description: Suppliers, purchase orders and cost prices.
+      scope: protected
+      groups: [operations]
+      allowed_environments: [warehouse_ops]
+    - id: financial_records
+      description: Payables, receivables and the ledger.
+      scope: protected
+      groups: [finance]
+      allowed_environments: [finance_ops]
+    - id: product_content
+      description: Product copy, imagery and merchandising drafts.
+      scope: protected
+      groups: [commerce, marketing]
+      allowed_environments: [storefront_ops, studio]
 
-missions:
-  - id: peak_season_readiness
-    name: Peak-season readiness
-    objective: >-
-      Get the catalog, stock and promotions ready for the peak salon-refit
-      season: reconcile Shopify listings to Fishbowl stock and stage the
-      promotions.
-    deliverables:
-      - Every live listing reconciled to sellable Fishbowl stock.
-      - The promotion calendar staged against confirmed stock and prices.
-    success_criteria:
-      - No promotion is scheduled for a product without confirmed stock.
-    status: active
-    leader: cgo_agent
-    members: [cgo_agent, ecommerce_agent, inventory_agent, marketing_agent]
-    sponsor:
+  decisions:
+    - id: publish_product
+      title: Publish or change a product listing on the storefront
+    - id: change_price
+      title: Change a selling price
+    - id: raise_po
+      title: Raise a purchase order to a supplier
+    - id: receive_goods
+      title: Receive goods against a purchase order
+    - id: adjust_inventory
+      title: Adjust an inventory record on a cycle count
+      description: The classic shrinkage cover-up if the shipper can also do it.
+    - id: fulfill_order
+      title: Fulfill and ship a customer order
+    - id: issue_refund
+      title: Issue a refund or a store credit
+    - id: pay_invoice
+      title: Pay a supplier invoice
+    - id: record_receivable
+      title: Record or write off a customer receivable
+    - id: run_promotion
+      title: Run a promotion or a discount
+    - id: publish_content
+      title: Publish marketing or product content
+    - id: deploy_change
+      title: Deploy a change to a production system
+
+  separations:
+    - id: purchasing_and_payment
+      decisions: [raise_po, pay_invoice]
+      enforcement:
+        enforced_by: both
+        authoritative: application
+        enforced_in: the accounting system's three-way match
+      reason: >-
+        A buyer who both raises the purchase order and pays the invoice can pay a
+        supplier that does not exist. Purchasing raises; Finance pays.
+    - id: inventory_and_fulfillment
+      decisions: [adjust_inventory, fulfill_order]
+      enforcement:
+        enforced_by: both
+        authoritative: application
+        enforced_in: Fishbowl's cycle-count approval
+      reason: >-
+        Whoever ships the goods must not also adjust the count, or shrinkage
+        disappears into an "adjustment". The cycle count is independent of the dock.
+    - id: refund_and_receivable
+      decisions: [issue_refund, record_receivable]
+      reason: >-
+        Issuing a refund and clearing the receivable it should offset, in one
+        hand, is how money leaves without a trail.
+
+  people:
+    - id: p_ceo
+      name: Philip
+      contact: philip@ayc.example
+      position: Chief Executive Officer
+      unit: ayc
+      mandate:
+        decisions: [change_price]
+    - id: p_coo
+      name: Clark
+      contact: clark@ayc.example
+      position: Chief Operating Officer
+      unit: operations
+      mandate:
+        decisions: [receive_goods, deploy_change]
+    - id: p_cgo
       name: Lea
       contact: lea@ayc.example
-      role_title: Chief Growth Officer
-      roles: [owner]
-    starts_on: "2026-10-01"
-    ends_on: "2026-12-15"
-    internal_delegation: true
+      position: Chief Growth Officer
+      unit: growth
+      mandate:
+        decisions: [publish_product, run_promotion, publish_content]
+    - id: p_buyer
+      name: Katy
+      contact: katy@ayc.example
+      position: Buyer
+      unit: purchasing
+      mandate:
+        decisions: [raise_po, receive_goods]
+    - id: p_warehouse
+      name: Andrew
+      contact: andrew@ayc.example
+      position: Warehouse and Shipping Lead
+      unit: warehouse
+      mandate:
+        decisions: [fulfill_order]
+    - id: p_inventory
+      name: Liang
+      contact: liang@ayc.example
+      position: Inventory Audit and Cycle Count
+      unit: inventory_audit
+      # Adjusts the count, and cannot ship — separation 'inventory_and_fulfillment'.
+      mandate:
+        decisions: [adjust_inventory]
+    - id: p_ap
+      name: Beverly
+      contact: beverly@ayc.example
+      position: Accounts Payable
+      unit: finance
+      mandate:
+        decisions: [pay_invoice]
+    - id: p_ar
+      name: Sherry
+      contact: sherry@ayc.example
+      position: Accounts Receivable
+      unit: finance
+      mandate:
+        decisions: [record_receivable]
+    - id: p_ecom
+      name: Ping
+      contact: ping@ayc.example
+      position: E-Commerce and Web
+      unit: ecommerce
+      mandate:
+        decisions: [publish_product]
+    - id: p_sales
+      name: Jacob
+      contact: jacob@ayc.example
+      position: Offline Sales and Customer Service
+      unit: customer_service
+      mandate:
+        decisions: [issue_refund]
 
-workflows:
-  - id: listing_readiness
-    name: listing-readiness
-    description: >-
-      Before a product is listed, check its Fishbowl stock and assemble the
-      listing from the spec sheet.
-    graph:
-      entry: stock
-      nodes:
-        - id: stock
-          kind: tool
-          tool: stock_check
-          output: on_hand
-        - id: draft
-          kind: agent
-          agent: ecommerce_agent
-          args:
-            on_hand: "{{ on_hand }}"
-          output: listing
-      # Without these the stock check ran and the draft never did — a declared
-      # step that silently did not happen. The gate refuses that now (ADR-0096).
-      edges:
-        - from: stock
-          to: draft
-        - from: draft
-          to: END
-
-  - id: restock_review
-    name: restock-review
-    description: >-
-      Walk the low-stock list one SKU at a time, raising a purchase order for
-      each, until none is left. A genuinely cyclic process: the loop is the
-      point, and the step bound is what stops one that does not converge.
-    graph:
-      entry: survey
-      nodes:
-        - id: survey
-          kind: tool
-          tool: stock_check
-          output: low_stock
-        # A branch is the only node that may declare several ways out, because
-        # it is the only one that chooses between them (ADR-0096). Everything
-        # else takes one edge, and a second would be refused rather than
-        # silently dropped.
-        - id: any_left
-          kind: branch
-          cases:
-            - when: len(low_stock) > 0
-              to: order
-          default: END
-        - id: order
-          kind: agent
-          agent: buyer_agent
-          args:
-            sku: "{{ low_stock }}"
-          output: purchase_order
-      edges:
-        - from: survey
-          to: any_left
-        # The edge that makes this a cycle: having ordered, survey again. It
-        # goes back to the *survey*, not to the branch — a loop that re-tests
-        # a condition nothing has re-measured is a loop that cannot converge,
-        # which is the easiest cyclic-workflow mistake to make and the one the
-        # step bound exists to catch. A review loop that runs until it passes
-        # is a real process, so cycles are legal; `max_steps` is what stands
-        # between one that does not converge and forever, and the error names
-        # the bound it hit.
-        - from: order
-          to: survey
-
-triggers:
-  - id: nightly_stock_reconcile
-    description: Reconcile Shopify listings to Fishbowl stock overnight.
-    kind: schedule
-    agent: ecommerce_agent
-    workflow: listing_readiness
-    cadence:
-      expression: 0 2 * * *
-      timezone: America/Los_Angeles
-    input:
-      scope: all_listings
-    deliver_to: [ops_desk]
-    overlap: skip
-
-policies:
-  - id: pii_stays_on_the_storefront
-    effect: deny
-    description: Customer identity data may only be touched on the storefront.
-    actions: [query, read, write]
-    resource_kinds: [data_class]
-    resources: [customer_pii]
-    unless:
-      environments: [storefront_ops]
-
-channels:
-  - id: ops_desk
-    channel_class: team_chat
-    description: Where stock and fulfillment alerts land for humans.
-    purposes: [notify]
-    human_facing: true
-    members: [coo_agent, warehouse_agent]
-  - id: growth_desk
-    channel_class: team_chat
-    description: Where listing and promotion questions go for a human.
-    purposes: [ask, notify]
-    human_facing: true
-    members: [cgo_agent, ecommerce_agent]
-
-memory:
-  session:
-    retention_minutes: 180
-  long_term:
-    enabled: true
-    retention_days: 365
-    recall: on_demand
-    promotion_allowed: true
-    promotion_requires_approval: true
-    redact_data_classes: [customer_pii]
-  namespaces:
-    - id: merchandising_lessons
-      description: What listings and promotions worked, de-identified.
-      scope: protected
-      groups: [commerce]
+  capabilities:
+    - id: product_publishing
+      description: Create or update a product listing on Shopify.
+      action: write
+      autonomy: supervised
+      resource_class: shopify
+      data_classes: [product_content]
+      decision: publish_product
+      constraints: {requires_approval: true}
+    - id: price_update
+      description: Change a selling price on the storefront.
+      action: write
+      autonomy: supervised
+      resource_class: shopify
+      data_classes: [product_content]
+      decision: change_price
+      constraints: {requires_approval: true}
+    - id: order_query
+      description: Read orders and their fulfillment status.
+      action: query
+      resource_class: shopify
+      data_classes: [order_data]
+      constraints: {max_rows: 1000, allowed_operations: [select]}
+    - id: stock_check
+      description: Check stock levels in Fishbowl for a product.
+      action: query
+      resource_class: fishbowl
+      data_classes: [inventory_data]
+      constraints: {max_rows: 500, allowed_operations: [select]}
+    - id: refund_processing
+      description: Issue a refund or a store credit against an order.
+      action: write
+      autonomy: supervised
+      resource_class: shopify
+      data_classes: [order_data, customer_pii]
+      decision: issue_refund
+      constraints: {requires_approval: true}
+    - id: purchase_ordering
+      description: Raise a purchase order to a supplier in Fishbowl.
+      action: write
+      autonomy: supervised
+      resource_class: fishbowl
+      data_classes: [supplier_data, inventory_data]
+      decision: raise_po
+      constraints: {requires_approval: true}
+    - id: goods_receiving
+      description: Receive goods against a purchase order.
+      action: write
+      autonomy: supervised
+      resource_class: fishbowl
+      data_classes: [inventory_data, supplier_data]
+      decision: receive_goods
+      constraints: {requires_approval: true}
+    - id: inventory_adjustment
+      description: Adjust an inventory record on a cycle count.
+      action: write
+      autonomy: supervised
+      resource_class: fishbowl
+      data_classes: [inventory_data]
+      decision: adjust_inventory
+      constraints: {requires_approval: true}
+    - id: order_fulfillment
+      description: Pick, pack and ship a customer order.
+      action: write
+      autonomy: supervised
+      resource_class: fishbowl
+      data_classes: [inventory_data, order_data]
+      decision: fulfill_order
+      constraints: {requires_approval: true}
+    - id: invoice_payment
+      description: Pay a supplier invoice.
+      action: write
+      autonomy: supervised
+      resource_class: accounting
+      data_classes: [financial_records]
+      decision: pay_invoice
+      constraints: {requires_approval: true}
+    - id: receivable_management
+      description: Record or write off a customer receivable.
+      action: write
+      autonomy: supervised
+      resource_class: accounting
+      data_classes: [financial_records]
+      decision: record_receivable
+      constraints: {requires_approval: true}
+    - id: promotion_run
+      description: Run a promotion or a discount on the storefront.
+      action: write
+      autonomy: supervised
+      resource_class: shopify
+      data_classes: [product_content]
+      decision: run_promotion
+      constraints: {requires_approval: true}
+    - id: content_publishing
+      description: Publish marketing or product content.
+      action: publish
+      autonomy: autonomous
+      resource_class: cms
+      data_classes: [product_content, public_knowledge]
+      decision: publish_content
+    - id: software_deploy
+      description: Deploy a change to a production system.
+      action: administer
+      autonomy: supervised
+      resource_class: deploy_pipeline
       data_classes: [public_knowledge]
+      decision: deploy_change
+      constraints: {requires_approval: true}
+
+  # A skill, a plugin, a tool, an endpoint and an output contract — the feature
+  # surface, exercised.
+  skills:
+    - id: listing_copy
+      description: Write product listing copy that is accurate to the spec sheet.
+      instructions: >-
+        Never invent a dimension or a material. If the spec sheet is silent, say
+        so rather than guessing; a wrong measurement on a spa is a return.
+      triggers: [listing, merchandising]
+      requires_capabilities: [product_publishing]
+
+  plugins:
+    - id: commerce_pack
+      description: Storefront helpers for the e-commerce team.
+      provides_skills: [listing_copy]
+      provides_tools: [stock_lookup]
+      requires_capabilities: [stock_check]
+
+  tools:
+    - id: stock_lookup
+      description: Look up the Fishbowl stock level for one SKU, already scoped.
+      wraps_kind: capability
+      wraps: stock_check
+      input_schema:
+        sku: string
+      output_schema:
+        on_hand: number
+        location: string
+      constraints:
+        max_rows: 1
+        allowed_operations: [select]
+
+  endpoints:
+    - id: freight_carrier
+      description: A contracted freight carrier's rating and tracking agent.
+      trust: partner
+      provides: [rate_quote, tracking]
+      send_data_classes: [order_data]
+      treat_output_as_data: true
+      requires_approval: false
+      response_sla_seconds: 30
+      secret_ref: FREIGHT_CARRIER_KEY
+
+  output_contracts:
+    - id: sourced_listing
+      description: A listing whose every spec claim cites the spec sheet.
+      schema:
+        type: object
+        required: [claims]
+        properties:
+          claims:
+            type: array
+            items:
+              type: object
+              required: [text, source]
+              properties:
+                text: {type: string}
+                source: {type: string}
+      on_violation: retry
+      max_retries: 2
+
+  knowledge:
+    - id: product_specs
+      description: Spec sheets and manufacturer documentation for the catalog.
+      kind: document_store
+      data_classes: [public_knowledge]
+
+  environments:
+    - id: storefront_ops
+      description: Shopify storefront, orders and merchandising.
+      toolchains: [data_analysis]
+      tier: medium
+      network: allowlist
+      egress_allowlist: ["admin.shopify.com", "cms.internal"]
+      mounts: [order_data, customer_pii, product_content]
+      persistence: ephemeral
+    - id: warehouse_ops
+      description: Fishbowl inventory, purchasing and fulfillment.
+      toolchains: [data_analysis]
+      tier: medium
+      network: allowlist
+      egress_allowlist: ["fishbowl.internal"]
+      mounts: [inventory_data, order_data, supplier_data]
+      persistence: ephemeral
+    - id: finance_ops
+      description: Payables and receivables against the ledger.
+      toolchains: [data_analysis]
+      tier: minimal
+      network: allowlist
+      egress_allowlist: ["accounting.internal"]
+      mounts: [financial_records]
+      persistence: ephemeral
+    - id: studio
+      description: Content and merchandising drafts.
+      toolchains: [scripting]
+      tier: minimal
+      network: allowlist
+      egress_allowlist: ["cms.internal"]
+      mounts: [product_content]
+      persistence: ephemeral
+    - id: build
+      description: Building and deploying platform changes.
+      toolchains: [software_build]
+      tier: medium
+      network: allowlist
+      egress_allowlist: ["registry.internal", "deploy.internal"]
+      mounts: [public_knowledge]
+      persistence: ephemeral
+
+  role_definitions:
+    - id: ayc_team
+      title: AYC
+      kind: team
+      responsibilities:
+        - Sell salon furnishings honestly and ship them on time.
+      permissions:
+        - {action: read, resource_kind: data_class, resource: public_knowledge}
+    - id: division_lead
+      title: Division lead
+      responsibilities:
+        - Own a division's outcomes and the judgement its mandate carries.
+        - Never reach around a control.
+      permissions:
+        - {action: read, resource_kind: data_class, resource: public_knowledge}
+    - id: ecommerce_manager
+      title: E-commerce manager
+      responsibilities:
+        - Publish accurate listings on Shopify and check stock in Fishbowl before doing so.
+      capabilities: [product_publishing, order_query, stock_check]
+      permissions:
+        - {action: write, resource_kind: capability, resource: product_publishing}
+        - {action: query, resource_kind: capability, resource: order_query}
+        - {action: query, resource_kind: capability, resource: stock_check}
+    - id: buyer
+      title: Buyer
+      responsibilities:
+        - Raise purchase orders and receive goods against them in Fishbowl.
+      capabilities: [purchase_ordering, goods_receiving, stock_check]
+      permissions:
+        - {action: write, resource_kind: capability, resource: purchase_ordering}
+        - {action: write, resource_kind: capability, resource: goods_receiving}
+        - {action: query, resource_kind: capability, resource: stock_check}
+    - id: warehouse_officer
+      title: Warehouse officer
+      responsibilities:
+        - Pick, pack and ship customer orders from Fishbowl.
+      capabilities: [order_fulfillment, order_query]
+      permissions:
+        - {action: write, resource_kind: capability, resource: order_fulfillment}
+        - {action: query, resource_kind: capability, resource: order_query}
+    - id: inventory_auditor
+      title: Inventory auditor
+      responsibilities:
+        - Run cycle counts and adjust inventory records in Fishbowl, independent of the dock.
+      capabilities: [inventory_adjustment, stock_check]
+      permissions:
+        - {action: write, resource_kind: capability, resource: inventory_adjustment}
+        - {action: query, resource_kind: capability, resource: stock_check}
+    - id: payables_clerk
+      title: Payables clerk
+      responsibilities:
+        - Pay supplier invoices against a matched purchase order.
+      capabilities: [invoice_payment]
+      permissions:
+        - {action: write, resource_kind: capability, resource: invoice_payment}
+    - id: receivables_clerk
+      title: Receivables clerk
+      responsibilities:
+        - Record and reconcile customer receivables.
+      capabilities: [receivable_management]
+      permissions:
+        - {action: write, resource_kind: capability, resource: receivable_management}
+    - id: customer_service_rep
+      title: Customer service representative
+      responsibilities:
+        - Resolve customer issues and issue refunds where they are owed.
+      capabilities: [refund_processing, order_query]
+      permissions:
+        - {action: write, resource_kind: capability, resource: refund_processing}
+        - {action: query, resource_kind: capability, resource: order_query}
+    - id: marketer
+      title: Marketer
+      responsibilities:
+        - Run promotions and publish content that matches the live catalog.
+      capabilities: [promotion_run, content_publishing]
+      permissions:
+        - {action: write, resource_kind: capability, resource: promotion_run}
+        - {action: publish, resource_kind: capability, resource: content_publishing}
+    - id: engineer
+      title: Platform engineer
+      responsibilities:
+        - Build and deploy platform changes safely.
+      capabilities: [software_deploy]
+      permissions:
+        - {action: administer, resource_kind: capability, resource: software_deploy}
+
+  # Oversight and service relationships that are not containment (ADR-0081).
+  unit_links:
+    - source: inventory_audit
+      target: warehouse
+      kind: oversees
+      reason: >-
+        Inventory audit counts what the warehouse ships. An audit inside the dock
+        it checks is not a control.
+    - source: finance
+      target: purchasing
+      kind: oversees
+      reason: >-
+        Finance pays what purchasing orders and holds the spend to a match.
+    - source: it
+      target: ecommerce
+      kind: serves
+      reason: >-
+        IT runs the Shopify and Fishbowl integrations the storefront depends on.
+        A service relationship, not authority over merchandising.
+    - source: ecommerce
+      target: marketing
+      kind: partners_with
+      reason: >-
+        The storefront and marketing share the catalog and neither directs the
+        other. Declared inert.
+
+  interaction_flows:
+    - {source: ecommerce_agent, target: inventory_agent, kind: consult}
+    - {source: warehouse_agent, target: inventory_agent, kind: escalate}
+    - {source: cs_agent, target: ar_agent, kind: notify}
+    - {source: buyer_agent, target: ap_agent, kind: notify}
+    - {source: marketing_agent, target: ecommerce_agent, kind: consult}
+
+  missions:
+    - id: peak_season_readiness
+      name: Peak-season readiness
+      objective: >-
+        Get the catalog, stock and promotions ready for the peak salon-refit
+        season: reconcile Shopify listings to Fishbowl stock and stage the
+        promotions.
+      deliverables:
+        - Every live listing reconciled to sellable Fishbowl stock.
+        - The promotion calendar staged against confirmed stock and prices.
+      success_criteria:
+        - No promotion is scheduled for a product without confirmed stock.
+      status: active
+      leader: cgo_agent
+      members: [cgo_agent, ecommerce_agent, inventory_agent, marketing_agent]
+      sponsor:
+        name: Lea
+        contact: lea@ayc.example
+        role_title: Chief Growth Officer
+        roles: [owner]
+      starts_on: "2026-10-01"
+      ends_on: "2026-12-15"
+      internal_delegation: true
+
+  workflows:
+    - id: listing_readiness
+      name: listing-readiness
+      description: >-
+        Before a product is listed, check its Fishbowl stock and assemble the
+        listing from the spec sheet.
+      graph:
+        entry: stock
+        nodes:
+          - id: stock
+            kind: tool
+            tool: stock_check
+            output: on_hand
+          - id: draft
+            kind: agent
+            agent: ecommerce_agent
+            args:
+              on_hand: "{{ on_hand }}"
+            output: listing
+        # Without these the stock check ran and the draft never did — a declared
+        # step that silently did not happen. The gate refuses that now (ADR-0096).
+        edges:
+          - from: stock
+            to: draft
+          - from: draft
+            to: END
+
+    - id: restock_review
+      name: restock-review
+      description: >-
+        Walk the low-stock list one SKU at a time, raising a purchase order for
+        each, until none is left. A genuinely cyclic process: the loop is the
+        point, and the step bound is what stops one that does not converge.
+      graph:
+        entry: survey
+        nodes:
+          - id: survey
+            kind: tool
+            tool: stock_check
+            output: low_stock
+          # A branch is the only node that may declare several ways out, because
+          # it is the only one that chooses between them (ADR-0096). Everything
+          # else takes one edge, and a second would be refused rather than
+          # silently dropped.
+          - id: any_left
+            kind: branch
+            cases:
+              - when: len(low_stock) > 0
+                to: order
+            default: END
+          - id: order
+            kind: agent
+            agent: buyer_agent
+            args:
+              sku: "{{ low_stock }}"
+            output: purchase_order
+        edges:
+          - from: survey
+            to: any_left
+          # The edge that makes this a cycle: having ordered, survey again. It
+          # goes back to the *survey*, not to the branch — a loop that re-tests
+          # a condition nothing has re-measured is a loop that cannot converge,
+          # which is the easiest cyclic-workflow mistake to make and the one the
+          # step bound exists to catch. A review loop that runs until it passes
+          # is a real process, so cycles are legal; `max_steps` is what stands
+          # between one that does not converge and forever, and the error names
+          # the bound it hit.
+          - from: order
+            to: survey
+
+  triggers:
+    - id: nightly_stock_reconcile
+      description: Reconcile Shopify listings to Fishbowl stock overnight.
+      kind: schedule
+      agent: ecommerce_agent
+      workflow: listing_readiness
+      cadence:
+        expression: 0 2 * * *
+        timezone: America/Los_Angeles
+      input:
+        scope: all_listings
+      deliver_to: [ops_desk]
+      overlap: skip
+
+  policies:
+    - id: pii_stays_on_the_storefront
+      effect: deny
+      description: Customer identity data may only be touched on the storefront.
+      actions: [query, read, write]
+      resource_kinds: [data_class]
+      resources: [customer_pii]
+      unless:
+        environments: [storefront_ops]
+
+  channels:
+    - id: ops_desk
+      channel_class: team_chat
+      description: Where stock and fulfillment alerts land for humans.
+      purposes: [notify]
+      human_facing: true
+      members: [coo_agent, warehouse_agent]
+    - id: growth_desk
+      channel_class: team_chat
+      description: Where listing and promotion questions go for a human.
+      purposes: [ask, notify]
+      human_facing: true
+      members: [cgo_agent, ecommerce_agent]
+
+  memory:
+    session:
+      retention_minutes: 180
+    long_term:
+      enabled: true
       retention_days: 365
+      recall: on_demand
+      promotion_allowed: true
+      promotion_requires_approval: true
+      redact_data_classes: [customer_pii]
+    namespaces:
+      - id: merchandising_lessons
+        description: What listings and promotions worked, de-identified.
+        scope: protected
+        groups: [commerce]
+        data_classes: [public_knowledge]
+        retention_days: 365
+
+  guardrails:
+    - id: no_pii_outbound
+      description: Customer identity data never leaves on an outbound message.
+      applies_to: [output, tool_output]
+      checks: [data_class]
+      data_classes: [customer_pii]
+      on_violation: block
+    - id: no_cost_price_outbound
+      description: Supplier cost prices do not leak into customer-facing content.
+      applies_to: [output, tool_output]
+      checks: [data_class]
+      data_classes: [supplier_data]
+      on_violation: block
+    - id: no_credentials_out
+      description: Nothing credential-shaped leaves an agent, ever.
+      applies_to: [output, tool_output]
+      checks: [secrets]
+      on_violation: block
+    - id: screen_inbound_messages
+      description: >-
+        Customer messages, supplier emails and marketplace notices are somebody
+        else's writing. Screen them.
+      applies_to: [input, tool_output]
+      checks: [prompt_injection]
+      on_violation: escalate
+      escalate_channel: growth_desk
 
 budgets:
   - id: company_monthly
@@ -1139,33 +1166,6 @@ observability:
   retention_days: 365
   sample_rate: 1.0
   redact_data_classes: [customer_pii]
-
-guardrails:
-  - id: no_pii_outbound
-    description: Customer identity data never leaves on an outbound message.
-    applies_to: [output, tool_output]
-    checks: [data_class]
-    data_classes: [customer_pii]
-    on_violation: block
-  - id: no_cost_price_outbound
-    description: Supplier cost prices do not leak into customer-facing content.
-    applies_to: [output, tool_output]
-    checks: [data_class]
-    data_classes: [supplier_data]
-    on_violation: block
-  - id: no_credentials_out
-    description: Nothing credential-shaped leaves an agent, ever.
-    applies_to: [output, tool_output]
-    checks: [secrets]
-    on_violation: block
-  - id: screen_inbound_messages
-    description: >-
-      Customer messages, supplier emails and marketplace notices are somebody
-      else's writing. Screen them.
-    applies_to: [input, tool_output]
-    checks: [prompt_injection]
-    on_violation: escalate
-    escalate_channel: growth_desk
 
 lifecycle:
   stage: development

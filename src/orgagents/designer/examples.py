@@ -97,7 +97,7 @@ def _describe(path: Path, example_id: str) -> Example:
         path=path,
         agents=len([a for a in agents if a]),
         teams=len([t for t in teams if t]),
-        workflows=len(spec.get("workflows") or []),
+        workflows=len((org or {}).get("workflows") or []),
     )
 
 

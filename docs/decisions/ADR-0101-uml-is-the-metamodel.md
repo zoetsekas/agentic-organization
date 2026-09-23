@@ -2,7 +2,7 @@
 id: ADR-0101
 title: UML is the metamodel, and the platform's kinds are a UML profile
 status: Accepted
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-23
 updated: 2026-09-23
 deciders: [Platform Architecture]
@@ -119,9 +119,23 @@ The model is held to UML's own rules rather than borrowing its vocabulary:
   `environments` entry (`EnvironmentOverride`) is the configuration of that
   one deployment. The deployed element is the agent's instance, which UML
   allows (an InstanceSpecification is a DeployedArtifact).
-- **The «System» stereotype extends Model**, and composes every top-level
-  collection: a Model's packaged elements. The team tree hangs off its
-  single root team.
+- **Each organisation has one root, «Organization»**: a `Team` by
+  generalisation (it has a leader, members and sub-teams) and the owner of
+  every element of its model — people, role definitions, capabilities, data
+  classes, decisions, separations, policies, environments, skills, plugins,
+  tools, endpoints, knowledge, memory, workflows, channels, triggers,
+  missions, guardrails, output contracts, operating principles, and the
+  association-class links between its units and agents. The YAML carries
+  them under `organization:`; `roles` becomes `role_definitions` there,
+  because a Team's `roles` are the role *assignments* the unit holds.
+- **«System» extends Model** and owns exactly one Organization, plus what is
+  about running and releasing the design rather than what the organisation
+  is: metadata, model policy, context, budgets, compliance, lifecycle
+  (including evaluation cases), resilience, observability and deployment.
+  Every element therefore has exactly one owner, which a test checks.
+- The previous layout, with the collections at the top level, still loads:
+  it is moved under `organization` on validation, and the examples are
+  regenerated in the nested form.
 - **Constraints are declared**: a team's leader `{subsets members}`.
 - A Channel extends Class, not Node: it is a conversation space, not a
   computational resource.
@@ -203,5 +217,6 @@ Delivered with this ADR.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-23 | «Organization» is the root of each organisation and owns its elements; the YAML nests them under `organization:` (`roles` → `role_definitions`). |
 | 1.1.0 | 2026-09-23 | Strict UML: association classes, deployment specifications, «System» Model root, `{subsets members}`; generated PlantUML diagrams. |
 | 1.0.0 | 2026-09-23 | Accepted. A UML subset is the metamodel; the platform's kinds are a profile of stereotypes; relationships are UML kinds that decide drawing and dropping; environments become resizable deployment containers. |

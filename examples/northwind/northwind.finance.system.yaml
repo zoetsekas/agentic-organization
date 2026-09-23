@@ -19,519 +19,6 @@ metadata:
   owner: Northwind Platform Team
   environment: development
 
-data_classes:
-  - id: public_knowledge
-    description: Policies, calendars and glossaries any agent may read.
-    scope: public
-  - id: ledger
-    description: The general ledger, sub-ledgers and journal entries.
-    scope: protected
-    groups: [controllership]
-    allowed_environments: [analysis]
-  - id: payments
-    description: Payment runs, bank instructions and vendor bank details.
-    scope: protected
-    groups: [treasury]
-    allowed_environments: [payments_isolated]
-  - id: vendor_master
-    description: Vendor records, including bank details. A fraud surface.
-    scope: protected
-    groups: [controllership]
-    allowed_environments: [analysis]
-    may_appear_in_traces: false
-  - id: forecast
-    description: Plans, forecasts and the assumptions behind them.
-    scope: protected
-    groups: [fpa]
-    allowed_environments: [analysis]
-  - id: audit_findings
-    description: Internal Audit's working papers and findings.
-    scope: protected
-    groups: [audit]
-    allowed_environments: [analysis]
-
-# What Northwind's units may *decide*, as against what they may reach.
-decisions:
-  - id: raise_payment
-    title: Raise a payment
-    description: Enter an invoice and propose it for payment.
-  - id: approve_invoice
-    title: Approve an invoice for payment
-    description: Confirm an invoice is owed, correct and coded.
-  - id: release_payment
-    title: Release a payment to the bank
-    description: Instruct the bank. The last point before money moves.
-  - id: change_vendor_master
-    title: Change a vendor record
-    description: Including bank details. The classic fraud pairing with raise_payment.
-  - id: post_journal_entry
-    title: Post a journal entry
-  - id: close_period
-    title: Close an accounting period
-  - id: publish_forecast
-    title: Publish a forecast outside the team that made it
-  - id: file_tax_return
-    title: File a return with a tax authority
-  - id: open_audit_finding
-    title: Open or close an audit finding
-  - id: revise_plan
-    title: Revise the plan or a scenario
-    description: Change the working planning model. Not the same as publishing it.
-  - id: apply_receipt
-    title: Apply a customer receipt
-    description: Match incoming cash against an open invoice.
-  - id: write_off_receivable
-    title: Write off a receivable
-    description: Declare a customer debt uncollectable.
-  - id: publish_statements
-    title: Publish financial statements
-    description: Issue the balance sheet, P&L and cash flow outside the company.
-  - id: approve_budget
-    title: Approve a budget
-  - id: approve_capex
-    title: Approve capital expenditure
-    description: Commit to a long-term asset or project.
-  - id: raise_debt
-    title: Raise debt or change a credit line
-  - id: place_investment
-    title: Place surplus cash in an instrument
-  - id: execute_hedge
-    title: Execute a hedge against rate or currency exposure
-
-# Decisions no single agent may hold together (ADR-0070). This is the control
-# a finance function is built around, and it is the one thing hierarchical
-# narrowing cannot express on its own: without these, every leader holds the
-# union of everything beneath it.
-separations:
-  - id: payment_control
-    decisions: [raise_payment, approve_invoice, release_payment]
-    # Ours is a role-level approximation. The control an auditor tests is per
-    # document — the same clerk may raise invoice A and approve invoice B, but
-    # not both on A — and the ERP holds the document (ADR-0075 rule 4).
-    enforcement:
-      enforced_by: both
-      authoritative: application
-      enforced_in: the ERP's own segregation rules
-    reason: >-
-      One principal that can raise an invoice, approve it and instruct the bank
-      can pay a supplier that does not exist. Committing the fraud must require
-      collusion.
-  - id: vendor_and_payment
-    decisions: [change_vendor_master, raise_payment]
-    reason: >-
-      Changing a vendor's bank details and raising a payment to it is the
-      classic pairing; either alone is recoverable.
-  - id: audit_independence
-    decisions: [open_audit_finding, close_period]
-    reason: >-
-      Internal Audit tests the close. An agent that can both close a period and
-      settle the finding against it is auditing itself.
-
-# The people (ADR-0079). Declared once, so one human is one principal: this
-# block replaced six copies of the same finance director under six invented
-# ids, against which no separation check could have worked.
-#
-# A person holds a mandate and never a capability or a permission. Marcus does
-# not reach the ERP through this platform — he signs into it under Northwind's
-# own IAM — so declaring his access here would be a bound nothing enforces
-# (ADR-0073 applied to principals). What *is* declared is what he may decide,
-# because this platform is what routes the escalation to him.
-#
-# Every mandate below is a **claim**. Northwind's real delegation of authority
-# lives in a board-approved matrix this platform does not read, and nothing
-# reconciles the two.
-people:
-  - id: p_ceo
-    name: Ada Whitfield
-    contact: ada.whitfield@northwind.example
-    position: Chief Executive Officer
-    unit: northwind
-    # Capital allocation is the board's, and the chief executive carries it
-    # here. Without a person able to hold it, `approve_capex` was held by
-    # nobody and corporate development's work could not complete.
-    mandate:
-      decisions: [approve_capex, raise_debt, approve_budget]
-  - id: p_cfo
-    name: Marcus Oyelaran
-    contact: marcus.oyelaran@northwind.example
-    position: Chief Financial Officer
-    unit: finance
-    mandate:
-      decisions: [approve_invoice, close_period, publish_forecast,
-                  file_tax_return, approve_budget]
-  - id: p_controller
-    name: Reyna Castellanos
-    contact: reyna.castellanos@northwind.example
-    position: Financial Controller
-    unit: controllership
-    # Narrower than Controllership, deliberately: the unit bounds raising a
-    # payment and approving an invoice both, and one person holding both is
-    # what separation 'payment_control' exists to refuse.
-    mandate:
-      decisions: [approve_invoice, change_vendor_master, post_journal_entry,
-                  close_period]
-  - id: p_ap
-    name: Tomas Brandt
-    contact: tomas.brandt@northwind.example
-    position: Accounts Payable Manager
-    unit: controllership
-    # Raising a payment only. Vendor bank details sit with the Controller,
-    # who cannot raise a payment — separation 'vendor_and_payment', which
-    # this example got wrong until the check ran over people.
-    mandate:
-      decisions: [raise_payment]
-  - id: p_ar
-    name: Wen Li
-    contact: wen.li@northwind.example
-    position: Accounts Receivable Manager
-    unit: controllership
-    mandate:
-      decisions: [apply_receipt, write_off_receivable]
-  - id: p_reporting
-    name: Hana Svobodová
-    contact: hana.svobodova@northwind.example
-    position: Head of External Reporting
-    unit: controllership
-    mandate:
-      decisions: [close_period]
-  - id: p_treasurer
-    name: Priya Raghunathan
-    contact: priya.raghunathan@northwind.example
-    position: Group Treasurer
-    unit: treasury
-    mandate:
-      decisions: [release_payment, raise_debt]
-  - id: p_cash
-    name: Eero Lindqvist
-    contact: eero.lindqvist@northwind.example
-    position: Cash Manager
-    unit: treasury
-    mandate:
-      decisions: [place_investment]
-  - id: p_fpa
-    name: Sofia Marchetti
-    contact: sofia.marchetti@northwind.example
-    position: Director of Financial Planning and Analysis
-    unit: fpa
-    mandate:
-      decisions: [publish_forecast, revise_plan]
-  - id: p_tax
-    name: Idris Kovač
-    contact: idris.kovac@northwind.example
-    position: Head of Tax
-    unit: tax
-    mandate:
-      decisions: [file_tax_return]
-  - id: p_corpdev
-    name: Anneke Visser
-    contact: anneke.visser@northwind.example
-    position: Head of Corporate Development
-    unit: corporate_development
-    # Advises. Recommending a capital project is not approving one, which is
-    # why `approve_capex` sits with the chief executive and not here.
-    mandate:
-      decisions: [revise_plan]
-  - id: p_audit
-    name: Grace Nakamura
-    contact: grace.nakamura@northwind.example
-    position: Head of Internal Audit
-    unit: internal_audit
-    mandate:
-      decisions: [open_audit_finding]
-
-capabilities:
-  - id: ledger_query
-    description: Read-only queries against the general ledger.
-    action: query
-    resource_class: ledger_db
-    data_classes: [ledger]
-    constraints: {max_rows: 5000, allowed_operations: [select]}
-  - id: journal_post
-    description: Post a journal entry to the ledger.
-    action: write
-    autonomy: supervised
-    resource_class: ledger_db
-    data_classes: [ledger]
-    decision: post_journal_entry
-    constraints: {requires_approval: true}
-  - id: invoice_entry
-    description: Enter a supplier invoice into the payables ledger.
-    action: write
-    autonomy: autonomous
-    resource_class: payables
-    data_classes: [ledger]
-    decision: raise_payment
-  - id: invoice_approval
-    description: Approve an entered invoice for payment.
-    action: approve
-    autonomy: supervised
-    constraints: {requires_approval: true}
-    resource_class: payables
-    data_classes: [ledger]
-    decision: approve_invoice
-  - id: payment_release
-    description: Instruct the bank to pay an approved run.
-    action: write
-    autonomy: supervised
-    resource_class: banking
-    data_classes: [payments]
-    decision: release_payment
-    constraints: {requires_approval: true}
-  - id: vendor_maintenance
-    description: Create or amend a vendor record.
-    action: write
-    autonomy: supervised
-    resource_class: vendor_master
-    data_classes: [vendor_master]
-    decision: change_vendor_master
-    constraints: {requires_approval: true}
-  - id: forecast_model
-    description: Run and revise the planning model.
-    action: write
-    autonomy: autonomous
-    decision: revise_plan
-    resource_class: planning
-    data_classes: [forecast]
-  - id: tax_filing
-    description: Prepare and submit a statutory return.
-    action: write
-    autonomy: supervised
-    resource_class: tax_portal
-    data_classes: [ledger]
-    decision: file_tax_return
-    constraints: {requires_approval: true}
-  - id: cash_application
-    description: Apply an incoming receipt to an open invoice.
-    action: write
-    autonomy: autonomous
-    decision: apply_receipt
-    resource_class: receivables
-    data_classes: [ledger]
-  - id: receivable_writeoff
-    description: Write off an uncollectable debt.
-    action: write
-    autonomy: supervised
-    resource_class: receivables
-    data_classes: [ledger]
-    decision: write_off_receivable
-    constraints: {requires_approval: true}
-  - id: statement_production
-    description: Assemble the statutory financial statements from the ledger.
-    action: write
-    autonomy: supervised
-    resource_class: reporting
-    data_classes: [ledger]
-    decision: publish_statements
-    constraints: {requires_approval: true}
-  - id: cash_position
-    description: Read balances and forecast the daily cash position.
-    action: query
-    resource_class: banking
-    data_classes: [payments]
-    constraints: {allowed_operations: [select]}
-  - id: debt_facility
-    description: Draw, repay or amend a credit facility.
-    action: write
-    autonomy: supervised
-    resource_class: banking
-    data_classes: [payments]
-    decision: raise_debt
-    constraints: {requires_approval: true}
-  - id: investment_placement
-    description: Place surplus cash in a money-market instrument.
-    action: write
-    autonomy: supervised
-    resource_class: banking
-    data_classes: [payments]
-    decision: place_investment
-    constraints: {requires_approval: true}
-  - id: hedge_execution
-    description: Execute an FX or rate hedge against a declared exposure.
-    action: write
-    autonomy: supervised
-    resource_class: banking
-    data_classes: [payments]
-    decision: execute_hedge
-    constraints: {requires_approval: true}
-  - id: budget_model
-    description: Set and revise department spending targets.
-    action: write
-    autonomy: supervised
-    constraints: {requires_approval: true}
-    resource_class: planning
-    data_classes: [forecast]
-    decision: approve_budget
-  - id: scenario_model
-    description: Run a what-if against the plan. Analysis, not a decision.
-    action: write
-    autonomy: autonomous
-    decision: revise_plan
-    resource_class: planning
-    data_classes: [forecast]
-  - id: deal_analysis
-    description: Model an acquisition or disposal. Advisory only.
-    action: query
-    resource_class: planning
-    data_classes: [forecast, ledger]
-    constraints: {max_rows: 5000, allowed_operations: [select]}
-  - id: capex_register
-    description: Record and track approved capital projects.
-    action: write
-    autonomy: human_decides
-    resource_class: planning
-    data_classes: [ledger]
-    decision: approve_capex
-    constraints: {requires_approval: true}
-  - id: controls_testing
-    description: Sample transactions and test a control.
-    action: query
-    resource_class: ledger_db
-    data_classes: [ledger, payments, vendor_master]
-    constraints: {max_rows: 2000, allowed_operations: [select]}
-
-environments:
-  - id: analysis
-    description: Reasoning and query work against finance systems.
-    toolchains: [data_analysis]
-    tier: medium
-    network: allowlist
-    egress_allowlist: ["ledger.internal", "planning.internal"]
-    mounts: [ledger, forecast]
-    persistence: ephemeral
-  - id: payments_isolated
-    description: Payment instruction work. No general egress.
-    toolchains: [scripting]
-    tier: minimal
-    network: allowlist
-    egress_allowlist: ["bank-gateway.internal"]
-    mounts: [payments]
-    persistence: ephemeral
-
-roles:
-  - id: finance_leadership
-    title: Finance leadership
-    kind: team
-    responsibilities:
-      - Own the integrity of the numbers Northwind reports.
-    permissions:
-      - {action: read, resource_kind: data_class, resource: public_knowledge}
-  - id: controllership_team
-    title: Controllership
-    kind: team
-    responsibilities:
-      - Close the books accurately and on the published calendar.
-      - Keep the vendor master accurate and the payables ledger complete.
-    capabilities: [ledger_query]
-    permissions:
-      - {action: read, resource_kind: data_class, resource: ledger}
-      - {action: query, resource_kind: capability, resource: ledger_query}
-      - {action: read, resource_kind: data_class, resource: public_knowledge}
-  - id: payables_clerk
-    title: Payables clerk
-    responsibilities:
-      - Enter supplier invoices and match them to purchase orders.
-    capabilities: [invoice_entry, ledger_query]
-    permissions:
-      - {action: write, resource_kind: capability, resource: invoice_entry}
-      - {action: query, resource_kind: capability, resource: ledger_query}
-  - id: financial_controller
-    title: Financial controller
-    responsibilities:
-      - Approve invoices for payment and own the close.
-    capabilities: [invoice_approval, journal_post, ledger_query, vendor_maintenance]
-    permissions:
-      - {action: approve, resource_kind: capability, resource: invoice_approval}
-      - {action: write, resource_kind: capability, resource: journal_post}
-      - {action: write, resource_kind: capability, resource: vendor_maintenance}
-      - {action: query, resource_kind: capability, resource: ledger_query}
-      - {action: delegate, resource_kind: agent, resource: "*"}
-  - id: treasury_team
-    title: Treasury
-    kind: team
-    responsibilities:
-      - Hold the cash position and release approved payment runs.
-    capabilities: [payment_release]
-    permissions:
-      - {action: read, resource_kind: data_class, resource: payments}
-      - {action: write, resource_kind: capability, resource: payment_release}
-  - id: fpa_team
-    title: Financial planning and analysis
-    kind: team
-    responsibilities:
-      - Produce the forecast and explain the variance against it.
-    capabilities: [forecast_model, ledger_query]
-    permissions:
-      - {action: read, resource_kind: data_class, resource: forecast}
-      - {action: write, resource_kind: capability, resource: forecast_model}
-      - {action: query, resource_kind: capability, resource: ledger_query}
-  - id: tax_team
-    title: Tax
-    kind: team
-    responsibilities:
-      - File accurate returns on statutory deadlines.
-    capabilities: [tax_filing, ledger_query]
-    permissions:
-      - {action: write, resource_kind: capability, resource: tax_filing}
-      - {action: query, resource_kind: capability, resource: ledger_query}
-  - id: receivables_clerk
-    title: Receivables clerk
-    responsibilities:
-      - Apply incoming receipts and chase overdue customer debt.
-    capabilities: [cash_application, receivable_writeoff, ledger_query]
-    permissions:
-      - {action: write, resource_kind: capability, resource: cash_application}
-      - {action: write, resource_kind: capability, resource: receivable_writeoff}
-      - {action: query, resource_kind: capability, resource: ledger_query}
-  - id: reporting_accountant
-    title: Reporting accountant
-    responsibilities:
-      - Assemble the statutory financial statements from the closed ledger.
-    capabilities: [statement_production, ledger_query]
-    permissions:
-      - {action: write, resource_kind: capability, resource: statement_production}
-      - {action: query, resource_kind: capability, resource: ledger_query}
-  - id: cash_manager_role
-    title: Cash manager
-    responsibilities:
-      - Hold the daily cash position and keep the company liquid.
-      - Place surplus cash and draw on facilities as the position requires.
-    capabilities: [cash_position, debt_facility, investment_placement, hedge_execution]
-    permissions:
-      - {action: query, resource_kind: capability, resource: cash_position}
-      - {action: write, resource_kind: capability, resource: debt_facility}
-      - {action: write, resource_kind: capability, resource: investment_placement}
-      - {action: write, resource_kind: capability, resource: hedge_execution}
-  - id: planning_analyst
-    title: Planning analyst
-    responsibilities:
-      - Set budgets, project revenue and cost, and model what-if scenarios.
-    capabilities: [budget_model, scenario_model, forecast_model, ledger_query]
-    permissions:
-      - {action: write, resource_kind: capability, resource: budget_model}
-      - {action: write, resource_kind: capability, resource: scenario_model}
-      - {action: write, resource_kind: capability, resource: forecast_model}
-      - {action: query, resource_kind: capability, resource: ledger_query}
-  - id: corporate_development_role
-    title: Corporate development
-    responsibilities:
-      - Analyse acquisitions, disposals and capital projects.
-      - Recommend; the decision belongs to the board.
-    capabilities: [deal_analysis, capex_register, scenario_model]
-    permissions:
-      - {action: query, resource_kind: capability, resource: deal_analysis}
-      - {action: write, resource_kind: capability, resource: capex_register}
-      - {action: write, resource_kind: capability, resource: scenario_model}
-  - id: internal_audit_team
-    title: Internal audit
-    kind: team
-    responsibilities:
-      - Test the controls the finance function relies on.
-      - Report to the audit committee, not to the function being tested.
-    capabilities: [controls_testing]
-    permissions:
-      - {action: read, resource_kind: data_class, resource: audit_findings}
-      - {action: query, resource_kind: capability, resource: controls_testing}
-
 organization:
   id: northwind
   name: Northwind Trading
@@ -792,32 +279,570 @@ organization:
           environments:
             - environment: analysis
 
-# Association, as against containment (ADR-0081). Internal Audit is not inside
-# Finance — that is what the tree says — and until now its independence was
-# expressed only by that absence, which nothing could check. Declaring the
-# oversight is what makes moving Internal Audit under Finance fail.
-unit_links:
-  - source: internal_audit
-    target: finance
-    kind: oversees
-    reason: >-
-      Internal Audit tests the close, the controls and the payment process it
-      reports on. It reports to the audit committee, not to the CFO, and an
-      auditor inside the function it audits is auditing itself.
-  - source: controllership
-    target: treasury
-    kind: serves
-    reason: >-
-      Controllership produces the approved payment run that Treasury releases.
-      A service relationship, and deliberately not authority: Treasury does
-      not answer to Controllership, which is what separation
-      'payment_control' relies on.
-  - source: fpa
-    target: corporate_development
-    kind: partners_with
-    reason: >-
-      They share a planning model and an analyst population. Declared inert:
-      neither directs the other, and nothing about this grants anything.
+  data_classes:
+    - id: public_knowledge
+      description: Policies, calendars and glossaries any agent may read.
+      scope: public
+    - id: ledger
+      description: The general ledger, sub-ledgers and journal entries.
+      scope: protected
+      groups: [controllership]
+      allowed_environments: [analysis]
+    - id: payments
+      description: Payment runs, bank instructions and vendor bank details.
+      scope: protected
+      groups: [treasury]
+      allowed_environments: [payments_isolated]
+    - id: vendor_master
+      description: Vendor records, including bank details. A fraud surface.
+      scope: protected
+      groups: [controllership]
+      allowed_environments: [analysis]
+      may_appear_in_traces: false
+    - id: forecast
+      description: Plans, forecasts and the assumptions behind them.
+      scope: protected
+      groups: [fpa]
+      allowed_environments: [analysis]
+    - id: audit_findings
+      description: Internal Audit's working papers and findings.
+      scope: protected
+      groups: [audit]
+      allowed_environments: [analysis]
+
+  # What Northwind's units may *decide*, as against what they may reach.
+  decisions:
+    - id: raise_payment
+      title: Raise a payment
+      description: Enter an invoice and propose it for payment.
+    - id: approve_invoice
+      title: Approve an invoice for payment
+      description: Confirm an invoice is owed, correct and coded.
+    - id: release_payment
+      title: Release a payment to the bank
+      description: Instruct the bank. The last point before money moves.
+    - id: change_vendor_master
+      title: Change a vendor record
+      description: Including bank details. The classic fraud pairing with raise_payment.
+    - id: post_journal_entry
+      title: Post a journal entry
+    - id: close_period
+      title: Close an accounting period
+    - id: publish_forecast
+      title: Publish a forecast outside the team that made it
+    - id: file_tax_return
+      title: File a return with a tax authority
+    - id: open_audit_finding
+      title: Open or close an audit finding
+    - id: revise_plan
+      title: Revise the plan or a scenario
+      description: Change the working planning model. Not the same as publishing it.
+    - id: apply_receipt
+      title: Apply a customer receipt
+      description: Match incoming cash against an open invoice.
+    - id: write_off_receivable
+      title: Write off a receivable
+      description: Declare a customer debt uncollectable.
+    - id: publish_statements
+      title: Publish financial statements
+      description: Issue the balance sheet, P&L and cash flow outside the company.
+    - id: approve_budget
+      title: Approve a budget
+    - id: approve_capex
+      title: Approve capital expenditure
+      description: Commit to a long-term asset or project.
+    - id: raise_debt
+      title: Raise debt or change a credit line
+    - id: place_investment
+      title: Place surplus cash in an instrument
+    - id: execute_hedge
+      title: Execute a hedge against rate or currency exposure
+
+  # Decisions no single agent may hold together (ADR-0070). This is the control
+  # a finance function is built around, and it is the one thing hierarchical
+  # narrowing cannot express on its own: without these, every leader holds the
+  # union of everything beneath it.
+  separations:
+    - id: payment_control
+      decisions: [raise_payment, approve_invoice, release_payment]
+      # Ours is a role-level approximation. The control an auditor tests is per
+      # document — the same clerk may raise invoice A and approve invoice B, but
+      # not both on A — and the ERP holds the document (ADR-0075 rule 4).
+      enforcement:
+        enforced_by: both
+        authoritative: application
+        enforced_in: the ERP's own segregation rules
+      reason: >-
+        One principal that can raise an invoice, approve it and instruct the bank
+        can pay a supplier that does not exist. Committing the fraud must require
+        collusion.
+    - id: vendor_and_payment
+      decisions: [change_vendor_master, raise_payment]
+      reason: >-
+        Changing a vendor's bank details and raising a payment to it is the
+        classic pairing; either alone is recoverable.
+    - id: audit_independence
+      decisions: [open_audit_finding, close_period]
+      reason: >-
+        Internal Audit tests the close. An agent that can both close a period and
+        settle the finding against it is auditing itself.
+
+  # The people (ADR-0079). Declared once, so one human is one principal: this
+  # block replaced six copies of the same finance director under six invented
+  # ids, against which no separation check could have worked.
+  #
+  # A person holds a mandate and never a capability or a permission. Marcus does
+  # not reach the ERP through this platform — he signs into it under Northwind's
+  # own IAM — so declaring his access here would be a bound nothing enforces
+  # (ADR-0073 applied to principals). What *is* declared is what he may decide,
+  # because this platform is what routes the escalation to him.
+  #
+  # Every mandate below is a **claim**. Northwind's real delegation of authority
+  # lives in a board-approved matrix this platform does not read, and nothing
+  # reconciles the two.
+  people:
+    - id: p_ceo
+      name: Ada Whitfield
+      contact: ada.whitfield@northwind.example
+      position: Chief Executive Officer
+      unit: northwind
+      # Capital allocation is the board's, and the chief executive carries it
+      # here. Without a person able to hold it, `approve_capex` was held by
+      # nobody and corporate development's work could not complete.
+      mandate:
+        decisions: [approve_capex, raise_debt, approve_budget]
+    - id: p_cfo
+      name: Marcus Oyelaran
+      contact: marcus.oyelaran@northwind.example
+      position: Chief Financial Officer
+      unit: finance
+      mandate:
+        decisions: [approve_invoice, close_period, publish_forecast,
+                    file_tax_return, approve_budget]
+    - id: p_controller
+      name: Reyna Castellanos
+      contact: reyna.castellanos@northwind.example
+      position: Financial Controller
+      unit: controllership
+      # Narrower than Controllership, deliberately: the unit bounds raising a
+      # payment and approving an invoice both, and one person holding both is
+      # what separation 'payment_control' exists to refuse.
+      mandate:
+        decisions: [approve_invoice, change_vendor_master, post_journal_entry,
+                    close_period]
+    - id: p_ap
+      name: Tomas Brandt
+      contact: tomas.brandt@northwind.example
+      position: Accounts Payable Manager
+      unit: controllership
+      # Raising a payment only. Vendor bank details sit with the Controller,
+      # who cannot raise a payment — separation 'vendor_and_payment', which
+      # this example got wrong until the check ran over people.
+      mandate:
+        decisions: [raise_payment]
+    - id: p_ar
+      name: Wen Li
+      contact: wen.li@northwind.example
+      position: Accounts Receivable Manager
+      unit: controllership
+      mandate:
+        decisions: [apply_receipt, write_off_receivable]
+    - id: p_reporting
+      name: Hana Svobodová
+      contact: hana.svobodova@northwind.example
+      position: Head of External Reporting
+      unit: controllership
+      mandate:
+        decisions: [close_period]
+    - id: p_treasurer
+      name: Priya Raghunathan
+      contact: priya.raghunathan@northwind.example
+      position: Group Treasurer
+      unit: treasury
+      mandate:
+        decisions: [release_payment, raise_debt]
+    - id: p_cash
+      name: Eero Lindqvist
+      contact: eero.lindqvist@northwind.example
+      position: Cash Manager
+      unit: treasury
+      mandate:
+        decisions: [place_investment]
+    - id: p_fpa
+      name: Sofia Marchetti
+      contact: sofia.marchetti@northwind.example
+      position: Director of Financial Planning and Analysis
+      unit: fpa
+      mandate:
+        decisions: [publish_forecast, revise_plan]
+    - id: p_tax
+      name: Idris Kovač
+      contact: idris.kovac@northwind.example
+      position: Head of Tax
+      unit: tax
+      mandate:
+        decisions: [file_tax_return]
+    - id: p_corpdev
+      name: Anneke Visser
+      contact: anneke.visser@northwind.example
+      position: Head of Corporate Development
+      unit: corporate_development
+      # Advises. Recommending a capital project is not approving one, which is
+      # why `approve_capex` sits with the chief executive and not here.
+      mandate:
+        decisions: [revise_plan]
+    - id: p_audit
+      name: Grace Nakamura
+      contact: grace.nakamura@northwind.example
+      position: Head of Internal Audit
+      unit: internal_audit
+      mandate:
+        decisions: [open_audit_finding]
+
+  capabilities:
+    - id: ledger_query
+      description: Read-only queries against the general ledger.
+      action: query
+      resource_class: ledger_db
+      data_classes: [ledger]
+      constraints: {max_rows: 5000, allowed_operations: [select]}
+    - id: journal_post
+      description: Post a journal entry to the ledger.
+      action: write
+      autonomy: supervised
+      resource_class: ledger_db
+      data_classes: [ledger]
+      decision: post_journal_entry
+      constraints: {requires_approval: true}
+    - id: invoice_entry
+      description: Enter a supplier invoice into the payables ledger.
+      action: write
+      autonomy: autonomous
+      resource_class: payables
+      data_classes: [ledger]
+      decision: raise_payment
+    - id: invoice_approval
+      description: Approve an entered invoice for payment.
+      action: approve
+      autonomy: supervised
+      constraints: {requires_approval: true}
+      resource_class: payables
+      data_classes: [ledger]
+      decision: approve_invoice
+    - id: payment_release
+      description: Instruct the bank to pay an approved run.
+      action: write
+      autonomy: supervised
+      resource_class: banking
+      data_classes: [payments]
+      decision: release_payment
+      constraints: {requires_approval: true}
+    - id: vendor_maintenance
+      description: Create or amend a vendor record.
+      action: write
+      autonomy: supervised
+      resource_class: vendor_master
+      data_classes: [vendor_master]
+      decision: change_vendor_master
+      constraints: {requires_approval: true}
+    - id: forecast_model
+      description: Run and revise the planning model.
+      action: write
+      autonomy: autonomous
+      decision: revise_plan
+      resource_class: planning
+      data_classes: [forecast]
+    - id: tax_filing
+      description: Prepare and submit a statutory return.
+      action: write
+      autonomy: supervised
+      resource_class: tax_portal
+      data_classes: [ledger]
+      decision: file_tax_return
+      constraints: {requires_approval: true}
+    - id: cash_application
+      description: Apply an incoming receipt to an open invoice.
+      action: write
+      autonomy: autonomous
+      decision: apply_receipt
+      resource_class: receivables
+      data_classes: [ledger]
+    - id: receivable_writeoff
+      description: Write off an uncollectable debt.
+      action: write
+      autonomy: supervised
+      resource_class: receivables
+      data_classes: [ledger]
+      decision: write_off_receivable
+      constraints: {requires_approval: true}
+    - id: statement_production
+      description: Assemble the statutory financial statements from the ledger.
+      action: write
+      autonomy: supervised
+      resource_class: reporting
+      data_classes: [ledger]
+      decision: publish_statements
+      constraints: {requires_approval: true}
+    - id: cash_position
+      description: Read balances and forecast the daily cash position.
+      action: query
+      resource_class: banking
+      data_classes: [payments]
+      constraints: {allowed_operations: [select]}
+    - id: debt_facility
+      description: Draw, repay or amend a credit facility.
+      action: write
+      autonomy: supervised
+      resource_class: banking
+      data_classes: [payments]
+      decision: raise_debt
+      constraints: {requires_approval: true}
+    - id: investment_placement
+      description: Place surplus cash in a money-market instrument.
+      action: write
+      autonomy: supervised
+      resource_class: banking
+      data_classes: [payments]
+      decision: place_investment
+      constraints: {requires_approval: true}
+    - id: hedge_execution
+      description: Execute an FX or rate hedge against a declared exposure.
+      action: write
+      autonomy: supervised
+      resource_class: banking
+      data_classes: [payments]
+      decision: execute_hedge
+      constraints: {requires_approval: true}
+    - id: budget_model
+      description: Set and revise department spending targets.
+      action: write
+      autonomy: supervised
+      constraints: {requires_approval: true}
+      resource_class: planning
+      data_classes: [forecast]
+      decision: approve_budget
+    - id: scenario_model
+      description: Run a what-if against the plan. Analysis, not a decision.
+      action: write
+      autonomy: autonomous
+      decision: revise_plan
+      resource_class: planning
+      data_classes: [forecast]
+    - id: deal_analysis
+      description: Model an acquisition or disposal. Advisory only.
+      action: query
+      resource_class: planning
+      data_classes: [forecast, ledger]
+      constraints: {max_rows: 5000, allowed_operations: [select]}
+    - id: capex_register
+      description: Record and track approved capital projects.
+      action: write
+      autonomy: human_decides
+      resource_class: planning
+      data_classes: [ledger]
+      decision: approve_capex
+      constraints: {requires_approval: true}
+    - id: controls_testing
+      description: Sample transactions and test a control.
+      action: query
+      resource_class: ledger_db
+      data_classes: [ledger, payments, vendor_master]
+      constraints: {max_rows: 2000, allowed_operations: [select]}
+
+  environments:
+    - id: analysis
+      description: Reasoning and query work against finance systems.
+      toolchains: [data_analysis]
+      tier: medium
+      network: allowlist
+      egress_allowlist: ["ledger.internal", "planning.internal"]
+      mounts: [ledger, forecast]
+      persistence: ephemeral
+    - id: payments_isolated
+      description: Payment instruction work. No general egress.
+      toolchains: [scripting]
+      tier: minimal
+      network: allowlist
+      egress_allowlist: ["bank-gateway.internal"]
+      mounts: [payments]
+      persistence: ephemeral
+
+  role_definitions:
+    - id: finance_leadership
+      title: Finance leadership
+      kind: team
+      responsibilities:
+        - Own the integrity of the numbers Northwind reports.
+      permissions:
+        - {action: read, resource_kind: data_class, resource: public_knowledge}
+    - id: controllership_team
+      title: Controllership
+      kind: team
+      responsibilities:
+        - Close the books accurately and on the published calendar.
+        - Keep the vendor master accurate and the payables ledger complete.
+      capabilities: [ledger_query]
+      permissions:
+        - {action: read, resource_kind: data_class, resource: ledger}
+        - {action: query, resource_kind: capability, resource: ledger_query}
+        - {action: read, resource_kind: data_class, resource: public_knowledge}
+    - id: payables_clerk
+      title: Payables clerk
+      responsibilities:
+        - Enter supplier invoices and match them to purchase orders.
+      capabilities: [invoice_entry, ledger_query]
+      permissions:
+        - {action: write, resource_kind: capability, resource: invoice_entry}
+        - {action: query, resource_kind: capability, resource: ledger_query}
+    - id: financial_controller
+      title: Financial controller
+      responsibilities:
+        - Approve invoices for payment and own the close.
+      capabilities: [invoice_approval, journal_post, ledger_query, vendor_maintenance]
+      permissions:
+        - {action: approve, resource_kind: capability, resource: invoice_approval}
+        - {action: write, resource_kind: capability, resource: journal_post}
+        - {action: write, resource_kind: capability, resource: vendor_maintenance}
+        - {action: query, resource_kind: capability, resource: ledger_query}
+        - {action: delegate, resource_kind: agent, resource: "*"}
+    - id: treasury_team
+      title: Treasury
+      kind: team
+      responsibilities:
+        - Hold the cash position and release approved payment runs.
+      capabilities: [payment_release]
+      permissions:
+        - {action: read, resource_kind: data_class, resource: payments}
+        - {action: write, resource_kind: capability, resource: payment_release}
+    - id: fpa_team
+      title: Financial planning and analysis
+      kind: team
+      responsibilities:
+        - Produce the forecast and explain the variance against it.
+      capabilities: [forecast_model, ledger_query]
+      permissions:
+        - {action: read, resource_kind: data_class, resource: forecast}
+        - {action: write, resource_kind: capability, resource: forecast_model}
+        - {action: query, resource_kind: capability, resource: ledger_query}
+    - id: tax_team
+      title: Tax
+      kind: team
+      responsibilities:
+        - File accurate returns on statutory deadlines.
+      capabilities: [tax_filing, ledger_query]
+      permissions:
+        - {action: write, resource_kind: capability, resource: tax_filing}
+        - {action: query, resource_kind: capability, resource: ledger_query}
+    - id: receivables_clerk
+      title: Receivables clerk
+      responsibilities:
+        - Apply incoming receipts and chase overdue customer debt.
+      capabilities: [cash_application, receivable_writeoff, ledger_query]
+      permissions:
+        - {action: write, resource_kind: capability, resource: cash_application}
+        - {action: write, resource_kind: capability, resource: receivable_writeoff}
+        - {action: query, resource_kind: capability, resource: ledger_query}
+    - id: reporting_accountant
+      title: Reporting accountant
+      responsibilities:
+        - Assemble the statutory financial statements from the closed ledger.
+      capabilities: [statement_production, ledger_query]
+      permissions:
+        - {action: write, resource_kind: capability, resource: statement_production}
+        - {action: query, resource_kind: capability, resource: ledger_query}
+    - id: cash_manager_role
+      title: Cash manager
+      responsibilities:
+        - Hold the daily cash position and keep the company liquid.
+        - Place surplus cash and draw on facilities as the position requires.
+      capabilities: [cash_position, debt_facility, investment_placement, hedge_execution]
+      permissions:
+        - {action: query, resource_kind: capability, resource: cash_position}
+        - {action: write, resource_kind: capability, resource: debt_facility}
+        - {action: write, resource_kind: capability, resource: investment_placement}
+        - {action: write, resource_kind: capability, resource: hedge_execution}
+    - id: planning_analyst
+      title: Planning analyst
+      responsibilities:
+        - Set budgets, project revenue and cost, and model what-if scenarios.
+      capabilities: [budget_model, scenario_model, forecast_model, ledger_query]
+      permissions:
+        - {action: write, resource_kind: capability, resource: budget_model}
+        - {action: write, resource_kind: capability, resource: scenario_model}
+        - {action: write, resource_kind: capability, resource: forecast_model}
+        - {action: query, resource_kind: capability, resource: ledger_query}
+    - id: corporate_development_role
+      title: Corporate development
+      responsibilities:
+        - Analyse acquisitions, disposals and capital projects.
+        - Recommend; the decision belongs to the board.
+      capabilities: [deal_analysis, capex_register, scenario_model]
+      permissions:
+        - {action: query, resource_kind: capability, resource: deal_analysis}
+        - {action: write, resource_kind: capability, resource: capex_register}
+        - {action: write, resource_kind: capability, resource: scenario_model}
+    - id: internal_audit_team
+      title: Internal audit
+      kind: team
+      responsibilities:
+        - Test the controls the finance function relies on.
+        - Report to the audit committee, not to the function being tested.
+      capabilities: [controls_testing]
+      permissions:
+        - {action: read, resource_kind: data_class, resource: audit_findings}
+        - {action: query, resource_kind: capability, resource: controls_testing}
+
+  # Association, as against containment (ADR-0081). Internal Audit is not inside
+  # Finance — that is what the tree says — and until now its independence was
+  # expressed only by that absence, which nothing could check. Declaring the
+  # oversight is what makes moving Internal Audit under Finance fail.
+  unit_links:
+    - source: internal_audit
+      target: finance
+      kind: oversees
+      reason: >-
+        Internal Audit tests the close, the controls and the payment process it
+        reports on. It reports to the audit committee, not to the CFO, and an
+        auditor inside the function it audits is auditing itself.
+    - source: controllership
+      target: treasury
+      kind: serves
+      reason: >-
+        Controllership produces the approved payment run that Treasury releases.
+        A service relationship, and deliberately not authority: Treasury does
+        not answer to Controllership, which is what separation
+        'payment_control' relies on.
+    - source: fpa
+      target: corporate_development
+      kind: partners_with
+      reason: >-
+        They share a planning model and an analyst population. Declared inert:
+        neither directs the other, and nothing about this grants anything.
+
+  guardrails:
+    - id: no_bank_details_outbound
+      description: Vendor bank details must not leave on an outbound message.
+      applies_to: [output, tool_output]
+      checks: [data_class]
+      data_classes: [vendor_master]
+      on_violation: block
+    - id: no_credentials_out
+      description: Nothing credential-shaped leaves an agent, ever.
+      applies_to: [output, tool_output]
+      checks: [secrets]
+      on_violation: block
+    - id: screen_inbound_instructions
+      description: Invoice text and vendor notes are somebody else's writing.
+      applies_to: [input, tool_output]
+      checks: [prompt_injection]
+      on_violation: escalate
+      escalate_channel: finance_escalations
+
+  channels:
+    - id: finance_escalations
+      description: Where a screened message goes for a human to look at.
+      purpose: escalation
+      members: [controller, cfo]
 
 observability:
   traces: true
@@ -827,31 +852,6 @@ observability:
   sample_rate: 1.0
   # Vendor bank details are the fraud surface; they never reach a trace.
   redact_data_classes: [vendor_master]
-
-guardrails:
-  - id: no_bank_details_outbound
-    description: Vendor bank details must not leave on an outbound message.
-    applies_to: [output, tool_output]
-    checks: [data_class]
-    data_classes: [vendor_master]
-    on_violation: block
-  - id: no_credentials_out
-    description: Nothing credential-shaped leaves an agent, ever.
-    applies_to: [output, tool_output]
-    checks: [secrets]
-    on_violation: block
-  - id: screen_inbound_instructions
-    description: Invoice text and vendor notes are somebody else's writing.
-    applies_to: [input, tool_output]
-    checks: [prompt_injection]
-    on_violation: escalate
-    escalate_channel: finance_escalations
-
-channels:
-  - id: finance_escalations
-    description: Where a screened message goes for a human to look at.
-    purpose: escalation
-    members: [controller, cfo]
 
 # Autonomy is contingent on evidence (ADR-0072 rule 5). An agent that runs
 # unattended carries cases; never-evaluated is not safe-unattended.

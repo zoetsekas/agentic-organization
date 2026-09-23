@@ -29,238 +29,6 @@ metadata:
   owner: Sentinel Platform Security
   environment: development
 
-data_classes:
-  - id: public_playbooks
-    description: Runbooks, the on-call rota and published detection logic.
-    scope: public
-  - id: telemetry
-    description: SIEM events, EDR alerts and the logs behind them.
-    scope: protected
-    groups: [soc]
-    allowed_environments: [analysis]
-  - id: malware_sample
-    description: A suspected-malicious artifact, live until proven otherwise.
-    scope: private
-    groups: [soc]
-    # Detonation only, and detonation has no network: a live sample must not
-    # be reachable from anywhere it could call home or reach the SIEM.
-    allowed_environments: [detonation]
-    may_appear_in_traces: false
-  - id: incident_record
-    description: The case file — timeline, actions taken, and the decision log.
-    scope: protected
-    groups: [soc, ir]
-    allowed_environments: [analysis]
-  - id: identity_data
-    description: Account and session data pulled during an investigation.
-    scope: protected
-    groups: [soc]
-    allowed_environments: [analysis]
-    may_appear_in_traces: false
-
-decisions:
-  - id: triage_alert
-    title: Triage an alert to a severity and a disposition
-  - id: contain_host
-    title: Contain a host — isolate it from the network
-    description: Reversible and cheap; the cost of waiting is the point.
-  - id: detonate_sample
-    title: Detonate a sample in the isolated range
-  - id: disable_account
-    title: Disable a user or service account
-  - id: take_system_offline
-    title: Take a production system offline
-    description: A business decision, never an agent's alone — a person holds it.
-  - id: declare_incident
-    title: Declare a security incident
-  - id: close_incident
-    title: Close an incident and sign off the record
-  - id: publish_detection
-    title: Publish or change a detection rule in production
-  - id: notify_regulator
-    title: Notify a regulator of a reportable breach
-
-separations:
-  - id: contain_and_close
-    decisions: [contain_host, close_incident]
-    enforcement:
-      enforced_by: both
-      authoritative: application
-      enforced_in: the case-management tool's sign-off rule
-    reason: >-
-      The responder who contained a host has a reason to call the incident
-      handled. Closing it is somebody else's judgement.
-  - id: detect_and_declare
-    decisions: [publish_detection, declare_incident]
-    reason: >-
-      An engineer who both writes a detection and declares the incident it
-      fires is grading their own rule under pressure.
-
-people:
-  - id: p_ciso
-    name: Reza Farahani
-    contact: reza.farahani@sentinel.example
-    position: Chief Information Security Officer
-    unit: sentinel
-    # The business decisions the SOC may recommend but not take: pulling a
-    # production system, and notifying a regulator.
-    mandate:
-      decisions: [take_system_offline, notify_regulator]
-  - id: p_soc_lead
-    name: Mei-Ling Chou
-    contact: meiling.chou@sentinel.example
-    position: SOC Lead
-    unit: soc
-    mandate:
-      decisions: [declare_incident, close_incident]
-  - id: p_ir_lead
-    name: Dominic Osei
-    contact: dominic.osei@sentinel.example
-    position: Incident Response Lead
-    unit: incident_response
-    mandate:
-      decisions: [close_incident, declare_incident]
-  - id: p_detection_lead
-    name: Astrid Lund
-    contact: astrid.lund@sentinel.example
-    position: Detection Engineering Lead
-    unit: detection
-    mandate:
-      decisions: [publish_detection]
-
-capabilities:
-  - id: siem_query
-    description: Query the SIEM for events and correlate them.
-    action: query
-    resource_class: siem
-    data_classes: [telemetry]
-    constraints: {max_rows: 10000, allowed_operations: [select]}
-  - id: alert_triage
-    description: Set an alert's severity and disposition with its reasoning.
-    action: write
-    autonomy: autonomous
-    resource_class: soar
-    data_classes: [telemetry, incident_record]
-    decision: triage_alert
-  - id: host_containment
-    description: Isolate a host from the network through the EDR.
-    action: write
-    autonomy: supervised
-    resource_class: edr
-    data_classes: [telemetry, identity_data]
-    decision: contain_host
-    constraints: {requires_approval: true}
-  - id: sample_detonation
-    description: Run a suspected-malicious sample in the isolated range.
-    action: invoke
-    autonomy: supervised
-    resource_class: range
-    data_classes: [malware_sample]
-    decision: detonate_sample
-    constraints: {requires_approval: true}
-  - id: account_disable
-    description: Disable a compromised account through the IdP.
-    action: write
-    autonomy: supervised
-    resource_class: idp
-    data_classes: [identity_data]
-    decision: disable_account
-    constraints: {requires_approval: true}
-  - id: case_management
-    description: Write the incident timeline and the decision log.
-    action: write
-    autonomy: autonomous
-    resource_class: case_tool
-    data_classes: [incident_record]
-    decision: declare_incident
-  - id: case_signoff
-    description: Sign off and close an incident record.
-    action: approve
-    autonomy: supervised
-    resource_class: case_tool
-    data_classes: [incident_record]
-    decision: close_incident
-    constraints: {requires_approval: true}
-  - id: detection_authoring
-    description: Write and tune detection rules against historical telemetry.
-    action: write
-    autonomy: supervised
-    resource_class: detection_repo
-    data_classes: [telemetry]
-    decision: publish_detection
-    constraints: {requires_approval: true}
-
-environments:
-  - id: analysis
-    description: Alert triage, correlation and case work against the SOC tools.
-    toolchains: [data_analysis]
-    tier: medium
-    network: allowlist
-    egress_allowlist: ["siem.internal", "edr.internal", "idp.internal",
-                       "case.internal"]
-    mounts: [telemetry, incident_record, identity_data]
-    persistence: ephemeral
-  - id: detonation
-    description: >-
-      The malware range. No network at all: a live sample must not be able to
-      call home, and it must not be reachable from anything that touches the
-      SIEM. This is the whole reason the analyst has two sandboxes.
-    toolchains: [scripting]
-    tier: large
-    network: none
-    mounts: [malware_sample]
-    persistence: ephemeral
-
-roles:
-  - id: soc_team
-    title: Security operations
-    kind: team
-    responsibilities:
-      - Detect, triage and contain, and evidence every action for the record.
-    permissions:
-      - {action: read, resource_kind: data_class, resource: public_playbooks}
-  - id: soc_analyst
-    title: SOC analyst
-    responsibilities:
-      - Triage alerts, correlate them in the SIEM, and contain hosts.
-      - Detonate suspected samples in the range, never on the network.
-    capabilities: [siem_query, alert_triage, host_containment, sample_detonation]
-    permissions:
-      - {action: query, resource_kind: capability, resource: siem_query}
-      - {action: write, resource_kind: capability, resource: alert_triage}
-      - {action: write, resource_kind: capability, resource: host_containment}
-      - {action: invoke, resource_kind: capability, resource: sample_detonation}
-  - id: ir_responder
-    title: Incident responder
-    responsibilities:
-      - "Own the case: write the timeline, disable accounts, and close it out."
-      - Correlate the incident in the SIEM before acting.
-    capabilities: [case_management, case_signoff, account_disable, siem_query]
-    permissions:
-      - {action: write, resource_kind: capability, resource: case_management}
-      - {action: approve, resource_kind: capability, resource: case_signoff}
-      - {action: write, resource_kind: capability, resource: account_disable}
-      - {action: query, resource_kind: capability, resource: siem_query}
-  - id: soc_lead
-    title: SOC lead
-    responsibilities:
-      - Triage and arbitrate severity from the SIEM.
-      - Declare incidents into the case log and sign off their closure.
-    capabilities: [siem_query, alert_triage, case_management, case_signoff]
-    permissions:
-      - {action: query, resource_kind: capability, resource: siem_query}
-      - {action: write, resource_kind: capability, resource: alert_triage}
-      - {action: write, resource_kind: capability, resource: case_management}
-      - {action: approve, resource_kind: capability, resource: case_signoff}
-  - id: detection_engineer
-    title: Detection engineer
-    responsibilities:
-      - Write and tune detections against historical telemetry, correlated in the SIEM.
-    capabilities: [detection_authoring, siem_query]
-    permissions:
-      - {action: write, resource_kind: capability, resource: detection_authoring}
-      - {action: query, resource_kind: capability, resource: siem_query}
-
 organization:
   id: sentinel
   name: Sentinel Security
@@ -400,21 +168,286 @@ organization:
           environments:
             - environment: analysis
 
-# The detection team supplies the floor and is challenged by it, without being
-# contained by it (ADR-0081).
-unit_links:
-  - source: soc
-    target: detection
-    kind: partners_with
-    reason: >-
-      The floor runs on detection's rules and pushes back on the noisy ones.
-      Declared inert: neither directs the other, and a noisy-rule dispute goes
-      to the CISO both report to.
+  data_classes:
+    - id: public_playbooks
+      description: Runbooks, the on-call rota and published detection logic.
+      scope: public
+    - id: telemetry
+      description: SIEM events, EDR alerts and the logs behind them.
+      scope: protected
+      groups: [soc]
+      allowed_environments: [analysis]
+    - id: malware_sample
+      description: A suspected-malicious artifact, live until proven otherwise.
+      scope: private
+      groups: [soc]
+      # Detonation only, and detonation has no network: a live sample must not
+      # be reachable from anywhere it could call home or reach the SIEM.
+      allowed_environments: [detonation]
+      may_appear_in_traces: false
+    - id: incident_record
+      description: The case file — timeline, actions taken, and the decision log.
+      scope: protected
+      groups: [soc, ir]
+      allowed_environments: [analysis]
+    - id: identity_data
+      description: Account and session data pulled during an investigation.
+      scope: protected
+      groups: [soc]
+      allowed_environments: [analysis]
+      may_appear_in_traces: false
 
-interaction_flows:
-  - {source: analyst_agent, target: responder_agent, kind: escalate}
-  - {source: detection_agent, target: analyst_agent, kind: notify}
-  - {source: analyst_agent, target: detection_agent, kind: consult}
+  decisions:
+    - id: triage_alert
+      title: Triage an alert to a severity and a disposition
+    - id: contain_host
+      title: Contain a host — isolate it from the network
+      description: Reversible and cheap; the cost of waiting is the point.
+    - id: detonate_sample
+      title: Detonate a sample in the isolated range
+    - id: disable_account
+      title: Disable a user or service account
+    - id: take_system_offline
+      title: Take a production system offline
+      description: A business decision, never an agent's alone — a person holds it.
+    - id: declare_incident
+      title: Declare a security incident
+    - id: close_incident
+      title: Close an incident and sign off the record
+    - id: publish_detection
+      title: Publish or change a detection rule in production
+    - id: notify_regulator
+      title: Notify a regulator of a reportable breach
+
+  separations:
+    - id: contain_and_close
+      decisions: [contain_host, close_incident]
+      enforcement:
+        enforced_by: both
+        authoritative: application
+        enforced_in: the case-management tool's sign-off rule
+      reason: >-
+        The responder who contained a host has a reason to call the incident
+        handled. Closing it is somebody else's judgement.
+    - id: detect_and_declare
+      decisions: [publish_detection, declare_incident]
+      reason: >-
+        An engineer who both writes a detection and declares the incident it
+        fires is grading their own rule under pressure.
+
+  people:
+    - id: p_ciso
+      name: Reza Farahani
+      contact: reza.farahani@sentinel.example
+      position: Chief Information Security Officer
+      unit: sentinel
+      # The business decisions the SOC may recommend but not take: pulling a
+      # production system, and notifying a regulator.
+      mandate:
+        decisions: [take_system_offline, notify_regulator]
+    - id: p_soc_lead
+      name: Mei-Ling Chou
+      contact: meiling.chou@sentinel.example
+      position: SOC Lead
+      unit: soc
+      mandate:
+        decisions: [declare_incident, close_incident]
+    - id: p_ir_lead
+      name: Dominic Osei
+      contact: dominic.osei@sentinel.example
+      position: Incident Response Lead
+      unit: incident_response
+      mandate:
+        decisions: [close_incident, declare_incident]
+    - id: p_detection_lead
+      name: Astrid Lund
+      contact: astrid.lund@sentinel.example
+      position: Detection Engineering Lead
+      unit: detection
+      mandate:
+        decisions: [publish_detection]
+
+  capabilities:
+    - id: siem_query
+      description: Query the SIEM for events and correlate them.
+      action: query
+      resource_class: siem
+      data_classes: [telemetry]
+      constraints: {max_rows: 10000, allowed_operations: [select]}
+    - id: alert_triage
+      description: Set an alert's severity and disposition with its reasoning.
+      action: write
+      autonomy: autonomous
+      resource_class: soar
+      data_classes: [telemetry, incident_record]
+      decision: triage_alert
+    - id: host_containment
+      description: Isolate a host from the network through the EDR.
+      action: write
+      autonomy: supervised
+      resource_class: edr
+      data_classes: [telemetry, identity_data]
+      decision: contain_host
+      constraints: {requires_approval: true}
+    - id: sample_detonation
+      description: Run a suspected-malicious sample in the isolated range.
+      action: invoke
+      autonomy: supervised
+      resource_class: range
+      data_classes: [malware_sample]
+      decision: detonate_sample
+      constraints: {requires_approval: true}
+    - id: account_disable
+      description: Disable a compromised account through the IdP.
+      action: write
+      autonomy: supervised
+      resource_class: idp
+      data_classes: [identity_data]
+      decision: disable_account
+      constraints: {requires_approval: true}
+    - id: case_management
+      description: Write the incident timeline and the decision log.
+      action: write
+      autonomy: autonomous
+      resource_class: case_tool
+      data_classes: [incident_record]
+      decision: declare_incident
+    - id: case_signoff
+      description: Sign off and close an incident record.
+      action: approve
+      autonomy: supervised
+      resource_class: case_tool
+      data_classes: [incident_record]
+      decision: close_incident
+      constraints: {requires_approval: true}
+    - id: detection_authoring
+      description: Write and tune detection rules against historical telemetry.
+      action: write
+      autonomy: supervised
+      resource_class: detection_repo
+      data_classes: [telemetry]
+      decision: publish_detection
+      constraints: {requires_approval: true}
+
+  environments:
+    - id: analysis
+      description: Alert triage, correlation and case work against the SOC tools.
+      toolchains: [data_analysis]
+      tier: medium
+      network: allowlist
+      egress_allowlist: ["siem.internal", "edr.internal", "idp.internal",
+                         "case.internal"]
+      mounts: [telemetry, incident_record, identity_data]
+      persistence: ephemeral
+    - id: detonation
+      description: >-
+        The malware range. No network at all: a live sample must not be able to
+        call home, and it must not be reachable from anything that touches the
+        SIEM. This is the whole reason the analyst has two sandboxes.
+      toolchains: [scripting]
+      tier: large
+      network: none
+      mounts: [malware_sample]
+      persistence: ephemeral
+
+  role_definitions:
+    - id: soc_team
+      title: Security operations
+      kind: team
+      responsibilities:
+        - Detect, triage and contain, and evidence every action for the record.
+      permissions:
+        - {action: read, resource_kind: data_class, resource: public_playbooks}
+    - id: soc_analyst
+      title: SOC analyst
+      responsibilities:
+        - Triage alerts, correlate them in the SIEM, and contain hosts.
+        - Detonate suspected samples in the range, never on the network.
+      capabilities: [siem_query, alert_triage, host_containment, sample_detonation]
+      permissions:
+        - {action: query, resource_kind: capability, resource: siem_query}
+        - {action: write, resource_kind: capability, resource: alert_triage}
+        - {action: write, resource_kind: capability, resource: host_containment}
+        - {action: invoke, resource_kind: capability, resource: sample_detonation}
+    - id: ir_responder
+      title: Incident responder
+      responsibilities:
+        - "Own the case: write the timeline, disable accounts, and close it out."
+        - Correlate the incident in the SIEM before acting.
+      capabilities: [case_management, case_signoff, account_disable, siem_query]
+      permissions:
+        - {action: write, resource_kind: capability, resource: case_management}
+        - {action: approve, resource_kind: capability, resource: case_signoff}
+        - {action: write, resource_kind: capability, resource: account_disable}
+        - {action: query, resource_kind: capability, resource: siem_query}
+    - id: soc_lead
+      title: SOC lead
+      responsibilities:
+        - Triage and arbitrate severity from the SIEM.
+        - Declare incidents into the case log and sign off their closure.
+      capabilities: [siem_query, alert_triage, case_management, case_signoff]
+      permissions:
+        - {action: query, resource_kind: capability, resource: siem_query}
+        - {action: write, resource_kind: capability, resource: alert_triage}
+        - {action: write, resource_kind: capability, resource: case_management}
+        - {action: approve, resource_kind: capability, resource: case_signoff}
+    - id: detection_engineer
+      title: Detection engineer
+      responsibilities:
+        - Write and tune detections against historical telemetry, correlated in the SIEM.
+      capabilities: [detection_authoring, siem_query]
+      permissions:
+        - {action: write, resource_kind: capability, resource: detection_authoring}
+        - {action: query, resource_kind: capability, resource: siem_query}
+
+  # The detection team supplies the floor and is challenged by it, without being
+  # contained by it (ADR-0081).
+  unit_links:
+    - source: soc
+      target: detection
+      kind: partners_with
+      reason: >-
+        The floor runs on detection's rules and pushes back on the noisy ones.
+        Declared inert: neither directs the other, and a noisy-rule dispute goes
+        to the CISO both report to.
+
+  interaction_flows:
+    - {source: analyst_agent, target: responder_agent, kind: escalate}
+    - {source: detection_agent, target: analyst_agent, kind: notify}
+    - {source: analyst_agent, target: detection_agent, kind: consult}
+
+  guardrails:
+    - id: no_sample_outbound
+      description: Nothing from a malware sample leaves on an outbound message.
+      applies_to: [output, tool_output]
+      checks: [data_class]
+      data_classes: [malware_sample]
+      on_violation: block
+    - id: no_identity_data_outbound
+      description: Account and session data stays inside the investigation.
+      applies_to: [output, tool_output]
+      checks: [data_class]
+      data_classes: [identity_data]
+      on_violation: block
+    - id: no_credentials_out
+      description: Nothing credential-shaped leaves an agent, ever.
+      applies_to: [output, tool_output]
+      checks: [secrets]
+      on_violation: block
+    - id: screen_inbound_artifacts
+      description: >-
+        An alert's payload, a phishing sample's text and a submitted log are
+        somebody else's writing — and often an attacker's. Screen them.
+      applies_to: [input, tool_output]
+      checks: [prompt_injection]
+      on_violation: escalate
+      escalate_channel: soc_escalations
+
+  channels:
+    - id: soc_escalations
+      description: Where a screened artifact or a severity call goes for a human.
+      purpose: escalation
+      members: [analyst_agent, soc_lead_agent]
 
 observability:
   traces: true
@@ -425,39 +458,6 @@ observability:
   # A live sample and account/session data are the two things that must never
   # reach a trace: one is dangerous, the other is the investigation's subject.
   redact_data_classes: [malware_sample, identity_data]
-
-guardrails:
-  - id: no_sample_outbound
-    description: Nothing from a malware sample leaves on an outbound message.
-    applies_to: [output, tool_output]
-    checks: [data_class]
-    data_classes: [malware_sample]
-    on_violation: block
-  - id: no_identity_data_outbound
-    description: Account and session data stays inside the investigation.
-    applies_to: [output, tool_output]
-    checks: [data_class]
-    data_classes: [identity_data]
-    on_violation: block
-  - id: no_credentials_out
-    description: Nothing credential-shaped leaves an agent, ever.
-    applies_to: [output, tool_output]
-    checks: [secrets]
-    on_violation: block
-  - id: screen_inbound_artifacts
-    description: >-
-      An alert's payload, a phishing sample's text and a submitted log are
-      somebody else's writing — and often an attacker's. Screen them.
-    applies_to: [input, tool_output]
-    checks: [prompt_injection]
-    on_violation: escalate
-    escalate_channel: soc_escalations
-
-channels:
-  - id: soc_escalations
-    description: Where a screened artifact or a severity call goes for a human.
-    purpose: escalation
-    members: [analyst_agent, soc_lead_agent]
 
 lifecycle:
   gates:

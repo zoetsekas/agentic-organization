@@ -27,398 +27,6 @@ metadata:
   owner: Atlas Platform Engineering
   environment: development
 
-# Every block below is populated: this example is also the coverage check that
-# a test holds to (test_all_features_used.py).
-
-operating_principles:
-  - Evidence over conviction. An unsourced number does not leave the desk.
-  - A control you route around is a control you do not have.
-  - When a limit, a barrier or a hold is in doubt, it holds until it is lifted.
-
-data_classes:
-  - id: public_knowledge
-    description: Published filings, rate cards and disclosed research.
-    scope: public
-  - id: customer_pii
-    description: Retail customer identity and account records.
-    scope: private
-    groups: [consumer]
-    allowed_environments: [clean_room, banking_ops]
-    may_appear_in_traces: false
-  - id: account_data
-    description: Balances, transactions and servicing history.
-    scope: protected
-    groups: [consumer]
-    allowed_environments: [banking_ops]
-  - id: trade_data
-    description: Orders, positions and the trade blotter.
-    scope: protected
-    groups: [markets]
-    allowed_environments: [trading_floor, risk_analytics]
-  - id: mnpi
-    description: >-
-      Material non-public information from advisory mandates. The wrong side of
-      the information barrier for anyone who trades.
-    scope: private
-    groups: [banking]
-    allowed_environments: [deal_room]
-    may_appear_in_traces: false
-  - id: research_output
-    description: Investment research and the models behind it.
-    scope: protected
-    groups: [markets]
-    allowed_environments: [research_desk]
-  - id: market_data
-    description: Prices, curves and reference data.
-    scope: protected
-    groups: [markets]
-    allowed_environments: [trading_floor, research_desk, risk_analytics]
-  - id: risk_models
-    description: Limit frameworks, VaR models and their calibration.
-    scope: protected
-    groups: [risk]
-    allowed_environments: [risk_analytics]
-  - id: aml_case
-    description: Financial-crime alerts, investigations and suspicious activity.
-    scope: private
-    groups: [fincrime]
-    allowed_environments: [fincrime_enclave]
-    may_appear_in_traces: false
-  - id: audit_workpapers
-    description: Internal Audit's testing, findings and working papers.
-    scope: protected
-    groups: [audit]
-    allowed_environments: [audit_room]
-
-decisions:
-  - id: approve_loan
-    title: Approve a retail loan within policy
-  - id: price_loan
-    title: Price a retail loan
-  - id: execute_trade
-    title: Execute a trade
-  - id: set_risk_limit
-    title: Set or change a trading risk limit
-  - id: override_limit_breach
-    title: Override a risk-limit breach
-    description: Rare, and never the trader's own call.
-  - id: publish_research
-    title: Publish investment research
-  - id: rate_security
-    title: Issue or change a research rating
-  - id: advise_deal
-    title: Advise on an M&A or capital-markets mandate
-  - id: cross_the_wall
-    title: Bring a person across the information barrier
-    description: Wall-crossing is logged and controlled; never self-authorized.
-  - id: approve_credit_risk
-    title: Approve a credit-risk position
-  - id: close_aml_alert
-    title: Close a financial-crime alert
-  - id: file_sar
-    title: File a suspicious activity report with a regulator
-  - id: open_audit_finding
-    title: Open or close an audit finding
-  - id: deploy_to_production
-    title: Deploy a change to a production banking system
-  - id: allocate_capital
-    title: Allocate capital across the businesses
-
-separations:
-  - id: research_and_trading
-    decisions: [publish_research, execute_trade]
-    enforcement:
-      enforced_by: both
-      authoritative: application
-      enforced_in: the order-management system's entitlement model
-    reason: >-
-      Research that moves a price and a book that trades on it, in one hand, is
-      the oldest conflict on the Street. The information barrier is the control.
-  - id: advise_and_trade
-    decisions: [advise_deal, execute_trade]
-    reason: >-
-      Advisory holds material non-public information. A principal that both
-      advises and trades is insider dealing waiting to be discovered.
-  - id: limit_and_trade
-    decisions: [set_risk_limit, execute_trade]
-    enforcement:
-      enforced_by: both
-      authoritative: application
-      enforced_in: the risk system's pre-trade limit check
-    reason: >-
-      A trader who sets the limit they trade within has no limit. Risk sets it,
-      independent of the desk.
-  - id: alert_and_report
-    decisions: [close_aml_alert, file_sar]
-    reason: >-
-      Closing an alert and filing the report are the two ends of the same
-      judgement; one principal holding both can bury what it should escalate.
-  - id: audit_independence
-    decisions: [open_audit_finding, approve_credit_risk]
-    reason: >-
-      Internal Audit tests the credit process. An auditor who can also approve
-      a credit position is auditing its own work.
-
-people:
-  - id: p_group_ceo
-    name: Ingrid Haas
-    contact: ingrid.haas@atlas.example
-    position: Group Chief Executive
-    unit: atlas
-    mandate:
-      decisions: [allocate_capital]
-  - id: p_head_consumer
-    name: Marcus Webb
-    contact: marcus.webb@atlas.example
-    position: Head of Consumer Bank
-    unit: consumer_bank
-    mandate:
-      decisions: [approve_loan, price_loan]
-  - id: p_head_markets
-    name: Priya Anand
-    contact: priya.anand@atlas.example
-    position: Head of Markets
-    unit: markets
-    # Runs the trading business; does not set the limits it trades within, and
-    # does not publish the research (separations 'limit_and_trade',
-    # 'research_and_trading').
-    mandate:
-      decisions: [execute_trade]
-  - id: p_head_research
-    name: Tomás Rivera
-    contact: tomas.rivera@atlas.example
-    position: Head of Research
-    unit: research
-    mandate:
-      decisions: [publish_research, rate_security]
-  - id: p_head_banking
-    name: Sanjay Iyer
-    contact: sanjay.iyer@atlas.example
-    position: Head of Investment Banking
-    unit: banking
-    mandate:
-      decisions: [advise_deal, cross_the_wall]
-  - id: p_cro
-    name: Lena Fischer
-    contact: lena.fischer@atlas.example
-    position: Chief Risk Officer
-    unit: risk
-    mandate:
-      decisions: [set_risk_limit, override_limit_breach, approve_credit_risk]
-  - id: p_mlro
-    name: Kwame Asante
-    contact: kwame.asante@atlas.example
-    position: Money Laundering Reporting Officer
-    unit: financial_crime
-    # Files reports; the investigators close alerts (separation
-    # 'alert_and_report').
-    mandate:
-      decisions: [file_sar]
-  - id: p_head_audit
-    name: Beatriz Costa
-    contact: beatriz.costa@atlas.example
-    position: Head of Internal Audit
-    unit: internal_audit
-    mandate:
-      decisions: [open_audit_finding]
-  - id: p_cto
-    name: Yusuf Kaya
-    contact: yusuf.kaya@atlas.example
-    position: Chief Technology Officer
-    unit: technology
-    mandate:
-      decisions: [deploy_to_production]
-
-capabilities:
-  - id: loan_origination
-    description: Originate and price a retail loan within policy.
-    action: write
-    autonomy: supervised
-    resource_class: los
-    data_classes: [account_data, customer_pii]
-    decision: approve_loan
-    constraints: {requires_approval: true}
-  - id: identity_verification
-    description: Verify a customer's identity documents in the clean room.
-    action: query
-    resource_class: kyc
-    data_classes: [customer_pii]
-    constraints: {max_rows: 1, allowed_operations: [select]}
-  - id: transaction_trace
-    description: Trace a transaction across accounts during an investigation.
-    action: query
-    resource_class: crm
-    data_classes: [account_data]
-    constraints: {max_rows: 500, allowed_operations: [select]}
-  - id: customer_lookup
-    description: Read a customer's identity and account records.
-    action: query
-    resource_class: crm
-    data_classes: [customer_pii, account_data]
-    constraints: {max_rows: 50, allowed_operations: [select]}
-  - id: trade_execution
-    description: Place an order into the market.
-    action: write
-    autonomy: supervised
-    resource_class: oms
-    data_classes: [trade_data, market_data]
-    decision: execute_trade
-    constraints: {requires_approval: true}
-  - id: position_query
-    description: Read the desk's positions and the blotter.
-    action: query
-    resource_class: oms
-    data_classes: [trade_data]
-    constraints: {max_rows: 5000, allowed_operations: [select]}
-  - id: research_publishing
-    description: Publish investment research and set a rating.
-    action: publish
-    autonomy: supervised
-    resource_class: research_platform
-    data_classes: [research_output, market_data]
-    decision: publish_research
-    constraints: {requires_approval: true}
-  - id: deal_advisory
-    description: Work an advisory mandate against material non-public information.
-    action: write
-    autonomy: supervised
-    resource_class: deal_platform
-    data_classes: [mnpi]
-    decision: advise_deal
-    constraints: {requires_approval: true}
-  - id: wall_crossing
-    description: Record bringing a named person across the information barrier.
-    action: write
-    autonomy: supervised
-    resource_class: control_room
-    data_classes: [mnpi]
-    decision: cross_the_wall
-    constraints: {requires_approval: true}
-  - id: limit_setting
-    description: Set or change a trading risk limit.
-    action: write
-    autonomy: supervised
-    resource_class: risk_system
-    data_classes: [risk_models, trade_data]
-    decision: set_risk_limit
-    constraints: {requires_approval: true}
-  - id: risk_analytics_run
-    description: Run VaR and stress models over positions and market data.
-    action: query
-    resource_class: risk_system
-    data_classes: [risk_models, market_data]
-    constraints: {max_rows: 100000, allowed_operations: [select]}
-  - id: breach_override
-    description: Override a limit breach with a documented rationale.
-    action: approve
-    autonomy: supervised
-    resource_class: risk_system
-    data_classes: [risk_models, trade_data]
-    decision: override_limit_breach
-    constraints: {requires_approval: true}
-  - id: credit_approval
-    description: Approve a credit-risk position.
-    action: approve
-    autonomy: supervised
-    resource_class: credit_system
-    data_classes: [risk_models]
-    decision: approve_credit_risk
-    constraints: {requires_approval: true}
-  - id: aml_triage
-    description: Work a financial-crime alert to a documented conclusion.
-    action: write
-    autonomy: supervised
-    resource_class: fincrime_platform
-    data_classes: [aml_case]
-    decision: close_aml_alert
-    constraints: {requires_approval: true}
-  - id: sar_filing
-    description: Assemble and file a suspicious activity report.
-    action: write
-    autonomy: human_decides
-    resource_class: fincrime_platform
-    data_classes: [aml_case]
-    decision: file_sar
-    constraints: {requires_approval: true}
-  - id: audit_testing
-    description: Test a control and evidence whether it held.
-    action: query
-    resource_class: audit_platform
-    data_classes: [audit_workpapers]
-    constraints: {max_rows: 20000, allowed_operations: [select]}
-  - id: production_deploy
-    description: Deploy a change to a production banking system.
-    action: administer
-    autonomy: supervised
-    resource_class: deploy_pipeline
-    data_classes: [public_knowledge]
-    decision: deploy_to_production
-    constraints: {requires_approval: true}
-
-# A skill and a plugin (agentic capability packaging).
-skills:
-  - id: market_commentary
-    description: Write market commentary that separates fact from view.
-    instructions: >-
-      State the move, then the read on it, and never let the read look like the
-      fact. Name the data behind any number.
-    triggers: [commentary, morning_note]
-    requires_capabilities: [position_query]
-
-plugins:
-  - id: markets_pack
-    description: Desk helpers for the trading floor.
-    provides_skills: [market_commentary]
-    provides_tools: [blotter_lookup]
-    requires_capabilities: [position_query]
-
-# A tool that wraps a capability into a narrower, named surface.
-tools:
-  - id: blotter_lookup
-    description: Look up one position on the blotter, already scoped.
-    wraps_kind: capability
-    wraps: position_query
-    input_schema:
-      book: string
-      symbol: string
-    output_schema:
-      position: number
-      as_of: string
-    constraints:
-      max_rows: 1
-      allowed_operations: [select]
-
-# An external agent endpoint (a contracted market-data vendor).
-endpoints:
-  - id: market_data_vendor
-    description: A contracted third-party market-data and reference agent.
-    trust: partner
-    provides: [reference_data, corporate_actions]
-    send_data_classes: [public_knowledge]
-    treat_output_as_data: true
-    requires_approval: false
-    response_sla_seconds: 30
-    secret_ref: MARKET_DATA_VENDOR_KEY
-
-# An output contract.
-output_contracts:
-  - id: sourced_commentary
-    description: Commentary whose every claim carries a source.
-    schema:
-      type: object
-      required: [claims]
-      properties:
-        claims:
-          type: array
-          items:
-            type: object
-            required: [text, source]
-            properties:
-              text: {type: string}
-              source: {type: string}
-    on_violation: retry
-    max_retries: 2
-
 # An artifact store.
 artifact_stores:
   - id: markets_scratch
@@ -438,203 +46,6 @@ context:
   offload_tool_output_bytes: 32000
   offload_to: markets_scratch
   retain_summaries: true
-
-# Knowledge sources.
-knowledge:
-  - id: policy_library
-    description: The bank's policies, procedures and control standards.
-    kind: document_store
-    data_classes: [public_knowledge]
-
-environments:
-  - id: clean_room
-    description: >-
-      Retail PII work. No network: identity data is touched here and reaches
-      nowhere outward.
-    toolchains: [data_analysis]
-    tier: medium
-    network: none
-    mounts: [customer_pii]
-    persistence: ephemeral
-  - id: banking_ops
-    description: Account servicing and origination.
-    toolchains: [data_analysis]
-    tier: medium
-    network: allowlist
-    egress_allowlist: ["los.internal", "crm.internal"]
-    mounts: [account_data, customer_pii]
-    persistence: ephemeral
-  - id: trading_floor
-    description: Order management and the blotter.
-    toolchains: [data_analysis]
-    tier: large
-    network: allowlist
-    egress_allowlist: ["oms.internal", "marketdata.vendor.example"]
-    mounts: [trade_data, market_data]
-    persistence: ephemeral
-  - id: research_desk
-    description: Research authoring and modelling.
-    toolchains: [data_analysis]
-    tier: medium
-    network: allowlist
-    egress_allowlist: ["research.internal", "marketdata.vendor.example"]
-    mounts: [research_output, market_data]
-    persistence: ephemeral
-  - id: deal_room
-    description: >-
-      Advisory work against material non-public information. No network:
-      MNPI does not leave, and this sandbox is unreachable from the floor.
-    toolchains: [document]
-    tier: medium
-    network: none
-    mounts: [mnpi]
-    persistence: ephemeral
-  - id: risk_analytics
-    description: Limit setting and VaR/stress analytics.
-    toolchains: [data_analysis]
-    tier: large
-    network: allowlist
-    egress_allowlist: ["risk.internal", "marketdata.vendor.example"]
-    mounts: [risk_models, market_data, trade_data]
-    persistence: ephemeral
-  - id: fincrime_enclave
-    description: >-
-      Financial-crime casework. No network: tipping off is an offence and the
-      material is unreachable from the businesses it concerns.
-    toolchains: [data_analysis]
-    tier: medium
-    network: none
-    mounts: [aml_case]
-    persistence: ephemeral
-  - id: audit_room
-    description: Internal Audit testing and working papers.
-    toolchains: [data_analysis]
-    tier: medium
-    network: allowlist
-    egress_allowlist: ["audit.internal"]
-    mounts: [audit_workpapers]
-    persistence: ephemeral
-  - id: build
-    description: Building and testing platform changes.
-    toolchains: [software_build]
-    tier: large
-    network: allowlist
-    egress_allowlist: ["registry.internal", "github.com"]
-    mounts: [public_knowledge]
-    persistence: ephemeral
-  - id: deploy_runner
-    description: >-
-      The release runner. Reaches the deploy pipeline and nothing else; a
-      deploy touches no customer or market data.
-    toolchains: [scripting]
-    tier: minimal
-    network: allowlist
-    egress_allowlist: ["deploy.internal"]
-    mounts: [public_knowledge]
-    persistence: ephemeral
-
-roles:
-  - id: atlas_team
-    title: Atlas
-    kind: team
-    responsibilities:
-      - Run a bank that is safe, fair and inside the rules of every place it operates.
-    permissions:
-      - {action: read, resource_kind: data_class, resource: public_knowledge}
-  - id: division_lead
-    title: Division lead
-    responsibilities:
-      - Own a division's outcomes and the judgement calls its mandate carries.
-      - Trade nothing against a control, and never reach around one.
-    permissions:
-      - {action: read, resource_kind: data_class, resource: public_knowledge}
-  - id: loan_officer
-    title: Loan officer
-    responsibilities:
-      - Verify a customer's identity in the clean room before anything else.
-      - Originate and price retail loans and look up their records within policy.
-    capabilities: [loan_origination, customer_lookup, identity_verification]
-    permissions:
-      - {action: write, resource_kind: capability, resource: loan_origination}
-      - {action: query, resource_kind: capability, resource: customer_lookup}
-      - {action: query, resource_kind: capability, resource: identity_verification}
-  - id: trader
-    title: Trader
-    responsibilities:
-      - Execute orders within the desk's limits and query the desk's positions.
-      - Keep the blotter honest.
-    capabilities: [trade_execution, position_query]
-    permissions:
-      - {action: write, resource_kind: capability, resource: trade_execution}
-      - {action: query, resource_kind: capability, resource: position_query}
-  - id: research_analyst
-    title: Research analyst
-    responsibilities:
-      - Publish research and ratings that separate fact from view.
-    # No position_query on purpose: research that can see the book is the
-    # information barrier already broken (separation 'research_and_trading').
-    capabilities: [research_publishing]
-    permissions:
-      - {action: publish, resource_kind: capability, resource: research_publishing}
-  - id: banker
-    title: Investment banker
-    responsibilities:
-      - Advise mandates against deal information, and cross people over the wall only when authorized.
-      - Keep material non-public information behind the wall.
-    capabilities: [deal_advisory, wall_crossing]
-    permissions:
-      - {action: write, resource_kind: capability, resource: deal_advisory}
-      - {action: write, resource_kind: capability, resource: wall_crossing}
-  - id: risk_officer
-    title: Risk officer
-    responsibilities:
-      - Set limits, run the analytics behind them, and rule on breaches and credit.
-    capabilities: [limit_setting, risk_analytics_run, breach_override, credit_approval]
-    permissions:
-      - {action: write, resource_kind: capability, resource: limit_setting}
-      - {action: query, resource_kind: capability, resource: risk_analytics_run}
-      - {action: approve, resource_kind: capability, resource: breach_override}
-      - {action: approve, resource_kind: capability, resource: credit_approval}
-  - id: fincrime_investigator
-    title: Financial crime investigator
-    responsibilities:
-      - Triage alerts to a conclusion and escalate what must be reported.
-      - Trace transactions across accounts to evidence a case.
-    capabilities: [aml_triage, transaction_trace]
-    permissions:
-      - {action: write, resource_kind: capability, resource: aml_triage}
-      - {action: query, resource_kind: capability, resource: transaction_trace}
-      - {action: read, resource_kind: data_class, resource: aml_case}
-  - id: reporting_officer
-    title: Reporting officer
-    responsibilities:
-      - Handle the filing of suspicious activity reports with the regulator.
-    capabilities: [sar_filing]
-    permissions:
-      - {action: write, resource_kind: capability, resource: sar_filing}
-  - id: auditor
-    title: Internal auditor
-    responsibilities:
-      - Testing of controls across the bank, evidencing whether they held.
-    capabilities: [audit_testing]
-    permissions:
-      - {action: query, resource_kind: capability, resource: audit_testing}
-  - id: technology_team
-    title: Technology
-    kind: team
-    responsibilities:
-      - Build and run the platforms the bank depends on, and deploy them safely.
-    capabilities: [production_deploy]
-    permissions:
-      - {action: administer, resource_kind: capability, resource: production_deploy}
-      - {action: read, resource_kind: data_class, resource: public_knowledge}
-  - id: platform_engineer
-    title: Platform engineer
-    responsibilities:
-      - Build platform changes and deploy them safely to production.
-    capabilities: [production_deploy]
-    permissions:
-      - {action: administer, resource_kind: capability, resource: production_deploy}
 
 organization:
   id: atlas
@@ -1003,178 +414,800 @@ organization:
             - environment: build
             - environment: deploy_runner
 
-# Oversight and service relationships that are not containment (ADR-0081).
-unit_links:
-  - source: risk
-    target: markets
-    kind: oversees
-    reason: >-
-      Risk sets the limits Markets trades within and must be independent of it;
-      a risk function inside the trading business sets the desk's own limits.
-  - source: risk
-    target: consumer_bank
-    kind: oversees
-    reason: >-
-      Consumer credit runs to the limits and models Risk owns.
-  - source: internal_audit
-    target: risk
-    kind: oversees
-    reason: >-
-      The third line tests the second; audit inside risk would leave the risk
-      framework untested.
-  - source: internal_audit
-    target: cib
-    kind: oversees
-    reason: >-
-      Audit tests the information barrier and the trading controls, and reports
-      to the board, not to the business.
-  - source: financial_crime
-    target: consumer_bank
-    kind: oversees
-    reason: >-
-      Financial crime monitors the retail book for suspicious activity, from
-      outside it.
-  - source: technology
-    target: markets
-    kind: serves
-    reason: >-
-      Technology runs the platforms Markets trades on. A service relationship,
-      and deliberately not authority over the desk.
-  - source: markets
-    target: research
-    kind: partners_with
-    reason: >-
-      Markets consumes published research and neither directs the other across
-      the barrier. Declared inert.
+  # Every block below is populated: this example is also the coverage check that
+  # a test holds to (test_all_features_used.py).
 
-interaction_flows:
-  - {source: trader_agent, target: cro_agent, kind: escalate}
-  - {source: research_analyst_agent, target: markets_head_agent, kind: notify}
-  - {source: aml_agent, target: consumer_head_agent, kind: notify}
-  - {source: loan_officer_agent, target: cro_agent, kind: consult}
-  - {source: banker_agent, target: cib_head_agent, kind: escalate}
-  - {source: audit_agent, target: cro_agent, kind: consult}
+  operating_principles:
+    - Evidence over conviction. An unsourced number does not leave the desk.
+    - A control you route around is a control you do not have.
+    - When a limit, a barrier or a hold is in doubt, it holds until it is lifted.
 
-# A regulatory examination response: a short-lived team drawn from the org
-# (ADR-0039). Bounded, so it is a mission and not standing structure.
-missions:
-  - id: apac_conduct_exam
-    name: APAC conduct examination response
-    objective: >-
-      Respond to the APAC regulator's conduct examination of the trading
-      business: assemble the evidence, answer the findings, and close the gaps.
-    deliverables:
-      - The evidence pack the examiners asked for.
-      - A remediation plan for any finding, owned and dated.
-    success_criteria:
-      - Every answer traces to a control test, not to an assertion.
-      - No open finding is left without an owner.
-    status: active
-    leader: audit_agent
-    members: [audit_agent, cro_agent, markets_head_agent]
-    sponsor:
-      name: Beatriz Costa
-      contact: beatriz.costa@atlas.example
-      role_title: Head of Internal Audit
-      roles: [owner]
-    starts_on: "2026-10-01"
-    ends_on: "2026-12-15"
-    internal_delegation: true
-
-# A workflow: a repeatable, auditable process (ADR-0031).
-workflows:
-  - id: morning_risk_pack
-    name: morning-risk-pack
-    description: >-
-      Pull overnight positions, run the risk analytics over them, and produce
-      the morning risk pack with every number sourced.
-    graph:
-      entry: positions
-      nodes:
-        - id: positions
-          kind: tool
-          tool: position_query
-          output: book
-        - id: analytics
-          kind: tool
-          tool: risk_analytics_run
-          args:
-            book: "{{ book }}"
-          output: metrics
-        - id: pack
-          kind: agent
-          agent: cro_agent
-          args:
-            metrics: "{{ metrics }}"
-          output: risk_pack
-      # Three steps in order. Without these edges only the first one ran, and
-      # the pack the whole workflow exists to produce was never built — which
-      # is what ADR-0096 now refuses.
-      edges:
-        - from: positions
-          to: analytics
-        - from: analytics
-          to: pack
-        - from: pack
-          to: END
-
-# A trigger: unattended work on a schedule (ADR-0018).
-triggers:
-  - id: premarket_risk_pack
-    description: Produce the morning risk pack before the floor opens.
-    kind: schedule
-    agent: cro_agent
-    workflow: morning_risk_pack
-    cadence:
-      expression: 0 6 * * 1-5
-      timezone: Europe/London
-    input:
-      scope: all_books
-    deliver_to: [risk_desk]
-    overlap: skip
-
-# A permission policy (ADR-0008): conditions the RBAC engine evaluates.
-policies:
-  - id: mnpi_never_leaves_the_deal_room
-    effect: deny
-    description: Material non-public information may only be touched in the deal room.
-    actions: [query, read, write]
-    resource_kinds: [data_class]
-    resources: [mnpi]
-    unless:
-      environments: [deal_room]
-
-channels:
-  - id: risk_desk
-    channel_class: team_chat
-    description: Where the morning risk pack and limit alerts land for humans.
-    purposes: [notify]
-    human_facing: true
-    members: [cro_agent, markets_head_agent]
-  - id: control_room_escalations
-    channel_class: team_chat
-    description: Where a screened message or a barrier question goes for a human.
-    purposes: [ask, notify]
-    human_facing: true
-    members: [aml_agent, audit_agent]
-
-memory:
-  session:
-    retention_minutes: 240
-  long_term:
-    enabled: true
-    retention_days: 365
-    recall: on_demand
-    promotion_allowed: true
-    promotion_requires_approval: true
-    redact_data_classes: [customer_pii, mnpi, aml_case]
-  namespaces:
-    - id: control_lessons
-      description: How a control failed or held before, de-identified.
+  data_classes:
+    - id: public_knowledge
+      description: Published filings, rate cards and disclosed research.
+      scope: public
+    - id: customer_pii
+      description: Retail customer identity and account records.
+      scope: private
+      groups: [consumer]
+      allowed_environments: [clean_room, banking_ops]
+      may_appear_in_traces: false
+    - id: account_data
+      description: Balances, transactions and servicing history.
+      scope: protected
+      groups: [consumer]
+      allowed_environments: [banking_ops]
+    - id: trade_data
+      description: Orders, positions and the trade blotter.
+      scope: protected
+      groups: [markets]
+      allowed_environments: [trading_floor, risk_analytics]
+    - id: mnpi
+      description: >-
+        Material non-public information from advisory mandates. The wrong side of
+        the information barrier for anyone who trades.
+      scope: private
+      groups: [banking]
+      allowed_environments: [deal_room]
+      may_appear_in_traces: false
+    - id: research_output
+      description: Investment research and the models behind it.
+      scope: protected
+      groups: [markets]
+      allowed_environments: [research_desk]
+    - id: market_data
+      description: Prices, curves and reference data.
+      scope: protected
+      groups: [markets]
+      allowed_environments: [trading_floor, research_desk, risk_analytics]
+    - id: risk_models
+      description: Limit frameworks, VaR models and their calibration.
       scope: protected
       groups: [risk]
+      allowed_environments: [risk_analytics]
+    - id: aml_case
+      description: Financial-crime alerts, investigations and suspicious activity.
+      scope: private
+      groups: [fincrime]
+      allowed_environments: [fincrime_enclave]
+      may_appear_in_traces: false
+    - id: audit_workpapers
+      description: Internal Audit's testing, findings and working papers.
+      scope: protected
+      groups: [audit]
+      allowed_environments: [audit_room]
+
+  decisions:
+    - id: approve_loan
+      title: Approve a retail loan within policy
+    - id: price_loan
+      title: Price a retail loan
+    - id: execute_trade
+      title: Execute a trade
+    - id: set_risk_limit
+      title: Set or change a trading risk limit
+    - id: override_limit_breach
+      title: Override a risk-limit breach
+      description: Rare, and never the trader's own call.
+    - id: publish_research
+      title: Publish investment research
+    - id: rate_security
+      title: Issue or change a research rating
+    - id: advise_deal
+      title: Advise on an M&A or capital-markets mandate
+    - id: cross_the_wall
+      title: Bring a person across the information barrier
+      description: Wall-crossing is logged and controlled; never self-authorized.
+    - id: approve_credit_risk
+      title: Approve a credit-risk position
+    - id: close_aml_alert
+      title: Close a financial-crime alert
+    - id: file_sar
+      title: File a suspicious activity report with a regulator
+    - id: open_audit_finding
+      title: Open or close an audit finding
+    - id: deploy_to_production
+      title: Deploy a change to a production banking system
+    - id: allocate_capital
+      title: Allocate capital across the businesses
+
+  separations:
+    - id: research_and_trading
+      decisions: [publish_research, execute_trade]
+      enforcement:
+        enforced_by: both
+        authoritative: application
+        enforced_in: the order-management system's entitlement model
+      reason: >-
+        Research that moves a price and a book that trades on it, in one hand, is
+        the oldest conflict on the Street. The information barrier is the control.
+    - id: advise_and_trade
+      decisions: [advise_deal, execute_trade]
+      reason: >-
+        Advisory holds material non-public information. A principal that both
+        advises and trades is insider dealing waiting to be discovered.
+    - id: limit_and_trade
+      decisions: [set_risk_limit, execute_trade]
+      enforcement:
+        enforced_by: both
+        authoritative: application
+        enforced_in: the risk system's pre-trade limit check
+      reason: >-
+        A trader who sets the limit they trade within has no limit. Risk sets it,
+        independent of the desk.
+    - id: alert_and_report
+      decisions: [close_aml_alert, file_sar]
+      reason: >-
+        Closing an alert and filing the report are the two ends of the same
+        judgement; one principal holding both can bury what it should escalate.
+    - id: audit_independence
+      decisions: [open_audit_finding, approve_credit_risk]
+      reason: >-
+        Internal Audit tests the credit process. An auditor who can also approve
+        a credit position is auditing its own work.
+
+  people:
+    - id: p_group_ceo
+      name: Ingrid Haas
+      contact: ingrid.haas@atlas.example
+      position: Group Chief Executive
+      unit: atlas
+      mandate:
+        decisions: [allocate_capital]
+    - id: p_head_consumer
+      name: Marcus Webb
+      contact: marcus.webb@atlas.example
+      position: Head of Consumer Bank
+      unit: consumer_bank
+      mandate:
+        decisions: [approve_loan, price_loan]
+    - id: p_head_markets
+      name: Priya Anand
+      contact: priya.anand@atlas.example
+      position: Head of Markets
+      unit: markets
+      # Runs the trading business; does not set the limits it trades within, and
+      # does not publish the research (separations 'limit_and_trade',
+      # 'research_and_trading').
+      mandate:
+        decisions: [execute_trade]
+    - id: p_head_research
+      name: Tomás Rivera
+      contact: tomas.rivera@atlas.example
+      position: Head of Research
+      unit: research
+      mandate:
+        decisions: [publish_research, rate_security]
+    - id: p_head_banking
+      name: Sanjay Iyer
+      contact: sanjay.iyer@atlas.example
+      position: Head of Investment Banking
+      unit: banking
+      mandate:
+        decisions: [advise_deal, cross_the_wall]
+    - id: p_cro
+      name: Lena Fischer
+      contact: lena.fischer@atlas.example
+      position: Chief Risk Officer
+      unit: risk
+      mandate:
+        decisions: [set_risk_limit, override_limit_breach, approve_credit_risk]
+    - id: p_mlro
+      name: Kwame Asante
+      contact: kwame.asante@atlas.example
+      position: Money Laundering Reporting Officer
+      unit: financial_crime
+      # Files reports; the investigators close alerts (separation
+      # 'alert_and_report').
+      mandate:
+        decisions: [file_sar]
+    - id: p_head_audit
+      name: Beatriz Costa
+      contact: beatriz.costa@atlas.example
+      position: Head of Internal Audit
+      unit: internal_audit
+      mandate:
+        decisions: [open_audit_finding]
+    - id: p_cto
+      name: Yusuf Kaya
+      contact: yusuf.kaya@atlas.example
+      position: Chief Technology Officer
+      unit: technology
+      mandate:
+        decisions: [deploy_to_production]
+
+  capabilities:
+    - id: loan_origination
+      description: Originate and price a retail loan within policy.
+      action: write
+      autonomy: supervised
+      resource_class: los
+      data_classes: [account_data, customer_pii]
+      decision: approve_loan
+      constraints: {requires_approval: true}
+    - id: identity_verification
+      description: Verify a customer's identity documents in the clean room.
+      action: query
+      resource_class: kyc
+      data_classes: [customer_pii]
+      constraints: {max_rows: 1, allowed_operations: [select]}
+    - id: transaction_trace
+      description: Trace a transaction across accounts during an investigation.
+      action: query
+      resource_class: crm
+      data_classes: [account_data]
+      constraints: {max_rows: 500, allowed_operations: [select]}
+    - id: customer_lookup
+      description: Read a customer's identity and account records.
+      action: query
+      resource_class: crm
+      data_classes: [customer_pii, account_data]
+      constraints: {max_rows: 50, allowed_operations: [select]}
+    - id: trade_execution
+      description: Place an order into the market.
+      action: write
+      autonomy: supervised
+      resource_class: oms
+      data_classes: [trade_data, market_data]
+      decision: execute_trade
+      constraints: {requires_approval: true}
+    - id: position_query
+      description: Read the desk's positions and the blotter.
+      action: query
+      resource_class: oms
+      data_classes: [trade_data]
+      constraints: {max_rows: 5000, allowed_operations: [select]}
+    - id: research_publishing
+      description: Publish investment research and set a rating.
+      action: publish
+      autonomy: supervised
+      resource_class: research_platform
+      data_classes: [research_output, market_data]
+      decision: publish_research
+      constraints: {requires_approval: true}
+    - id: deal_advisory
+      description: Work an advisory mandate against material non-public information.
+      action: write
+      autonomy: supervised
+      resource_class: deal_platform
+      data_classes: [mnpi]
+      decision: advise_deal
+      constraints: {requires_approval: true}
+    - id: wall_crossing
+      description: Record bringing a named person across the information barrier.
+      action: write
+      autonomy: supervised
+      resource_class: control_room
+      data_classes: [mnpi]
+      decision: cross_the_wall
+      constraints: {requires_approval: true}
+    - id: limit_setting
+      description: Set or change a trading risk limit.
+      action: write
+      autonomy: supervised
+      resource_class: risk_system
+      data_classes: [risk_models, trade_data]
+      decision: set_risk_limit
+      constraints: {requires_approval: true}
+    - id: risk_analytics_run
+      description: Run VaR and stress models over positions and market data.
+      action: query
+      resource_class: risk_system
+      data_classes: [risk_models, market_data]
+      constraints: {max_rows: 100000, allowed_operations: [select]}
+    - id: breach_override
+      description: Override a limit breach with a documented rationale.
+      action: approve
+      autonomy: supervised
+      resource_class: risk_system
+      data_classes: [risk_models, trade_data]
+      decision: override_limit_breach
+      constraints: {requires_approval: true}
+    - id: credit_approval
+      description: Approve a credit-risk position.
+      action: approve
+      autonomy: supervised
+      resource_class: credit_system
+      data_classes: [risk_models]
+      decision: approve_credit_risk
+      constraints: {requires_approval: true}
+    - id: aml_triage
+      description: Work a financial-crime alert to a documented conclusion.
+      action: write
+      autonomy: supervised
+      resource_class: fincrime_platform
+      data_classes: [aml_case]
+      decision: close_aml_alert
+      constraints: {requires_approval: true}
+    - id: sar_filing
+      description: Assemble and file a suspicious activity report.
+      action: write
+      autonomy: human_decides
+      resource_class: fincrime_platform
+      data_classes: [aml_case]
+      decision: file_sar
+      constraints: {requires_approval: true}
+    - id: audit_testing
+      description: Test a control and evidence whether it held.
+      action: query
+      resource_class: audit_platform
+      data_classes: [audit_workpapers]
+      constraints: {max_rows: 20000, allowed_operations: [select]}
+    - id: production_deploy
+      description: Deploy a change to a production banking system.
+      action: administer
+      autonomy: supervised
+      resource_class: deploy_pipeline
       data_classes: [public_knowledge]
-      retention_days: 730
+      decision: deploy_to_production
+      constraints: {requires_approval: true}
+
+  # A skill and a plugin (agentic capability packaging).
+  skills:
+    - id: market_commentary
+      description: Write market commentary that separates fact from view.
+      instructions: >-
+        State the move, then the read on it, and never let the read look like the
+        fact. Name the data behind any number.
+      triggers: [commentary, morning_note]
+      requires_capabilities: [position_query]
+
+  plugins:
+    - id: markets_pack
+      description: Desk helpers for the trading floor.
+      provides_skills: [market_commentary]
+      provides_tools: [blotter_lookup]
+      requires_capabilities: [position_query]
+
+  # A tool that wraps a capability into a narrower, named surface.
+  tools:
+    - id: blotter_lookup
+      description: Look up one position on the blotter, already scoped.
+      wraps_kind: capability
+      wraps: position_query
+      input_schema:
+        book: string
+        symbol: string
+      output_schema:
+        position: number
+        as_of: string
+      constraints:
+        max_rows: 1
+        allowed_operations: [select]
+
+  # An external agent endpoint (a contracted market-data vendor).
+  endpoints:
+    - id: market_data_vendor
+      description: A contracted third-party market-data and reference agent.
+      trust: partner
+      provides: [reference_data, corporate_actions]
+      send_data_classes: [public_knowledge]
+      treat_output_as_data: true
+      requires_approval: false
+      response_sla_seconds: 30
+      secret_ref: MARKET_DATA_VENDOR_KEY
+
+  # An output contract.
+  output_contracts:
+    - id: sourced_commentary
+      description: Commentary whose every claim carries a source.
+      schema:
+        type: object
+        required: [claims]
+        properties:
+          claims:
+            type: array
+            items:
+              type: object
+              required: [text, source]
+              properties:
+                text: {type: string}
+                source: {type: string}
+      on_violation: retry
+      max_retries: 2
+
+  # Knowledge sources.
+  knowledge:
+    - id: policy_library
+      description: The bank's policies, procedures and control standards.
+      kind: document_store
+      data_classes: [public_knowledge]
+
+  environments:
+    - id: clean_room
+      description: >-
+        Retail PII work. No network: identity data is touched here and reaches
+        nowhere outward.
+      toolchains: [data_analysis]
+      tier: medium
+      network: none
+      mounts: [customer_pii]
+      persistence: ephemeral
+    - id: banking_ops
+      description: Account servicing and origination.
+      toolchains: [data_analysis]
+      tier: medium
+      network: allowlist
+      egress_allowlist: ["los.internal", "crm.internal"]
+      mounts: [account_data, customer_pii]
+      persistence: ephemeral
+    - id: trading_floor
+      description: Order management and the blotter.
+      toolchains: [data_analysis]
+      tier: large
+      network: allowlist
+      egress_allowlist: ["oms.internal", "marketdata.vendor.example"]
+      mounts: [trade_data, market_data]
+      persistence: ephemeral
+    - id: research_desk
+      description: Research authoring and modelling.
+      toolchains: [data_analysis]
+      tier: medium
+      network: allowlist
+      egress_allowlist: ["research.internal", "marketdata.vendor.example"]
+      mounts: [research_output, market_data]
+      persistence: ephemeral
+    - id: deal_room
+      description: >-
+        Advisory work against material non-public information. No network:
+        MNPI does not leave, and this sandbox is unreachable from the floor.
+      toolchains: [document]
+      tier: medium
+      network: none
+      mounts: [mnpi]
+      persistence: ephemeral
+    - id: risk_analytics
+      description: Limit setting and VaR/stress analytics.
+      toolchains: [data_analysis]
+      tier: large
+      network: allowlist
+      egress_allowlist: ["risk.internal", "marketdata.vendor.example"]
+      mounts: [risk_models, market_data, trade_data]
+      persistence: ephemeral
+    - id: fincrime_enclave
+      description: >-
+        Financial-crime casework. No network: tipping off is an offence and the
+        material is unreachable from the businesses it concerns.
+      toolchains: [data_analysis]
+      tier: medium
+      network: none
+      mounts: [aml_case]
+      persistence: ephemeral
+    - id: audit_room
+      description: Internal Audit testing and working papers.
+      toolchains: [data_analysis]
+      tier: medium
+      network: allowlist
+      egress_allowlist: ["audit.internal"]
+      mounts: [audit_workpapers]
+      persistence: ephemeral
+    - id: build
+      description: Building and testing platform changes.
+      toolchains: [software_build]
+      tier: large
+      network: allowlist
+      egress_allowlist: ["registry.internal", "github.com"]
+      mounts: [public_knowledge]
+      persistence: ephemeral
+    - id: deploy_runner
+      description: >-
+        The release runner. Reaches the deploy pipeline and nothing else; a
+        deploy touches no customer or market data.
+      toolchains: [scripting]
+      tier: minimal
+      network: allowlist
+      egress_allowlist: ["deploy.internal"]
+      mounts: [public_knowledge]
+      persistence: ephemeral
+
+  role_definitions:
+    - id: atlas_team
+      title: Atlas
+      kind: team
+      responsibilities:
+        - Run a bank that is safe, fair and inside the rules of every place it operates.
+      permissions:
+        - {action: read, resource_kind: data_class, resource: public_knowledge}
+    - id: division_lead
+      title: Division lead
+      responsibilities:
+        - Own a division's outcomes and the judgement calls its mandate carries.
+        - Trade nothing against a control, and never reach around one.
+      permissions:
+        - {action: read, resource_kind: data_class, resource: public_knowledge}
+    - id: loan_officer
+      title: Loan officer
+      responsibilities:
+        - Verify a customer's identity in the clean room before anything else.
+        - Originate and price retail loans and look up their records within policy.
+      capabilities: [loan_origination, customer_lookup, identity_verification]
+      permissions:
+        - {action: write, resource_kind: capability, resource: loan_origination}
+        - {action: query, resource_kind: capability, resource: customer_lookup}
+        - {action: query, resource_kind: capability, resource: identity_verification}
+    - id: trader
+      title: Trader
+      responsibilities:
+        - Execute orders within the desk's limits and query the desk's positions.
+        - Keep the blotter honest.
+      capabilities: [trade_execution, position_query]
+      permissions:
+        - {action: write, resource_kind: capability, resource: trade_execution}
+        - {action: query, resource_kind: capability, resource: position_query}
+    - id: research_analyst
+      title: Research analyst
+      responsibilities:
+        - Publish research and ratings that separate fact from view.
+      # No position_query on purpose: research that can see the book is the
+      # information barrier already broken (separation 'research_and_trading').
+      capabilities: [research_publishing]
+      permissions:
+        - {action: publish, resource_kind: capability, resource: research_publishing}
+    - id: banker
+      title: Investment banker
+      responsibilities:
+        - Advise mandates against deal information, and cross people over the wall only when authorized.
+        - Keep material non-public information behind the wall.
+      capabilities: [deal_advisory, wall_crossing]
+      permissions:
+        - {action: write, resource_kind: capability, resource: deal_advisory}
+        - {action: write, resource_kind: capability, resource: wall_crossing}
+    - id: risk_officer
+      title: Risk officer
+      responsibilities:
+        - Set limits, run the analytics behind them, and rule on breaches and credit.
+      capabilities: [limit_setting, risk_analytics_run, breach_override, credit_approval]
+      permissions:
+        - {action: write, resource_kind: capability, resource: limit_setting}
+        - {action: query, resource_kind: capability, resource: risk_analytics_run}
+        - {action: approve, resource_kind: capability, resource: breach_override}
+        - {action: approve, resource_kind: capability, resource: credit_approval}
+    - id: fincrime_investigator
+      title: Financial crime investigator
+      responsibilities:
+        - Triage alerts to a conclusion and escalate what must be reported.
+        - Trace transactions across accounts to evidence a case.
+      capabilities: [aml_triage, transaction_trace]
+      permissions:
+        - {action: write, resource_kind: capability, resource: aml_triage}
+        - {action: query, resource_kind: capability, resource: transaction_trace}
+        - {action: read, resource_kind: data_class, resource: aml_case}
+    - id: reporting_officer
+      title: Reporting officer
+      responsibilities:
+        - Handle the filing of suspicious activity reports with the regulator.
+      capabilities: [sar_filing]
+      permissions:
+        - {action: write, resource_kind: capability, resource: sar_filing}
+    - id: auditor
+      title: Internal auditor
+      responsibilities:
+        - Testing of controls across the bank, evidencing whether they held.
+      capabilities: [audit_testing]
+      permissions:
+        - {action: query, resource_kind: capability, resource: audit_testing}
+    - id: technology_team
+      title: Technology
+      kind: team
+      responsibilities:
+        - Build and run the platforms the bank depends on, and deploy them safely.
+      capabilities: [production_deploy]
+      permissions:
+        - {action: administer, resource_kind: capability, resource: production_deploy}
+        - {action: read, resource_kind: data_class, resource: public_knowledge}
+    - id: platform_engineer
+      title: Platform engineer
+      responsibilities:
+        - Build platform changes and deploy them safely to production.
+      capabilities: [production_deploy]
+      permissions:
+        - {action: administer, resource_kind: capability, resource: production_deploy}
+
+  # Oversight and service relationships that are not containment (ADR-0081).
+  unit_links:
+    - source: risk
+      target: markets
+      kind: oversees
+      reason: >-
+        Risk sets the limits Markets trades within and must be independent of it;
+        a risk function inside the trading business sets the desk's own limits.
+    - source: risk
+      target: consumer_bank
+      kind: oversees
+      reason: >-
+        Consumer credit runs to the limits and models Risk owns.
+    - source: internal_audit
+      target: risk
+      kind: oversees
+      reason: >-
+        The third line tests the second; audit inside risk would leave the risk
+        framework untested.
+    - source: internal_audit
+      target: cib
+      kind: oversees
+      reason: >-
+        Audit tests the information barrier and the trading controls, and reports
+        to the board, not to the business.
+    - source: financial_crime
+      target: consumer_bank
+      kind: oversees
+      reason: >-
+        Financial crime monitors the retail book for suspicious activity, from
+        outside it.
+    - source: technology
+      target: markets
+      kind: serves
+      reason: >-
+        Technology runs the platforms Markets trades on. A service relationship,
+        and deliberately not authority over the desk.
+    - source: markets
+      target: research
+      kind: partners_with
+      reason: >-
+        Markets consumes published research and neither directs the other across
+        the barrier. Declared inert.
+
+  interaction_flows:
+    - {source: trader_agent, target: cro_agent, kind: escalate}
+    - {source: research_analyst_agent, target: markets_head_agent, kind: notify}
+    - {source: aml_agent, target: consumer_head_agent, kind: notify}
+    - {source: loan_officer_agent, target: cro_agent, kind: consult}
+    - {source: banker_agent, target: cib_head_agent, kind: escalate}
+    - {source: audit_agent, target: cro_agent, kind: consult}
+
+  # A regulatory examination response: a short-lived team drawn from the org
+  # (ADR-0039). Bounded, so it is a mission and not standing structure.
+  missions:
+    - id: apac_conduct_exam
+      name: APAC conduct examination response
+      objective: >-
+        Respond to the APAC regulator's conduct examination of the trading
+        business: assemble the evidence, answer the findings, and close the gaps.
+      deliverables:
+        - The evidence pack the examiners asked for.
+        - A remediation plan for any finding, owned and dated.
+      success_criteria:
+        - Every answer traces to a control test, not to an assertion.
+        - No open finding is left without an owner.
+      status: active
+      leader: audit_agent
+      members: [audit_agent, cro_agent, markets_head_agent]
+      sponsor:
+        name: Beatriz Costa
+        contact: beatriz.costa@atlas.example
+        role_title: Head of Internal Audit
+        roles: [owner]
+      starts_on: "2026-10-01"
+      ends_on: "2026-12-15"
+      internal_delegation: true
+
+  # A workflow: a repeatable, auditable process (ADR-0031).
+  workflows:
+    - id: morning_risk_pack
+      name: morning-risk-pack
+      description: >-
+        Pull overnight positions, run the risk analytics over them, and produce
+        the morning risk pack with every number sourced.
+      graph:
+        entry: positions
+        nodes:
+          - id: positions
+            kind: tool
+            tool: position_query
+            output: book
+          - id: analytics
+            kind: tool
+            tool: risk_analytics_run
+            args:
+              book: "{{ book }}"
+            output: metrics
+          - id: pack
+            kind: agent
+            agent: cro_agent
+            args:
+              metrics: "{{ metrics }}"
+            output: risk_pack
+        # Three steps in order. Without these edges only the first one ran, and
+        # the pack the whole workflow exists to produce was never built — which
+        # is what ADR-0096 now refuses.
+        edges:
+          - from: positions
+            to: analytics
+          - from: analytics
+            to: pack
+          - from: pack
+            to: END
+
+  # A trigger: unattended work on a schedule (ADR-0018).
+  triggers:
+    - id: premarket_risk_pack
+      description: Produce the morning risk pack before the floor opens.
+      kind: schedule
+      agent: cro_agent
+      workflow: morning_risk_pack
+      cadence:
+        expression: 0 6 * * 1-5
+        timezone: Europe/London
+      input:
+        scope: all_books
+      deliver_to: [risk_desk]
+      overlap: skip
+
+  # A permission policy (ADR-0008): conditions the RBAC engine evaluates.
+  policies:
+    - id: mnpi_never_leaves_the_deal_room
+      effect: deny
+      description: Material non-public information may only be touched in the deal room.
+      actions: [query, read, write]
+      resource_kinds: [data_class]
+      resources: [mnpi]
+      unless:
+        environments: [deal_room]
+
+  channels:
+    - id: risk_desk
+      channel_class: team_chat
+      description: Where the morning risk pack and limit alerts land for humans.
+      purposes: [notify]
+      human_facing: true
+      members: [cro_agent, markets_head_agent]
+    - id: control_room_escalations
+      channel_class: team_chat
+      description: Where a screened message or a barrier question goes for a human.
+      purposes: [ask, notify]
+      human_facing: true
+      members: [aml_agent, audit_agent]
+
+  memory:
+    session:
+      retention_minutes: 240
+    long_term:
+      enabled: true
+      retention_days: 365
+      recall: on_demand
+      promotion_allowed: true
+      promotion_requires_approval: true
+      redact_data_classes: [customer_pii, mnpi, aml_case]
+    namespaces:
+      - id: control_lessons
+        description: How a control failed or held before, de-identified.
+        scope: protected
+        groups: [risk]
+        data_classes: [public_knowledge]
+        retention_days: 730
+
+  guardrails:
+    - id: no_pii_outbound
+      description: Retail customer identity data never leaves on an outbound message.
+      applies_to: [output, tool_output]
+      checks: [data_class]
+      data_classes: [customer_pii]
+      on_violation: block
+    - id: no_mnpi_outbound
+      description: Material non-public information never leaves the deal room.
+      applies_to: [output, tool_output]
+      checks: [data_class]
+      data_classes: [mnpi]
+      on_violation: block
+    - id: no_aml_outbound
+      description: Financial-crime material stays inside the enclave and filing path.
+      applies_to: [output, tool_output]
+      checks: [data_class]
+      data_classes: [aml_case]
+      on_violation: block
+    - id: no_credentials_out
+      description: Nothing credential-shaped leaves an agent, ever.
+      applies_to: [output, tool_output]
+      checks: [secrets]
+      on_violation: block
+    - id: screen_inbound_messages
+      description: >-
+        Client emails, vendor feeds and submitted documents are somebody else's
+        writing, and often an attacker's. Screen them.
+      applies_to: [input, tool_output]
+      checks: [prompt_injection]
+      on_violation: escalate
+      escalate_channel: control_room_escalations
 
 budgets:
   - id: group_monthly
@@ -1220,39 +1253,6 @@ observability:
   retention_days: 2555
   sample_rate: 1.0
   redact_data_classes: [customer_pii, mnpi, aml_case, trade_data]
-
-guardrails:
-  - id: no_pii_outbound
-    description: Retail customer identity data never leaves on an outbound message.
-    applies_to: [output, tool_output]
-    checks: [data_class]
-    data_classes: [customer_pii]
-    on_violation: block
-  - id: no_mnpi_outbound
-    description: Material non-public information never leaves the deal room.
-    applies_to: [output, tool_output]
-    checks: [data_class]
-    data_classes: [mnpi]
-    on_violation: block
-  - id: no_aml_outbound
-    description: Financial-crime material stays inside the enclave and filing path.
-    applies_to: [output, tool_output]
-    checks: [data_class]
-    data_classes: [aml_case]
-    on_violation: block
-  - id: no_credentials_out
-    description: Nothing credential-shaped leaves an agent, ever.
-    applies_to: [output, tool_output]
-    checks: [secrets]
-    on_violation: block
-  - id: screen_inbound_messages
-    description: >-
-      Client emails, vendor feeds and submitted documents are somebody else's
-      writing, and often an attacker's. Screen them.
-    applies_to: [input, tool_output]
-    checks: [prompt_injection]
-    on_violation: escalate
-    escalate_channel: control_room_escalations
 
 lifecycle:
   stage: development

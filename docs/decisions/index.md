@@ -103,7 +103,7 @@
 | [ADR-0098](ADR-0098-an-agent-can-leave.md) | An agent can leave, and leaving takes effect | Accepted | 1.0.0 | runtime, compiler | WS-003 | — |
 | [ADR-0099](ADR-0099-what-an-agent-may-rely-on-about-its-data.md) | What an agent may rely on about its data | Accepted | 1.0.0 | spec, compiler, runtime | WS-003 | — |
 | [ADR-0100](ADR-0100-a-canvas-per-aspect-and-layouts-that-place-things.md) | A canvas per aspect, and layouts that actually place things | Accepted | 1.0.0 | designer | WS-003 | — |
-| [ADR-0101](ADR-0101-uml-is-the-metamodel.md) | UML is the metamodel, and the platform's kinds are a UML profile | Accepted | 1.1.0 | designer, spec | WS-003 | — |
+| [ADR-0101](ADR-0101-uml-is-the-metamodel.md) | UML is the metamodel, and the platform's kinds are a UML profile | Accepted | 1.2.0 | designer, spec | WS-003 | — |
 
 ## By status
 

@@ -156,7 +156,7 @@ async def main() -> None:
           const d = window.designer;
           const nodes = Object.values(d.diagram().nodes);
           return { node: nodes[nodes.length - 1],
-                   guardrails: (d.spec().guardrails || []).length };
+                   guardrails: (d.spec().organization.guardrails || []).length };
         }""")
         check("the dropped component reaches the spec",
               made["guardrails"] > 0, json.dumps(made["node"]))
@@ -179,7 +179,7 @@ async def main() -> None:
         await area.dispatch_event("input")
         await page.wait_for_timeout(500)
         wrote = await page.evaluate("""(id) => {
-          const g = (window.designer.spec().guardrails || [])
+          const g = (window.designer.spec().organization.guardrails || [])
             .find((x) => x.id === id);
           return g ? g.description : null;
         }""", made["node"]["id"])
@@ -209,8 +209,8 @@ async def main() -> None:
         # -- 4. The authority controls, on an agent that has capabilities --
         holder = await page.evaluate("""() => {
           const s = window.designer.spec();
-          const caps = new Set((s.capabilities || []).map((c) => c.id));
-          const roles = new Map((s.roles || []).map((r) => [r.id, r]));
+          const caps = new Set((s.organization.capabilities || []).map((c) => c.id));
+          const roles = new Map((s.organization.role_definitions || []).map((r) => [r.id, r]));
           let found = null;
           const walk = (t) => {
             for (const a of t.members || []) {
@@ -396,7 +396,7 @@ async def main() -> None:
           const rec = await d.dapi(`/systems/${d.state.systemId}`);
           const layout = rec.record.layout;
           const nodes = layout.diagrams[layout.active].nodes;
-          const g = (rec.record.spec.guardrails || [])
+          const g = (rec.record.spec.organization.guardrails || [])
             .find((x) => (x.description || "").includes("Edited in a browser"));
           return { kinds: [...new Set(Object.values(nodes).map((n) => n.kind))],
                    edited: !!g };
@@ -457,7 +457,7 @@ async def main() -> None:
             await page.wait_for_timeout(500)
         dropped = await page.evaluate("""() => {
           const d = window.designer;
-          const classes = d.spec().data_classes || [];
+          const classes = d.spec().organization.data_classes || [];
           return { ids: classes.map((c) => c.id),
                    names: classes.map((c) => c.name || c.id) };
         }""")
@@ -470,7 +470,7 @@ async def main() -> None:
 
         clash = await page.evaluate("""() => {
           const d = window.designer;
-          const classes = d.spec().data_classes || [];
+          const classes = d.spec().organization.data_classes || [];
           if (classes.length < 2) return { refused: null };
           const target = classes[1];
           const before = target.id;
@@ -562,7 +562,7 @@ async def main() -> None:
           const d = window.designer;
           const controller = d.find("agent", "controller");
           return { tools: controller?.tools || [],
-                   toolsDeclared: (d.spec().tools || []).map((t) => t.id) };
+                   toolsDeclared: (d.spec().organization.tools || []).map((t) => t.id) };
         }""")
         check("a component dropped inside an agent is held by it",
               len(held["tools"]) == 1, json.dumps(held))
@@ -651,7 +651,7 @@ async def main() -> None:
           const layout = d.state.record.layout;
           const counts = Object.fromEntries(Object.values(layout.diagrams)
             .map((x) => [x.name, Object.keys(x.nodes).length]));
-          return { counts, guardrails: (d.spec().guardrails || []).length };
+          return { counts, guardrails: (d.spec().organization.guardrails || []).length };
         }""")
         check("a node placed on one diagram stays on it",
               len(set(split["counts"].values())) > 1, json.dumps(split["counts"]))
@@ -706,7 +706,7 @@ async def main() -> None:
         undone = await page.evaluate("""() => {
           const d = window.designer;
           return { nodes: Object.keys(d.diagram().nodes).length,
-                   channels: (d.spec().channels || []).length };
+                   channels: (d.spec().organization.channels || []).length };
         }""")
         check("undo puts back both the picture and the model",
               undone["nodes"] == before, json.dumps(undone))
