@@ -4,5 +4,6 @@
 """Encoded workflows from the design (ADR-0096)."""
 
 from . import listing_readiness  # noqa: F401
+from . import restock_review  # noqa: F401
 
-WORKFLOWS = ['listing_readiness']
+WORKFLOWS = ['listing_readiness', 'restock_review']

@@ -24,13 +24,25 @@ Three things bound that grant:
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Iterable, Optional
 
 from pydantic import BaseModel, Field
 
 from .ids import new_id, now_iso
 from .missions import window_is_open
+
+
+#: How long a *lateral* standing-in runs before it must be renewed. Written
+#: down and put on the record rather than left open, because ADR-0094 rule 3
+#: says a stand-in that never ends is a reorganisation nobody approved — and a
+#: default of "forever" is exactly that. Renewal is then a decision somebody
+#: makes again, in daylight.
+#:
+#: A stand-in *by hierarchy* gets no window, and needs none: the manager
+#: already held the mandate under ADR-0065, so there is nothing that could
+#: outlive its welcome.
+DEFAULT_STANDING_IN_DAYS = 7
 
 
 class WithheldDecision(BaseModel):
@@ -169,6 +181,9 @@ def open_assignment(
     granted, withheld = split_mandate(
         leader_mandate, successor_mandate, separations
     )
+    if not ends_on:
+        ends_on = (date.today()
+                   + timedelta(days=DEFAULT_STANDING_IN_DAYS)).isoformat()
     return ActingAssignment(
         failed_agent_id=failed_agent_id,
         successor_agent_id=successor_agent_id,

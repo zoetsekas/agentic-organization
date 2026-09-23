@@ -586,6 +586,7 @@ organization:
               roles: [buyer]
               mandate:
                 decisions: [raise_po, receive_goods]
+              workflows: [restock_review]
               humans:
                 - person: p_buyer
                   roles: [owner]
@@ -671,6 +672,14 @@ organization:
               roles: [payables_clerk]
               mandate:
                 decisions: [pay_invoice]
+              # Payables runs in batches, so nothing is kept warm (ADR-0095).
+              # What zero costs is real and the generated MAPPING.md says it
+              # per agent: an instance that goes away takes any asynchronous
+              # handles this agent was holding with it, and they settle as
+              # failed on the next run rather than hanging.
+              scaling:
+                min_instances: 0
+                max_instances: 2
               humans:
                 - person: p_ap
                   roles: [owner]
@@ -771,6 +780,21 @@ organization:
               roles: [ecommerce_manager]
               mandate:
                 decisions: [publish_product]
+              # A lateral stand-in (ADR-0094). Customer service is a peer under
+              # the same CGO, so it does not already hold `publish_product` the
+              # way the manager does — naming it here really does lend
+              # authority the chart did not, which is why it is written down
+              # rather than inferred, is time-bounded, and is refused outright
+              # if it would collapse a separation.
+              successor: cs_agent
+              # The storefront is the busiest thing AYC runs, so it keeps an
+              # instance warm and is allowed to spread (ADR-0095). Declared
+              # here rather than left to Cloud Run's own default, which nobody
+              # in this organization chose and no generated file would name.
+              scaling:
+                min_instances: 1
+                max_instances: 10
+                concurrent_sessions_per_instance: 4
               workflows: [listing_readiness]
               # A listing goes through several steps — copy, stock check,
               # price proposal — so the agent keeps an explicit plan.
@@ -822,6 +846,15 @@ organization:
               roles: [customer_service_rep]
               mandate:
                 decisions: [issue_refund]
+              # No successor declared, so the CGO stands in — and is granted
+              # nothing, because a manager already holds a superset of its
+              # reports' mandates (ADR-0065). That is the free case.
+              #
+              # `successor: ar_agent` would be refused by the gate: accounts
+              # receivable holds `record_receivable`, and the
+              # `refund_and_receivable` separation exists precisely so that
+              # refunding and clearing the balance are two hands. An outage is
+              # the worst moment to discover that, so it is caught here.
               humans:
                 - person: p_sales
                   roles: [owner]
@@ -940,6 +973,49 @@ workflows:
           to: draft
         - from: draft
           to: END
+
+  - id: restock_review
+    name: restock-review
+    description: >-
+      Walk the low-stock list one SKU at a time, raising a purchase order for
+      each, until none is left. A genuinely cyclic process: the loop is the
+      point, and the step bound is what stops one that does not converge.
+    graph:
+      entry: survey
+      nodes:
+        - id: survey
+          kind: tool
+          tool: stock_check
+          output: low_stock
+        # A branch is the only node that may declare several ways out, because
+        # it is the only one that chooses between them (ADR-0096). Everything
+        # else takes one edge, and a second would be refused rather than
+        # silently dropped.
+        - id: any_left
+          kind: branch
+          cases:
+            - when: len(low_stock) > 0
+              to: order
+          default: END
+        - id: order
+          kind: agent
+          agent: buyer_agent
+          args:
+            sku: "{{ low_stock }}"
+          output: purchase_order
+      edges:
+        - from: survey
+          to: any_left
+        # The edge that makes this a cycle: having ordered, survey again. It
+        # goes back to the *survey*, not to the branch — a loop that re-tests
+        # a condition nothing has re-measured is a loop that cannot converge,
+        # which is the easiest cyclic-workflow mistake to make and the one the
+        # step bound exists to catch. A review loop that runs until it passes
+        # is a real process, so cycles are legal; `max_steps` is what stands
+        # between one that does not converge and forever, and the error names
+        # the bound it hit.
+        - from: order
+          to: survey
 
 triggers:
   - id: nightly_stock_reconcile

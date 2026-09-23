@@ -344,3 +344,46 @@ def test_no_generated_conformance_report_claims_succession():
         text = report.read_text()
         for claim in ("successor", "stands in", "acting_for"):
             assert claim not in text, f"{report} claims {claim}"
+
+
+# -- a grant that never ends is a reorganisation nobody approved ------------
+
+
+def test_a_lateral_standing_in_gets_a_window_by_default(platform):
+    """Found by writing the worked example, which showed "open-ended".
+
+    ADR-0094 rule 3 says an inherited mandate is time-bounded, and a default
+    of forever is precisely the standing-in that outlives its outage. The
+    window is written onto the record so renewal is a decision somebody makes
+    again rather than one nobody has to make.
+    """
+    from datetime import date, timedelta
+
+    from orgagents.continuity import DEFAULT_STANDING_IN_DAYS
+
+    peer = _agent(platform, "agt_peer_w", mandate=[])
+    lead = _agent(platform, "agt_lead_w", successor_agent_id=peer.id,
+                  mandate=["raise_payment"])
+    assignment = platform.org.stand_in_for(lead.id)
+    assert assignment.ends_on, "a lateral grant was left open-ended"
+    assert assignment.ends_on == (
+        date.today() + timedelta(days=DEFAULT_STANDING_IN_DAYS)
+    ).isoformat()
+    assert "until" in assignment.describe()
+
+
+def test_a_hierarchy_standing_in_needs_no_window(platform):
+    """Nothing was conferred, so nothing can outlive its welcome."""
+    boss = _agent(platform, "agt_boss_w", mandate=["raise_payment"])
+    lead = _agent(platform, "agt_lead_w2", manager_agent_id=boss.id,
+                  mandate=["raise_payment"])
+    assignment = platform.org.stand_in_for(lead.id)
+    assert assignment.by_hierarchy and not assignment.ends_on
+
+
+def test_an_explicit_window_still_wins(platform):
+    peer = _agent(platform, "agt_peer_w3", mandate=[])
+    lead = _agent(platform, "agt_lead_w3", successor_agent_id=peer.id,
+                  mandate=["raise_payment"])
+    assignment = platform.org.stand_in_for(lead.id, ends_on="2030-01-01")
+    assert assignment.ends_on == "2030-01-01"

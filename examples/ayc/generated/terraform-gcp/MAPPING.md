@@ -35,11 +35,11 @@ Every workload above carries an explicit bound. Where the design declared none, 
 | `buyer_agent` | 0 | 3 | 1 | 3 | platform default |
 | `warehouse_agent` | 0 | 3 | 1 | 3 | platform default |
 | `inventory_agent` | 0 | 3 | 1 | 3 | platform default |
-| `ap_agent` | 0 | 3 | 1 | 3 | platform default |
+| `ap_agent` | 0 | 2 | 1 | 2 | declared |
 | `ar_agent` | 0 | 3 | 1 | 3 | platform default |
 | `software_agent` | 0 | 3 | 1 | 3 | platform default |
 | `cgo_agent` | 0 | 3 | 1 | 3 | platform default |
-| `ecommerce_agent` | 0 | 3 | 1 | 3 | platform default |
+| `ecommerce_agent` | 1 | 10 | 4 | 40 | declared |
 | `cs_agent` | 0 | 3 | 1 | 3 | platform default |
 | `marketing_agent` | 0 | 3 | 1 | 3 | platform default |
 
@@ -47,7 +47,7 @@ The concurrent ceiling is `max × per instance`. It is **not** `max_parallel_sub
 
 ### Agents that scale to zero
 
-`ap_agent`, `ar_agent`, `buyer_agent`, `ceo_agent`, `cgo_agent`, `coo_agent`, `cs_agent`, `ecommerce_agent`, `inventory_agent`, `marketing_agent`, `software_agent`, `warehouse_agent`
+`ap_agent`, `ar_agent`, `buyer_agent`, `ceo_agent`, `cgo_agent`, `coo_agent`, `cs_agent`, `inventory_agent`, `marketing_agent`, `software_agent`, `warehouse_agent`
 
 An instance that goes away takes with it any asynchronous handles that agent was holding (ADR-0093) and any standing-in it was doing for a failed leader (ADR-0094). Those handles are not lost silently — they settle as failed with a reason on the next run — but at zero that stops being an exceptional path and becomes the normal one. Whoever chose zero to save money is usually not whoever reads the failed handles.
 

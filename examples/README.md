@@ -6,6 +6,23 @@ and — for the designs that target a cloud — the **generated** output under
 `generated/` (checked in so you can read the Terraform and ADK without running a
 compile).
 
+## Walk-throughs that run
+
+Three scripts take a design the whole distance and one takes it further. Each
+is real calls into the same code the CLI and runtime use, and each is held by a
+test so it cannot rot.
+
+| Script | Shows |
+|---|---|
+| `sentinel/end_to_end.py` | spec → validate → IR → compile, multi-sandbox agents |
+| `atlas/end_to_end_bank_gcp.py` | the same, at bank scale, onto Google Cloud |
+| `helios/end_to_end_pharma.py` | a large design through the phase gate |
+| `ayc/end_to_end_operations.py` | **the organization operating**: fan-out with priority, the parallel bound refusing and naming what to drop, a failed leader covered by a lateral stand-in under a bounded mandate, a leader reading its whole team, and a cyclic workflow that converges beside one that does not |
+
+The last one needs no model, no network and no container: the echo adapter runs
+every agent deterministically, because what it demonstrates is the coordination
+rather than the prose.
+
 ## Starting your own
 
 Two routes, and the second is usually faster for a real organization:

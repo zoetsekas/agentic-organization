@@ -254,10 +254,10 @@ resource "google_cloud_run_v2_service" "ap_agent" {
   # runtime adapter: langchain_deepagents
   # max_parallel_subagents bounds one leader's fan-out inside one process and
   # is a different ceiling from the one below (ADR-0095 rule 5).
-  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  # scale: scales to zero, at most 2 instance(s) × 1 session(s) = 2 concurrent (declared by the design)
   scaling {
     min_instance_count = 0
-    max_instance_count = 3
+    max_instance_count = 2
     max_instance_request_concurrency = 1
   }
   template {
@@ -460,11 +460,11 @@ resource "google_cloud_run_v2_service" "ecommerce_agent" {
   # runtime adapter: langchain_deepagents
   # max_parallel_subagents bounds one leader's fan-out inside one process and
   # is a different ceiling from the one below (ADR-0095 rule 5).
-  # scale: scales to zero, at most 3 instance(s) × 1 session(s) = 3 concurrent (PLATFORM DEFAULT — no scaling was declared for this agent)
+  # scale: 1 warm, at most 10 instance(s) × 4 session(s) = 40 concurrent (declared by the design)
   scaling {
-    min_instance_count = 0
-    max_instance_count = 3
-    max_instance_request_concurrency = 1
+    min_instance_count = 1
+    max_instance_count = 10
+    max_instance_request_concurrency = 4
   }
   template {
     service_account = google_service_account.ecommerce_agent.email
