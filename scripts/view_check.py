@@ -527,6 +527,30 @@ async def main() -> int:
             return f"{n} elements"
         await check("Org chart", "draws the tree", org_tree)
 
+        async def org_load_example():
+            """The button that did not exist: load a shipped example, and it
+            opens as the current design, laid out."""
+            before = await page.locator("#org-select option").count()
+            await page.click("#btn-org-example")
+            # Wait for the list, not for a fixed time: the first run of this
+            # check looked before the fetch returned and reported no examples.
+            await page.locator("#example-list .example-card").first \
+                .wait_for(timeout=10000)
+            offered = await page.locator("#example-list .example-card").count()
+            said = " ".join((await page.locator("#example-picker").text_content()
+                             or "").split())
+            visible = await page.locator("#example-picker").is_visible()
+            assert offered, f"no examples offered (visible={visible}): {said[:120]}"
+            await page.locator('.example-card[data-example="sentinel"]') \
+                .get_by_role("button", name="Load").click()
+            await page.wait_for_timeout(1800)
+            after = await page.locator("#org-select option").count()
+            chosen = await page.locator("#org-select option:checked").text_content()
+            assert after == before + 1, f"designs {before} → {after}"
+            assert "Sentinel" in (chosen or ""), f"opened {chosen!r}"
+            return f"{offered} offered; opened {chosen.strip()}"
+        await check("Org chart", "loads an example", org_load_example)
+
         async def org_switcher():
             n = await page.locator("#org-select option").count()
             assert n, "no organisation in the switcher"

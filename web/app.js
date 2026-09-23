@@ -305,8 +305,77 @@ async function deleteOrganisation() {
   }
 }
 
+/* ------------------------------------------------------ load an example
+
+   Until this existed there was no way to open a shipped example in the
+   designer: New… takes a name and a description, and the only route was
+   posting a spec to the API by hand. The server lays the example out with the
+   product's own tree algorithm, so it opens on a drawn organisation rather
+   than an empty canvas with everything in the explorer. */
+async function showExamplePicker() {
+  const d = design();
+  const host = $("#example-list");
+  $("#example-picker").hidden = false;
+  host.replaceChildren(el("p", { class: "muted" }, "Loading the examples…"));
+  let examples = [];
+  try {
+    examples = await d.dapi("/examples");
+  } catch (err) {
+    host.replaceChildren(el("p", { class: "v-err" }, err.message));
+    return;
+  }
+  if (!examples.length) {
+    host.replaceChildren(el("p", { class: "muted" },
+      "This installation has no examples to offer. They ship in the "
+      + "examples/ folder beside the application."));
+    return;
+  }
+  host.replaceChildren(...examples.map((ex) => {
+    const button = el("button", { class: "primary" }, "Load");
+    button.addEventListener("click", () => loadExample(ex, button));
+    return el("div", { class: "example-card", "data-example": ex.id },
+      el("div", { class: "grow" },
+        el("strong", {}, ex.name),
+        el("p", { class: "hint" }, ex.description || ex.path),
+        el("div", { class: "meta" },
+          el("span", { class: "badge" }, `${ex.agents} agents`),
+          el("span", { class: "badge" }, `${ex.teams} teams`),
+          ...(ex.workflows
+            ? [el("span", { class: "badge" }, `${ex.workflows} workflow(s)`)]
+            : []))),
+      button);
+  }));
+}
+
+async function loadExample(example, button) {
+  const d = design();
+  button.disabled = true;
+  button.textContent = "Loading…";
+  $("#org-error").textContent = "";
+  try {
+    const result = await d.dapi("/examples/load", {
+      method: "POST",
+      body: JSON.stringify({ example: example.id,
+                             workspace_id: d.state.workspaceId }),
+    });
+    $("#example-picker").hidden = true;
+    d.state.systemId = result.system_id;
+    await d.reloadSystems();
+    setStatus(`loaded ${example.name}`);
+  } catch (err) {
+    // A reader who may not create here is told so in the server's words.
+    $("#org-error").textContent = err.message;
+    button.disabled = false;
+    button.textContent = "Load";
+  }
+}
+
 function wireOrgView() {
   $("#btn-org-new").addEventListener("click", () => showOrgForm("create"));
+  $("#btn-org-example").addEventListener("click", showExamplePicker);
+  $("#btn-example-close").addEventListener("click", () => {
+    $("#example-picker").hidden = true;
+  });
   // The context bar's create button is the same affordance, not a second one.
   $("#btn-new-system").addEventListener("click", () => {
     showView("org");

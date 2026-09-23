@@ -157,6 +157,9 @@ The whole system, with diagrams: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)*
 ```bash
 docker compose up --build                    # UI at http://localhost:8000/ui/
 ORGAGENTS_SEED=1 docker compose up --build   # ...with the demo organization
+docker compose exec designer /usr/local/bin/entrypoint.sh examples load northwind --user ana
+                                             # ...load a shipped example (or use
+                                             # "Load example…" in the UI)
 ```
 
 This is the **designer application** — the workshop you build agentic systems

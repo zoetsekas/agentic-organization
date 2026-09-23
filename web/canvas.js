@@ -2144,6 +2144,68 @@ function placeComponent(kind, x, y) {
   selectNode(layoutNodes()[id]);
 }
 
+/* ------------------------------------------------ fields that are places
+
+   Some things the inspector shows are not values on the component at all:
+   they are *where the component sits*. A sub-agent's parent is the agent
+   whose `subagents` list holds it; whether an agent leads its team is the
+   team's `leader`. Neither is a key on the object.
+
+   Both used to be read and written as if they were. The palette gave a
+   sub-agent a required `parent` field, so linking one to an agent on the
+   canvas moved it into that agent's list — and the inspector, reading a
+   `parent` key nothing had ever set, showed it blank. Choosing a parent there
+   wrote a stray key that moved nothing, and the spec model drops unknown keys,
+   so it vanished on the next load. Leadership had no control on an agent at
+   all.
+
+   So these read from the structure and write to it: changing the parent moves
+   the sub-agent, and ticking "leads its team" sets the team's leader. The
+   canvas and the inspector are then two views of one fact. */
+function teamOf(agentId) {
+  return allTeams().find((t) => (t.members || []).some((m) => m.id === agentId))
+    || null;
+}
+
+const DERIVED_FIELDS = {
+  "subagent.parent": {
+    get: (component, id) =>
+      allAgents().find(({ agent }) =>
+        (agent.subagents || []).some((x) => x.id === id))?.agent.id || "",
+    set: (component, id, value) => {
+      if (!value) throw new Error("a sub-agent belongs to an agent; pick one");
+      const target = findComponent("agent", value);
+      if (!target) throw new Error(`no agent '${value}'`);
+      const moved = detach("subagent", id);
+      if (!moved) throw new Error(`${id} is not under any agent`);
+      delete moved.parent;              // never a key; clear an old stray one
+      (target.subagents = target.subagents || []).push(moved);
+      return `${id} now belongs to ${value}`;
+    },
+  },
+  "agent.leads_team": {
+    get: (component, id) => teamOf(id)?.leader === id,
+    set: (component, id, value) => {
+      const team = teamOf(id);
+      if (!team) throw new Error(`${id} is not a member of any team`);
+      const before = team.leader;
+      if (value) {
+        team.leader = id;
+        return before && before !== id
+          ? `${id} now leads ${team.id} (was ${before})`
+          : `${id} leads ${team.id}`;
+      }
+      if (before !== id) return `${id} did not lead ${team.id}`;
+      /* A team without a leader is a finding the gate reports, not a state to
+         leave silently: hand it to the next member if there is one. */
+      const next = (team.members || []).find((m) => m.id !== id)?.id || "";
+      team.leader = next;
+      return next ? `${next} now leads ${team.id}`
+                  : `${team.id} has no leader; the gate will say so`;
+    },
+  },
+};
+
 /* ------------------------------------------------------------- inspector */
 function selectNode(node) {
   canvas.selected = { kind: node.kind, id: node.id };
@@ -2171,6 +2233,23 @@ function renderInspector() {
   const readOnly = !canvas.permissions.includes("system.edit") || !!lockOn(id);
   const form = el("form", { class: "form", onsubmit: (e) => e.preventDefault() });
   for (const field of definition.fields) {
+    const derivedField = DERIVED_FIELDS[`${kind}.${field.name}`];
+    if (derivedField) {
+      const value = derivedField.get(component, id);
+      form.appendChild(fieldControl(field, value, readOnly, (v) => {
+        try {
+          setStatus(derivedField.set(component, id, v));
+        } catch (err) {
+          setStatus(err.message);
+          renderInspector();          // put the real value back in the box
+          return;
+        }
+        markDirty(`${id}.${field.name}`);
+        renderCanvas();
+        renderInspector();
+      }, kind, component));
+      continue;
+    }
     const value = kind === "note" ? node.note : (component || {})[field.name];
     // One field that throws used to take the whole inspector with it: the
     // form was replaced at the end, so a mid-loop failure left the *previous*

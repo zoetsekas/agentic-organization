@@ -688,6 +688,33 @@ def create_app(
                          user: Principal = Depends(principal)) -> list[dict]:
         return designer.list_systems(user, workspace_id)
 
+    # -- the shipped examples, loadable (UI and CLI share one module) -------
+
+    @app.get("/api/designer/examples")
+    def designer_examples() -> list[dict]:
+        """Every shipped example organisation, for the Load example picker."""
+        from .designer.examples import list_examples
+
+        return [e.summary() for e in list_examples()]
+
+    @app.post("/api/designer/examples/load")
+    def designer_load_example(body: dict = Body(...),
+                              user: Principal = Depends(principal)) -> dict:
+        """Create a design from an example, laid out, in the given workspace.
+
+        Through the designer service, so a reader who may not create in that
+        workspace is refused here exactly as they would be by New…
+        """
+        from .designer.examples import UnknownExample, load_example
+
+        example_id = str(body.get("example") or "")
+        try:
+            return _guard(load_example, designer, user, example_id,
+                          workspace_id=str(body.get("workspace_id") or ""),
+                          name=str(body.get("name") or ""))
+        except UnknownExample as exc:
+            raise HTTPException(status_code=404, detail=str(exc.args[0])) from exc
+
     @app.post("/api/designer/systems")
     def designer_create_system(req: CreateSystemRequest,
                                user: Principal = Depends(principal)) -> dict:
@@ -2280,6 +2307,11 @@ PALETTE: dict[str, Any] = {
                                    "change of model, so it is opted into"},
                       ]},
                      {"name": "shared_service", "type": "bool"},
+                     {"name": "leads_team", "type": "bool",
+                      "help": "whether this agent leads the team it is in. "
+                              "Not a field on the agent: it sets the team's "
+                              "leader, so ticking it here hands leadership "
+                              "over from whoever held it"},
                      {"name": "workflows", "type": "list",
                       "help": "encoded processes this agent may invoke; a "
                               "trigger can only run one the agent holds"},
@@ -2360,7 +2392,10 @@ PALETTE: dict[str, Any] = {
                 {"kind": "subagent", "label": "Sub-agent", "icon": "◇",
                  "fields": [
                      {"name": "id", "type": "string", "required": True},
-                     {"name": "parent", "type": "string", "required": True},
+                     {"name": "parent", "type": "string", "required": True,
+                      "help": "the agent that calls this sub-agent. Not a key "
+                              "on the sub-agent — it is which agent's list "
+                              "holds it, so changing it here moves it"},
                      {"name": "kind", "type": "enum",
                       "options": ["research", "review", "summarize", "extract",
                                   "critique", "plan", "verify", "custom"]},

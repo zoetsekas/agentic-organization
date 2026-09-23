@@ -321,6 +321,70 @@ async def main() -> None:
         check("escape cancels a link in progress",
               await page.evaluate("() => window.designer.state.linking") is None)
 
+        # -- 4c. What a link sets is what the inspector says ---------------
+        # Reported by a user: link a sub-agent to an agent on the canvas, see
+        # the line, and find the sub-agent's "parent" blank in Properties.
+        # The link moved it into that agent's list; the inspector read a
+        # `parent` key nothing ever set. Checked against the spec, not the
+        # picture, because the picture was always right.
+        await drop("Sub-agent", 520, 560)
+        sub = await page.evaluate("""() => {
+          const subs = window.designer.agents().flatMap(({ agent }) =>
+            (agent.subagents || []).map((s) => ({ sub: s.id, of: agent.id })));
+          return subs[subs.length - 1];
+        }""")
+        other = next(a for a in agents if a != sub["of"])
+        await page.click(f'#canvas-nodes [data-id="{other}"]', button="right")
+        await page.wait_for_timeout(400)
+        await page.get_by_role("button", name="Link from here").first.click()
+        await page.wait_for_timeout(400)
+        await page.click(f'#canvas-nodes [data-id="{sub["sub"]}"]')
+        await page.wait_for_timeout(700)
+        owner = await page.evaluate("""(id) => window.designer.agents().find(
+          ({ agent }) => (agent.subagents || []).some((s) => s.id === id)
+        )?.agent.id""", sub["sub"])
+        check("linking a sub-agent to an agent moves it under that agent",
+              owner == other, f"{sub['sub']} is under {owner}, linked from {other}")
+
+        await page.click(f'#canvas-nodes [data-id="{sub["sub"]}"]')
+        await page.wait_for_timeout(700)
+        shown = await page.locator('#inspector select[name="parent"]').input_value()
+        check("the inspector shows the parent the link set",
+              shown == other, f"parent shows {shown!r}, spec says {owner!r}")
+
+        third = next(a for a in agents if a not in (other, sub["of"]))
+        await page.locator('#inspector select[name="parent"]').select_option(third)
+        await page.wait_for_timeout(700)
+        moved = await page.evaluate("""(id) => window.designer.agents().find(
+          ({ agent }) => (agent.subagents || []).some((s) => s.id === id)
+        )?.agent.id""", sub["sub"])
+        stray = await page.evaluate("""(id) => window.designer.agents()
+          .flatMap(({ agent }) => agent.subagents || [])
+          .find((s) => s.id === id)?.parent ?? null""", sub["sub"])
+        check("choosing a parent in the inspector moves the sub-agent",
+              moved == third and stray is None,
+              f"now under {moved}; stray parent key {stray!r}")
+
+        # Reported by a user: an agent's leadership could not be set from its
+        # Properties at all. It is the team's `leader`, so ticking it on the
+        # agent has to set that.
+        follower = await page.evaluate("""() => {
+          for (const t of window.designer.teams()) {
+            const m = (t.members || []).find((x) => x.id !== t.leader);
+            if (m && t.leader) return { agent: m.id, team: t.id, was: t.leader };
+          }
+          return null;
+        }""")
+        await page.click(f'#canvas-nodes [data-id="{follower["agent"]}"]')
+        await page.wait_for_timeout(700)
+        await page.locator('#inspector input[name="leads_team"]').check()
+        await page.wait_for_timeout(700)
+        leader = await page.evaluate("""(id) => window.designer.teams()
+          .find((t) => t.id === id)?.leader""", follower["team"])
+        check("ticking 'leads team' on an agent makes it the team's leader",
+              leader == follower["agent"],
+              f"{follower['team']} leader {follower['was']} → {leader}")
+
         # -- 5. It saves ---------------------------------------------------
         await page.click("#btn-save")
         await page.wait_for_timeout(2000)

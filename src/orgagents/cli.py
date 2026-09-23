@@ -773,6 +773,59 @@ def _records_command(args: argparse.Namespace) -> int:
     return 2
 
 
+def _examples_command(args) -> int:
+    """`orgagents examples list|load` — the designer's Load example, in a shell.
+
+    The same module the UI's route calls, over the same designer store the
+    server uses, so an example loaded here is the one a reader opens there.
+    """
+    from .designer.examples import UnknownExample, list_examples, load_example
+
+    examples = list_examples()
+    if args.action == "list":
+        if not examples:
+            print("no examples found (set ORGAGENTS_EXAMPLES_DIR to where "
+                  "they are)")
+            return 1
+        width = max(len(e.id) for e in examples)
+        for e in examples:
+            print(f"{e.id:<{width}}  {e.agents:>3} agents  {e.teams:>3} teams  "
+                  f"{e.workflows} workflow(s)  {e.name}")
+        return 0
+
+    if not args.example:
+        print("load needs an example id (see 'orgagents examples list'), "
+              "or 'all'")
+        return 2
+    if not args.user:
+        # Not defaulted: a workspace is visible only to its members, so an
+        # example loaded as somebody the reader is not would be invisible to
+        # them — which would look exactly like the load having failed.
+        print("load needs --user: the name you use in the designer's 'as' "
+              "box, or the example will be in a workspace you cannot see")
+        return 2
+
+    from .api import create_app
+    from .designer.rbac import Principal
+
+    app = create_app(args.db, args.base_url)
+    designer = app.state.designer
+    who = Principal(user_id=args.user, display_name=args.user)
+    ids = [e.id for e in examples] if args.example == "all" else [args.example]
+    for example_id in ids:
+        try:
+            result = load_example(designer, who, example_id,
+                                  workspace_id=args.workspace, name=args.name)
+        except UnknownExample as exc:
+            print(exc.args[0])
+            return 1
+        where = ("a new workspace" if result["created_workspace"]
+                 else f"workspace {result['workspace_id']}")
+        print(f"loaded {example_id} as '{result['name']}' into {where} "
+              f"for {args.user} ({result['system_id']})")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="orgagents")
     parser.add_argument("--db", default="orgagents.db")
@@ -947,7 +1000,26 @@ def main(argv: list[str] | None = None) -> int:
     p_cat.add_argument("query", nargs="?", default="")
     p_cat.add_argument("--kind")
 
+    p_ex = sub.add_parser(
+        "examples", help="list the shipped example organisations, or load one "
+                         "into the designer")
+    p_ex.add_argument("action", choices=["list", "load"])
+    p_ex.add_argument("example", nargs="?", default="",
+                      help="for 'load': an id from 'examples list', or 'all'")
+    p_ex.add_argument("--user", default="",
+                      help="for 'load': who owns it — the name you use in the "
+                           "designer's 'as' box, since a workspace is only "
+                           "visible to its members")
+    p_ex.add_argument("--workspace", default="",
+                      help="for 'load': an existing workspace id; default is a "
+                           "new workspace named after the example")
+    p_ex.add_argument("--name", default="",
+                      help="for 'load': a name for the design")
+
     args = parser.parse_args(argv)
+
+    if args.cmd == "examples":
+        return _examples_command(args)
 
     if args.cmd == "serve":
         import uvicorn
