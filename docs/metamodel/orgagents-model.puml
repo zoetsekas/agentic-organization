@@ -48,6 +48,10 @@ package "<<System>> Model" as SystemModel {
     withhold : list[str]
     conditions : dict[str, Any]
   }
+  class RoleAssignment <<AssociationClass>> {
+    withhold : list[str]
+    conditions : dict[str, Any]
+  }
   class DataDependency <<AssociationClass>> {
     fields : list[str]
     max_age_seconds : int [0..1]
@@ -86,6 +90,8 @@ Agent ..> Environment : <<deploy>> [environments]
 (Agent, Environment) .. EnvironmentOverride
 Worker "0..*" --> "0..*" Knowledge : consults [knowledge]
 Worker ..|> Capability : provides [capabilities]
+Team "0..*" --> "0..*" Role : plays [roles]
+(Team, Role) .. RoleAssignment
 Agent "0..*" --> "0..*" Role : plays [roles]
 (Agent, Role) .. RoleAssignment
 Agent "0..*" --> "0..*" Skill : holds [skills]

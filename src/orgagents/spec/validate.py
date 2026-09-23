@@ -1118,17 +1118,7 @@ def validate_spec(
 
         # Capabilities reach an agent through its roles as well as directly,
         # so every containment check below uses the effective set.
-        held_caps = set(agent.capabilities)
-        for assignment in agent.roles:
-            role = spec.role(assignment.role)
-            if role:
-                held_caps |= set(role.capabilities)
-        team_of = spec.team_of(agent.id)
-        if team_of:
-            for assignment in team_of.roles:
-                role = spec.role(assignment.role)
-                if role:
-                    held_caps |= set(role.capabilities)
+        held_caps = spec.effective_capabilities(agent.id)
 
         # -- skills, plugins, tools (ADR-0029) -----------------------------
         for skill_id in agent.skills:

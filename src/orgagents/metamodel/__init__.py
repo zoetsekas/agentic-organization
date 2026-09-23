@@ -320,6 +320,10 @@ RELATIONSHIPS = [
       help="grounding material this worker may consult"),
     R("worker", "capability", K.REALIZATION, "provides", "capabilities",
       SH.REFS, help="what this worker may do"),
+    R("team", "role", K.ASSOCIATION, "plays", "roles", SH.REF_OBJECTS,
+      key="role", association_class="RoleAssignment",
+      help="a role the whole unit plays: it grants every member, and the "
+           "members of its sub-teams (ADR-0007)"),
     R("agent", "role", K.ASSOCIATION, "plays", "roles", SH.REF_OBJECTS,
       key="role", association_class="RoleAssignment", help="a role and the capabilities it grants"),
     R("agent", "skill", K.ASSOCIATION, "holds", "skills", SH.REFS,

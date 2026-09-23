@@ -18,6 +18,7 @@ from ..mandates import EffectiveMandate, MandateMap
 from ..mandates import resolve as resolve_mandates
 from ..spec.binding import TargetBinding, default_binding
 from ..spec.model import (
+    UnitLink,
     Action,
     AgentEndpoint,
     AgentSpec,
@@ -333,6 +334,9 @@ class SubAgentIR(BaseModel):
     #: parent's (ADR-0082).
     environments: list[str] = Field(default_factory=list)
     returns: str = ""
+    #: The checkable shape of what it returns (ADR-0037). Lost before
+    #: ADR-0104's trace found it: the model declared it and the IR dropped it.
+    output_contract: Optional[OutputContract] = None
     max_turns: int = 8
     max_runtime_seconds: int = 300
     parallel_safe: bool = True
@@ -722,6 +726,10 @@ class SystemIR(BaseModel):
     channels: list[ChannelIR] = Field(default_factory=list)
     knowledge: list[KnowledgeIR] = Field(default_factory=list)
     flows: list[InteractionFlow] = Field(default_factory=list)
+    #: How units are related when one does not contain the other (ADR-0081).
+    #: Carried whole: before ADR-0104 they were validated and then lost, so
+    #: nothing built from the IR could know that one unit oversees another.
+    unit_links: list[UnitLink] = Field(default_factory=list)
     budgets: list[Budget] = Field(default_factory=list)
     compliance: Compliance = Field(default_factory=Compliance)
     lifecycle: Lifecycle = Field(default_factory=Lifecycle)
@@ -1017,7 +1025,8 @@ def _resolve_skills(spec: SystemSpec, agent: AgentSpec) -> list[SkillSpec]:
     return [s for s in (spec.skill(i) for i in dict.fromkeys(skill_ids)) if s]
 
 
-def _resolve_subagents(agent: AgentSpec, held_caps: set[str]) -> list[SubAgentIR]:
+def _resolve_subagents(agent: AgentSpec, held_caps: set[str],
+                       spec: Optional[SystemSpec] = None) -> list[SubAgentIR]:
     """Sub-agents as tools, inheriting a narrowed slice of the parent."""
     out: list[SubAgentIR] = []
     for sub in agent.subagents:
@@ -1041,6 +1050,8 @@ def _resolve_subagents(agent: AgentSpec, held_caps: set[str]) -> list[SubAgentIR
                     o.environment for o in agent.environments
                 ][:1],
                 returns=sub.returns,
+                output_contract=(spec.output_contract(sub.output_contract)
+                                 if spec and sub.output_contract else None),
                 max_turns=sub.max_turns,
                 max_runtime_seconds=sub.max_runtime_seconds,
                 parallel_safe=sub.parallel_safe,
@@ -1224,7 +1235,13 @@ def build_ir(
         # can exceed what was granted upstream, which validation enforces.
         permissions = _dedupe(list(team_ir.permissions) + own_perms)
 
-        capability_ids = sorted(dict.fromkeys([*own_caps, *agent.capabilities]))
+        # A team's role grants reach its members as capabilities, not only as
+        # permissions: data access, tools and sub-agents derive from this set,
+        # and a capability granted to the team but missing here silently
+        # dropped all three (found by ADR-0104's trace).
+        capability_ids = sorted(dict.fromkeys(
+            [*own_caps, *agent.capabilities,
+             *sorted(spec.team_capabilities(team.id))]))
         capabilities = [c for c in (spec.capability(i) for i in capability_ids) if c]
 
         # Data access derives from the capabilities the agent actually holds.
@@ -1281,7 +1298,7 @@ def build_ir(
         held_caps = set(capability_ids)
         tools = _resolve_tools(spec, agent, held_caps)
         skills = _resolve_skills(spec, agent)
-        subagents = _resolve_subagents(agent, held_caps)
+        subagents = _resolve_subagents(agent, held_caps, spec)
         endpoints = [e for e in (spec.endpoint(i) for i in agent.endpoints) if e]
         memory = _resolve_memory(spec, agent, [a.data_class for a in access.values()])
         # System guardrails apply to every agent; an agent may add, never remove
@@ -1483,6 +1500,7 @@ def build_ir(
         channels=_resolve_channels(spec, bound),
         knowledge=knowledge,
         flows=list(spec.interaction_flows),
+        unit_links=list(spec.unit_links),
         budgets=list(spec.budgets),
         compliance=spec.compliance,
         lifecycle=spec.lifecycle,

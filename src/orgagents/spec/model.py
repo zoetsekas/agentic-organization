@@ -2203,6 +2203,42 @@ class SystemSpec(BaseModel):
             (t for t in self.teams() if any(m.id == agent_id for m in t.members)), None
         )
 
+    def team_capabilities(self, team_id: str) -> set[str]:
+        """What a unit's own role assignments grant, and its ancestors':
+        a team's grants flow down to its sub-teams, as its permissions do
+        (ADR-0007, ADR-0065)."""
+        parents: dict[str, Optional[str]] = {self.organization.id: None}
+        for team in self.teams():
+            for child in team.teams:
+                parents[child.id] = team.id
+        teams = {t.id: t for t in self.teams()}
+        held: set[str] = set()
+        current: Optional[str] = team_id
+        while current is not None and current in teams:
+            for assignment in teams[current].roles:
+                role = self.role(assignment.role)
+                if role:
+                    held |= set(role.capabilities) - set(assignment.withhold)
+            current = parents.get(current)
+        return held
+
+    def effective_capabilities(self, agent_id: str) -> set[str]:
+        """Every capability an agent holds: its own, its roles', and its
+        team's and that team's ancestors'. One definition, used by the
+        model's constraints, the validator and the IR (ADR-0104)."""
+        agent = self.agent(agent_id)
+        if agent is None:
+            return set()
+        held = set(agent.capabilities)
+        for assignment in agent.roles:
+            role = self.role(assignment.role)
+            if role:
+                held |= set(role.capabilities) - set(assignment.withhold)
+        team = self.team_of(agent_id)
+        if team is not None:
+            held |= self.team_capabilities(team.id)
+        return held
+
     def role(self, role_id: str) -> Optional[Role]:
         return next((r for r in self.roles if r.id == role_id), None)
 

@@ -159,13 +159,7 @@ def _leader_is_member(model: Instances) -> Iterable[Violation]:
 
 
 def _effective_capabilities(model: Instances, agent: Any) -> set[str]:
-    held = set(agent.capabilities)
-    roles = {r.id: r for r in model.spec.roles}
-    for assignment in agent.roles:
-        role = roles.get(assignment.role)
-        if role:
-            held |= set(role.capabilities) - set(assignment.withhold)
-    return held
+    return model.spec.effective_capabilities(agent.id)
 
 
 def _subagent_within_parent(model: Instances) -> Iterable[Violation]:

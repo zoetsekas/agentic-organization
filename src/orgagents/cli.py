@@ -1020,7 +1020,8 @@ def main(argv: list[str] | None = None) -> int:
         "metamodel", help="print the UML metamodel (ADR-0101) as PlantUML, or "
                           "regenerate docs/metamodel")
     p_mm.add_argument("action", choices=["model", "profile", "diagram",
-                                         "check", "scenarios"],
+                                         "check", "scenarios", "trace",
+                                         "transformation"],
                       help="model/profile: print PlantUML; diagram: write "
                            "docs/metamodel/*.puml; check: validate a spec "
                            "against the model's constraints; scenarios: play "
@@ -1059,6 +1060,34 @@ def main(argv: list[str] | None = None) -> int:
                 print(v)
             print(f"{len(found)} violation(s)")
             return 1 if found else 0
+        elif args.action == "trace":
+            import tempfile
+
+            from .compiler.engine import compile_system
+            from .metamodel.transformation import trace, trace_targets
+            from .spec.loader import load_spec
+            spec = load_spec(args.spec)
+            results = compile_system(spec, out_dir=tempfile.mkdtemp(),
+                                     write=False)
+            t = trace(spec, results[0].ir)
+            print(f"{len(t.elements)} elements and {len(t.links)} links "
+                  f"traced into the IR; {len(t.not_built)} not built:")
+            for ref, why in sorted(t.not_built.items()):
+                print(f"  {ref}: {why}")
+            gaps = list(t.gaps)
+            for r in results:
+                gaps += trace_targets(r.ir, r.files, r.target)
+            for g in gaps:
+                print(f"GAP {g}")
+            print("complete" if not gaps else f"{len(gaps)} gap(s)")
+            return 1 if gaps else 0
+        elif args.action == "transformation":
+            from .metamodel.transformation import describe
+            out = Path(args.out)
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "transformation.md").write_text(describe())
+            print(f"wrote {out}/transformation.md")
+            return 0
         elif args.action == "scenarios":
             from .metamodel.scenarios import (SCENARIOS, catalogue, play,
                                               to_object_diagram)

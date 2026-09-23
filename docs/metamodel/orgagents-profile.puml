@@ -93,6 +93,8 @@ class "EnvironmentOverride" as ST_EnvironmentOverride <<stereotype>>
 ST_EnvironmentOverride --|> MC_DEPLOYMENT_SPECIFICATION : <<extends>>
 class "RoleAssignment" as ST_RoleAssignment <<stereotype>>
 ST_RoleAssignment --|> MC_ASSOCIATION_CLASS : <<extends>>
+class "RoleAssignment" as ST_RoleAssignment <<stereotype>>
+ST_RoleAssignment --|> MC_ASSOCIATION_CLASS : <<extends>>
 class "DataDependency" as ST_DataDependency <<stereotype>>
 ST_DataDependency --|> MC_ASSOCIATION_CLASS : <<extends>>
 class "HumanCounterpart" as ST_HumanCounterpart <<stereotype>>
