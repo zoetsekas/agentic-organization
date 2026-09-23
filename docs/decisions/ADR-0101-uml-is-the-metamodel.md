@@ -2,7 +2,7 @@
 id: ADR-0101
 title: UML is the metamodel, and the platform's kinds are a UML profile
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-23
 updated: 2026-09-23
 deciders: [Platform Architecture]
@@ -100,6 +100,43 @@ An association can be drawn from either end. Knowledge is associated with an
 agent whether the line starts at the knowledge or at the agent, because the
 spec field it writes (`agent.knowledge`) is the same either way.
 
+### Strict UML
+The model is held to UML's own rules rather than borrowing its vocabulary:
+
+- **A reference an instance stores is an Association**, navigable from the end
+  that stores it — never a bare Dependency, which UML keeps for model-level
+  reliance. Triggers fire agents and start workflows by association; a
+  required interface (a tool, an endpoint, a capability a skill needs) is a
+  **Usage**; an agent that provides a capability is an
+  **InterfaceRealization**.
+- **A link with attributes of its own is an AssociationClass**, and the YAML
+  object in the list *is* the link instance: `InteractionFlow` (kind,
+  approval), `UnitLink` (kind, reason), `RoleAssignment` (withheld
+  capabilities, conditions), `DataDependency` (fields, freshness) and
+  `HumanCounterpart`. A link instance is identified by its two ends, as UML
+  identifies links, so the YAML needs no new ids.
+- **A deployment carries a DeploymentSpecification**: an agent's
+  `environments` entry (`EnvironmentOverride`) is the configuration of that
+  one deployment. The deployed element is the agent's instance, which UML
+  allows (an InstanceSpecification is a DeployedArtifact).
+- **The «System» stereotype extends Model**, and composes every top-level
+  collection: a Model's packaged elements. The team tree hangs off its
+  single root team.
+- **Constraints are declared**: a team's leader `{subsets members}`.
+- A Channel extends Class, not Node: it is a conversation space, not a
+  computational resource.
+
+The diagrams in `docs/metamodel/` are generated (`orgagents metamodel
+diagram`, rendered with PlantUML) and a test fails when they fall behind the
+code.
+
+### Known gaps
+- A Policy's `subjects` and `resources` are patterns, not references, so a
+  Policy constrains no modelled element; typing them is a spec change of its
+  own.
+- A Workflow's `graph` is free-form, so its steps are not yet UML Actions that
+  reference the agents they call.
+
 ## Scope
 The metamodel and profile; `LINK_RULES` derived from them; the canvas's
 linking, edges and containment driven by the kind; a `metamodel` API route.
@@ -166,4 +203,5 @@ Delivered with this ADR.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-23 | Strict UML: association classes, deployment specifications, «System» Model root, `{subsets members}`; generated PlantUML diagrams. |
 | 1.0.0 | 2026-09-23 | Accepted. A UML subset is the metamodel; the platform's kinds are a profile of stereotypes; relationships are UML kinds that decide drawing and dropping; environments become resizable deployment containers. |

@@ -1,0 +1,116 @@
+@startuml OrgAgentsModel
+!pragma layout smetana
+hide empty methods
+skinparam classAttributeIconSize 0
+title OrgAgents model — strict UML (ADR-0101)
+
+package "<<System>> Model" as SystemModel {
+  class Team <<Team>>
+  class Agent <<Agent>> <<active>>
+  class Subagent <<SubAgent>>
+  class Skill <<Skill>>
+  class Plugin <<Plugin>>
+  interface Tool <<Tool>>
+  class Person <<Person>>
+  class Role <<Role>>
+  class Decision <<Decision>>
+  class Separation <<Separation>>
+  class Policy <<Policy>>
+  interface Capability <<Capability>>
+  class DataClass <<DataClass>>
+  class Environment <<Environment>>
+  interface Endpoint <<Endpoint>>
+  class Mission <<Mission>>
+  class Workflow <<Workflow>>
+  class Trigger <<Trigger>>
+  class Channel <<Channel>>
+  class Knowledge <<Knowledge>>
+  class MemoryNamespace <<MemoryNamespace>>
+  class Guardrail <<Guardrail>>
+  class OutputContract <<OutputContract>>
+  class Evaluation <<Evaluation>>
+  class Note <<Note>>
+  class EnvironmentOverride <<DeploymentSpecification>> {
+    timeout_seconds : int [0..1]
+    network : NetworkPosture [0..1]
+    egress_allowlist : list[str [0..1]
+    drop_mounts : list[str]
+  }
+  class RoleAssignment <<AssociationClass>> {
+    withhold : list[str]
+    conditions : dict[str, Any]
+  }
+  class DataDependency <<AssociationClass>> {
+    fields : list[str]
+    max_age_seconds : int [0..1]
+    on_stale : StaleAction
+    produced_by : str [0..1]
+    description : str
+  }
+  class HumanCounterpart <<AssociationClass>> {
+    name : str
+    contact : str
+    role_title : str
+    roles : list[HumanRole]
+    approves : list[str]
+    notify_on : list[ChannelClass]
+    channel : str [0..1]
+    working_hours : WorkingHours [0..1]
+  }
+  class InteractionFlow <<AssociationClass>> {
+    kind : FlowKind
+    description : str
+    requires_approval : bool
+  }
+  class UnitLink <<AssociationClass>> {
+    kind : UnitLinkKind
+    reason : str
+  }
+}
+
+Team "0..1" *-- "0..*" Team : contains >
+Team "1" *-- "0..*" Agent : member >
+Agent "1" *-- "0..*" Subagent : uses >
+Agent ..> Environment : <<deploy>> [environments]
+(Agent, Environment) .. EnvironmentOverride
+Agent "0..*" --> "0..*" Knowledge : consults [knowledge]
+Agent ..|> Capability : provides [capabilities]
+Agent "0..*" --> "0..*" Role : plays [roles]
+(Agent, Role) .. RoleAssignment
+Agent "0..*" --> "0..*" Skill : holds [skills]
+Agent "0..*" --> "0..*" Plugin : holds [plugins]
+Agent ..> Tool : <<use>> holds [tools]
+Agent ..> Endpoint : <<use>> calls [endpoints]
+Agent ..> Workflow : <<use>> runs [workflows]
+Agent "0..*" --> "0..*" DataClass : produces [produces_data]
+Agent "0..*" --> "0..*" DataClass : relies on [data_dependencies]
+(Agent, DataClass) .. DataDependency
+Agent "0..*" --> "0..*" Person : paired with [humans]
+(Agent, Person) .. HumanCounterpart
+Agent "0..*" --> "0..*" Guardrail : guarded by [guardrails]
+Agent "0..*" --> "0..1" OutputContract : returns [output_contract]
+Agent "0..*" --> "0..1" Agent : successor [successor]
+Team "0..1" --> "0..1" Agent : leads [leader] {subsets members}
+Agent "0..*" --> "0..*" Agent : flow [interaction_flows]
+(Agent, Agent) .. InteractionFlow
+Team "0..*" --> "0..*" Team : unit link [unit_links]
+(Team, Team) .. UnitLink
+Trigger "0..*" --> "1" Agent : fires [agent]
+Trigger "0..*" --> "0..1" Workflow : starts [workflow]
+Role "0..*" --> "0..*" Capability : grants [capabilities]
+Capability "0..*" --> "0..*" DataClass : reaches [data_classes]
+Knowledge "0..*" --> "0..*" DataClass : contains [data_classes]
+MemoryNamespace "0..*" --> "0..*" DataClass : stores [data_classes]
+Guardrail "0..*" --> "0..*" DataClass : protects [data_classes]
+Endpoint "0..*" --> "0..*" DataClass : may receive [send_data_classes]
+Skill ..> Capability : <<use>> requires [requires_capabilities]
+Plugin ..> Capability : <<use>> requires [requires_capabilities]
+Plugin "0..*" --> "0..*" Skill : provides [provides_skills]
+Plugin "0..*" --> "0..*" Tool : provides [provides_tools]
+Separation "0..*" --> "2..*" Decision : keeps apart [decisions]
+Evaluation "0..*" --> "0..*" Agent : evaluates [applies_to]
+Channel "0..*" --> "0..*" Agent : includes [members]
+Mission "0..*" --> "0..*" Agent : includes [members]
+Subagent ..|> Capability : provides [capabilities]
+Subagent "0..*" --> "0..*" Knowledge : consults [knowledge]
+@enduml

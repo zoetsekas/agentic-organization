@@ -49,8 +49,13 @@ def test_every_relationship_names_a_field_the_spec_has(rel):
         return
     owner = _model(rel.owner_kind())
     assert owner is not None, f"{rel.owner_kind()} has no model"
-    assert rel.field in owner.model_fields, \
-        f"{owner.__name__} has no field '{rel.field}'"
+    # A dotted field walks nested models: `memory.namespaces`.
+    *path, last = rel.field.split(".")
+    for step in path:
+        assert step in owner.model_fields, f"{owner.__name__} has no '{step}'"
+        owner = owner.model_fields[step].annotation
+    assert last in owner.model_fields, \
+        f"{owner.__name__} has no field '{last}'"
 
 
 @pytest.mark.parametrize("rel", [r for r in PROFILE.relationships
@@ -100,3 +105,54 @@ def test_the_profile_describes_itself():
     assert d["profile"] == "OrgAgents"
     agent = next(s for s in d["stereotypes"] if s["kind"] == "agent")
     assert agent["extends"] == "Class {isActive}"
+
+
+LINK_WITH_ATTRIBUTES = [r for r in PROFILE.relationships
+                        if r.shape is Shape.RECORD or r.shape is Shape.REF_OBJECTS]
+
+
+@pytest.mark.parametrize("rel", LINK_WITH_ATTRIBUTES, ids=lambda r: r.field)
+def test_a_link_with_attributes_is_an_association_class(rel):
+    """Strict UML: a link that carries data of its own is an AssociationClass
+    (a DeploymentSpecification for a deployment), typed by the spec model the
+    YAML object actually is."""
+    assert rel.association_class, f"{rel.field} carries attributes"
+    assert hasattr(spec_model, rel.association_class)
+    if rel.shape is Shape.REF_OBJECTS:
+        owner = _model(rel.owner_kind())
+        item = owner.model_fields[rel.field].annotation.__args__[0]
+        assert item.__name__ == rel.association_class
+    else:
+        item = spec_model.SystemSpec.model_fields[rel.field].annotation.__args__[0]
+        assert item.__name__ == rel.association_class
+
+
+def test_no_instance_link_is_a_bare_dependency():
+    """A reference an instance stores is an association (or usage,
+    realization, deployment) — never an untyped dependency, which UML reserves
+    for model-level reliance."""
+    from orgagents.metamodel import RelKind
+    assert not [r for r in PROFILE.relationships
+                if r.kind is RelKind.DEPENDENCY]
+
+
+def test_the_model_owns_every_top_level_element():
+    owned = {r.target for r in PROFILE.relationships if r.source == "system"}
+    top = {s.kind for s in PROFILE.stereotypes
+           if s.collection and s.kind != "system"}
+    assert owned == top
+
+
+def test_leadership_subsets_membership():
+    lead = next(r for r in PROFILE.relationships if r.field == "leader")
+    assert lead.constraint == "{subsets members}"
+
+
+def test_the_committed_diagrams_are_current():
+    """docs/metamodel is generated; regenerate with
+    `orgagents metamodel diagram`."""
+    from pathlib import Path
+    from orgagents.metamodel import to_plantuml, to_plantuml_profile
+    root = Path(__file__).resolve().parents[1] / "docs" / "metamodel"
+    assert (root / "orgagents-model.puml").read_text() == to_plantuml()
+    assert (root / "orgagents-profile.puml").read_text() == to_plantuml_profile()

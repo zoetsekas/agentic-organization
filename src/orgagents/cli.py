@@ -1016,7 +1016,30 @@ def main(argv: list[str] | None = None) -> int:
     p_ex.add_argument("--name", default="",
                       help="for 'load': a name for the design")
 
+    p_mm = sub.add_parser(
+        "metamodel", help="print the UML metamodel (ADR-0101) as PlantUML, or "
+                          "regenerate docs/metamodel")
+    p_mm.add_argument("action", choices=["model", "profile", "diagram"],
+                      help="model/profile: print PlantUML; diagram: write "
+                           "docs/metamodel/*.puml")
+    p_mm.add_argument("--out", default="docs/metamodel")
+
     args = parser.parse_args(argv)
+
+    if args.cmd == "metamodel":
+        from .metamodel import to_plantuml, to_plantuml_profile
+        if args.action == "model":
+            print(to_plantuml(), end="")
+        elif args.action == "profile":
+            print(to_plantuml_profile(), end="")
+        else:
+            out = Path(args.out)
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "orgagents-model.puml").write_text(to_plantuml())
+            (out / "orgagents-profile.puml").write_text(to_plantuml_profile())
+            print(f"wrote {out}/orgagents-model.puml, orgagents-profile.puml "
+                  "(render with PlantUML)")
+        return 0
 
     if args.cmd == "examples":
         return _examples_command(args)
