@@ -421,3 +421,29 @@ def test_a_views_id_matches_the_label_people_read(index_html):
             f'view "{view_id}" is labelled "{label.strip()}"; an id that names '
             "another view's label is a trap"
         )
+
+
+def test_every_view_has_a_loader_keyed_by_its_own_id(index_html, app_js):
+    """A view whose id is not in the loader map opens and stays blank.
+
+    This is exactly what happened: renaming two view ids to match their labels
+    left the loader map keyed by the old names, so the Catalog tab ran the
+    Marketplace's loader and both views were empty. Nothing in the suite
+    noticed, because the views rendered — with nothing in them.
+    """
+    import re
+
+    ids = set(re.findall(r'data-view="([a-z-]+)"', index_html))
+    loaders = re.search(r"const loaders = \{(.*?)\n  \};", app_js, re.S)
+    assert loaders, "the view loader map moved"
+    keyed = set(re.findall(r"(\w+):", loaders.group(1)))
+    #: Views that genuinely need no fetch on entry.
+    STATIC = {"canvas"}
+    missing = ids - keyed - STATIC
+    assert not missing, (
+        f"these views have no loader and will open blank: {sorted(missing)}"
+    )
+    stale = keyed - ids
+    assert not stale, (
+        f"the loader map is keyed by views that do not exist: {sorted(stale)}"
+    )

@@ -62,10 +62,15 @@ function showView(name) {
   document.querySelectorAll(".view").forEach((v) =>
     v.classList.toggle("active", v.id === `view-${name}`));
   location.hash = `#/${name}`;
+  /* Keyed by the view's own id. These two were keyed by the ids that named
+     each other's views, so renaming the ids to match their labels left the
+     Catalog tab running the Marketplace's loader and both views blank. The
+     functions are now named after what they load, so the next rename cannot
+     reset the trap. */
   const loaders = {
     org: renderOrg, designer: renderAgentView, workspace: loadWorkspaceView,
-    catalog: loadCatalog, sessions: loadSessions, ops: loadOps,
-    platform: loadPlatformCatalog, authority: loadAuthority,
+    catalog: loadCatalogView, marketplace: loadMarketplace,
+    sessions: loadSessions, ops: loadOps, authority: loadAuthority,
   };
   (loaders[name] || (() => {}))();
 }
@@ -1136,7 +1141,7 @@ function checkboxes(container, pairs) {
 }
 
 /* ----------------------------------------------------------- catalog */
-async function loadCatalog() {
+async function loadMarketplace() {
   const q = $("#cat-q").value, kind = $("#cat-kind").value, sort = $("#cat-sort").value;
   const groups = csv($("#cat-groups").value).map((g) => `&groups=${encodeURIComponent(g)}`).join("");
   const [entries, stats] = await Promise.all([
@@ -1146,7 +1151,17 @@ async function loadCatalog() {
   $("#catstats").replaceChildren(
     stat("Listings", stats.total), stat("Installs", stats.installs),
     ...Object.entries(stats.by_kind).map(([k, v]) => stat(k, v)));
-  $("#catalog").replaceChildren(...entries.map(catalogCard));
+  /* Same reason Sessions needed one: a blank column under a row of filters
+     reads as a page that failed, not as a marketplace nobody has published to
+     yet. An empty marketplace is the normal state of a fresh installation. */
+  $("#catalog").replaceChildren(...(entries.length
+    ? entries.map(catalogCard)
+    : [el("p", { class: "muted" },
+          q || kind || groups
+            ? "Nothing here matches those filters."
+            : "Nothing has been published to this marketplace yet. An agent, "
+              + "skill or plugin appears here once somebody publishes it for "
+              + "others to install.")]));
 }
 
 function catalogCard(e) {
@@ -1176,7 +1191,7 @@ async function installEntry(entryId) {
       method: "POST", body: JSON.stringify({ agent_id: agentId }),
     });
     setStatus(`installed ${r.installed}`);
-    loadCatalog();
+    loadMarketplace();
   } catch (err) { alert(err.message); }
 }
 
@@ -1184,11 +1199,11 @@ async function rateEntry(entryId) {
   const stars = Number(window.prompt("Rating 1-5:", "5"));
   if (!stars) return;
   await api(`/catalog/${entryId}/rate?stars=${stars}`, { method: "POST" });
-  loadCatalog();
+  loadMarketplace();
 }
 
 ["#cat-q", "#cat-kind", "#cat-sort", "#cat-groups"].forEach((sel) =>
-  $(sel).addEventListener("input", debounce(loadCatalog, 250)));
+  $(sel).addEventListener("input", debounce(loadMarketplace, 250)));
 
 function debounce(fn, ms) {
   let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
@@ -1197,7 +1212,7 @@ function debounce(fn, ms) {
 /* ------------------------------------------------- platform catalog */
 let pcKinds = [];
 
-async function loadPlatformCatalog() {
+async function loadCatalogView() {
   const kinds = await api("/catalogs/kinds");
   pcKinds = kinds;
   const select = $("#pc-kind");
@@ -1280,7 +1295,7 @@ function platformCard(entry) {
 async function reviewEntry(entryId, status) {
   await api(`/catalogs/${entryId}/review?status=${status}`, { method: "POST" });
   setStatus(`marked ${status}`);
-  loadPlatformCatalog();
+  loadCatalogView();
 }
 
 async function retireEntry(entryId) {
@@ -1293,7 +1308,7 @@ async function retireEntry(entryId) {
     await api(`/catalogs/${entryId}/retire?force=true`, { method: "POST" });
   }
   setStatus("retired");
-  loadPlatformCatalog();
+  loadCatalogView();
 }
 
 async function sendBackEntry(entryId) {
@@ -1305,7 +1320,7 @@ async function sendBackEntry(entryId) {
     method: "POST", body: JSON.stringify({ note }),
   });
   setStatus("sent back for review — now unselectable");
-  loadPlatformCatalog();
+  loadCatalogView();
 }
 
 async function deleteEntry(entryId, name) {
@@ -1317,7 +1332,7 @@ async function deleteEntry(entryId, name) {
   } catch (e) {
     setStatus(e.message);
   }
-  loadPlatformCatalog();
+  loadCatalogView();
 }
 
 /* -------------------------------------------- one generated entry form
@@ -1471,7 +1486,7 @@ async function saveEntryForm(entryId, locked, kindId) {
       setStatus("saved");
     }
     $("#pc-form").hidden = true;
-    loadPlatformCatalog();
+    loadCatalogView();
   } catch (e) {
     setStatus(e.message);
   }
@@ -1480,7 +1495,7 @@ async function saveEntryForm(entryId, locked, kindId) {
 $("#pc-add").addEventListener("click", () => openEntryForm(null));
 
 ["#pc-q", "#pc-kind", "#pc-status"].forEach((sel) =>
-  $(sel).addEventListener("input", debounce(loadPlatformCatalog, 250)));
+  $(sel).addEventListener("input", debounce(loadCatalogView, 250)));
 
 /* ---------------------------------------------------------- sessions */
 async function loadSessions() {
