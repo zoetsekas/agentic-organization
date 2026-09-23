@@ -587,6 +587,8 @@ function removeComponent(kind, id) {
 /* --------------------------------------------------------------- palette */
 async function loadPalette() {
   canvas.palette = await dapi("/palette");
+  // The UML profile (ADR-0101): stereotypes shown in Properties.
+  canvas.metamodel = await dapi("/metamodel").catch(() => null);
   const root = $("#palette-groups");
 
   /* A nested entry is a component the parent *contains* in the spec: a Tool

@@ -1321,6 +1321,15 @@ def create_app(
             "height": result.height,
         }
 
+    @app.get("/api/designer/metamodel")
+    def designer_metamodel() -> dict:
+        """The UML profile the designer is built on (ADR-0101): every kind as a
+        stereotype of a UML metaclass, and every relationship as a UML kind
+        with multiplicities and the spec field it lives in."""
+        from .metamodel import describe
+
+        return describe()
+
     @app.get("/api/designer/palette")
     def designer_palette() -> dict:
         """What the canvas can place, the fields each kind needs, and what
@@ -1973,83 +1982,14 @@ from .spec.model import (  # noqa: E402  (the palette is data, built below)
 #
 # Every rule names the spec field it writes, because a link a reader cannot
 # trace to a field is a link the compiler will not see.
-LINK_RULES: list[dict[str, Any]] = [
-    {
-        "source": "team", "target": "team", "relationship": "contains",
-        "writes": "team.teams",
-        "label": "contains",
-        "help": "the target becomes a sub-team of the source. Authority and "
-                "permissions narrow downward from here (ADR-0008, ADR-0065)",
-    },
-    {
-        # Association, not containment (ADR-0081). The canvas asks which is
-        # meant rather than assuming, because a line between two teams used to
-        # mean exactly one thing and organisations have more than one.
-        "source": "team", "target": "team", "relationship": "association",
-        "writes": "unit_links",
-        "label": "is associated with",
-        "kinds": [k.value for k in UnitLinkKind],
-        "help": "a relationship that is not containment: oversight, "
-                "escalation or a shared service. It grants nothing, narrows "
-                "nothing and inherits nothing — an overseer that sits inside "
-                "what it oversees is refused (ADR-0081)",
-    },
-    {
-        "source": "team", "target": "agent", "relationship": "member",
-        "writes": "team.members",
-        "label": "has member",
-        "help": "an agent belongs to exactly one team, which is what bounds "
-                "what it may hold",
-    },
-    {
-        "source": "agent", "target": "subagent", "relationship": "uses",
-        "writes": "agent.subagents",
-        "label": "uses",
-        "help": "a tool-shaped worker this agent may call (ADR-0027)",
-    },
-    {
-        "source": "agent", "target": "agent", "relationship": "flow",
-        "writes": "interaction_flows",
-        "label": "may…",
-        # This is the one the model permits between two agents, and only in a
-        # named direction with a named kind: an agent may *consult* compliance
-        # without being able to instruct it, and the reverse does not hold.
-        "kinds": [k.value for k in FlowKind],
-        "help": "a declared, directional interaction (ADR-0024). Two agents "
-                "are not otherwise connected: membership is what puts them in "
-                "an organisation, not a line between them",
-    },
-    # A skill, a plugin and a tool are each *held* by an agent, and the same
-    # one may be held by several: the spec stores the reference on every
-    # agent that holds it, so sharing is many-to-one, not a move.
-    {
-        "source": "agent", "target": "skill", "relationship": "holds",
-        "writes": "agent.skills",
-        "label": "holds",
-        "help": "a named competence this agent may exercise. Shared freely: "
-                "declaring it on a second agent does not take it from the "
-                "first",
-    },
-    {
-        "source": "agent", "target": "plugin", "relationship": "holds",
-        "writes": "agent.plugins",
-        "label": "holds",
-        "help": "a packaged extension this agent loads",
-    },
-    {
-        "source": "agent", "target": "tool", "relationship": "holds",
-        "writes": "agent.tools",
-        "label": "holds",
-        "help": "a tool this agent may call. A tool held by one agent is "
-                "drawn inside it; one held by several is drawn shared",
-    },
-    {
-        "source": "trigger", "target": "agent", "relationship": "fires",
-        "writes": "trigger.agent",
-        "label": "fires",
-        "help": "unattended work: the trigger wakes this agent (ADR-0018)",
-    },
-]
+# What may be linked to what, derived from the UML profile (ADR-0101)
+# rather than written by hand here. The nine rules this table used to hold
+# are all still produced, under the same words, so every canvas code path
+# that knew them still does; the rest of what the spec can hold is now
+# drawable too.
+from .metamodel import link_rules as _link_rules  # noqa: E402
+
+LINK_RULES: list[dict[str, Any]] = _link_rules()
 
 
 PALETTE: dict[str, Any] = {

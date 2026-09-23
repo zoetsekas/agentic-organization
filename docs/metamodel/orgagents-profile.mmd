@@ -1,0 +1,115 @@
+classDiagram
+  class Team {
+    <<Component>>
+  }
+  class Agent {
+    <<Class active>>
+  }
+  class Subagent {
+    <<Class>>
+  }
+  class Skill {
+    <<Artifact>>
+  }
+  class Plugin {
+    <<Component>>
+  }
+  class Tool {
+    <<Interface>>
+  }
+  class Person {
+    <<Actor>>
+  }
+  class Role {
+    <<Class>>
+  }
+  class Decision {
+    <<DataType>>
+  }
+  class Separation {
+    <<Constraint>>
+  }
+  class Policy {
+    <<Constraint>>
+  }
+  class Capability {
+    <<Interface>>
+  }
+  class DataClass {
+    <<DataType>>
+  }
+  class Environment {
+    <<ExecutionEnvironment>>
+  }
+  class Endpoint {
+    <<Interface>>
+  }
+  class Mission {
+    <<Component>>
+  }
+  class Workflow {
+    <<Activity>>
+  }
+  class Trigger {
+    <<Event>>
+  }
+  class Channel {
+    <<Node>>
+  }
+  class Knowledge {
+    <<Artifact>>
+  }
+  class MemoryNamespace {
+    <<Artifact>>
+  }
+  class Guardrail {
+    <<Constraint>>
+  }
+  class OutputContract {
+    <<Constraint>>
+  }
+  class Evaluation {
+    <<Constraint>>
+  }
+  class Note {
+    <<Comment>>
+  }
+  Team "0..1" *-- "0..*" Team : contains
+  Team "1" *-- "0..*" Agent : member
+  Agent "1" *-- "0..*" Subagent : uses
+  Agent "0..*" ..> "0..*" Environment : runs in «deploy»
+  Agent "0..*" --> "0..*" Knowledge : consults
+  Agent "0..*" ..|> "0..*" Capability : provides
+  Agent "0..*" --> "0..*" Role : plays
+  Agent "0..*" --> "0..*" Skill : holds
+  Agent "0..*" --> "0..*" Plugin : holds
+  Agent "0..*" --> "0..*" Tool : holds
+  Agent "0..*" ..> "0..*" Endpoint : calls «use»
+  Agent "0..*" ..> "0..*" Workflow : runs «use»
+  Agent "0..*" --> "0..*" DataClass : produces
+  Agent "0..*" ..> "0..*" DataClass : relies on
+  Agent "0..*" --> "0..*" Person : paired with
+  Agent "0..*" --> "0..*" Guardrail : guarded by
+  Agent "0..*" --> "0..1" OutputContract : returns
+  Agent "0..*" --> "0..1" Agent : successor
+  Team "0..*" --> "0..1" Agent : leads
+  Agent "0..*" ..> "0..*" Agent : flow
+  Team "0..*" --> "0..*" Team : unit link
+  Trigger "0..*" ..> "1" Agent : fires
+  Trigger "0..*" ..> "0..1" Workflow : starts
+  Role "0..*" --> "0..*" Capability : grants
+  Capability "0..*" --> "0..*" DataClass : reaches
+  Knowledge "0..*" --> "0..*" DataClass : contains
+  MemoryNamespace "0..*" --> "0..*" DataClass : stores
+  Guardrail "0..*" --> "0..*" DataClass : protects
+  Endpoint "0..*" --> "0..*" DataClass : may receive
+  Skill "0..*" ..> "0..*" Capability : requires
+  Plugin "0..*" ..> "0..*" Capability : requires
+  Plugin "0..*" --> "0..*" Skill : provides
+  Plugin "0..*" --> "0..*" Tool : provides
+  Separation "0..*" --> "2..*" Decision : keeps apart
+  Evaluation "0..*" --> "0..*" Agent : evaluates
+  Channel "0..*" --> "0..*" Agent : includes
+  Mission "0..*" --> "0..*" Agent : includes
+  Subagent "0..*" ..|> "0..*" Capability : provides
+  Subagent "0..*" --> "0..*" Knowledge : consults
