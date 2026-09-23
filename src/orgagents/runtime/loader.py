@@ -342,9 +342,30 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
         )
         created.append(agent["id"])
 
+    # An agent the design no longer contains has left (ADR-0098). Removal was
+    # the one change that did not propagate: every other edit — a narrowed
+    # mandate, a dropped permission, a changed reporting line — landed, while a
+    # deleted agent kept its mandate and its delegation reach in the running
+    # system. Silently ignoring it is the worst of the three possible
+    # behaviours, because the reviewer who approved the removal cannot tell it
+    # did not happen.
+    present = set(created)
+    departed = []
+    for existing in platform.org.agents():
+        if existing.id in present or not existing.is_active:
+            continue
+        if existing.kind is AgentKind.SUBAGENT:
+            continue      # ephemeral, created by a run rather than the design
+        departed.append(platform.org.decommission(
+            existing.id,
+            reason="the design no longer contains this agent",
+        ))
+
     channels = load_channels(platform, data)
     return {
         "agents": created,
+        "departed": [d["agent_id"] for d in departed],
+        "departures": departed,
         "teams": [t["id"] for t in data.get("teams", [])],
         "channels": channels,
         "triggers": [t["id"] for t in data.get("triggers", [])],

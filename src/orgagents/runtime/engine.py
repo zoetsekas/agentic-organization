@@ -208,6 +208,52 @@ class AgentRuntime:
                                   -row["running_for_s"]))
         return out
 
+    def offboard(self, agent_id: str, *, reason: str = "") -> dict[str, Any]:
+        """Let an agent go, and settle what it was in the middle of.
+
+        `OrgChart.decommission` ends its standing as a principal. This is the
+        other half: work it was running has nobody to finish it, and a session
+        left running forever is the hang ADR-0093 rule 5 exists to prevent —
+        a leader waiting on it never gets a turn in which to notice.
+
+        What this cannot do is revoke anything outside the platform. The IAM
+        bindings, service accounts and secrets are the generated Terraform's,
+        and applying the new configuration is what actually closes those doors.
+        Saying so here rather than letting an organization believe more
+        happened than did (ADR-0073).
+        """
+        report = self.org.decommission(agent_id, reason=reason)
+        if not report.get("ok") or report.get("already"):
+            return report
+
+        abandoned: list[str] = []
+        for session in self.sessions.list(agent_id, limit=500):
+            if session.state in TERMINAL_STATES:
+                continue
+            self.sessions.log(
+                session.id, "agent_departed", actor="runtime",
+                payload={"error": "the agent running this has left the "
+                                  "organization; nobody is going to finish it",
+                         "reason": report["reason"]},
+            )
+            self.sessions.set_state(session.id, SessionState.FAILED)
+            abandoned.append(session.id)
+        report["abandoned_sessions"] = abandoned
+        report["external_access_note"] = (
+            "identities, IAM bindings and secrets live in the generated "
+            "infrastructure; applying it is what closes those doors"
+        )
+        if abandoned or report["successions_now_broken"]:
+            self.obs.raise_alert(
+                "agent_departed",
+                f"{agent_id} left with {len(abandoned)} run(s) in flight; "
+                f"successions now broken: "
+                f"{report['successions_now_broken'] or 'none'}",
+                severity=Severity.WARNING,
+                agent_id=agent_id,
+            )
+        return report
+
     # -- leader continuity (ADR-0094) --------------------------------------
 
     def consecutive_failures(self, agent_id: str) -> int:

@@ -390,6 +390,12 @@ class Agent(BaseModel):
     # Reach lent by a mission, each with the window it is good for. Kept apart
     # from `peer_agent_ids` because it expires (ADR-0039 v1.1.0).
     mission_grants: list[dict[str, Any]] = Field(default_factory=list)
+    # When this agent left the organization, and why (ADR-0098). Set rather
+    # than deleted: its sessions reference it, and a trace whose agent cannot
+    # be resolved is a worse record than one naming an agent that has left.
+    # What ends is its standing as a principal, not its existence as a fact.
+    decommissioned_at: Optional[str] = None
+    decommission_reason: str = ""
     # Who stands in when this agent cannot run (ADR-0094). Unset means the
     # manager, who already holds a superset of this mandate under ADR-0065 and
     # is therefore granted nothing by standing in. Naming a *peer* here is a
@@ -430,6 +436,16 @@ class Agent(BaseModel):
     @property
     def sandbox(self) -> Optional[SandboxSpec]:
         return self.sandboxes[0] if self.sandboxes else None
+
+    @property
+    def is_active(self) -> bool:
+        """Whether this agent is still a principal (ADR-0098).
+
+        An agent that has left keeps its record, so its sessions still
+        resolve, and stops being somebody work may be handed to or authority
+        may rest on.
+        """
+        return self.decommissioned_at is None
     channels: list[ChannelKind] = Field(
         default_factory=lambda: [ChannelKind.DIRECT_TOOL, ChannelKind.INTERNAL_BUS]
     )

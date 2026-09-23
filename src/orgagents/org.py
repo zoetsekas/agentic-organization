@@ -5,6 +5,7 @@ from datetime import date
 from typing import Optional
 
 from .continuity import ActingAssignment, open_assignment
+from .ids import now_iso
 from .missions import open_peers
 from .models import Agent, AgentKind, OrgUnit
 from .store import ACTING, AGENTS, ORG_UNITS, Store
@@ -137,6 +138,15 @@ class OrgChart:
         src = self.agent(from_agent_id)
         if not src:
             return False
+        # An agent that has left is not a principal in either direction
+        # (ADR-0098). Checked first, before any reach rule, because the
+        # shared-service path below would otherwise let anybody hand work to
+        # somebody who is gone.
+        if not src.is_active:
+            return False
+        target = self.agent(to_agent_id)
+        if target is not None and not target.is_active:
+            return False
         if to_agent_id in src.report_agent_ids or to_agent_id in src.peer_agent_ids:
             return True
         # Lateral reach on loan from a live mission (ADR-0039 v1.1.0).
@@ -162,6 +172,58 @@ class OrgChart:
                 return True
         return False
 
+
+
+    # -- leaving (ADR-0098) ------------------------------------------------
+
+    def decommission(self, agent_id: str, *, reason: str = "") -> dict:
+        """Record that this agent has left, and say what it was holding.
+
+        The record stays. Deleting it would take its sessions' `agent_id` with
+        it and break every trace that ran through it, and an audit trail that
+        loses the agents is not one. What ends is its standing as a principal.
+
+        The return value names what was in flight, because "this agent left
+        with four things outstanding" is exactly what somebody needs to see and
+        exactly what a silent removal destroys.
+        """
+        agent = self.agent(agent_id)
+        if agent is None:
+            return {"ok": False, "error": f"no agent {agent_id}"}
+        if not agent.is_active:
+            return {"ok": True, "already": True, "agent_id": agent_id}
+
+        # Standing-in in both directions ends: it cannot cover for anybody,
+        # and nobody is covering a post that no longer exists (ADR-0094).
+        covered_for = [a.failed_agent_id
+                       for a in self.standing_in_as(agent_id)]
+        for failed_id in covered_for:
+            self.close_standing_in(failed_id)
+        ended_cover = self.close_standing_in(agent_id)
+
+        # Successions that named it are now broken. Removing it from the
+        # design fails validation (`unknown_successor`), so this reports
+        # rather than repairs: choosing somebody's replacement is not a thing
+        # a loader should do quietly.
+        orphaned = [a.id for a in self.agents()
+                    if a.successor_agent_id == agent_id and a.id != agent_id]
+
+        agent.decommissioned_at = now_iso()
+        agent.decommission_reason = reason or "left the organization"
+        self.store.put(AGENTS, agent, parent=agent.org_unit_id)
+        return {
+            "ok": True,
+            "agent_id": agent_id,
+            "reason": agent.decommission_reason,
+            "reports": list(agent.report_agent_ids),
+            "stopped_covering": covered_for,
+            "cover_for_it_ended": ended_cover,
+            "successions_now_broken": sorted(orphaned),
+        }
+
+    def active_agents(self) -> list[Agent]:
+        """Everyone still standing as a principal."""
+        return [a for a in self.agents() if a.is_active]
 
     # -- standing in for a leader that cannot run (ADR-0094) ---------------
 
@@ -271,7 +333,7 @@ class OrgChart:
         current = self.agent(agent_id)
         while current and current.id not in seen:
             seen.add(current.id)
-            if decision in current.mandate:
+            if decision in current.mandate and current.is_active:
                 # A holder that is currently stood down points at whoever is
                 # standing in *for this decision*. A manager standing in by
                 # hierarchy confers nothing and so matches nothing here —
