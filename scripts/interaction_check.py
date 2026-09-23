@@ -132,6 +132,7 @@ async def main() -> None:
         page = await browser.new_page(viewport={"width": 1680, "height": 1050})
         page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
         page.on("dialog", lambda d: asyncio.ensure_future(d.dismiss()))
+        page.on("pageerror", lambda e: print("PAGEERROR", e))
         page.on(
             "console",
             lambda m: problems.append(f"console {m.type}: {m.text}")
@@ -384,6 +385,36 @@ async def main() -> None:
         check("ticking 'leads team' on an agent makes it the team's leader",
               leader == follower["agent"],
               f"{follower['team']} leader {follower['was']} → {leader}")
+
+        # -- 4d. An association, drawn from either end ---------------------
+        # Asked for by a user: associate a knowledge source with one or more
+        # agents. The line starts at the knowledge — the reverse of how the
+        # model stores it (on the agent) — and the model is what writes it
+        # (ADR-0101, ADR-0103).
+        await drop("Knowledge", 760, 660)
+        source = await page.evaluate("""() => {
+          const k = window.designer.spec().organization.knowledge || [];
+          return k.length ? k[k.length - 1].id : null;
+        }""")
+        readers = [a for a in agents if a != source][:2]
+        for reader in readers:
+            await page.click(f'#canvas-nodes [data-id="{source}"]', button="right")
+            await page.wait_for_timeout(400)
+            await page.get_by_role("button", name="Link from here").first.click()
+            await page.wait_for_timeout(400)
+            await page.click(f'#canvas-nodes [data-id="{reader}"]')
+            await page.wait_for_timeout(900)
+        consulted = await page.evaluate("""(id) => window.designer.agents()
+          .filter(({ agent }) => (agent.knowledge || []).includes(id))
+          .map(({ agent }) => agent.id)""", source)
+        check("a knowledge source linked from its own end reaches two agents",
+              sorted(consulted) == sorted(readers),
+              f"{source} consulted by {consulted}, linked to {readers}")
+        copies = await page.evaluate("""(id) => (window.designer.spec()
+          .organization.knowledge || []).filter((k) => k.id === id).length""",
+                                     source)
+        check("the knowledge source is still one element", copies == 1,
+              f"{copies} copies of {source}")
 
         # -- 5. It saves ---------------------------------------------------
         await page.click("#btn-save")

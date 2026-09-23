@@ -87,7 +87,9 @@ _MODEL_OF = {s.kind: s.model for s in PROFILE.stereotypes}
 
 def _new(kind: str, id_: str, attrs: dict[str, Any]) -> Any:
     cls = getattr(spec_model, _MODEL_OF[kind])
-    return cls.model_validate({"id": id_, **attrs})
+    # An edge is identified by its ends, not by an id of its own.
+    ident = {"id": id_} if "id" in cls.model_fields else {}
+    return cls.model_validate({**ident, **attrs})
 
 
 # -- the transaction ---------------------------------------------------------
@@ -116,17 +118,51 @@ def _transact(spec: spec_model.SystemSpec,
 
 def create(spec: spec_model.SystemSpec, kind: str, id_: str, *,
            owner: str = "", **attrs: Any) -> Result:
-    """A new instance: a team or an agent inside a team (`owner`), a
-    sub-agent inside an agent, anything else in the organisation."""
+    """A new instance, created inside its owner — the whole of the
+    composition that holds its kind, found in the profile: an agent in a
+    team, a sub-agent in an agent, a step in a workflow, anything else in the
+    organisation (the default owner)."""
     def change(s: spec_model.SystemSpec, effects: list[str]) -> None:
         obj = _new(kind, id_, attrs)
-        if kind in ("team", "agent"):
-            team = _find(s, "team", owner or s.organization.id).obj
-            (team.teams if kind == "team" else team.members).append(obj)
-        elif kind == "subagent":
-            _find(s, "agent", owner).obj.subagents.append(obj)
-        else:
-            _collection_of(s, kind).append(obj)
+        model = collect(s)
+        for rel in PROFILE.relationships:
+            if rel.shape is not Shape.PART or \
+                    kind not in specialisations(rel.target):
+                continue
+            whole = model.get(rel.source, owner or s.organization.id)
+            if whole is None or whole.kind not in specialisations(rel.source):
+                continue
+            target: Any = whole.obj
+            *path, last = rel.field.split(".")
+            for step in path:
+                target = getattr(target, step)
+            getattr(target, last).append(obj)
+            return
+        raise OperationError(f"no {kind} can be created in '{owner}'")
+    return _transact(spec, change)
+
+
+def update(spec: spec_model.SystemSpec, kind: str, id_: str,
+           **attrs: Any) -> Result:
+    """Change an instance's own attributes — what Properties edits.
+
+    A field that holds a relationship the canvas draws is not an attribute:
+    it is changed by `link`/`unlink`, so its effects and refusals are the
+    relationship's. The ones set in Properties instead (a successor, a
+    leader) may be set here."""
+    drawn = {r.field for r in PROFILE.relationships
+             if r.field and r.linkable and kind in specialisations(r.source)}
+    if drawn & set(attrs):
+        raise OperationError(
+            f"{sorted(drawn & set(attrs))} of a {kind} are relationships: "
+            "link or unlink them")
+
+    def change(s: spec_model.SystemSpec, effects: list[str]) -> None:
+        obj = _find(s, kind, id_).obj
+        validated = type(obj).model_validate(
+            {**obj.model_dump(by_alias=True), **attrs})
+        for name in attrs:
+            setattr(obj, name, getattr(validated, name))
     return _transact(spec, change)
 
 
@@ -288,6 +324,43 @@ def violations_of(result: Result) -> set[str]:
     return {v.constraint for v in result.violations}
 
 
-__all__ = ["Result", "OperationError", "create", "link", "unlink", "delete",
-           "set_leader", "relationship", "violations_of"]
+__all__ = ["Result", "OperationError", "create", "update", "link", "unlink",
+           "delete", "set_leader", "relationship", "violations_of"]
 
+
+
+# -- one request format for every caller -------------------------------------
+
+def apply(spec: spec_model.SystemSpec, request: dict[str, Any]) -> Result:
+    """Run one operation from its JSON form — what the designer sends.
+
+    `{"op": "link", "source": {"kind", "id"}, "target": {"kind", "id"},
+    "relationship": "...", "attrs": {...}}`; `unlink` likewise without
+    attrs; `{"op": "create", "kind", "id", "owner", "attrs"}`;
+    `{"op": "update", "kind", "id", "attrs"}`; `{"op": "delete", "kind",
+    "id"}`; `{"op": "set_leader", "team", "agent"}`."""
+    kind = request.get("op")
+    attrs = dict(request.get("attrs") or {})
+
+    def end(name: str) -> tuple[str, str]:
+        e = request.get(name) or {}
+        if not e.get("kind") or not e.get("id"):
+            raise OperationError(f"'{name}' needs a kind and an id")
+        return e["kind"], e["id"]
+
+    if kind == "link":
+        return link(spec, end("source"), end("target"),
+                    request.get("relationship", ""), **attrs)
+    if kind == "unlink":
+        return unlink(spec, end("source"), end("target"),
+                      request.get("relationship", ""))
+    if kind == "create":
+        return create(spec, request["kind"], request.get("id", ""),
+                      owner=request.get("owner", ""), **attrs)
+    if kind == "update":
+        return update(spec, request["kind"], request["id"], **attrs)
+    if kind == "delete":
+        return delete(spec, request["kind"], request["id"])
+    if kind == "set_leader":
+        return set_leader(spec, request["team"], request["agent"])
+    raise OperationError(f"no operation '{kind}'")

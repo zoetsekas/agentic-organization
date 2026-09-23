@@ -214,7 +214,7 @@ A deny on the ledger for the payer role is accepted: a Role is a Principal and a
 | create Policy no_ledger_for_payers {deny payer → ledger} | accepted |
 | create Policy ghost_rule {deny ghost} | refused — [references_resolve] policy:ghost_rule: applies to [subjects] names 'ghost', which is not a principal |
 
-Then: one policy.
+Then: the deny is added and the ghost is not.
 
 ![policy](scenarios/policy.png)
 

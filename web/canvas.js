@@ -524,15 +524,19 @@ function rootTeam() {
 function addComponent(kind, id, at = null) {
   const s = spec();
   if (kind === "team") {
-    const team = { id, name: id, leader: "", mandate: [], members: [], teams: [] };
+    // No `mandate`: none means "inherit the parent's" (ADR-0065), and an empty
+    // list is not a mandate the model accepts.
+    const team = { id, name: id, leader: "", members: [], teams: [] };
     const empty = !s.organization?.id
       || (!(s.organization.members || []).length
           && !(s.organization.teams || []).length
           && !layoutNodes()[s.organization.id]);
     if (empty) {
       // The first team dropped *is* the organization, rather than a child of an
-      // invisible root nobody asked for.
-      s.organization = team;
+      // invisible root nobody asked for. Merged, not replaced: the
+      // organisation owns every collection in the design (ADR-0101).
+      s.organization = { ...(s.organization || {}), ...team };
+      return s.organization;
     } else {
       (s.organization.teams = s.organization.teams || []).push(team);
     }
@@ -598,6 +602,8 @@ async function loadPalette() {
   canvas.palette = await dapi("/palette");
   // The UML profile (ADR-0101): stereotypes shown in Properties.
   canvas.metamodel = await dapi("/metamodel").catch(() => null);
+  // The designer's specification: what each gesture does (ADR-0103).
+  canvas.gestures = (await dapi("/gestures").catch(() => null))?.gestures || [];
   const root = $("#palette-groups");
 
   /* A nested entry is a component the parent *contains* in the spec: a Tool
@@ -1005,9 +1011,45 @@ function an(kind, capitalise = false) {
    that forced this: "is part of" and "is associated with" are different
    relationships (ADR-0081), and a canvas that picked one for you would be
    guessing — which is what the proximity-parenting bug was. */
+/* The rules between two kinds, in either direction where the model says a
+   relationship may be drawn from either end (ADR-0101): knowledge is linked
+   to an agent whether the line starts at the knowledge or at the agent. A
+   reversed rule is marked so the request names its ends the model's way. */
 function linkRules(sourceKind, targetKind) {
-  return (canvas.palette?.links || []).filter(
+  const links = canvas.palette?.links || [];
+  const forward = links.filter(
     (r) => r.source === sourceKind && r.target === targetKind);
+  const backward = sourceKind === targetKind ? [] : links
+    .filter((r) => r.bidirectional && r.source === targetKind
+                   && r.target === sourceKind)
+    .map((r) => ({ ...r, reversed: true }));
+  return [...forward, ...backward];
+}
+
+/* --------------------------------------------------------- the model decides
+   Every gesture is one model operation (ADR-0103). The canvas sends it with
+   the draft it holds and takes back the model's answer: the new draft, and
+   what else changed — or the refusal and why. The canvas adds no rules. */
+class ModelRefusal extends Error {
+  constructor(answer) {
+    super((answer.violations || []).map((v) => `${v.element}: ${v.message}`)
+      .join("\n") || "the model refused the change");
+    this.answer = answer;
+  }
+}
+
+async function modelOperation(request) {
+  const answer = await dapi("/operations", {
+    method: "POST", body: JSON.stringify({ spec: spec(), request }),
+  });
+  if (!answer.accepted) throw new ModelRefusal(answer);
+  canvas.record.spec = answer.spec;
+  return answer;
+}
+
+function effectsLine(answer) {
+  return (answer.effects || []).length
+    ? ` — ${answer.effects.join("; ")}` : "";
 }
 
 function linkRule(sourceKind, targetKind) {
@@ -1031,9 +1073,16 @@ function chooseRule(rules, from, target) {
   return rules[at];
 }
 
+/* Where a line from this kind may go: its own relationships, and the ones
+   that may be drawn from either end (ADR-0101) — a knowledge source links to
+   the agents that consult it though the agent is what stores the link. */
 function legalTargetsFrom(sourceKind) {
-  return (canvas.palette?.links || [])
-    .filter((r) => r.source === sourceKind).map((r) => r.target);
+  const targets = (canvas.palette?.links || []).flatMap((r) => [
+    ...(r.source === sourceKind ? [r.target] : []),
+    ...(r.bidirectional && r.target === sourceKind && r.source !== sourceKind
+      ? [r.source] : []),
+  ]);
+  return [...new Set(targets)];
 }
 
 function beginLink(node) {
@@ -1112,101 +1161,41 @@ function completeLink(target) {
           : `Nothing links from ${an(from.kind)}.`));
     return cancelLink(true);
   }
-  try {
-    applyLink(rule, from, target);
-    markDirty(`linked ${from.id} → ${target.id}`);
-    setStatus(`${from.id} ${rule.label} ${target.id}`);
-  } catch (err) {
-    alert(err.message);
-  }
   canvas.linking = null;
-  renderCanvas();
-  renderInspector();
+  applyLink(rule, from, target)
+    .then((answer) => {
+      markDirty(`linked ${from.id} → ${target.id}`);
+      setStatus(`${from.id} ${rule.label} ${target.id}${effectsLine(answer)}`);
+    })
+    .catch((err) => alert(err.message))
+    .finally(() => { renderCanvas(); renderInspector(); });
 }
 
-function applyLink(rule, from, target) {
-  const s = spec();
-  if (rule.relationship === "flow") {
-    const kinds = rule.kinds || [];
+/* The request for a link, named the model's way round. What the model needs
+   and the canvas cannot know — a flow's kind, a unit link's reason — is
+   asked for here; everything else is the model's to decide. */
+async function applyLink(rule, from, target) {
+  const [src, dst] = rule.reversed ? [target, from] : [from, target];
+  const attrs = {};
+  if (rule.kinds && rule.kinds.length) {
     const kind = window.prompt(
-      `How may ${from.id} reach ${target.id}?\n\n`
-      + `One of: ${kinds.join(", ")}\n\n`
-      + "A flow is directional: 'consult' lets the source ask without being "
-      + "able to instruct, and the reverse does not follow.",
-      kinds[0] || "consult");
-    if (!kind) throw new Error("a flow needs a kind; nothing was linked");
-    if (!kinds.includes(kind)) {
-      throw new Error(`'${kind}' is not one of ${kinds.join(", ")}`);
+      `${rule.label} — ${src.id} → ${dst.id}\n\nOne of: ${rule.kinds.join(", ")}`
+      + `\n\n${rule.help || ""}`, rule.kinds[0]);
+    if (!kind) throw new Error("a kind is needed; nothing was linked");
+    attrs.kind = kind;
+    if (rule.relationship === "association") {
+      attrs.reason = window.prompt(
+        "Why does this relationship exist?\n\nAn association nobody can "
+        + "explain is decoration, and the validator says so.", "") || "";
     }
-    const flows = (org(s).interaction_flows = org(s).interaction_flows || []);
-    if (flows.some((f) => f.source === from.id && f.target === target.id
-                          && f.kind === kind)) {
-      throw new Error("that flow is already declared");
-    }
-    flows.push({ source: from.id, target: target.id, kind });
-    return;
   }
-  if (rule.relationship === "association") {
-    /* Not a move. Containment has one parent; an association is a declared
-       fact about two units that both stay where they are. */
-    const kinds = rule.kinds || [];
-    const kind = window.prompt(
-      `How is ${from.id} related to ${target.id}?\n\n`
-      + `One of: ${kinds.join(", ")}\n\n`
-      + "'oversees' is checked: an overseer that sits inside what it oversees "
-      + "is refused. 'partners_with' is declared inert and grants nothing.",
-      kinds[0] || "oversees");
-    if (!kind) throw new Error("an association needs a kind; nothing was linked");
-    if (!kinds.includes(kind)) {
-      throw new Error(`'${kind}' is not one of ${kinds.join(", ")}`);
-    }
-    const reason = window.prompt(
-      "Why does this relationship exist?\n\nAn association nobody can "
-      + "explain is decoration, and the validator says so.", "") || "";
-    const links = (org(s).unit_links = org(s).unit_links || []);
-    if (links.some((l) => l.source === from.id && l.target === target.id
-                          && l.kind === kind)) {
-      throw new Error("that association is already declared");
-    }
-    links.push({ source: from.id, target: target.id, kind, reason });
-    return;
-  }
-  if (rule.relationship === "fires") {
-    const trigger = findComponent("trigger", from.id);
-    if (!trigger) throw new Error("that trigger is no longer in the spec");
-    trigger.agent = target.id;
-    return;
-  }
-  if (rule.relationship === "holds") {
-    /* A reference, not a move: a skill, a plugin or a tool may be held by
-       several agents at once, and linking it to a second does not take it
-       from the first. The spec stores the id on each holder. */
-    const field = rule.writes.split(".")[1];
-    const agent = findComponent("agent", from.id);
-    if (!agent) throw new Error("that agent is no longer in the spec");
-    const held = (agent[field] = agent[field] || []);
-    if (held.includes(target.id)) {
-      throw new Error(`${from.id} already holds ${target.id}`);
-    }
-    held.push(target.id);
-    return;
-  }
-  /* The structural links move the component: a team or an agent belongs in
-     exactly one place, so linking it somewhere is detaching it from where it
-     was. Re-parenting, not duplication. */
-  const moved = detach(target.kind, target.id);
-  if (!moved) throw new Error(`${target.id} is not in the organisation`);
-  if (rule.relationship === "contains") {
-    const parent = findComponent("team", from.id);
-    (parent.teams = parent.teams || []).push(moved);
-  } else if (rule.relationship === "member") {
-    const parent = findComponent("team", from.id);
-    (parent.members = parent.members || []).push(moved);
-    if (!parent.leader) parent.leader = moved.id;
-  } else if (rule.relationship === "uses") {
-    const parent = findComponent("agent", from.id);
-    (parent.subagents = parent.subagents || []).push(moved);
-  }
+  return modelOperation({
+    op: "link",
+    source: { kind: src.kind, id: src.id },
+    target: { kind: dst.kind, id: dst.id },
+    relationship: rule.field,
+    ...(Object.keys(attrs).length ? { attrs } : {}),
+  });
 }
 
 /* Unlinking is defined for what a link created. A structural link put the
@@ -1815,10 +1804,24 @@ function wireDropTarget() {
 }
 
 /* --------------------------------------------------------- delete / rename */
-function deleteNode(kind, id) {
+/* Deleting is the model's: the element, its parts and every link to it go,
+   and the status line lists each link destroyed — or nothing goes, and it
+   names what still requires the element. A note is the canvas's own. */
+async function deleteNode(kind, id) {
   if (!canvas.record) return;
   if (!window.confirm(`Remove "${id}"?`)) return;
-  removeComponent(kind, id);
+  try {
+    if (kind === "note" || !findComponent(kind, id)) {
+      removeComponent(kind, id);
+    } else {
+      const answer = await modelOperation({ op: "delete", kind, id });
+      delete layoutNodes()[id];
+      setStatus(`removed ${id}${effectsLine(answer)}`);
+    }
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
   if (canvas.selected?.id === id) canvas.selected = null;
   markDirty();
   renderCanvas();
@@ -2139,12 +2142,11 @@ function placeComponent(kind, x, y) {
   if (host && host.id !== id) {
     const rule = dropRule(host.kind, kind);
     if (rule) {
-      try {
-        applyLink(rule, { kind: host.kind, id: host.id }, { kind, id });
-        setStatus(`${host.id} ${rule.label} ${id}`);
-      } catch (err) {
-        setStatus(err.message);
-      }
+      applyLink(rule, { kind: host.kind, id: host.id }, { kind, id })
+        .then((answer) => setStatus(
+          `${host.id} ${rule.label} ${id}${effectsLine(answer)}`))
+        .catch((err) => setStatus(err.message))
+        .finally(() => { markDirty(); renderCanvas(); renderInspector(); });
     } else {
       setStatus(`${an(host.kind, true)} does not hold ${an(kind)}, so `
         + `${id} was placed on its own`);

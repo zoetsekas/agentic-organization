@@ -17,9 +17,9 @@ agent_analyst *-- subagent_summariser : uses
 agent_analyst ..> environment_sandbox : runs in
 agent_analyst --> knowledge_handbook : consults
 agent_analyst ..> capability_read_ledger : provides
-team_ops *-- agent_analyst : member
 subagent_summariser ..> capability_read_ledger : provides
 subagent_summariser ..> environment_sandbox : runs in
+team_ops *-- agent_analyst : member
 trigger_nightly --> agent_analyst : fires
 agent_ops_lead --> agent_analyst : delegate
 @enduml

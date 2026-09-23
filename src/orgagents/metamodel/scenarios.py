@@ -28,10 +28,13 @@ def base() -> Spec:
     of building blocks, and one of each kind of link."""
     return Spec.model_validate({
         "metadata": {"name": "acme"},
+        "lifecycle": {"evaluations": [{"id": "close_accuracy"}]},
         "organization": {
             "id": "acme", "name": "Acme", "leader": "ceo", "placement": True,
             "members": [{"id": "ceo", "capabilities": ["read_ledger"],
-                         "environments": [{"environment": "secure"}]}],
+                         "environments": [{"environment": "secure"}],
+                         "subagents": [{"id": "briefer",
+                                        "capabilities": ["read_ledger"]}]}],
             "teams": [
                 {"id": "ops", "leader": "ops_lead", "members": [
                     {"id": "ops_lead", "roles": [{"role": "payer"}],
@@ -57,6 +60,16 @@ def base() -> Spec:
             "knowledge": [{"id": "handbook"}],
             "tools": [{"id": "ledger_lookup", "wraps": "read_ledger"}],
             "people": [{"id": "ana"}],
+            "skills": [{"id": "reconciling"}],
+            "plugins": [{"id": "ledger_kit"}],
+            "endpoints": [{"id": "auditor"}],
+            "guardrails": [{"id": "no_card_numbers"}],
+            "output_contracts": [{"id": "variance_report"}],
+            "channels": [{"id": "close_room"}],
+            "missions": [{"id": "year_end"}],
+            "memory": {"namespaces": [{"id": "close_notes"}]},
+            "policies": [{"id": "baseline", "effect": "allow",
+                          "subjects": ["*"], "resources": ["*"]}],
             "decisions": [{"id": "approve_payment"}, {"id": "release_payment"}],
             "separations": [{"id": "four_eyes",
                              "decisions": ["approve_payment",
@@ -262,7 +275,8 @@ SCENARIOS: list[Scenario] = [
         "separation", "Give one agent both halves of a separation",
         "The ops lead may approve payments; being given release as well "
         "would let one agent do both halves of four-eyes.",
-        [S(lambda s: _mandate(s, "ops_lead", "release_payment"),
+        [S(lambda s: op.update(s, "agent", "ops_lead", mandate={
+            "decisions": ["approve_payment", "release_payment"]}),
            "add Decision release_payment to Agent ops_lead's mandate",
            "separations_hold")],
         [], ["ops_lead", "four_eyes"]),
@@ -321,8 +335,9 @@ SCENARIOS: list[Scenario] = [
          S(lambda s: op.create(s, "policy", "ghost_rule", effect="deny",
                                subjects=["ghost"]),
            "create Policy ghost_rule {deny ghost}", "references_resolve")],
-        [("one policy", lambda s: [p.id for p in s.policies]
-          == ["no_ledger_for_payers"])],
+        [("the deny is added and the ghost is not",
+          lambda s: [p.id for p in s.policies]
+          == ["baseline", "no_ledger_for_payers"])],
         ["no_ledger_for_payers", "payer", "ledger"]),
     Scenario(
         "separation_of_one", "A separation that keeps one decision apart",
@@ -337,9 +352,9 @@ SCENARIOS: list[Scenario] = [
         "successor", "Name a successor, and refuse an agent as its own",
         "The analyst stands in for the ops lead; the ops lead cannot stand "
         "in for itself.",
-        [S(lambda s: _attr(s, "ops_lead", successor="analyst"),
+        [S(lambda s: op.update(s, "agent", "ops_lead", successor="analyst"),
            "set Agent ops_lead successor := analyst"),
-         S(lambda s: _attr(s, "analyst", successor="analyst"),
+         S(lambda s: op.update(s, "agent", "analyst", successor="analyst"),
            "set Agent analyst successor := analyst", "no_self_successor")],
         [("ops_lead's successor is analyst",
           lambda s: _agent(s, "ops_lead").successor == "analyst")],
@@ -348,13 +363,14 @@ SCENARIOS: list[Scenario] = [
         "root_unplaced", "Stop the organisation being a placement boundary",
         "Every agent must have exactly one placement; the root always "
         "declares one, so it cannot be switched off.",
-        [S(lambda s: _org_attr(s, placement=False),
+        [S(lambda s: op.update(s, "organization", "acme", placement=False),
            "set Organization acme placement := false", "root_places")],
         [], ["acme"]),
     Scenario(
         "edge_to_nowhere", "A workflow edge to a step that does not exist",
         "month_end is given an edge from lookup to a step nobody declared.",
-        [S(lambda s: _edge(s, "month_end", "lookup", "publish"),
+        [S(lambda s: op.create(s, "control_flow", "", owner="month_end",
+                               **{"from": "lookup", "to": "publish"}),
            "add ControlFlow lookup → publish to Workflow month_end",
            "control_flow_ends")],
         [], ["month_end"]),
@@ -367,38 +383,6 @@ SCENARIOS: list[Scenario] = [
            "flows_join_two_agents")],
         [], ["analyst"]),
 ]
-
-
-def _attr(s: Spec, agent: str, **attrs: Any) -> op.Result:
-    """Set an agent's own attributes, checked like any operation."""
-    def change(work: Spec, effects: list[str]) -> None:
-        for k, v in attrs.items():
-            setattr(work.agent(agent), k, v)
-    return op._transact(s, change)
-
-
-def _org_attr(s: Spec, **attrs: Any) -> op.Result:
-    def change(work: Spec, effects: list[str]) -> None:
-        for k, v in attrs.items():
-            setattr(work.organization, k, v)
-    return op._transact(s, change)
-
-
-def _edge(s: Spec, workflow: str, source: str, target: str) -> op.Result:
-    def change(work: Spec, effects: list[str]) -> None:
-        wf = next(w for w in work.workflows if w.id == workflow)
-        wf.graph.edges.append(spec_model.ControlFlow.model_validate(
-            {"from": source, "to": target}))
-    return op._transact(s, change)
-
-
-def _mandate(s: Spec, agent: str, decision: str) -> op.Result:
-    """Mandates are attributes, not links; changing one is still checked."""
-    def change(work: Spec, effects: list[str]) -> None:
-        a = work.agent(agent)
-        a.mandate = a.mandate or spec_model.Mandate()
-        a.mandate.decisions.append(decision)
-    return op._transact(s, change)
 
 
 def play(scenario: Scenario) -> Played:

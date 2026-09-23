@@ -1029,7 +1029,20 @@ def main(argv: list[str] | None = None) -> int:
                       help="for 'check': the spec file")
     p_mm.add_argument("--out", default="docs/metamodel")
 
+    p_ds = sub.add_parser(
+        "designer", help="the designer's specification (ADR-0103)")
+    p_ds.add_argument("action", choices=["gestures"])
+    p_ds.add_argument("--out", default="docs/designer")
+
     args = parser.parse_args(argv)
+
+    if args.cmd == "designer":
+        from .designer.gestures import catalogue
+        out = Path(args.out)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "gestures.md").write_text(catalogue())
+        print(f"wrote {out}/gestures.md")
+        return 0
 
     if args.cmd == "metamodel":
         from .metamodel import (to_plantuml, to_plantuml_ownership,

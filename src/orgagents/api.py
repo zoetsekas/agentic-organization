@@ -740,6 +740,23 @@ def create_app(
         )
         return outcome.as_dict()
 
+    @app.post("/api/designer/operations")
+    def designer_operation(req: dict[str, Any],
+                           user: Principal = Depends(principal)) -> dict:
+        """One gesture, as one model operation on the draft the canvas holds
+        (ADR-0103). Stateless: nothing is stored — the canvas keeps its own
+        draft, undo and save. 200 with `accepted: false` and the violations
+        when the model refuses; 422 for a request naming no such operation,
+        element or relationship, or a draft the model cannot read."""
+        from .designer.gestures import evaluate
+        return _guard(evaluate, req.get("spec") or {}, req.get("request") or {})
+
+    @app.get("/api/designer/gestures")
+    def designer_gestures() -> dict:
+        """The designer's specification: every gesture and its operation."""
+        from .designer.gestures import gestures
+        return {"gestures": [g.__dict__ for g in gestures()]}
+
     @app.delete("/api/designer/systems/{system_id}")
     def designer_delete_system(system_id: str,
                                user: Principal = Depends(principal)) -> dict:
