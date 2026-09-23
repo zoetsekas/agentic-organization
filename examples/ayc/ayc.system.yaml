@@ -40,16 +40,26 @@ data_classes:
     groups: [commerce]
     allowed_environments: [storefront_ops]
     may_appear_in_traces: false
+    # What it *is*, as distinct from how it is protected (ADR-0099).
+    semantics: subject
   - id: order_data
     description: Orders, fulfillments and shipment status.
     scope: protected
     groups: [commerce, operations]
     allowed_environments: [storefront_ops, warehouse_ops]
+    semantics: event
+    relations:
+      # An order names the customer it is for. Saying so lets a rule about
+      # the customer follow the order, instead of relying on somebody to
+      # remember that it should.
+      - kind: identifies
+        target: customer_pii
   - id: inventory_data
     description: Fishbowl inventory, stock levels, cycle counts and locations.
     scope: protected
     groups: [operations]
     allowed_environments: [warehouse_ops]
+    semantics: reference
   - id: supplier_data
     description: Suppliers, purchase orders and cost prices.
     scope: protected
@@ -644,6 +654,10 @@ organization:
               roles: [inventory_auditor]
               mandate:
                 decisions: [adjust_inventory]
+              # The other half of the contract. A dependency naming a producer
+              # that does not declare it produces is refused: a contract with
+              # one party is not a contract.
+              produces_data: [inventory_data]
               humans:
                 - person: p_inventory
                   roles: [owner]
@@ -780,6 +794,21 @@ organization:
               roles: [ecommerce_manager]
               mandate:
                 decisions: [publish_product]
+              # What this agent is counting on, as distinct from what it is
+              # allowed to touch (ADR-0099). A listing that goes live against
+              # a stock figure from yesterday is a cancellation and a bad
+              # review, so it says how fresh it needs the number and what to
+              # do when it is not — and names the agent that produces it, so
+              # a change there has somewhere to land.
+              data_dependencies:
+                - data_class: inventory_data
+                  fields: [sku, on_hand, location]
+                  max_age_seconds: 900
+                  on_stale: refuse
+                  produced_by: inventory_agent
+                  description: >-
+                    Stock behind a listing. Refuses rather than lists
+                    something it cannot ship.
               # A lateral stand-in (ADR-0094). Customer service is a peer under
               # the same CGO, so it does not already hold `publish_product` the
               # way the manager does — naming it here really does lend

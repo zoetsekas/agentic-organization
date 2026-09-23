@@ -802,6 +802,59 @@ def _diff_agent(
         narrowed_why="a class that was redacted out of memory is now retained",
         noun="memory redaction", protective=True,
     )
+    # A data contract that moves is a governance change like any other, and
+    # was previously invisible: the diff could say which agents an authority
+    # change affected and nothing could say it for a change to what an agent
+    # relies on (ADR-0099).
+    def _dep_key(dependency: Any) -> str:
+        fields = ",".join(sorted(dependency.fields)) or "*"
+        return (f"{dependency.data_class}[{fields}]"
+                f"@{dependency.max_age_seconds or '—'}"
+                f"/{dependency.on_stale.value}")
+
+    before_deps = {d.data_class: d for d in left.data_dependencies}
+    after_deps = {d.data_class: d for d in right.data_dependencies}
+    for class_id in sorted(set(before_deps) | set(after_deps)):
+        was, now = before_deps.get(class_id), after_deps.get(class_id)
+        if was is not None and now is not None and _dep_key(was) == _dep_key(now):
+            continue
+        if was is None:
+            out.add(
+                subject_kind="agent", subject=agent_id,
+                field=f"data_dependencies.{class_id}", kind=ChangeKind.ADDED,
+                direction=Direction.WIDENED, severity=Severity.MEDIUM,
+                summary=f"now relies on '{class_id}' ({_dep_key(now)})",
+                rationale="a new reliance: a change to this data is now a "
+                          "change to this agent",
+                before=None, after=_dep_key(now),
+            )
+            continue
+        if now is None:
+            out.add(
+                subject_kind="agent", subject=agent_id,
+                field=f"data_dependencies.{class_id}", kind=ChangeKind.REMOVED,
+                direction=Direction.NARROWED, severity=Severity.LOW,
+                summary=f"no longer relies on '{class_id}'",
+                rationale="one fewer thing that can break this agent",
+                before=_dep_key(was), after=None,
+            )
+            continue
+        # A shorter freshness window is a stricter promise to keep, so it is
+        # the direction that can newly refuse work at run time.
+        stricter = (
+            (now.max_age_seconds or 0) and
+            (not was.max_age_seconds or now.max_age_seconds < was.max_age_seconds)
+        )
+        out.add(
+            subject_kind="agent", subject=agent_id,
+            field=f"data_dependencies.{class_id}", kind=ChangeKind.MODIFIED,
+            direction=Direction.NARROWED if stricter else Direction.WIDENED,
+            severity=Severity.MEDIUM,
+            summary=f"reliance on '{class_id}': {_dep_key(was)} → {_dep_key(now)}",
+            rationale="what this agent counts on about this data has moved",
+            before=_dep_key(was), after=_dep_key(now),
+        )
+
     if left.max_delegation_depth != right.max_delegation_depth:
         deeper = right.max_delegation_depth > left.max_delegation_depth
         out.add(

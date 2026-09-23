@@ -48,6 +48,7 @@ from ..spec.model import (
     RecallMode,
     Permission,
     PolicyRule,
+    DataDependency,
     ScalingPolicy,
     SeparationRule,
     Resilience,
@@ -411,6 +412,10 @@ class AgentIR(BaseModel):
     #: How many of this agent run (ADR-0095). Always present, so no target can
     #: emit a workload without a bound.
     scaling: ScalingPolicy = Field(default_factory=ScalingPolicy)
+    #: What this agent relies on about its data, and what it produces
+    #: (ADR-0099). Resolved here so impact is answerable from the IR alone.
+    data_dependencies: list[DataDependency] = Field(default_factory=list)
+    produces_data: list[str] = Field(default_factory=list)
     #: Whether the agent keeps an explicit task plan (ADR-0083 companion).
     planning: bool = False
     requires_approval_for: list[str] = Field(default_factory=list)
@@ -1395,6 +1400,8 @@ def build_ir(
                 max_delegation_depth=agent.max_delegation_depth,
                 successor_agent_id=agent.successor or "",
                 scaling=agent.scaling,
+                data_dependencies=list(agent.data_dependencies),
+                produces_data=list(agent.produces_data),
                 planning=agent.planning,
                 requires_approval_for=sorted(
                     {*agent.approval_required_for,

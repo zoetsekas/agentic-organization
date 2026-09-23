@@ -144,6 +144,9 @@ class AgentRuntime:
         # The live budget of each running session, so a settled child's spend
         # can be charged to the parent that commissioned it (rule 4).
         self._budgets: dict[str, TurnBudget] = {}
+        # Declarations from the IR, filled by the loader (ADR-0099).
+        self._ir_agents: list[dict[str, Any]] = []
+        self._ir_data_classes: list[dict[str, Any]] = []
 
     def _by_priority(self, handles: list[str]) -> list[str]:
         """Handles, most important first, stably.
@@ -253,6 +256,76 @@ class AgentRuntime:
                 agent_id=agent_id,
             )
         return report
+
+    # -- data contracts (ADR-0099) -----------------------------------------
+
+    def data_impact(self, data_class_id: str) -> list[dict[str, Any]]:
+        """Every agent that relies on this class, and what it relies on.
+
+        The question an incident actually asks. The diff engine could already
+        say which agents an authority change affects; nothing could say it for
+        a data change, although the declarations needed to answer it are the
+        ones an agent's own design carries.
+
+        This reads the IR's declarations and nothing else. It cannot tell you
+        whether a field exists — the producing system owns that — so a class
+        nobody declared a dependency on comes back empty, which means "nobody
+        said", not "nothing is affected".
+        """
+        out: list[dict[str, Any]] = []
+        for agent in getattr(self, "_ir_agents", None) or []:
+            for dependency in agent.get("data_dependencies", []) or []:
+                if dependency.get("data_class") != data_class_id:
+                    continue
+                out.append({
+                    "agent_id": agent.get("id"),
+                    "fields": list(dependency.get("fields") or []),
+                    "whole_class": not dependency.get("fields"),
+                    "max_age_seconds": dependency.get("max_age_seconds"),
+                    "on_stale": dependency.get("on_stale", "refuse"),
+                    "produced_by": dependency.get("produced_by"),
+                })
+        return sorted(out, key=lambda row: row["agent_id"] or "")
+
+    def stale_action(self, agent_id: str, data_class_id: str,
+                     age_seconds: float) -> dict[str, Any]:
+        """What this agent said to do with data this old.
+
+        Staleness is a state, not a crash, and which state is the design's call
+        rather than this function's. An agent that made no freshness claim gets
+        `ok`, because silence is not a promise — but the reply says the claim
+        was absent rather than met, so a reader can tell the two apart.
+        """
+        for agent in getattr(self, "_ir_agents", None) or []:
+            if agent.get("id") != agent_id:
+                continue
+            for dependency in agent.get("data_dependencies", []) or []:
+                if dependency.get("data_class") != data_class_id:
+                    continue
+                window = dependency.get("max_age_seconds")
+                if window is None:
+                    return {"ok": True, "claimed": False,
+                            "note": "this agent made no freshness claim about "
+                                    f"'{data_class_id}'"}
+                if age_seconds <= window:
+                    return {"ok": True, "claimed": True, "stale": False}
+                action = dependency.get("on_stale", "refuse")
+                return {
+                    "ok": action != "refuse",
+                    "claimed": True,
+                    "stale": True,
+                    "action": action,
+                    "age_seconds": round(age_seconds, 1),
+                    "max_age_seconds": window,
+                    "note": (
+                        f"'{data_class_id}' is {round(age_seconds)}s old and "
+                        f"{agent_id} relies on it being at most {window}s; "
+                        f"the design says {action}"
+                    ),
+                }
+        return {"ok": True, "claimed": False,
+                "note": f"{agent_id} declares no dependency on "
+                        f"'{data_class_id}'"}
 
     # -- leader continuity (ADR-0094) --------------------------------------
 

@@ -221,6 +221,12 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
     """Materialize a compiled system into a running platform instance."""
     data = ir.model_dump(mode="json") if isinstance(ir, SystemIR) else dict(ir)
     system = data["name"].lower().replace(" ", "_")
+    # The data contracts an agent declared (ADR-0099). Kept as the IR gave
+    # them rather than folded into the runtime `Agent`, because they are read
+    # to answer questions about the design — who relies on what — and not to
+    # decide anything at the boundary, where permissions already do the work.
+    platform.runtime._ir_agents = list(data.get("agents", []))
+    platform.runtime._ir_data_classes = list(data.get("data_classes", []))
     store = platform.store
     tenant_id = (data.get("tenant") or {}).get("id")
 

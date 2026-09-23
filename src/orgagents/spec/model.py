@@ -339,6 +339,93 @@ class Metadata(BaseModel):
     labels: dict[str, str] = Field(default_factory=dict)
 
 
+class DataSemantics(str, Enum):
+    """What a class of data *is*, as distinct from how it is protected.
+
+    Deliberately five, and deliberately coarse. The point is not to describe a
+    schema — the system that owns the data does that — but to carry enough
+    meaning for a rule to follow (ADR-0099).
+    """
+
+    UNSPECIFIED = "unspecified"
+    #: Identifies a person or organization. The class most rules are about.
+    SUBJECT = "subject"
+    #: Something that happened, at a time.
+    EVENT = "event"
+    #: Slowly-changing lookup data.
+    REFERENCE = "reference"
+    #: Computed from other classes; see `relations`.
+    DERIVED = "derived"
+    #: A summary over many rows, which is often how a restriction is lost.
+    AGGREGATE = "aggregate"
+
+
+class DataRelationKind(str, Enum):
+    """How one class of data relates to another.
+
+    Each kind exists because something checks it. A relation nothing reads is
+    decoration, which is the bar every relationship in this platform has to
+    clear (ADR-0081).
+    """
+
+    #: The target is computed from the source. Restrictions travel along this
+    #: edge: a class derived from data that may not leave its region may not
+    #: itself say that it may.
+    DERIVED_FROM = "derived_from"
+    #: The source names the subject the target is about.
+    IDENTIFIES = "identifies"
+    #: The source is a component of the target.
+    PART_OF = "part_of"
+    #: A plain pointer, carrying no restriction.
+    REFERENCES = "references"
+
+
+class DataRelation(BaseModel):
+    """One edge between two data classes."""
+
+    kind: DataRelationKind = DataRelationKind.REFERENCES
+    target: str
+    description: str = ""
+
+
+class StaleAction(str, Enum):
+    """What to do when data is older than the agent said it could rely on.
+
+    Staleness is a state, not a crash. `REFUSE` is the default because a
+    freshness window that carried on regardless would be decorative, and this
+    platform does not ship a control that reads as enforced and is not
+    (ADR-0073).
+    """
+
+    REFUSE = "refuse"        # do not act on it
+    DEGRADE = "degrade"      # act, and say the answer rests on stale data
+    ESCALATE = "escalate"    # hand it to a person
+
+
+class DataDependency(BaseModel):
+    """What an agent relies on about data it reads (ADR-0099).
+
+    Not a schema. A schema belongs to whoever owns the data; restating it here
+    would be a copy that is correct until their next migration. This is the
+    *consumer's* half of a contract: which class, which fields of it, how
+    fresh, from whom, and what to do when the promise does not hold.
+    """
+
+    data_class: str
+    #: The fields actually used. Empty is legal and means the whole class —
+    #: accepted rather than guessed at, because pretending to a precision
+    #: nobody supplied is worse than admitting the coarseness.
+    fields: list[str] = Field(default_factory=list)
+    #: How old it may be. Unset means the agent makes no freshness claim.
+    max_age_seconds: Optional[int] = None
+    on_stale: StaleAction = StaleAction.REFUSE
+    #: The agent that produces this, where one is in the design. Most
+    #: organizations' data comes from outside, so absence is normal and is
+    #: reported rather than refused.
+    produced_by: Optional[str] = None
+    description: str = ""
+
+
 class DataClass(BaseModel):
     """A classification that drives access, placement and egress (ADR-0017)."""
 
@@ -351,6 +438,12 @@ class DataClass(BaseModel):
     may_leave_region: bool = True
     may_appear_in_traces: bool = True
     retention_days: Optional[int] = None
+    #: What this class of data *is* (ADR-0099). Separate from how it is
+    #: protected, which is everything above.
+    semantics: DataSemantics = DataSemantics.UNSPECIFIED
+    #: How it relates to other classes. `derived_from` carries restrictions
+    #: along it, so a derived class cannot quietly drop what it inherited.
+    relations: list[DataRelation] = Field(default_factory=list)
 
 
 class CapabilityConstraint(BaseModel):
@@ -1302,6 +1395,14 @@ class AgentSpec(BaseModel):
     shared_service: bool = False
     runtime_requirements: list[RuntimeRequirement] = Field(default_factory=list)
     max_delegation_depth: int = 3
+    #: What this agent relies on about the data it reads (ADR-0099): which
+    #: class, which fields, how fresh, from whom, and what to do when the
+    #: promise does not hold. A grant says it *may* read; this says what it is
+    #: counting on.
+    data_dependencies: list[DataDependency] = Field(default_factory=list)
+    #: Data classes this agent produces, so a dependency on it has a named
+    #: other party rather than an assumption.
+    produces_data: list[str] = Field(default_factory=list)
     #: How many of this agent run (ADR-0095). Unset gets the platform default,
     #: which is still emitted explicitly — the one outcome ruled out is a
     #: ceiling nobody chose and nothing names.

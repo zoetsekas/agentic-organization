@@ -65,6 +65,18 @@ def test_a_workflow_can_have_a_process(kinds):
     assert "interrupt_before" in _fields(kinds["workflow"])
 
 
+def test_data_semantics_and_contracts_are_designable(kinds):
+    """ADR-0099. A reliance that only lives in a YAML file somebody hand-edits
+    is not reviewable at the gate the way authority is."""
+    data_class = _fields(kinds["data_class"])
+    assert "semantics" in data_class
+    assert "derived_from" in data_class["relations"]["help"]
+
+    agent = _fields(kinds["agent"])
+    assert "produces_data" in agent
+    assert "counting on" in agent["data_dependencies"]["help"]
+
+
 def test_the_canvas_can_render_every_field_type_the_palette_declares():
     """A palette that offers a type the canvas cannot draw is a field nobody
     can fill in."""

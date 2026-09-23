@@ -2248,6 +2248,17 @@ PALETTE: dict[str, Any] = {
                      {"name": "workflows", "type": "list",
                       "help": "encoded processes this agent may invoke; a "
                               "trigger can only run one the agent holds"},
+                     {"name": "produces_data", "type": "list",
+                      "help": "data classes this agent produces, so a "
+                              "dependency on one has a named other party "
+                              "rather than an assumption (ADR-0099)"},
+                     {"name": "data_dependencies", "type": "json",
+                      "help": "what this agent *relies on*, as distinct from "
+                              "what it may touch: {data_class, fields, "
+                              "max_age_seconds, on_stale, produced_by}. "
+                              "A grant says it may read; this says what it is "
+                              "counting on, and what to do when that does not "
+                              "hold"},
                      {"name": "successor", "type": "string",
                       "blank": "— its manager stands in —",
                       "help": "who stands in when this agent cannot run. "
@@ -2354,6 +2365,17 @@ PALETTE: dict[str, Any] = {
                      {"name": "groups", "type": "list"},
                      {"name": "may_leave_region", "type": "bool"},
                      {"name": "may_appear_in_traces", "type": "bool"},
+                     {"name": "semantics", "type": "enum",
+                      "options": ["unspecified", "subject", "event",
+                                  "reference", "derived", "aggregate"],
+                      "help": "what this data *is*, as distinct from how it "
+                              "is protected (ADR-0099)"},
+                     {"name": "relations", "type": "json",
+                      "help": "how it relates to other classes: "
+                              "{kind, target}. `derived_from` carries "
+                              "restrictions along it, so a class derived from "
+                              "data that may not leave its region may not say "
+                              "that it may"},
                  ]},
                 {"kind": "environment", "label": "Environment", "icon": "▦",
                  "fields": [
