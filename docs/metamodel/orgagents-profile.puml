@@ -19,6 +19,8 @@ class "Interface" as MC_INTERFACE <<metaclass>>
 class "Model" as MC_MODEL <<metaclass>>
 class "AssociationClass" as MC_ASSOCIATION_CLASS <<metaclass>>
 class "DeploymentSpecification" as MC_DEPLOYMENT_SPECIFICATION <<metaclass>>
+class "Organization" as ST_organization <<stereotype>>
+ST_organization --|> MC_COMPONENT : <<extends>>
 class "Team" as ST_team <<stereotype>>
 ST_team --|> MC_COMPONENT : <<extends>>
 class "Agent" as ST_agent <<stereotype>>

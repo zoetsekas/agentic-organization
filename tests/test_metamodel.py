@@ -44,6 +44,10 @@ def test_every_stereotype_names_a_real_spec_class():
                          ids=lambda r: f"{r.source}-{r.stereotype}-{r.target}")
 def test_every_relationship_names_a_field_the_spec_has(rel):
     """The check that keeps the metamodel honest."""
+    from orgagents.metamodel import RelKind
+    if rel.kind is RelKind.GENERALIZATION:
+        assert issubclass(_model(rel.source), _model(rel.target))
+        return
     if rel.shape is Shape.RECORD:
         assert rel.field in spec_model.SystemSpec.model_fields
         return
@@ -156,3 +160,15 @@ def test_the_committed_diagrams_are_current():
     root = Path(__file__).resolve().parents[1] / "docs" / "metamodel"
     assert (root / "orgagents-model.puml").read_text() == to_plantuml()
     assert (root / "orgagents-profile.puml").read_text() == to_plantuml_profile()
+
+
+def test_each_system_has_exactly_one_organization_as_its_root():
+    from orgagents.spec.model import Organization, SystemSpec, Team
+    own = next(r for r in PROFILE.relationships
+               if r.source == "system" and r.target == "organization")
+    assert own.target_mult == "1" and own.field == "organization"
+    assert issubclass(Organization, Team)
+    assert SystemSpec.model_fields["organization"].annotation is Organization
+    assert not [r for r in PROFILE.relationships
+                if r.target == "organization" and r.source != "system"], \
+        "nothing but the System owns or contains the organisation"

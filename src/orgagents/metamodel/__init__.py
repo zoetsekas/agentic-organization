@@ -204,7 +204,11 @@ S = Stereotype
 MC = MetaClass
 
 STEREOTYPES = [
-    S("Team", "team", MC.COMPONENT, "organization", "Team",
+    S("Organization", "organization", MC.COMPONENT, "organization",
+      "Organization",
+      "The root unit of one organisation. A Team by generalisation; exactly "
+      "one per System."),
+    S("Team", "team", MC.COMPONENT, "", "Team",
       "A unit of the organisation; owns its members and sub-teams."),
     S("Agent", "agent", MC.ACTIVE_CLASS, "", "AgentSpec",
       "An active class: it has its own thread of control."),
@@ -244,7 +248,7 @@ STEREOTYPES = [
 ]
 
 #: Stereotypes that are not palette kinds.
-NON_PALETTE = {"system"}
+NON_PALETTE = {"system", "organization"}
 
 R = Relationship
 K = RelKind
@@ -252,6 +256,12 @@ SH = Shape
 
 RELATIONSHIPS = [
     # -- composition: the part lives in the whole --------------------------
+    # -- generalisation: the organisation is the root team ------------------
+    R("organization", "team", K.GENERALIZATION, "", "", SH.REF,
+      linkable=False, draw=Draw.NONE,
+      help="an Organization is a Team: it has a leader, members and "
+           "sub-teams, and is the one unit with no parent"),
+
     R("team", "team", K.COMPOSITION, "contains", "teams", SH.PART,
       source_mult="0..1", legacy="contains",
       help="the target becomes a sub-team of the source. Authority and "
@@ -365,7 +375,8 @@ RELATIONSHIPS = [
 # -- the Model owns every top-level element (composition from «System») -----
 RELATIONSHIPS += [
     R("system", st.kind, K.COMPOSITION, "owns", st.collection, SH.PART,
-      source_mult="1", target_mult="0..1" if st.kind == "team" else "0..*",
+      source_mult="1",
+      target_mult="1" if st.kind == "organization" else "0..*",
       linkable=False, draw=Draw.NONE)
     for st in STEREOTYPES
     if st.collection and st.kind != "system"
@@ -548,6 +559,9 @@ def to_plantuml(profile: Profile = None) -> str:  # type: ignore[assignment]
         a, b = _cls(r.source), _cls(r.target)
         sm, tm = f'"{r.source_mult}"', f'"{r.target_mult}"'
         role = f"{r.field}"
+        if r.kind is RelKind.GENERALIZATION:
+            out.append(f"{a} --|> {b}")
+            continue
         if r.kind is RelKind.COMPOSITION:
             line = f"{a} {sm} *-- {tm} {b} : {r.stereotype} >"
         elif r.kind is RelKind.REALIZATION:

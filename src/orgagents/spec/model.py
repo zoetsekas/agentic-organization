@@ -1504,6 +1504,19 @@ class Team(BaseModel):
 
 
 Team.model_rebuild()
+
+
+class Organization(Team):
+    """The root of one organisation: the unit every team and agent descends
+    from (ADR-0101).
+
+    A Team by generalisation — it has a leader, members and sub-teams like any
+    unit, so the YAML under `organization:` is unchanged — and the one unit
+    that is *the organisation*: there is exactly one per system, it has no
+    parent, and it always declares placement (ADR-0069).
+    """
+
+    placement: bool = True
 Person.model_rebuild()
 HumanCounterpart.model_rebuild()
 Memory.model_rebuild()
@@ -1784,7 +1797,8 @@ class SystemSpec(BaseModel):
     environments: list[EnvironmentClass] = Field(default_factory=list)
     roles: list[Role] = Field(default_factory=list)
     policies: list[PolicyRule] = Field(default_factory=list)
-    organization: Team = Field(default_factory=lambda: Team(id="root", name="root"))
+    organization: Organization = Field(
+        default_factory=lambda: Organization(id="root", name="root"))
     # Principles every agent in the organization carries (ADR-0038).
     operating_principles: list[str] = Field(default_factory=list)
     guardrails: list[Guardrail] = Field(default_factory=list)

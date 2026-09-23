@@ -5,6 +5,7 @@ skinparam classAttributeIconSize 0
 title OrgAgents model — strict UML (ADR-0101)
 
 package "<<System>> Model" as SystemModel {
+  class Organization <<Organization>>
   class Team <<Team>>
   class Agent <<Agent>> <<active>>
   class Subagent <<SubAgent>>
@@ -68,6 +69,7 @@ package "<<System>> Model" as SystemModel {
   }
 }
 
+Organization --|> Team
 Team "0..1" *-- "0..*" Team : contains >
 Team "1" *-- "0..*" Agent : member >
 Agent "1" *-- "0..*" Subagent : uses >
