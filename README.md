@@ -202,8 +202,18 @@ apart from association (ADR-0081), and live validation.*
 
 | | |
 |---|---|
-| [![Publish](docs/images/designer-publish.png)](docs/images/designer-publish.png) | |
-| **Publish** — validate, compile, request. The verdict names the stage, and the refusal is the deliverable. | |
+| [![A process canvas](docs/images/designer-process-canvas.png)](docs/images/designer-process-canvas.png) | [![Publish](docs/images/designer-publish.png)](docs/images/designer-publish.png) |
+| **A process canvas** — a second kind of canvas, for a workflow's graph. Its steps are nodes, its edges are the workflow's own (read from the spec, never stored on the diagram), a branch's arms are drawn as the choice they are, and the loop back is drawn as a loop. Laid out by `layered`, which ranks the flow and excludes a back edge from ranking so a cycle cannot draw a process that runs upward (ADR-0100). | **Publish** — validate, compile, request. The verdict names the stage, and the refusal is the deliverable. |
+
+The remaining views — [Agents](docs/images/designer-agents.png),
+[Catalog](docs/images/designer-catalog.png),
+[Marketplace](docs/images/designer-marketplace.png),
+[Workspace](docs/images/designer-workspace.png),
+[Sessions](docs/images/designer-sessions.png) and
+[Operations](docs/images/designer-operations.png) — are captured too. They had
+never been rendered in a browser before: the API beneath them was well tested
+and the bundle was checked structurally, but nothing had ever *drawn* them,
+which is exactly where the first render of any UI finds things.
 
 There is also the [org chart](docs/images/designer-org-chart.png).
 

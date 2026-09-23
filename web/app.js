@@ -1485,6 +1485,17 @@ $("#pc-add").addEventListener("click", () => openEntryForm(null));
 /* ---------------------------------------------------------- sessions */
 async function loadSessions() {
   const sessions = await api("/sessions?limit=100");
+  /* An empty list with nothing said reads as broken. This view had none, and
+     rendering it for the first time is what showed that: a column of nothing
+     under a heading tells a reader the page failed, not that no agent has
+     run yet. */
+  if (!sessions.length) {
+    $("#sessions").replaceChildren(
+      el("p", { class: "muted" },
+         "No runs yet. A session appears here the moment an agent of a "
+         + "published design is asked to do something."));
+    return;
+  }
   $("#sessions").replaceChildren(...sessions.map((s) =>
     el("div", {},
       el("span", { class: "grow", onclick: () => loadTrace(s.id), style: "cursor:pointer" },
@@ -1523,6 +1534,11 @@ async function loadOps() {
       el("button", {
         onclick: async () => { await api(`/ops/alerts/${a.id}/ack`, { method: "POST" }); loadOps(); },
       }, "Ack"))) : [el("div", { class: "empty" }, "No open alerts.")]));
+  if (!Object.keys(m.per_agent || {}).length) {
+    $("#peragent").replaceChildren(
+      el("p", { class: "muted" },
+         "Nothing has run. Per-agent usage fills in as sessions complete."));
+  } else
   $("#peragent").replaceChildren(...Object.entries(m.per_agent).map(([id, v]) =>
     el("div", {}, el("span", { class: "grow" }, id),
       el("span", { class: "badge" }, `${v.sessions} sessions`),

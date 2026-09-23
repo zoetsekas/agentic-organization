@@ -1082,3 +1082,11 @@ textarea.json.invalid { border-color: var(--clay); }
   padding: .3rem .5rem; cursor: pointer;
 }
 .dia-arrange:hover { color: var(--ink); border-color: var(--line-strong); }
+
+/* A process canvas's steps read as steps, not as org boxes (ADR-0100). */
+.dia-add-process {
+  font: 500 11px/1 var(--sans, ui-sans-serif, system-ui);
+  color: var(--ink-dim); background: transparent;
+  border: 1px solid var(--line); border-radius: 6px; padding: .25rem .4rem;
+}
+[data-kind="step"] .n-kind { color: var(--accent); }

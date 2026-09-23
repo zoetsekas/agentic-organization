@@ -369,3 +369,55 @@ def test_a_person_reference_survives_the_agent_form(tmp_path):
     assert out.returncode == 0, out.stdout + out.stderr
     assert "LOSS" not in out.stdout
     assert "Marcus Oyelaran" in out.stdout, "a reference must resolve to a name"
+
+
+def test_the_browser_bundle_parses():
+    """A syntax error in the bundle breaks every view at once.
+
+    The suite has a lot of structural assertions over these files as *text* —
+    which routes they call, which model they read — and nothing that parsed
+    them. A Python-style implicit string concatenation inside an object
+    literal is valid Python and a syntax error in JavaScript; it took the
+    whole designer down and surfaced as a thirty-second browser timeout in a
+    screenshot run, which is an expensive way to learn about a typo.
+    """
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("no node on this machine to parse the bundle with")
+    for name in ("app.js", "canvas.js", "command/app.js"):
+        path = ROOT / "web" / name
+        result = subprocess.run([node, "--check", str(path)],
+                                capture_output=True, text=True)
+        assert result.returncode == 0, f"{name} does not parse:\n{result.stderr}"
+
+
+def test_a_views_id_matches_the_label_people_read(index_html):
+    """`data-view="catalog"` was labelled Marketplace and `data-view="platform"`
+    was labelled Catalog.
+
+    Two views whose ids named each other's labels. It survived because nothing
+    compared them, and it cost a wrong screenshot within minutes of the first
+    person touching that part of the file. An id is what a test, a script and
+    the next reader address a view by, so it has to say what the view is.
+    """
+    import re
+
+    pairs = re.findall(r'data-view="([a-z-]+)"[^>]*>([^<]+)<', index_html)
+    assert pairs, "no view buttons found"
+    #: Ids that legitimately differ from their label, and why.
+    ALLOWED = {
+        "org": "org chart",
+        "designer": "agents",     # the agent-by-agent form view
+        "ops": "operations",
+    }
+    for view_id, label in pairs:
+        slug = label.strip().lower()
+        if ALLOWED.get(view_id) == slug:
+            continue
+        assert view_id == slug.replace(" ", "-"), (
+            f'view "{view_id}" is labelled "{label.strip()}"; an id that names '
+            "another view's label is a trap"
+        )

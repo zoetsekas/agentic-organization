@@ -282,7 +282,35 @@ async def main():
         print(f"  continuity: successor = {picked or '(its manager)'}")
         await shot(page, "designer-continuity", f"successor={picked}")
 
-        # 6. The publish path, showing a real preflight verdict.
+        # 6. A process canvas: the workflow's steps as nodes, its own edges
+        #    derived from the spec, laid out by `layered`.
+        await page.click('#tabs button[data-view="canvas"]')
+        await page.wait_for_timeout(500)
+        await page.select_option(".dia-add-process", "payment_review")
+        await page.wait_for_timeout(1400)
+        steps = await page.locator('#canvas-nodes [data-kind="step"]').count()
+        wires = await page.locator("#canvas-edges > path").count()
+        print(f"  process canvas: {steps} steps, {wires} edges")
+        assert steps, "the process canvas drew no steps"
+        await shot(page, "designer-process-canvas", f"{steps} steps, {wires} edges")
+
+        # 7. The views a browser had never rendered. Rendering the UI for the
+        #    first time found four defects the whole suite did not; these five
+        #    had never been rendered at all, which is exactly where the same
+        #    class of defect hides.
+        for view, name in (("designer", "designer-agents"),
+                           ("catalog", "designer-catalog"),
+                           ("marketplace", "designer-marketplace"),
+                           ("workspace", "designer-workspace"),
+                           ("sessions", "designer-sessions"),
+                           ("ops", "designer-operations")):
+            await page.click(f'#tabs button[data-view="{view}"]')
+            await page.wait_for_timeout(1200)
+            await shot(page, name)
+
+        # 8. The publish path, showing a real preflight verdict.
+        await page.click('#tabs button[data-view="canvas"]')
+        await page.wait_for_timeout(500)
         await page.click("#btn-publish")
         await page.wait_for_timeout(2500)
         print("  publish verdict:",

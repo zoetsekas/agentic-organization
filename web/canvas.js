@@ -194,6 +194,17 @@ function newDiagramId() {
   return `dia_${n}`;
 }
 
+/* A selection belongs to the diagram it was made on. Carrying it across meant
+   the Properties panel described a component that is not on the canvas in
+   front of you — which reads as "this is what you are looking at" and is not. */
+function clearSelectionOffDiagram() {
+  const open = diagram();
+  if (!canvas.selected) return;
+  if (open && open.nodes && open.nodes[canvas.selected.id]) return;
+  canvas.selected = null;
+  renderInspector();
+}
+
 function openDiagram(id) {
   const layout = canvas.record?.layout;
   if (!layout?.diagrams?.[id]) return;
@@ -211,6 +222,46 @@ function openDiagram(id) {
    This is the drill-down a tree view gives you and a single canvas cannot.
    The nodes are laid out rather than dropped one at a time, because a
    diagram you have to rebuild by hand is one nobody makes. */
+/* A process canvas: one workflow's steps, laid out as a flow.
+
+   The steps become nodes and the workflow's own edges are derived, so this
+   adds a picture without adding a fact — which is the split the diagram model
+   is built on. */
+function addProcessDiagram(workflowId) {
+  const layout = canvas.record?.layout;
+  const workflow = (spec()?.workflows || []).find((w) => w.id === workflowId);
+  if (!layout || !workflow) {
+    setStatus(`'${workflowId}' is not a workflow in this design`);
+    return null;
+  }
+  const id = newDiagramId();
+  const nodes = {};
+  (workflow.graph?.nodes || []).forEach((step, index) => {
+    if (!step.id) return;
+    nodes[step.id] = {
+      id: step.id, kind: "step", x: 60, y: 60 + index * 150,
+      width: 200, height: 80, collapsed: false, note: "",
+    };
+  });
+  layout.diagrams[id] = {
+    id, name: workflow.name || workflow.id, kind: "process",
+    root: workflow.id, nodes,
+    viewport: { x: 0, y: 0, zoom: 1 },
+  };
+  layout.active = id;
+  /* Same as opening one: the selection belonged to the diagram it was made
+     on, and carrying it here would describe a component that is not on this
+     canvas. */
+  clearSelectionOffDiagram();
+  markDirty(`added a process canvas for ${workflow.id}`);
+  renderCanvas();
+  /* Laid out by the product's own algorithm rather than the stack above:
+     a flow wants ranks, and the stack is only somewhere for the nodes to be
+     until the layout runs. */
+  arrangeDiagram("layered");
+  return id;
+}
+
 function addDiagram(root = "", name = "") {
   const layout = canvas.record?.layout;
   if (!layout) return null;
@@ -300,6 +351,21 @@ function renderDiagramBar() {
       disabled: readOnly ? "" : null,
       onclick: () => addDiagram(""),
     }, "+"),
+    /* A process gets its own canvas, because a workflow's graph is a
+       different thing from an organisation's containment and drawing them on
+       one canvas produces a picture nobody can predict (ADR-0100). */
+    ...((spec()?.workflows || []).length && !readOnly ? [(() => {
+      const pick = el("select", { class: "dia-add-process",
+                                  title: "a canvas for one workflow's process" },
+        el("option", { value: "" }, "+ process"),
+        ...(spec().workflows || []).map((w) =>
+          el("option", { value: w.id }, w.name || w.id)));
+      pick.addEventListener("change", () => {
+        if (pick.value) addProcessDiagram(pick.value);
+        pick.value = "";
+      });
+      return pick;
+    })()] : []),
     /* Arrange. The layout runs on the server, where it is a function from a
        graph to coordinates and can be asserted about; a layout that ran only
        here is the one part of this platform nothing would check (ADR-0100).
@@ -382,14 +448,18 @@ function processEdges(workflowId) {
   const graph = workflow?.graph || {};
   const edges = (graph.edges || [])
     .filter((e) => e.from && e.to && e.to !== "END")
-    .map((e) => ({ source: e.from, target: e.to }));
+    .map((e) => ({ source: e.from, target: e.to, kind: "flow" }));
+  /* A branch's arms are ways out too, and drawing them differently from a
+     plain edge is the point: one of them is taken, not all of them. */
   for (const node of graph.nodes || []) {
     if (node.kind !== "branch") continue;
     for (const c of node.cases || []) {
-      if (c.to && c.to !== "END") edges.push({ source: node.id, target: c.to });
+      if (c.to && c.to !== "END") {
+        edges.push({ source: node.id, target: c.to, kind: "branch_case" });
+      }
     }
     if (node.default && node.default !== "END") {
-      edges.push({ source: node.id, target: node.default });
+      edges.push({ source: node.id, target: node.default, kind: "branch_case" });
     }
   }
   return edges;
@@ -403,6 +473,14 @@ function layoutNodes() {
 function findComponent(kind, id) {
   const s = spec();
   if (!s) return null;
+  /* A step belongs to the workflow the open process canvas draws, not to the
+     organisation. It is looked up there so the inspector edits the step
+     itself rather than showing an empty form (ADR-0100). */
+  if (kind === "step") {
+    const open = diagram();
+    const workflow = (s.workflows || []).find((w) => w.id === open?.root);
+    return (workflow?.graph?.nodes || []).find((n) => n.id === id) || null;
+  }
   if (kind === "team") return allTeams().find((t) => t.id === id) || null;
   if (kind === "agent") return allAgents().find((a) => a.agent.id === id)?.agent || null;
   if (kind === "subagent") {
@@ -591,7 +669,29 @@ function paletteKinds() {
   return out;
 }
 
+/* A step is part of a workflow, not a component of the design, so it is not in
+   the palette — you do not drag one onto an organisation. It still needs
+   fields, or selecting one on a process canvas would open an empty form. */
+const STEP_SPEC = {
+  kind: "step", label: "Step", icon: "\u25cb",
+  fields: [
+    { name: "id", type: "string", required: true },
+    { name: "kind", type: "enum",
+      options: ["tool", "agent", "workflow", "branch", "transform", "human"],
+      help: "what this step does. A branch is the only one that may have "
+            + "several ways out, because it is the only one that chooses" },
+    { name: "tool", type: "string" },
+    { name: "agent", type: "string" },
+    { name: "workflow", type: "string" },
+    { name: "expr", type: "string",
+      help: "for a transform: an expression over the workflow's state" },
+    { name: "output", type: "string",
+      help: "the state key this step's result is written to" },
+  ],
+};
+
 function kindSpec(kind) {
+  if (kind === "step") return STEP_SPEC;
   return paletteKinds().find((k) => k.kind === kind)
     || { kind, label: kind, fields: [] };
 }
@@ -1222,6 +1322,8 @@ function renderEdges() {
 
 const EDGE_STYLES = {
   member_of: { stroke: "--edge-report" },
+  flow: { stroke: "--edge-report" },
+  branch_case: { stroke: "--edge-peer", dash: "5 4" },
   reports_to: { stroke: "--edge-report" },
   mission_peer: { stroke: "--edge-peer", dash: "5 4" },
   peer: { stroke: "--edge-peer", dash: "5 4" },
@@ -1364,6 +1466,16 @@ function derivedEdges() {
   /* Edges come from the spec, not from the layout: the picture always matches
      what would compile. */
   const out = [];
+  /* A process canvas draws one workflow's graph, and its edges are that
+     workflow's own — read here, never stored on the diagram, which is the one
+     rule the diagram model has (ADR-0100). */
+  const open = diagram();
+  if (open?.kind === "process") {
+    for (const edge of processEdges(open.root)) {
+      out.push({ source: edge.source, target: edge.target, kind: edge.kind });
+    }
+    return out;
+  }
   walkTeams(spec()?.organization, (team) => {
     (team.members || []).forEach((m) =>
       out.push({ source: team.id, target: m.id, kind: "member_of" }));
