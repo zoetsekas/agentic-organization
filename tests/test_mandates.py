@@ -21,34 +21,7 @@ from orgagents.spec.validate import errors, validate_spec
 # --------------------------------------------------------------------------
 
 
-def _org(spec_dict) -> SystemSpec:
-    return SystemSpec.model_validate(spec_dict)
-
-
-BASE = {
-    "metadata": {"name": "t", "spec_version": "1.1.0", "version": "0.1.0"},
-    "decisions": [{"id": "spend"}, {"id": "deploy"}, {"id": "close"}],
-    "organization": {
-        "id": "root",
-        "name": "Root",
-        "mandate": {"decisions": ["spend", "deploy", "close"]},
-        "members": [{"id": "ceo", "name": "CEO"}],
-        "teams": [
-            {
-                "id": "fin",
-                "name": "Finance",
-                "leader": "cfo",
-                "mandate": {"decisions": ["spend", "close"],
-                            "conditions": {"max_value": 250}},
-                "members": [
-                    {"id": "cfo", "name": "CFO"},
-                    {"id": "clerk", "name": "Clerk",
-                     "mandate": {"decisions": ["close"]}},
-                ],
-            }
-        ],
-    },
-}
+from spec_fixtures import BASE, SEPARATED, org as _org  # noqa: E402
 
 
 def test_a_unit_declaring_nothing_inherits_rather_than_holding_everything():
@@ -396,13 +369,7 @@ def test_no_generated_artifact_names_a_framework():
 # --------------------------------------------------------------------------
 
 
-SEPARATED = {
-    **BASE,
-    "separations": [
-        {"id": "payment_control", "decisions": ["spend", "close"],
-         "reason": "one principal must not do both"},
-    ],
-}
+
 
 
 def test_a_leader_inheriting_its_units_mandate_violates_separation():

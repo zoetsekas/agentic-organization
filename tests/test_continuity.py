@@ -114,8 +114,8 @@ def test_a_successor_that_would_break_a_separation_is_refused_at_validation():
     succession that could never be safe never reaches a deployment — rather
     than being discovered during the outage it was meant to survive.
     """
-    from tests.test_mandates import SEPARATED, _org, errors
-    from orgagents.spec.validate import validate_spec
+    from spec_fixtures import SEPARATED, org as _org
+    from orgagents.spec.validate import errors, validate_spec
 
     spec = {
         **SEPARATED,
@@ -150,8 +150,8 @@ def test_a_successor_that_would_break_a_separation_is_refused_at_validation():
 
 
 def test_a_successor_holding_neither_side_validates():
-    from tests.test_mandates import SEPARATED, _org, errors
-    from orgagents.spec.validate import validate_spec
+    from spec_fixtures import SEPARATED, org as _org
+    from orgagents.spec.validate import errors, validate_spec
 
     spec = {
         **SEPARATED,
@@ -181,8 +181,8 @@ def test_a_successor_holding_neither_side_validates():
 
 
 def test_an_unknown_or_self_successor_is_refused():
-    from tests.test_mandates import SEPARATED, _org, errors
-    from orgagents.spec.validate import validate_spec
+    from spec_fixtures import SEPARATED, org as _org
+    from orgagents.spec.validate import errors, validate_spec
 
     org = SEPARATED["organization"]
     team = {**org["teams"][0],

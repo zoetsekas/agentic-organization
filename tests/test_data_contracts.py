@@ -23,7 +23,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 def _spec(classes=None, agent_extra=None):
-    from tests.test_mandates import BASE, _org
+    from spec_fixtures import BASE, org as _org
 
     spec = {k: v for k, v in BASE.items()}
     spec["data_classes"] = classes or []

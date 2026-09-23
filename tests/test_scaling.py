@@ -125,7 +125,7 @@ def test_the_concurrency_ceiling_is_a_product():
 
 
 def _spec_with(scaling: dict):
-    from tests.test_mandates import BASE
+    from spec_fixtures import BASE
     spec = {k: v for k, v in BASE.items()}
     org = spec["organization"]
     team = {**org["teams"][0],
@@ -142,7 +142,7 @@ def _spec_with(scaling: dict):
 def test_impossible_bounds_are_refused_at_validation(scaling, code):
     """A design that says something impossible about its own capacity should
     not reach a deployment to find out from the cloud."""
-    from tests.test_mandates import _org
+    from spec_fixtures import org as _org
     from orgagents.spec.validate import errors, validate_spec
 
     codes = {f.code for f in errors(validate_spec(_org(_spec_with(scaling))))}
