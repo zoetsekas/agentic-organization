@@ -1863,7 +1863,22 @@ function publishTarget() {
   return $("#publish-target")?.value || "local";
 }
 
+/* Requesting a deployment needs a design that compiles, the right to
+   publish, and — first — a person who has reviewed what it grants
+   (ADR-0108). */
+function syncPublishRequest() {
+  const reviewed = $("#publish-reviewed")?.checked;
+  const button = $("#btn-publish-request");
+  button.disabled = !(canvas.publishVerdictOk && reviewed);
+  button.title = !canvas.publishVerdictOk
+    ? "the design does not compile, or you may not publish it"
+    : reviewed ? "" : "review what this design grants first (step 1)";
+}
+
 async function openPublish() {
+  const reviewed = $("#publish-reviewed");
+  if (reviewed) reviewed.checked = false;       // a new review for each publish
+  canvas.publishVerdictOk = false;
   const bar = $("#publish-bar");
   if (!bar) return;
   if (!canvas.systemId) return alert("Open an organisation first.");
@@ -1903,8 +1918,9 @@ function renderPublishVerdict(verdict) {
   $("#publish-findings").replaceChildren(...rows);
   /* Publishing needs the permission as well as a clean verdict: an editor may
      change a design all day and may not switch it on. */
-  $("#btn-publish-request").disabled =
-    !verdict.ok || !canvas.permissions.includes("system.publish");
+  canvas.publishVerdictOk = !!verdict.ok
+    && canvas.permissions.includes("system.publish");
+  syncPublishRequest();
 }
 
 async function requestDeployment() {
@@ -2814,7 +2830,7 @@ function renderInspector() {
     }, "Remove"));
   form.appendChild(actions);
   host.replaceChildren(form,
-    ...(kind === "agent" ? [resolvesTo(component)] : []),
+    ...(kind === "agent" ? [resolvesTo(component), effectiveAuthority(id)] : []),
     el("h3", {}, "Raw"),
     el("pre", { class: "code" }, JSON.stringify(component ?? node, null, 2)));
 }
@@ -2844,6 +2860,48 @@ function effectivePermissions(agent) {
     (role?.capabilities || []).forEach((c) => add(c, roleId));
   }
   return out;
+}
+
+/* What an agent may decide, resolved (ADR-0108): its own mandate merged with
+   its team's and its line's, each decision marked as declared here or
+   inherited. The same resolution the Authority review and the phase gate
+   use, as of the last save. */
+const authorityCache = {};
+
+function effectiveAuthority(agentId) {
+  const box = el("div", { class: "resolves effective-authority" },
+    el("header", {}, el("span", { class: "eyebrow" }, "Effective authority")),
+    el("p", { class: "hint" }, "resolving…"));
+  const systemId = canvas.systemId;
+  if (!systemId) return box;
+  const key = `${systemId}@${canvas.record?.version}`;
+  const load = authorityCache[key] ||= dapi(`/systems/${systemId}/authority`)
+    .catch(() => null);
+  load.then((data) => {
+    const a = data?.agents?.[agentId];
+    const body = [];
+    if (!data) {
+      body.push(el("p", { class: "hint" },
+        "The design does not resolve yet; this appears once it compiles."));
+    } else if (!a) {
+      body.push(el("p", { class: "hint" }, "Save to see this agent resolved."));
+    } else {
+      const declared = new Set(a.declared || []);
+      body.push(a.decisions.length
+        ? el("ul", { class: "decisions" }, ...a.decisions.map((d) =>
+            el("li", { class: declared.has(d) ? "own" : "inherited" },
+              el("code", {}, d), " ",
+              el("span", { class: "origin" },
+                declared.has(d) ? "declared here" : "inherited"))))
+        : el("p", { class: "hint" }, "Decides nothing."));
+      body.push(el("p", { class: "from" }, `through ${a.line.join(" › ")}`));
+    }
+    body.push(el("button", { type: "button", class: "link-btn",
+      onclick: () => window.showView?.("authority") },
+      "Review the whole design's authority…"));
+    box.replaceChildren(box.firstChild, ...body);
+  });
+  return box;
 }
 
 function resolvesTo(agent) {
@@ -4204,6 +4262,9 @@ function wireCanvas() {
   });
   $("#btn-publish-recheck").addEventListener("click", () => openPublish());
   $("#btn-publish-request").addEventListener("click", () => requestDeployment());
+  $("#publish-reviewed")?.addEventListener("change", syncPublishRequest);
+  $("#btn-publish-review")?.addEventListener("click",
+    () => window.showView?.("authority"));
 
   $("#btn-revisions").addEventListener("click", async () => {
     const revisions = await dapi(`/systems/${canvas.systemId}/revisions`);
@@ -4291,6 +4352,7 @@ window.designer = {
   renderExplorer,
   renderComponents,
   wireComponentsMenu,
+  effectiveAuthority,
   diagram,
   addDiagram,
   openDiagram,

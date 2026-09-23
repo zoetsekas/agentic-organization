@@ -1261,3 +1261,23 @@ label.check-row > .hint { flex-basis: 100%; }
   vertical-align: top;
 }
 .guide.split { grid-template-columns: 260px minmax(0, 1fr); }
+
+/* -- authority as a review (ADR-0108) ---------------------------------------- */
+.review-head {
+  display: flex; align-items: flex-start; gap: var(--s4);
+  padding: var(--s3) var(--s6); border-bottom: 1px solid var(--line);
+}
+.review-head .hint { margin: 0; max-width: 900px; }
+.publish-review {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3);
+  margin: var(--s3) 0; padding: var(--s3); border: 1px dashed var(--line-strong);
+  border-radius: var(--r-sm);
+}
+.effective-authority ul.decisions { list-style: none; padding: 0; margin: var(--s2) 0; }
+.effective-authority li { display: flex; gap: var(--s2); align-items: baseline; }
+.effective-authority .origin { font-size: var(--t-micro); color: var(--ink-dim); }
+.effective-authority li.own .origin { color: var(--accent); }
+.link-btn {
+  background: none; border: 0; padding: 0; color: var(--accent);
+  cursor: pointer; text-decoration: underline;
+}

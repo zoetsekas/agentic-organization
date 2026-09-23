@@ -262,7 +262,9 @@ async def main():
         await page.click('#side-tabs button[data-side="details"]')
 
         # 3. Authority — mandates, separations, placements, people.
-        await page.click('#tabs button[data-view="authority"]')
+        await page.click('#tabs button[data-view="org"]')
+        await page.wait_for_timeout(400)
+        await page.click("#btn-org-authority")
         await page.wait_for_timeout(1400)
         print("  authority agents:", await page.locator("#authority-agents > *").count(),
               "| placements:", await page.locator("#authority-placements > *").count(),

@@ -28,7 +28,6 @@
               aria-haspopup="menu" aria-expanded="false">Components ▾</button>
       <div class="menu" id="components-list" role="menu" hidden></div>
     </div>
-    <button data-view="authority">Authority</button>
     <button data-view="catalog">Catalog</button>
     <button data-view="marketplace">Marketplace</button>
     <button data-view="workspace">Workspace</button>
@@ -94,6 +93,18 @@
   </div>
   <p class="hint" id="publish-summary">Checking…</p>
   <div id="publish-findings" class="conflict-list"></div>
+  <!-- The review comes first (ADR-0108): nothing is requested until somebody
+       has looked at what the design grants. -->
+  <div class="publish-review" id="publish-review">
+    <strong>1. Review what this design grants</strong>
+    <span class="hint">— what each agent may decide once inheritance, roles and
+      mandates combine; separations; placements; who is accountable.</span>
+    <button type="button" id="btn-publish-review">Review authority…</button>
+    <label class="check-row" for="publish-reviewed">
+      <input type="checkbox" id="publish-reviewed" />
+      I have reviewed what this design grants
+    </label>
+  </div>
   <div class="actions">
     <label class="inline">Tenant
       <input id="publish-tenant" size="16"
@@ -133,6 +144,8 @@
       <button id="btn-org-new">New…</button>
       <button id="btn-org-example"
               title="open one of the shipped example organisations, laid out">Load example…</button>
+      <button id="btn-org-authority"
+              title="what this design grants, resolved: decisions, separations, placements, people">Review authority…</button>
       <button id="btn-org-import"
               title="open an organisation from a *.system.yaml on this computer">Import from file…</button>
       <button id="btn-org-edit">Edit definition…</button>
@@ -366,6 +379,7 @@
              fed only by the gate and diff routes, and shows nothing at all
              when they are absent. -->
         <div id="consequence-rail" class="rail"></div>
+        <div id="agent-authority"></div>
         <h3>This agent in the spec</h3>
         <pre id="preview" class="code">Select an agent.</pre>
         <h3>Validation</h3>
@@ -424,7 +438,9 @@
             the <em>Org chart</em> screen.</li>
           <li><strong>Design it</strong> on the <em>Canvas</em> or in the
             <em>Components</em> editors, then <strong>Save</strong>.</li>
-          <li><strong>Publish…</strong> when the <em>Issues</em> tab is clear.</li>
+          <li><strong>Publish…</strong> when the <em>Issues</em> tab is clear:
+            review what the design grants, tick that you have, then request
+            deployment.</li>
         </ol>
 
         <h2 id="g-concepts">The model, in five ideas</h2>
@@ -548,20 +564,32 @@
           validator and the model's rules find. Click an issue to select the
           component it is about.</p>
 
-        <h2 id="g-authority">Authority</h2>
-        <p>Read-only, and the one screen that shows the design's
-          <strong>resolved</strong> result rather than what was typed: what each
-          agent may actually decide once team inheritance, roles and mandates
-          combine; which pairs of decisions are kept apart and whether anyone
-          holds both; where each agent's work lives (its placement, a unit
-          crossed with an environment); and what each person is accountable
-          for. It is what a reviewer signs off before publishing.</p>
+        <h2 id="g-authority">Reviewing authority</h2>
+        <p>The canvas and forms show what was <em>declared</em>. The authority
+          review shows what the design <strong>grants</strong>, resolved: what
+          each agent may actually decide once team inheritance, roles and
+          mandates combine; which pairs of decisions are kept apart and whether
+          anyone holds both; where each agent's work lives (its placement, a
+          unit crossed with an environment); and what each person is
+          accountable for. It is read-only — change the design to change it.</p>
+        <ul>
+          <li>It is the <strong>first step of Publish…</strong>: nothing is
+            requested until you tick that you have reviewed it.</li>
+          <li><strong>Review authority…</strong> on the Org chart opens it any
+            time; <em>← Back to the design</em> returns you.</li>
+          <li>An agent's <strong>Effective authority</strong> — its resolved
+            decisions, each marked declared here or inherited — is shown in its
+            Properties and on the Agents screen, as of the last save.</li>
+        </ul>
 
         <h2 id="g-publish">Publishing</h2>
-        <p><strong>Publish…</strong> validates and compiles the design for a
+        <p><strong>Publish…</strong> first asks you to review what the design
+          grants (above), then validates and compiles it for a
           target (local, LangGraph, ADK, MAF, Terraform for AWS/Azure/GCP) and
           asks the platform to run it. Compilation is traced: every element and
-          link of the model reaches what is built, or is named as not built.</p>
+          link of the model reaches what is built, or is named as not built.
+          <em>Request deployment</em> is enabled once the design compiles, you
+          may publish, and the review is ticked.</p>
 
         <h2 id="g-catalog">Catalog and Marketplace</h2>
         <p><strong>Catalog</strong> holds the approved building blocks a design
@@ -601,6 +629,16 @@ orgagents compile my.system.yaml --target local</pre>
   </section>
 
   <section id="view-authority" class="view">
+    <!-- Reached from Publish… (its first step), the Org chart's "Review
+         authority…", and an agent's Properties — not a tab (ADR-0108). -->
+    <div class="review-head">
+      <button type="button" id="btn-authority-back">← Back to the design</button>
+      <p class="hint">What this design <strong>grants</strong>, resolved: what each
+        agent may decide once team inheritance, roles and mandates combine; which
+        decisions are kept apart; where the work lives; who is accountable. This
+        is what a reviewer signs off before publishing. Read-only: change the
+        design to change it.</p>
+    </div>
     <div class="split">
       <div class="panel">
         <h2>Who may decide what</h2>

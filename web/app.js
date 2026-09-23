@@ -208,7 +208,15 @@ $("#tabs").addEventListener("click", (e) => {
   showView(btn.dataset.view);
 });
 
+/* Where "Back" from the Authority review goes: the view it was opened from. */
+let lastDesignView = "org";
+function viewBeforeReview() { return lastDesignView; }
+
 function showView(name) {
+  const leaving = activeView?.();
+  if (name === "authority" && leaving && leaving !== "authority") {
+    lastDesignView = leaving;
+  }
   document.querySelectorAll(".tabs button").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === name));
   $("#btn-components")?.classList.toggle("active",
@@ -1175,6 +1183,10 @@ function renderValidationInto(host, validation) {
 
 function renderAgentPreview() {
   const agent = currentAgent();
+  // What it may decide, resolved — the same section Properties shows.
+  $("#agent-authority")?.replaceChildren(
+    ...(agent && design()?.effectiveAuthority
+        ? [design().effectiveAuthority(agent.id)] : []));
   $("#preview").textContent = agent
     ? JSON.stringify(agent, null, 2)
     : "Select an agent.";
@@ -2181,6 +2193,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   initPanels();
   wireWorkspaces();
   wireImport();
+  // Authority is a review, reached from where review happens (ADR-0108).
+  $("#btn-org-authority")?.addEventListener("click", () => showView("authority"));
+  $("#btn-authority-back")?.addEventListener("click", () =>
+    showView(viewBeforeReview()));
   design()?.wireComponentsMenu();
   markAllRequired();
   try {

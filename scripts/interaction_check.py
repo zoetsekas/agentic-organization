@@ -1150,6 +1150,50 @@ async def main() -> None:
         check("the workspace is deleted", "Renamed workspace" not in names,
               str(names))
 
+        # "do we still need the Authority menu item?": a review, reached
+        # where review happens (ADR-0108), not a tab.
+        check("there is no Authority tab",
+              await page.locator('#tabs button[data-view="authority"]').count() == 0)
+        await page.click('#tabs button[data-view="org"]')
+        await page.wait_for_timeout(400)
+        await page.click("#btn-org-authority")
+        await page.wait_for_timeout(1500)
+        resolved = await page.locator("#authority-agents > *").count()
+        check("Review authority opens the resolved review",
+              await page.locator("#view-authority.active").count() == 1
+              and resolved > 0, f"{resolved} agent(s)")
+        await page.click("#btn-authority-back")
+        await page.wait_for_timeout(400)
+        check("Back returns to where it was opened",
+              await page.locator("#view-org.active").count() == 1)
+
+        await page.click('#tabs button[data-view="canvas"]')
+        await page.wait_for_timeout(600)
+        some_agent = await page.evaluate("""() => Object.values(
+          window.designer.diagram().nodes).find((n) => n.kind === "agent")?.id""")
+        await page.evaluate("(id) => document.querySelector(`#canvas-nodes [data-id='${id}']`)?.scrollIntoView()", some_agent)
+        await page.click(f'#canvas-nodes [data-id="{some_agent}"]')
+        await page.wait_for_timeout(1500)
+        eff = (await page.locator("#inspector .effective-authority").text_content()) or ""
+        check("an agent's Properties shows its effective authority",
+              "resolving" not in eff and ("declared here" in eff
+              or "inherited" in eff or "Decides nothing" in eff
+              or "Save to see" in eff), eff[:120])
+
+        await page.click("#btn-publish")
+        await page.wait_for_timeout(2500)
+        request = page.locator("#btn-publish-request")
+        check("Request deployment waits for the review",
+              await request.is_disabled())
+        await page.locator("#publish-reviewed").check()
+        await page.wait_for_timeout(200)
+        verdict_ok = await page.evaluate("() => !!window.designer.state.publishVerdictOk")
+        check("ticking the review enables it when the design may be published",
+              (not await request.is_disabled()) == verdict_ok,
+              f"verdict ok {verdict_ok}")
+        await page.click("#btn-publish-close")
+        await page.wait_for_timeout(300)
+
         # "extend the Agents view to the other components": every kind has
         # an editor under the Components menu, using the same form.
         await page.click('#tabs button[data-view="canvas"]')

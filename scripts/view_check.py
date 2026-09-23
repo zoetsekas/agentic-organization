@@ -118,7 +118,11 @@ async def main() -> int:
                                 f"{type(exc).__name__}: {exc}".split("\n")[0][:120]))
 
         async def show(view: str) -> None:
-            if view == "designer":
+            if view == "authority":
+                # A review, not a tab (ADR-0108): opened from the Org chart.
+                await page.click('#tabs button[data-view="org"]')
+                await page.click("#btn-org-authority")
+            elif view == "designer":
                 # Agents is an item of the Components menu (ADR-0107).
                 await page.click("#btn-components")
                 await page.click('#components-list [data-kind="agent-view"]')
