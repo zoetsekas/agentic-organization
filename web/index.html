@@ -232,6 +232,11 @@
              and never a component. -->
         <div id="diagram-bar" class="diagram-bar" role="tablist"></div>
         <div id="validation-strip" class="validation-strip" role="status"></div>
+        <!-- Which relationships the canvas draws, by UML kind and by
+             relationship (ADR-0105). Hiding an edge hides a line, never a
+             link: the model is unchanged. -->
+        <div id="edge-filter" class="edge-filter" role="group"
+             aria-label="Relationships shown on the canvas"></div>
         <div id="canvas" class="canvas-surface">
           <!-- Placement regions sit under the edges and the nodes: a region is
                the ground a node stands on, not a thing drawn over it. -->

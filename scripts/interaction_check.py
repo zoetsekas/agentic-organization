@@ -259,11 +259,11 @@ async def main() -> None:
           document.querySelector("#canvas").scrollTo({ left: 0, top: bottom + 40 });
         }""")
         await page.wait_for_timeout(500)
-        await drop("Team", 500, 300)
+        await drop("Team", 500, 170)
         # Close enough that the old proximity rule would have nested it, and
         # outside the first team's box — which is now the distinction that
         # matters: *near* links nothing, *inside* links (checked below).
-        await drop("Team", 560, 430)
+        await drop("Team", 560, 300)
         siblings = await page.evaluate("""() => {
           const root = window.designer.spec().organization;
           const dropped = (root.teams || [])
@@ -433,7 +433,7 @@ async def main() -> None:
             await page.mouse.up()
             await page.wait_for_timeout(1200)
 
-        await drop("Environment", 900, 820)
+        await drop("Environment", 900, 480)
         env = await page.evaluate("""() => {
           const e = window.designer.spec().organization.environments || [];
           return e[e.length - 1].id;
@@ -531,6 +531,89 @@ async def main() -> None:
             check("a value the model refuses in Properties is put back",
                   kept != mover and "put back" in status,
                   f"successor={kept!r}; status={status[:90]!r}")
+
+        # -- 4f. Filtering the canvas by relationship (ADR-0105) -----------
+        await page.evaluate("() => window.designer.renderCanvas()")
+        await page.wait_for_timeout(300)
+        drawn = lambda uml: page.evaluate(
+            "(u) => document.querySelectorAll(`#canvas-edges path[data-uml='${u}']`).length",
+            uml)
+        before = await drawn("composition")
+        check("the canvas draws the model's relationships tagged by UML kind",
+              before > 0, f"{before} composition edge(s)")
+        consults = await page.evaluate("""() => document.querySelectorAll(
+          "#canvas-edges path[data-rel='consults']").length""")
+        check("a knowledge source is drawn as an edge to each agent that "
+              "consults it", consults >= 2, f"{consults} 'consults' edge(s)")
+        await page.locator('#edge-filter label.ef-uml[data-uml="composition"] input').uncheck()
+        await page.wait_for_timeout(300)
+        after = await drawn("composition")
+        check("unticking a UML kind hides its edges", after == 0,
+              f"{before} → {after}")
+        await page.locator('#edge-filter label.ef-uml[data-uml="composition"] input').check()
+        await page.wait_for_timeout(300)
+        await page.locator('#edge-filter details[data-uml="association"] > summary').click()
+        await page.locator('#edge-filter input[data-rel="consults"]').uncheck()
+        await page.wait_for_timeout(300)
+        hidden = await page.evaluate("""() => document.querySelectorAll(
+          "#canvas-edges path[data-rel='consults']").length""")
+        others = await drawn("association")
+        check("unticking one relationship hides only that one",
+              hidden == 0 and others > 0 and await drawn("composition") == before,
+              f"consults {hidden}, other associations {others}")
+        await page.locator('#edge-filter input[data-rel="consults"]').check()
+
+        # -- 4g. Side panels: resize, minimise, restore, maximise ----------
+        layout = page.locator("#view-canvas .canvas-layout")
+        left = page.locator("#view-canvas .canvas-layout > .panel-side[data-side='left']")
+        right = page.locator("#view-canvas .canvas-layout > .panel-side[data-side='right']")
+        w0 = (await left.bounding_box())["width"]
+        grip = left.locator(":scope > .panel-resizer")
+        gb = await grip.bounding_box()
+        await page.mouse.move(gb["x"] + 3, gb["y"] + 200)
+        await page.mouse.down()
+        await page.mouse.move(gb["x"] + 83, gb["y"] + 200, steps=6)
+        await page.mouse.up()
+        await page.wait_for_timeout(300)
+        w1 = (await left.bounding_box())["width"]
+        check("the left panel resizes from its edge", w1 > w0 + 40,
+              f"{w0:.0f}px → {w1:.0f}px")
+        await left.locator(":scope > .panel-ctl .pc-min").click()
+        await page.wait_for_timeout(300)
+        wmin = (await left.bounding_box())["width"]
+        check("the left panel minimises to its controls", wmin < 60,
+              f"{wmin:.0f}px")
+        await left.locator(":scope > .panel-ctl .pc-restore").click()
+        await page.wait_for_timeout(300)
+        wr = (await left.bounding_box())["width"]
+        check("restored, it returns to the width it had", abs(wr - w1) < 4,
+              f"{wr:.0f}px, was {w1:.0f}px")
+        await right.locator(":scope > .panel-ctl .pc-max").click()
+        await page.wait_for_timeout(300)
+        total = (await layout.bounding_box())["width"]
+        rw = (await right.bounding_box())["width"]
+        canvas_seen = await page.locator("#view-canvas .canvas-wrap").is_visible()
+        check("the right panel maximises over the screen",
+              rw > total * 0.9 and not canvas_seen,
+              f"{rw:.0f}px of {total:.0f}px; canvas visible {canvas_seen}")
+        await right.locator(":scope > .panel-ctl .pc-restore").click()
+        await page.wait_for_timeout(300)
+        check("restored, the canvas is back",
+              await page.locator("#view-canvas .canvas-wrap").is_visible())
+        await left.locator(":scope > .panel-resizer").dblclick()
+        await page.wait_for_timeout(300)
+
+        # And on a two-column screen: the same controls, the same behaviour.
+        await page.click('#tabs button[data-view="org"]')
+        await page.wait_for_timeout(600)
+        org_right = page.locator("#view-org .split > .panel-side[data-side='right']")
+        await org_right.locator(":scope > .panel-ctl .pc-min").click()
+        await page.wait_for_timeout(300)
+        ow = (await org_right.bounding_box())["width"]
+        check("the org chart's side panel minimises too", ow < 60, f"{ow:.0f}px")
+        await org_right.locator(":scope > .panel-ctl .pc-restore").click()
+        await page.click('#tabs button[data-view="canvas"]')
+        await page.wait_for_timeout(600)
 
         # -- 5. It saves ---------------------------------------------------
         await page.click("#btn-save")

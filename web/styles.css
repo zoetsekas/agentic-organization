@@ -1112,3 +1112,53 @@ textarea.json.invalid { border-color: var(--clay); }
   border: 1px solid var(--line); border-radius: 8px; padding: .6rem .75rem;
   background: var(--raised); }
 .example-card .hint { margin: .2rem 0 .35rem; }
+
+/* -- filtering the canvas by relationship (ADR-0105) ------------------------ */
+.edge-filter {
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--s2) var(--s4);
+  padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line);
+  font-size: var(--t-small); color: var(--ink-dim);
+}
+.edge-filter:empty { display: none; }
+.edge-filter .ef-title { font-weight: 600; color: var(--ink); }
+.edge-filter .ef-kind { display: inline-flex; align-items: flex-start; gap: var(--s1); }
+.edge-filter details { position: relative; }
+.edge-filter summary { cursor: pointer; list-style-position: inside; }
+.edge-filter .ef-uml { cursor: pointer; }
+.edge-filter details[open] > .ef-rel {
+  display: flex; gap: var(--s1); align-items: center; padding-left: var(--s4);
+}
+.edge-filter .ef-rel { display: none; }
+
+/* -- side panels: resize, minimise, restore, maximise (ADR-0105) ----------- */
+.panel-side { position: relative; min-width: 0; }
+.panel-ctl {
+  position: absolute; top: var(--s1); right: var(--s1); z-index: 5;
+  display: flex; gap: 2px; opacity: .55;
+}
+.panel-side:hover > .panel-ctl, .panel-ctl:focus-within { opacity: 1; }
+.panel-ctl .pc-btn {
+  width: 22px; height: 22px; padding: 0; line-height: 1;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--raised); color: var(--ink-dim); cursor: pointer;
+  font-size: var(--t-small);
+}
+.panel-ctl .pc-btn:hover { color: var(--ink); border-color: var(--line-strong); }
+.panel-side[data-panel-mode="normal"] .pc-restore,
+.panel-side[data-panel-mode="min"] .pc-min,
+.panel-side[data-panel-mode="max"] .pc-max { display: none; }
+.panel-side.panel-min { overflow: hidden; padding: 0; }
+.panel-side.panel-min > :not(.panel-ctl) { display: none !important; }
+.panel-side.panel-min > .panel-ctl {
+  position: static; flex-direction: column; opacity: 1; padding: var(--s1);
+}
+.has-max > :not(.panel-max) { display: none !important; }
+.panel-resizer {
+  position: absolute; top: 0; bottom: 0; width: 6px; z-index: 4;
+  cursor: col-resize; background: transparent;
+}
+.panel-resizer.left { right: -4px; }
+.panel-resizer.right { left: -4px; }
+.panel-resizer:hover { background: var(--accent-wash); }
+.panel-side.panel-min > .panel-resizer, .panel-max > .panel-resizer { display: none !important; }
+@media (max-width: 1200px) { .panel-resizer { display: none; } }

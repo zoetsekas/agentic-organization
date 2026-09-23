@@ -754,6 +754,7 @@ function renderCanvas() {
   $("#canvas-empty").hidden = Object.keys(layout.nodes).length > 0;
   renderRegions();
   renderEdges();
+  renderEdgeFilter();
   restoreViewport();
   renderExplorer();
   renderOutline();
@@ -1300,7 +1301,7 @@ function renderEdges() {
   const svg = $("#canvas-edges");
   const layout = diagram();
   if (!layout) return svg.replaceChildren();
-  const edges = derivedEdges();
+  const edges = derivedEdges().filter(edgeShown);
   const ns = "http://www.w3.org/2000/svg";
   const parts = [];
   for (const edge of edges) {
@@ -1318,11 +1319,14 @@ function renderEdges() {
        dotted amber egress that leaves the boundary. */
     const style = edge.association
       ? (EDGE_STYLES[`link:${edge.kind}`] || EDGE_STYLES["link:partners_with"])
-      : (EDGE_STYLES[edge.kind] || EDGE_STYLES.member_of);
+      : (EDGE_STYLES[edge.kind] || EDGE_STYLES[`uml:${edge.uml}`]
+         || EDGE_STYLES.member_of);
+    line.setAttribute("data-uml", edge.uml || "");
+    line.setAttribute("data-rel", edge.rel || "");
     line.setAttribute("stroke", `var(${style.stroke})`);
     if (style.dash) line.setAttribute("stroke-dasharray", style.dash);
     parts.push(line);
-    if (edge.association) {
+    if (edge.association || edge.label) {
       /* Containment is a line; an association is a line plus what it means.
          Without the word, the two would be told apart only by a dash
          pattern, and a reader should not have to consult a legend to know
@@ -1333,7 +1337,7 @@ function renderEdges() {
       text.setAttribute("text-anchor", "middle");
       text.setAttribute("class", "edge-label");
       text.setAttribute("fill", `var(${style.stroke})`);
-      text.textContent = edge.kind.replace(/_/g, " ");
+      text.textContent = edge.label || edge.kind.replace(/_/g, " ");
       parts.push(text);
     }
   }
@@ -1357,6 +1361,12 @@ const EDGE_STYLES = {
   "link:escalates_to": { stroke: "--edge-egress", dash: "2 4" },
   "link:serves": { stroke: "--edge-peer", dash: "8 4" },
   "link:partners_with": { stroke: "--edge-peer", dash: "1 5" },
+  /* The model's other relationships, drawn by their UML kind (ADR-0105). */
+  "uml:association": { stroke: "--edge-peer" },
+  "uml:usage": { stroke: "--edge-peer", dash: "5 4" },
+  "uml:realization": { stroke: "--edge-report", dash: "3 3" },
+  "uml:dependency": { stroke: "--edge-peer", dash: "2 4" },
+  "uml:composition": { stroke: "--edge-report" },
 };
 
 /* Placement regions (ADR-0069).
@@ -1498,12 +1508,15 @@ function derivedEdges() {
   }
   walkTeams(spec()?.organization, (team) => {
     (team.members || []).forEach((m) =>
-      out.push({ source: team.id, target: m.id, kind: "member_of" }));
+      out.push({ source: team.id, target: m.id, kind: "member_of",
+                 uml: "composition", rel: "has member" }));
     (team.teams || []).forEach((child) =>
-      out.push({ source: team.id, target: child.id, kind: "member_of" }));
+      out.push({ source: team.id, target: child.id, kind: "member_of",
+                 uml: "composition", rel: "contains" }));
     (team.members || []).forEach((m) =>
       (m.subagents || []).forEach((sub) =>
-        out.push({ source: m.id, target: sub.id, kind: "uses" })));
+        out.push({ source: m.id, target: sub.id, kind: "uses",
+                   uml: "composition", rel: "uses" })));
   });
   /* A held component drawn twice would say two different things. One holder
      means the thing lives inside that agent's box, so no edge is drawn; two
@@ -1512,19 +1525,158 @@ function derivedEdges() {
     for (const [id, holders] of Object.entries(holdersByComponent(field))) {
       if (holders.length < 2) continue;
       holders.forEach((agentId) =>
-        out.push({ source: agentId, target: id, kind: `holds:${kind}` }));
+        out.push({ source: agentId, target: id, kind: `holds:${kind}`,
+                   uml: kind === "tool" ? "usage" : "association",
+                   rel: `holds ${kind}` }));
     }
   }
   (org(spec())?.interaction_flows || []).forEach((f) =>
-    out.push({ source: f.source, target: f.target, kind: f.kind }));
+    out.push({ source: f.source, target: f.target, kind: f.kind,
+               uml: "association", rel: "flow" }));
   /* Association, drawn as an association: dashed, labelled with its kind, and
      never mistakable for the containment line above (ADR-0081). */
   (org(spec())?.unit_links || []).forEach((l) =>
     out.push({ source: l.source, target: l.target, kind: l.kind,
-               association: true }));
+               association: true, uml: "association", rel: "unit link" }));
   (org(spec())?.triggers || []).forEach((t) =>
-    out.push({ source: t.id, target: t.agent, kind: "triggers" }));
+    out.push({ source: t.id, target: t.agent, kind: "triggers",
+               uml: "association", rel: "fires" }));
+  out.push(...modelEdges());
   return out;
+}
+
+/* Every other relationship the model draws as an edge, from the model's own
+   link rules (ADR-0101): a knowledge source to the agents that consult it, a
+   role to the capabilities it grants. The ones drawn above in their own way —
+   containment, held components, flows, unit links, triggers — and the ones
+   drawn as nesting (deployment) are not repeated here. */
+const DRAWN_ELSEWHERE = new Set(
+  ["contains", "member", "uses", "holds", "flow", "association", "fires"]);
+
+function componentsOf(kind) {
+  const s = spec();
+  if (!s) return [];
+  if (kind === "agent") return allAgents().map(({ agent }) => agent);
+  if (kind === "subagent") {
+    return allAgents().flatMap(({ agent }) => agent.subagents || []);
+  }
+  if (kind === "team") return allTeams();
+  if (NESTED[kind]) return nestedList(s, kind);
+  return COLLECTIONS[kind] ? (org(s)[COLLECTIONS[kind]] || []) : [];
+}
+
+function modelEdges() {
+  const out = [];
+  for (const rule of canvas.palette?.links || []) {
+    if (rule.draw !== "edge" || DRAWN_ELSEWHERE.has(rule.relationship)) continue;
+    if (!["ref", "refs", "ref_objects"].includes(rule.shape)) continue;
+    const owner = rule.owner === "target" ? rule.target : rule.source;
+    const other = owner === rule.source ? rule.target : rule.source;
+    for (const item of componentsOf(owner)) {
+      const value = item[rule.field];
+      const ids = rule.shape === "ref" ? [value]
+        : rule.shape === "refs" ? (value || [])
+        : (value || []).map((o) => o && o[rule.key]);
+      for (const id of ids.filter((x) => x && x !== "*")) {
+        out.push({
+          source: owner === rule.source ? item.id : id,
+          target: owner === rule.source ? id : item.id,
+          kind: `rel:${rule.field}`, uml: rule.uml, rel: rule.label,
+          label: rule.label, targetKind: other,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/* ------------------------------------------------ filtering by relationship
+   What the canvas draws is chosen by UML kind and, within it, by
+   relationship (ADR-0105). Remembered per viewer, in this browser: it is a
+   way of looking, not a change to the design. */
+const EDGE_FILTER_KEY = "orgagents.edgeFilter";
+
+function hiddenEdges() {
+  if (!canvas.hiddenEdges) {
+    try {
+      canvas.hiddenEdges = new Set(
+        JSON.parse(localStorage.getItem(EDGE_FILTER_KEY) || "[]"));
+    } catch {
+      canvas.hiddenEdges = new Set();
+    }
+  }
+  return canvas.hiddenEdges;
+}
+
+function setEdgeHidden(key, hidden) {
+  const set = hiddenEdges();
+  if (hidden) set.add(key); else set.delete(key);
+  try {
+    localStorage.setItem(EDGE_FILTER_KEY, JSON.stringify([...set]));
+  } catch { /* a private window keeps it for this page only */ }
+  renderEdges();
+  renderEdgeFilter();
+}
+
+function edgeShown(edge) {
+  const hidden = hiddenEdges();
+  if (!edge.uml) return true;
+  return !hidden.has(`uml:${edge.uml}`) && !hidden.has(`rel:${edge.uml}:${edge.rel}`);
+}
+
+const UML_ORDER = ["composition", "association", "usage", "realization",
+                   "dependency"];
+
+function renderEdgeFilter() {
+  const host = $("#edge-filter");
+  if (!host) return;
+  const layout = diagram();
+  if (!layout || layout.kind === "process") return host.replaceChildren();
+  const counts = {};
+  for (const e of derivedEdges()) {
+    if (!e.uml || !layout.nodes[e.source] || !layout.nodes[e.target]) continue;
+    const byRel = (counts[e.uml] = counts[e.uml] || {});
+    byRel[e.rel] = (byRel[e.rel] || 0) + 1;
+  }
+  const hidden = hiddenEdges();
+  const kinds = UML_ORDER.filter((k) => counts[k]);
+  if (!kinds.length) return host.replaceChildren();
+  host.replaceChildren(
+    el("span", { class: "ef-title" }, "Relationships"),
+    ...kinds.map((uml) => {
+      const total = Object.values(counts[uml]).reduce((a, b) => a + b, 0);
+      const kindBox = el("input", { type: "checkbox", "data-uml": uml });
+      kindBox.checked = !hidden.has(`uml:${uml}`);
+      kindBox.addEventListener("change",
+        () => setEdgeHidden(`uml:${uml}`, !kindBox.checked));
+      const rels = Object.entries(counts[uml]).sort().map(([rel, n]) => {
+        const box = el("input", { type: "checkbox", "data-rel": rel });
+        box.checked = !hidden.has(`rel:${uml}:${rel}`);
+        box.disabled = !kindBox.checked;
+        box.addEventListener("change",
+          () => setEdgeHidden(`rel:${uml}:${rel}`, !box.checked));
+        return el("label", { class: "ef-rel" }, box, `${rel} (${n})`);
+      });
+      // The kind's box and the list of its relationships are separate
+      // controls: opening the list must not untick the kind.
+      return el("span", { class: "ef-kind", "data-uml": uml },
+        el("label", { class: "ef-uml", "data-uml": uml }, kindBox,
+           `${uml} (${total})`),
+        (() => {
+          // Stays open across re-renders: ticking one box must not close
+          // the list it is in.
+          const open = (canvas.edgeFilterOpen = canvas.edgeFilterOpen || new Set());
+          const list = el("details", { "data-uml": uml },
+            el("summary", { title: `Choose which ${uml} relationships to show` },
+               "\u25be"),
+            ...rels);
+          list.open = open.has(uml);
+          list.addEventListener("toggle", () => {
+            if (list.open) open.add(uml); else open.delete(uml);
+          });
+          return list;
+        })());
+    }));
 }
 
 /* -------------------------------------------------- model explorer */
@@ -2065,6 +2217,14 @@ function showContextMenu(clientX, clientY, node, readOnly) {
   menu.style.left = `${clientX}px`;
   menu.style.top  = `${clientY}px`;
   menu.hidden = false;
+  /* Kept inside the window: opened near an edge, a menu whose items fall
+     below the fold cannot be used at all. */
+  const box = menu.getBoundingClientRect();
+  const margin = 8;
+  menu.style.left = `${Math.max(margin,
+    Math.min(clientX, window.innerWidth - box.width - margin))}px`;
+  menu.style.top = `${Math.max(margin,
+    Math.min(clientY, window.innerHeight - box.height - margin))}px`;
   /* auto-close on next click anywhere */
   setTimeout(() => {
     _ctxCleanup = () => hideContextMenu();

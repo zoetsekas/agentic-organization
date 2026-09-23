@@ -1683,7 +1683,168 @@ function setStatus(text) { $("#status").textContent = text; }
 /* The designer opens with a design context, not with a runtime read: the
    canvas is initialised for every view, because the org chart and the agent
    editor read the record it holds. */
+/* ------------------------------------------------------------ side panels
+   On every screen the side panels can be resized by their inner edge, and
+   minimised, restored and maximised from their own corner (ADR-0105). What a
+   viewer chooses is remembered in this browser, per screen and per side.
+
+   Each layout keeps its CSS columns until somebody acts; the defaults below
+   are those same columns, so "restore" means what the stylesheet says. */
+const PANEL_LAYOUTS = {
+  "canvas-layout": ["250px", "minmax(0,1fr)", "340px"],
+  designer: ["248px", "minmax(0,1fr)", "330px"],
+  split: ["minmax(0,1.4fr)", "minmax(0,1fr)"],
+};
+const PANEL_MIN = 36;           // a minimised panel: its controls, nothing else
+const PANEL_KEY = "orgagents.panels";
+const PANEL_WIDE = 1200;        // below this the layouts stack; no columns to size
+
+function panelStore() {
+  try {
+    return JSON.parse(localStorage.getItem(PANEL_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function savePanelStore(store) {
+  try {
+    localStorage.setItem(PANEL_KEY, JSON.stringify(store));
+  } catch { /* private window: this page only */ }
+}
+
+function initPanels() {
+  const store = panelStore();
+  for (const [cls, defaults] of Object.entries(PANEL_LAYOUTS)) {
+    document.querySelectorAll(`.${cls}`).forEach((box, n) => {
+      if (box.dataset.panels) return;
+      box.dataset.panels = "1";
+      const view = box.closest("section.view")?.id || "screen";
+      const cols = [...box.children];
+      if (cols.length < 2) return;
+      const sides = cols.length >= 3
+        ? [["left", cols[0]], ["right", cols[cols.length - 1]]]
+        : [["left", cols[0]], ["right", cols[1]]];
+      const layout = { box, cols, defaults, key: `${view}:${cls}:${n}`, sides };
+      for (const [side, panel] of sides) wirePanel(layout, side, panel);
+      applyPanels(layout, store);
+      window.addEventListener("resize", () => applyPanels(layout, panelStore()));
+    });
+  }
+}
+
+function panelState(store, layout, side) {
+  return store[`${layout.key}:${side}`] || { mode: "normal", width: null };
+}
+
+function setPanelState(layout, side, change) {
+  const store = panelStore();
+  const key = `${layout.key}:${side}`;
+  const next = { ...panelState(store, layout, side), ...change };
+  // One panel maximised at a time in a layout: maximising this one restores
+  // the other, or the screen would be two panels each claiming all of it.
+  if (next.mode === "max") {
+    for (const [other] of layout.sides) {
+      if (other !== side && store[`${layout.key}:${other}`]?.mode === "max") {
+        store[`${layout.key}:${other}`].mode = "normal";
+      }
+    }
+  }
+  store[key] = next;
+  savePanelStore(store);
+  applyPanels(layout, store);
+  // The canvas, its outline and anything sized to the window re-measure.
+  window.dispatchEvent(new Event("resize"));
+}
+
+function applyPanels(layout, store) {
+  const { box, cols, defaults, sides } = layout;
+  const index = new Map(sides.map(([side, el], i) =>
+    [side, cols.indexOf(el)]));
+  let maxed = null;
+  const template = defaults.slice(0, cols.length);
+  for (const [side, panel] of sides) {
+    const state = panelState(store, layout, side);
+    panel.classList.toggle("panel-min", state.mode === "min");
+    panel.classList.toggle("panel-max", state.mode === "max");
+    panel.dataset.panelMode = state.mode;
+    const i = index.get(side);
+    if (state.mode === "max") maxed = panel;
+    else if (state.mode === "min") template[i] = `${PANEL_MIN}px`;
+    else if (state.width) template[i] = `${state.width}px`;
+  }
+  // Something has to take the room a minimised or fixed panel gives up.
+  if (!template.some((t) => t.includes("fr"))) {
+    const free = sides.find(([side]) =>
+      panelState(store, layout, side).mode !== "min");
+    if (free) template[index.get(free[0])] = "minmax(0,1fr)";
+    else template[template.length > 2 ? 1 : 0] = "minmax(0,1fr)";
+  }
+  box.classList.toggle("has-max", !!maxed);
+  if (maxed) {
+    box.style.gridTemplateColumns = "minmax(0,1fr)";
+  } else if (window.innerWidth > PANEL_WIDE) {
+    box.style.gridTemplateColumns = template.join(" ");
+  } else {
+    box.style.gridTemplateColumns = "";
+  }
+}
+
+function wirePanel(layout, side, panel) {
+  panel.classList.add("panel-side");
+  panel.dataset.side = side;
+  const label = side === "left" ? "left panel" : "right panel";
+  const button = (text, title, onClick, cls) => {
+    const b = el("button", { type: "button", class: `pc-btn ${cls}`, title,
+                             "aria-label": `${title} ${label}` }, text);
+    b.addEventListener("click", (e) => { e.stopPropagation(); onClick(); });
+    return b;
+  };
+  panel.appendChild(el("div", { class: "panel-ctl" },
+    button("\u2013", "Minimise", () => setPanelState(layout, side, { mode: "min" }),
+           "pc-min"),
+    button("\u25a1", "Maximise", () => setPanelState(layout, side, { mode: "max" }),
+           "pc-max"),
+    button("\u2750", "Restore", () => setPanelState(layout, side, { mode: "normal" }),
+           "pc-restore")));
+
+  const grip = el("div", {
+    class: `panel-resizer ${side}`, role: "separator",
+    "aria-orientation": "vertical", title: "Drag to resize; double-click to reset",
+    "aria-label": `Resize ${label}`,
+  });
+  grip.addEventListener("dblclick",
+    () => setPanelState(layout, side, { mode: "normal", width: null }));
+  grip.addEventListener("mousedown", (e) => {
+    if (window.innerWidth <= PANEL_WIDE) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const start = panel.getBoundingClientRect().width;
+    const room = layout.box.getBoundingClientRect().width;
+    const move = (ev) => {
+      const delta = side === "left" ? ev.clientX - startX : startX - ev.clientX;
+      const width = Math.round(Math.min(room * 0.75, Math.max(160, start + delta)));
+      const store = panelStore();
+      store[`${layout.key}:${side}`] = { mode: "normal", width };
+      applyPanels(layout, store);
+      panel.dataset.width = String(width);
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      if (panel.dataset.width) {
+        setPanelState(layout, side,
+          { mode: "normal", width: Number(panel.dataset.width) });
+      }
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  });
+  panel.appendChild(grip);
+}
+
 window.addEventListener("DOMContentLoaded", async () => {
+  initPanels();
   try {
     wireAgentEditor();
     wireOrgView();
