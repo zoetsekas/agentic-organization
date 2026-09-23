@@ -433,10 +433,11 @@ def test_every_view_has_a_loader_keyed_by_its_own_id(index_html, app_js):
     """
     import re
 
-    ids = set(re.findall(r'data-view="([a-z-]+)"', index_html))
+    # Every view, whether a tab or a menu item opens it (ADR-0107).
+    ids = set(re.findall(r'<section id="view-([a-z-]+)"', index_html))
     loaders = re.search(r"const loaders = \{(.*?)\n  \};", app_js, re.S)
     assert loaders, "the view loader map moved"
-    keyed = set(re.findall(r"(\w+):", loaders.group(1)))
+    keyed = set(re.findall(r'["\']?([\w-]+)["\']?:\s', loaders.group(1)))
     #: Views that genuinely need no fetch on entry.
     STATIC = {"canvas"}
     missing = ids - keyed - STATIC

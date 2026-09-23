@@ -21,13 +21,20 @@
   <nav class="tabs" id="tabs">
     <button data-view="org" class="active">Org chart</button>
     <button data-view="canvas">Canvas</button>
-    <button data-view="designer">Agents</button>
+    <!-- One editor per kind of component (ADR-0107). Agents keeps its own
+         screen; every other kind opens the Components editor. -->
+    <div class="nav-menu">
+      <button type="button" id="btn-components" class="nav-menu-btn"
+              aria-haspopup="menu" aria-expanded="false">Components ▾</button>
+      <div class="menu" id="components-list" role="menu" hidden></div>
+    </div>
     <button data-view="authority">Authority</button>
     <button data-view="catalog">Catalog</button>
     <button data-view="marketplace">Marketplace</button>
     <button data-view="workspace">Workspace</button>
     <button data-view="sessions">Sessions</button>
     <button data-view="ops">Operations</button>
+    <button data-view="user-guide">User guide</button>
   </nav>
   <div class="status" id="status">connecting…</div>
 </header>
@@ -366,6 +373,227 @@
        one. What is shown is the effective mandate — the intersection with every
        unit above — because showing the declaration would let a reader believe
        an agent holds something its line excludes (ADR-0065). -->
+  <section id="view-components" class="view">
+    <div class="designer components">
+      <aside class="panel">
+        <h2 id="comp-kind-title">Components</h2>
+        <div id="comp-list" class="comp-list"></div>
+        <div id="comp-new"></div>
+      </aside>
+      <div class="panel">
+        <h2 id="comp-title">Choose one</h2>
+        <div id="comp-form" class="comp-form"></div>
+      </div>
+      <aside class="panel">
+        <div id="comp-used"></div>
+        <h3>In the spec</h3>
+        <pre id="comp-raw" class="code"></pre>
+      </aside>
+    </div>
+  </section>
+
+  <section id="view-user-guide" class="view">
+    <div class="split guide">
+      <aside class="panel guide-toc" aria-label="Contents">
+        <h2>User guide</h2>
+        <nav id="guide-toc"></nav>
+      </aside>
+      <article class="panel guide-body" id="guide-body">
+        <h2 id="g-start">Getting started</h2>
+        <p>The Agentic Designer is where an organisation of AI agents is
+          designed, checked and published. You describe the organisation — its
+          teams, agents, what they may do and with what data — as a
+          <strong>model</strong>; the designer checks every change against the
+          model's rules, and publishing turns the model into running systems.</p>
+        <ol>
+          <li><strong>Say who you are</strong> in the <em>as</em> box at the top
+            left. A workspace is visible only to its members, so use the same
+            name every time.</li>
+          <li><strong>Choose or create a workspace</strong> with the
+            <em>Workspace</em> list and its <kbd>＋</kbd> <kbd>✎</kbd>
+            <kbd>🗑</kbd> buttons.</li>
+          <li><strong>Open an organisation</strong>: <em>New organisation</em>,
+            <em>Load example…</em> (a shipped example), or <em>Import from
+            file…</em> (a <code>*.system.yaml</code> from your computer), all on
+            the <em>Org chart</em> screen.</li>
+          <li><strong>Design it</strong> on the <em>Canvas</em> or in the
+            <em>Components</em> editors, then <strong>Save</strong>.</li>
+          <li><strong>Publish…</strong> when the <em>Issues</em> tab is clear.</li>
+        </ol>
+
+        <h2 id="g-concepts">The model, in five ideas</h2>
+        <ul>
+          <li><strong>Organisation and teams.</strong> Every design has one
+            organisation; it is the root team. Teams contain sub-teams and
+            agents. An agent belongs to exactly one team.</li>
+          <li><strong>Agents and sub-agents.</strong> An agent is a member of the
+            organisation, with a team, a mandate and human counterparts. A
+            sub-agent is a worker owned by one agent, called like a tool, and
+            never wider than its parent.</li>
+          <li><strong>What an agent may do.</strong> Capabilities (directly, or
+            through roles — its own or its team's), knowledge it consults,
+            skills, plugins and tools it holds, data it produces or relies on.</li>
+          <li><strong>Where it runs.</strong> Each agent is deployed into one or
+            more environments (sandboxes).</li>
+          <li><strong>Rules.</strong> Policies, guardrails, separations of
+            duties, decisions and mandates bound what anyone may decide.</li>
+        </ul>
+        <p>The model is written in UML: every relationship is a composition
+          (a part moves with its whole), an association (a reference, drawable
+          from either end), a usage, a realisation or a deployment. That
+          decides how it is drawn and what dragging does.</p>
+
+        <h2 id="g-workspaces">Workspaces</h2>
+        <p>A workspace groups organisations and the people who may see them.</p>
+        <ul>
+          <li><kbd>＋</kbd> creates one; <kbd>✎</kbd> renames the open one.</li>
+          <li><kbd>🗑</kbd> deletes it. Only its owner may; you type its name to
+            confirm, and if it holds organisations you tick that they go too.
+            There is no undo.</li>
+          <li><em>People</em> (or the <em>Workspace</em> screen) adds members
+            with a role: viewer, reviewer, editor, admin or owner.</li>
+        </ul>
+
+        <h2 id="g-open">Opening an organisation</h2>
+        <ul>
+          <li><strong>New organisation</strong> starts an empty design; its
+            name is required.</li>
+          <li><strong>Load example…</strong> opens one of the shipped
+            organisations, laid out.</li>
+          <li><strong>Import from file…</strong> opens a design file from your
+            computer into a workspace you choose. A file that is not a design is
+            refused with the reason under the file field. From a shell:
+            <code>orgagents examples import path/to/x.system.yaml --user you</code>.</li>
+        </ul>
+
+        <h2 id="g-canvas">The canvas</h2>
+        <p>The canvas is a picture of the model; every gesture is a model
+          operation, and the model answers — accepted, with what else changed,
+          or refused, with why. The status line at the top right says which.</p>
+        <table>
+          <thead><tr><th>You do</th><th>It means</th></tr></thead>
+          <tbody>
+            <tr><td>Drag a component from the <em>Palette</em> onto open
+              ground</td><td>Create it in the organisation.</td></tr>
+            <tr><td>…onto a team (an agent or sub-team) or an agent (a
+              sub-agent)</td><td>Create it inside that whole.</td></tr>
+            <tr><td>…into an environment box</td><td>Create it and deploy it
+              there (agents, sub-agents; a team deploys all its agents).</td></tr>
+            <tr><td>Drag an existing box onto a team or agent</td><td>Move it
+              there: a part has one whole.</td></tr>
+            <tr><td>Drag a box into / out of an environment box</td><td>Deploy /
+              undeploy it (a team: all its agents).</td></tr>
+            <tr><td>Right-click → <em>Link from here</em>, then click a box</td>
+              <td>Draw a relationship. Where the model allows it, either end
+              works: link a knowledge source to agents, or agents to it. If
+              several relationships fit, you are asked which.</td></tr>
+            <tr><td>Select → <kbd>Delete</kbd></td><td>Delete it, its parts and
+              every link to it — or be told what still needs it.</td></tr>
+            <tr><td>Drag an environment's corner</td><td>Resize the box; the
+              size is kept.</td></tr>
+          </tbody>
+        </table>
+        <p><strong>Relationships</strong> (above the canvas) filters what is
+          drawn, by UML kind and, with <kbd>▾</kbd>, by relationship. It hides
+          lines, never links, and is remembered in your browser.</p>
+        <p><strong>Diagrams</strong>: the tabs above the canvas are separate
+          pictures of one model (<kbd>+</kbd> adds one). <em>tree</em>,
+          <em>layered</em> and <em>grid</em> arrange the open diagram.</p>
+        <p><strong>Explorer</strong> (left, next to Palette) lists everything in
+          the model, including what is not drawn.</p>
+
+        <h2 id="g-properties">Properties and the Components editors</h2>
+        <p>Select a box to edit it in <em>Properties</em> (right). The
+          <em>Components</em> menu opens the same form full-size for every kind
+          — a list of them, the form, and what refers to each; <em>Agents</em>
+          has its own screen.</p>
+        <ul>
+          <li>Fields marked <span class="req">*</span> are required.</li>
+          <li>References are searchable pickers: type to filter what the design
+            has, choose to add, <kbd>×</kbd> to remove. If there is nothing to
+            choose, the picker says what to add first.</li>
+          <li>A value the model refuses is put back, with the reason under the
+            field.</li>
+        </ul>
+
+        <h2 id="g-forms">Forms</h2>
+        <p>Every form marks what it requires with <span class="req">*</span>.
+          On submit, each field that is missing or wrong is outlined and the
+          reason is written under it; editing the field clears it.</p>
+
+        <h2 id="g-panels">Panels</h2>
+        <p>Every side panel can be resized from its inner edge (double-click to
+          reset), minimised <kbd>–</kbd>, maximised <kbd>□</kbd> and restored
+          <kbd>❐</kbd>. Your choices are remembered in this browser.</p>
+
+        <h2 id="g-save">Saving, history, locks</h2>
+        <ul>
+          <li><strong>Save</strong> writes a new version; <kbd>↶</kbd>
+            <kbd>↷</kbd> undo and redo your unsaved steps.</li>
+          <li><strong>History</strong> lists versions and restores one.</li>
+          <li><strong>Lock</strong> stops others editing while you work; an admin
+            can break a stale lock.</li>
+          <li>A draft may be <em>incomplete</em> — a new tool that wraps nothing
+            yet — but never <em>broken</em>; publishing requires it complete.</li>
+        </ul>
+
+        <h2 id="g-issues">Issues</h2>
+        <p>The <em>Issues</em> tab and the strip above the canvas list what the
+          validator and the model's rules find. Click an issue to select the
+          component it is about.</p>
+
+        <h2 id="g-authority">Authority</h2>
+        <p>Read-only, and the one screen that shows the design's
+          <strong>resolved</strong> result rather than what was typed: what each
+          agent may actually decide once team inheritance, roles and mandates
+          combine; which pairs of decisions are kept apart and whether anyone
+          holds both; where each agent's work lives (its placement, a unit
+          crossed with an environment); and what each person is accountable
+          for. It is what a reviewer signs off before publishing.</p>
+
+        <h2 id="g-publish">Publishing</h2>
+        <p><strong>Publish…</strong> validates and compiles the design for a
+          target (local, LangGraph, ADK, MAF, Terraform for AWS/Azure/GCP) and
+          asks the platform to run it. Compilation is traced: every element and
+          link of the model reaches what is built, or is named as not built.</p>
+
+        <h2 id="g-catalog">Catalog and Marketplace</h2>
+        <p><strong>Catalog</strong> holds the approved building blocks a design
+          may choose from — models, MCP servers, environment templates,
+          permission sets, plugins, guardrails. A new entry is
+          <em>proposed</em> until approved. <strong>Marketplace</strong> shares
+          agents, skills, plugins, workflows, sandbox templates and sessions
+          between organisations.</p>
+
+        <h2 id="g-runtime">Sessions and Operations</h2>
+        <p><strong>Sessions</strong> lists runs of published organisations, each
+          with its trace. <strong>Operations</strong> shows alerts and per-agent
+          health.</p>
+
+        <h2 id="g-cli">Command line</h2>
+        <pre class="code">orgagents examples list
+orgagents examples load northwind --user you
+orgagents examples import my.system.yaml --user you
+orgagents spec validate my.system.yaml
+orgagents metamodel check my.system.yaml     # the model's rules
+orgagents metamodel trace my.system.yaml     # model → built artifacts
+orgagents compile my.system.yaml --target local</pre>
+
+        <h2 id="g-trouble">When something does not work</h2>
+        <ul>
+          <li><strong>Nothing to see</strong>: check the <em>as</em> box is the
+            name you used — a workspace is visible only to its members.</li>
+          <li><strong>A drop or link is refused</strong>: the status line says
+            which rule refused it and which element breaks it.</li>
+          <li><strong>Cannot edit</strong>: you may be a viewer, or someone holds
+            the lock (the badge next to your name says).</li>
+          <li><strong>After an update</strong>: rebuild with
+            <code>docker compose up --build</code> and reload the page.</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
   <section id="view-authority" class="view">
     <div class="split">
       <div class="panel">

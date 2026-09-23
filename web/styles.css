@@ -278,6 +278,14 @@ label {
 }
 label.inline { flex-direction: row; align-items: center; gap: var(--s2); flex: none; }
 label.inline input { width: 80px; }
+/* A checkbox is a checkbox: the text-box sizing above made every one a large
+   white block (ADR-0106). */
+input[type="checkbox"], input[type="radio"],
+label.inline input[type="checkbox"], label.inline input[type="radio"] {
+  width: 16px; height: 16px; min-width: 16px; padding: 0; margin: 0;
+  flex: none; background: none; box-shadow: none; accent-color: var(--accent);
+  vertical-align: middle; cursor: pointer;
+}
 .row { display: flex; gap: var(--s4); flex-wrap: wrap; }
 .row > label { min-width: 170px; }
 fieldset { border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s5); }
@@ -1202,3 +1210,50 @@ input.invalid, select.invalid, textarea.invalid {
 .dialog h3 { margin-top: 0; }
 .icon-btn { min-width: 30px; padding-left: var(--s2); padding-right: var(--s2); }
 button.danger { border-color: var(--err); color: var(--err); }
+
+/* A yes/no field: the box and its meaning on one line (ADR-0106). */
+label.check-row {
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center;
+  gap: var(--s2); cursor: pointer;
+}
+label.check-row > .hint { flex-basis: 100%; }
+#inspector label { margin-bottom: var(--s3); }
+#inspector .object-wrap > label.inline,
+#inspector .mandate-wrap > label.inline { gap: var(--s2); }
+
+/* -- Components menu and editor, User guide (ADR-0107) ---------------------- */
+.nav-menu { position: relative; display: inline-block; }
+.nav-menu-btn.active { color: var(--ink); background: var(--raised-2); }
+.nav-menu .menu {
+  position: absolute; top: 100%; left: 0; z-index: 50; min-width: 220px;
+  max-height: 70vh; overflow-y: auto; padding: var(--s2);
+  background: var(--panel); border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+}
+.nav-menu .menu button {
+  display: flex; align-items: center; gap: var(--s2); width: 100%;
+  text-align: left; border: 0; background: none; padding: var(--s2) var(--s3);
+}
+.nav-menu .menu button:hover { background: var(--raised-2); }
+.nav-menu .menu .menu-group {
+  font-size: var(--t-micro); text-transform: uppercase; letter-spacing: .08em;
+  color: var(--ink-dim); padding: var(--s3) var(--s3) var(--s1);
+}
+.comp-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--s4); }
+.comp-row {
+  display: flex; justify-content: space-between; gap: var(--s2);
+  text-align: left; background: none; border: 1px solid transparent;
+}
+.comp-row.active { background: var(--accent-ground); border-color: var(--accent); }
+.comp-row .comp-id { color: var(--ink-dim); font-size: var(--t-micro); }
+.guide-toc nav { display: flex; flex-direction: column; gap: 2px; }
+.guide-link { text-align: left; background: none; border: 0; padding: var(--s1) var(--s2); }
+.guide-link:hover { background: var(--raised-2); }
+.guide-body { overflow-y: auto; line-height: 1.55; max-width: 980px; }
+.guide-body h2 { margin-top: var(--s6); }
+.guide-body table { border-collapse: collapse; width: 100%; }
+.guide-body td, .guide-body th {
+  border-bottom: 1px solid var(--line); padding: var(--s2); text-align: left;
+  vertical-align: top;
+}
+.guide.split { grid-template-columns: 260px minmax(0, 1fr); }

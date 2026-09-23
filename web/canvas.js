@@ -2672,8 +2672,8 @@ function confirmEdit(kind, id, field, base) {
 
 /* A message under one field of Properties (ADR-0106). */
 function inspectorError(fieldName, message) {
-  const holder = document.querySelector(
-    `#inspector [data-field-name="${CSS.escape(fieldName)}"]`);
+  const holder = formHost().querySelector(
+    `[data-field-name="${CSS.escape(fieldName)}"]`);
   if (!holder) return;
   holder.querySelector(":scope > .field-error")?.remove();
   holder.querySelector("input, select, textarea")?.classList.add("invalid");
@@ -2700,10 +2700,17 @@ function selectNode(node) {
   renderInspector();
 }
 
+/* The same form serves Properties on the canvas and the Components editor
+   (ADR-0107): `canvas.formHost` says where it is drawn. */
+function formHost() {
+  return canvas.formHost?.host || $("#inspector");
+}
+
 function renderInspector() {
-  const host = $("#inspector");
+  const host = formHost();
+  const titleEl = canvas.formHost?.title || $("#inspector-title");
   if (!canvas.selected || !canvas.record) {
-    $("#inspector-title").textContent = "Properties";
+    titleEl.textContent = "Properties";
     host.className = "empty";
     host.replaceChildren(
       "Select a component on the canvas or in the explorer.");
@@ -2713,7 +2720,7 @@ function renderInspector() {
   const component = findComponent(kind, id);
   const node = layoutNodes()[id];
   const definition = kindSpec(kind);
-  $("#inspector-title").textContent = `${definition.label} · ${id}`;
+  titleEl.textContent = `${definition.label} · ${id}`;
   host.className = "";
 
   const readOnly = !canvas.permissions.includes("system.edit") || !!lockOn(id);
@@ -2783,7 +2790,7 @@ function renderInspector() {
     }, kind, component);
     } catch (err) {
       console.error(`inspector: ${kind}.${field.name} did not render`, err);
-      control = el("label", { class: "stacked" }, field.name,
+      control = el("label", { class: "stacked" }, fieldTitle(field),
         el("small", { class: "hint warn" },
            `this control could not be drawn (${err.message}). The value is `
            + "unchanged; edit it in the spec until this is fixed."));
@@ -3476,6 +3483,22 @@ function renderAutonomy(field, value, readOnly, onChange, component) {
   }));
 }
 
+/* A field's name as a person reads it, and its required mark as every form
+   shows it (ADR-0106): "model_policy" is "Model policy", and a required
+   field carries the same red * the other forms do. */
+function humanise(name) {
+  const text = String(name || "").replace(/_/g, " ").trim();
+  return text ? text[0].toUpperCase() + text.slice(1) : text;
+}
+
+function fieldTitle(field) {
+  const title = field.label || humanise(field.name);
+  return field.required
+    ? [title, el("span", { class: "req", title: "Required",
+                           "aria-hidden": "true" }, "*")]
+    : [title];
+}
+
 function fieldControl(field, value, readOnly, onChange, componentKind = null,
                       component = null) {
   const attrs = readOnly ? { disabled: "" } : {};
@@ -3489,7 +3512,7 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
         ? renderRef(field, value, readOnly, onChange, ctx.options)
         : renderReflist(field, value, readOnly, onChange, ctx.options,
                         ctx.target ? an(ctx.target.toLowerCase()) : "");
-      const label = el("label", {}, `${field.name}${field.required ? " *" : ""}`, input);
+      const label = el("label", {}, fieldTitle(field), input);
       if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
       return label;
     }
@@ -3498,7 +3521,7 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
   /* ---- a process graph (ADR-0096) ---- */
   if (field.type === "graph") {
     const input = renderGraph(field, value, readOnly, onChange);
-    const label = el("label", { class: "stacked" }, field.name, input);
+    const label = el("label", { class: "stacked" }, fieldTitle(field), input);
     if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
     return label;
   }
@@ -3506,7 +3529,7 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
   /* ---- policy conditions (ADR-0008) ---- */
   if (field.type === "conditions") {
     const input = renderConditions(field, value, readOnly, onChange);
-    const label = el("label", { class: "stacked" }, field.name, input);
+    const label = el("label", { class: "stacked" }, fieldTitle(field), input);
     if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
     return label;
   }
@@ -3524,7 +3547,7 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
       ? renderReflist(field, value, readOnly, onChange, decisionIds())
       : renderAutonomy(field, value, readOnly, onChange, component);
     const label = el("label", { class: "stacked" },
-      `${field.name}${field.required ? " *" : ""}`, input);
+      fieldTitle(field), input);
     if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
     return label;
   }
@@ -3546,7 +3569,7 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
         redraw();
       });
       const toggle = el("label", { class: "inline" }, box,
-                        `set ${field.name} on this agent`);
+                        `set ${humanise(field.name).toLowerCase()} on this agent`);
       const body = current
         ? (field.fields || []).map((sub) =>
             fieldControl(sub, current[sub.name], readOnly, (v) => {
@@ -3559,7 +3582,7 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
     }
     redraw();
     const label = el("label", { class: "stacked" },
-      `${field.name}${field.required ? " *" : ""}`, wrap);
+      fieldTitle(field), wrap);
     if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
     return label;
   }
@@ -3581,7 +3604,7 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
         return el("label", { class: "inline" }, box, option);
       }));
     const label = el("label", { class: "stacked" },
-      `${field.name}${field.required ? " *" : ""}`, input);
+      fieldTitle(field), input);
     if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
     return label;
   }
@@ -3605,7 +3628,7 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
       onChange(out);
     });
     const label = el("label", { class: "stacked" },
-      `${field.name}${field.required ? " *" : ""}`, input);
+      fieldTitle(field), input);
     if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
     return label;
   }
@@ -3632,7 +3655,7 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
       }
     });
     const label = el("label", { class: "stacked" },
-      `${field.name}${field.required ? " *" : ""}`, input, note);
+      fieldTitle(field), input, note);
     if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
     return label;
   }
@@ -3677,8 +3700,10 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
     input.addEventListener("input", () => onChange(input.value));
   }
   if (input && input.tagName !== "DIV") input.setAttribute("name", field.name);
-  const label = el("label", {},
-    `${field.name}${field.required ? " *" : ""}`, input);
+  // A yes/no reads as one line — the box, then what ticking it means.
+  const label = field.type === "bool"
+    ? el("label", { class: "check-row" }, input, fieldTitle(field))
+    : el("label", {}, fieldTitle(field), input);
   if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
   return label;
 }
@@ -4264,6 +4289,8 @@ window.designer = {
   markDirty,
   renderCanvas,
   renderExplorer,
+  renderComponents,
+  wireComponentsMenu,
   diagram,
   addDiagram,
   openDiagram,
@@ -4289,4 +4316,152 @@ window.designer = {
    resolver it mirrors. Browsers have no `module`. */
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { derivedPlacements, regionBoxes, __canvas: canvas };
+}
+
+
+/* ------------------------------------------------------ components editor
+   Every kind of component gets what the Agents screen gives agents
+   (ADR-0107): a list of them, a form for one, and what refers to it. The form
+   is Properties' own — the same pickers, required marks, errors under the
+   field and model-checked edits — drawn full-size; creating and removing go
+   through the model like every other gesture (ADR-0103). */
+const PART_OWNERS = { agent: "team", team: "team", subagent: "agent" };
+
+function componentKinds() {
+  return paletteKinds().filter((k) => k.kind !== "note" && k.kind !== "step");
+}
+
+function renderComponents(kind) {
+  canvas.componentsKind = kind = kind || canvas.componentsKind || "team";
+  const spec_ = kindSpec(kind);
+  $("#comp-kind-title").textContent = spec_.label + "s";
+  const list = $("#comp-list");
+  const items = canvas.record ? componentsOf(kind) : [];
+  list.replaceChildren(...items.map((item) => {
+    const row = el("button", {
+      type: "button", class: "comp-row"
+        + (canvas.selected?.id === item.id ? " active" : ""),
+      "data-id": item.id,
+    }, el("span", { class: "comp-name" }, item.name || item.id),
+       el("code", { class: "comp-id" }, item.id));
+    row.addEventListener("click", () => selectComponent(kind, item.id));
+    return row;
+  }));
+  if (!items.length) {
+    list.appendChild(el("p", { class: "hint" },
+      canvas.record ? `No ${spec_.label.toLowerCase()}s yet.`
+                    : "Open or create an organisation first."));
+  }
+  renderNewComponentForm(kind);
+  if (canvas.selected && canvas.selected.kind === kind
+      && items.some((x) => x.id === canvas.selected.id)) {
+    selectComponent(kind, canvas.selected.id);
+  } else {
+    canvas.selected = null;
+    canvas.formHost = { host: $("#comp-form"), title: $("#comp-title") };
+    renderInspector();
+    $("#comp-title").textContent = `Choose a ${spec_.label.toLowerCase()}`;
+    $("#comp-used").replaceChildren();
+    $("#comp-raw").textContent = "";
+  }
+}
+
+function selectComponent(kind, id) {
+  canvas.selected = { kind, id };
+  canvas.formHost = { host: $("#comp-form"), title: $("#comp-title") };
+  renderInspector();
+  document.querySelectorAll("#comp-list .comp-row").forEach((r) =>
+    r.classList.toggle("active", r.dataset.id === id));
+  // What refers to it: every drawn relationship that ends here.
+  const into = derivedEdges().filter((e) => e.target === id && e.rel);
+  const out = derivedEdges().filter((e) => e.source === id && e.rel);
+  const row = (e, other) => el("li", {},
+    el("code", {}, other), ` — ${e.rel}`,
+    el("small", { class: "hint" }, ` (${e.uml})`));
+  $("#comp-used").replaceChildren(
+    el("h4", {}, "Referred to by"),
+    into.length ? el("ul", {}, ...into.map((e) => row(e, e.source)))
+                : el("p", { class: "hint" }, "Nothing refers to it."),
+    el("h4", {}, "Refers to"),
+    out.length ? el("ul", {}, ...out.map((e) => row(e, e.target)))
+               : el("p", { class: "hint" }, "It refers to nothing."));
+  $("#comp-raw").textContent = JSON.stringify(findComponent(kind, id), null, 2);
+}
+
+function renderNewComponentForm(kind) {
+  const spec_ = kindSpec(kind);
+  const host = $("#comp-new");
+  const ownerKind = PART_OWNERS[kind];
+  const owners = ownerKind ? componentsOf(ownerKind).map((x) => x.id) : [];
+  const form = el("form", { class: "form comp-new-form" },
+    el("label", {}, "Id", el("input", { name: "id", required: "",
+      pattern: "[A-Za-z][A-Za-z0-9_\\-]*",   // `-` escaped: patterns compile with the v flag
+      title: "letters, digits, _ and -; starting with a letter",
+      value: canvas.record ? nextId(kind) : "" })),
+    ...(ownerKind ? [el("label", {}, `Belongs to (${kindSpec(ownerKind).label})`,
+      el("select", { name: "owner", required: "" },
+        el("option", { value: "" }, "— choose —"),
+        ...owners.map((o) => el("option", { value: o }, o))))] : []),
+    el("div", { class: "actions" },
+      el("button", { type: "submit", class: "primary" },
+         `New ${spec_.label.toLowerCase()}`)));
+  host.replaceChildren(form);
+  formKit.wire(form, async (values) => {
+    if (!canvas.record) throw new Error("open or create an organisation first");
+    const id = values.id.trim();
+    const answer = await modelOperation({
+      op: "create", kind, id, ...(values.owner ? { owner: values.owner } : {}),
+      attrs: seedFor(kind, id),
+    });
+    markDirty(`created ${id}`);
+    setStatus(`${id} created${effectsLine(answer)}`);
+    renderComponents(kind);
+    selectComponent(kind, id);
+  }, (f) => {
+    const id = f.elements.id.value.trim();
+    return declaredIds().has(id)
+      ? { id: `'${id}' is already taken; an id must be unique.` } : {};
+  });
+}
+
+function wireComponentsMenu() {
+  const button = $("#btn-components");
+  const menu = $("#components-list");
+  if (!button || !menu) return;
+  const close = () => { menu.hidden = true; button.setAttribute("aria-expanded", "false"); };
+  const build = () => {
+    // Grouped the way the palette is, so the menu and the palette agree.
+    const groups = {};
+    const walk = (label, kinds) => {
+      for (const k of kinds) {
+        if (k.kind !== "note") (groups[label] ||= []).push(k);
+        walk(label, k.children || []);
+      }
+    };
+    for (const g of canvas.palette?.groups || []) walk(g.label, g.kinds || []);
+    menu.replaceChildren(
+      el("button", { type: "button", role: "menuitem", "data-kind": "agent-view",
+                     onclick: () => { close(); window.showView?.("designer"); } },
+         "Agents"),
+      ...Object.entries(groups).flatMap(([group, kinds]) => [
+        el("div", { class: "menu-group" }, group),
+        ...kinds.filter((k) => k.kind !== "agent").map((k) =>
+          el("button", { type: "button", role: "menuitem", "data-kind": k.kind,
+                         onclick: () => {
+                           close();
+                           canvas.componentsKind = k.kind;
+                           window.showView?.("components");
+                         } },
+             el("span", { class: "ic" }, k.icon || "▫"), ` ${k.label}`)),
+      ]));
+  };
+  button.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (menu.hidden) { build(); menu.hidden = false; button.setAttribute("aria-expanded", "true"); }
+    else close();
+  });
+  document.addEventListener("click", (e) => {
+    if (!menu.contains(e.target)) close();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
 }

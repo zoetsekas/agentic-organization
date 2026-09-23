@@ -118,7 +118,12 @@ async def main() -> int:
                                 f"{type(exc).__name__}: {exc}".split("\n")[0][:120]))
 
         async def show(view: str) -> None:
-            await page.click(f'#tabs button[data-view="{view}"]')
+            if view == "designer":
+                # Agents is an item of the Components menu (ADR-0107).
+                await page.click("#btn-components")
+                await page.click('#components-list [data-kind="agent-view"]')
+            else:
+                await page.click(f'#tabs button[data-view="{view}"]')
             # A view fetches on entry, so a short wait times the check rather
             # than the view — which produced three false failures the first
             # time this ran.

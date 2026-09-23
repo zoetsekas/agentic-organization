@@ -1150,7 +1150,39 @@ async def main() -> None:
         check("the workspace is deleted", "Renamed workspace" not in names,
               str(names))
 
+        # "extend the Agents view to the other components": every kind has
+        # an editor under the Components menu, using the same form.
+        await page.click('#tabs button[data-view="canvas"]')
+        await page.wait_for_timeout(500)
+        await page.click("#btn-components")
+        items = await page.locator("#components-list [role=menuitem]").count()
+        check("the Components menu lists every kind", items >= 20, f"{items} item(s)")
+        await page.click('#components-list [data-kind="knowledge"]')
+        await page.wait_for_timeout(900)
+        rows = await page.locator("#comp-list .comp-row").count()
+        check("a kind's editor lists its components", rows >= 1, f"{rows} row(s)")
+        newform = page.locator("#comp-new form")
+        await newform.locator("input[name=id]").fill("")
+        await newform.locator("button[type=submit]").click()
+        await page.wait_for_timeout(300)
+        check("creating one without an id says so under the field",
+              await newform.locator("input[name=id] ~ .field-error").count() == 1)
+        await newform.locator("input[name=id]").fill("policies_handbook")
+        await newform.locator("button[type=submit]").click()
+        await page.wait_for_timeout(1200)
+        made = await page.evaluate("""() => (window.designer.spec().organization
+          .knowledge || []).some((k) => k.id === "policies_handbook")""")
+        form_fields = await page.locator("#comp-form [data-field-name]").count()
+        check("it is created through the model and opens in the form",
+              made and form_fields > 2, f"created {made}; {form_fields} field(s)")
+        await page.click('#tabs button[data-view="user-guide"]')
+        await page.wait_for_timeout(500)
+        toc = await page.locator("#guide-toc .guide-link").count()
+        check("the user guide has its contents", toc >= 10, f"{toc} section(s)")
+
         # The organisation form's required name.
+        await page.click('#tabs button[data-view="org"]')
+        await page.wait_for_timeout(500)
         await page.click("#btn-org-new")
         await page.wait_for_timeout(300)
         orgform = page.locator("#orgform")

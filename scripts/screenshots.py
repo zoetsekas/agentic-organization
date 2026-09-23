@@ -325,9 +325,23 @@ async def main():
                            ("workspace", "designer-workspace"),
                            ("sessions", "designer-sessions"),
                            ("ops", "designer-operations")):
-            await page.click(f'#tabs button[data-view="{view}"]')
+            if view == "designer":
+                await page.click("#btn-components")
+                await page.click('#components-list [data-kind="agent-view"]')
+            else:
+                await page.click(f'#tabs button[data-view="{view}"]')
             await page.wait_for_timeout(1200)
             await shot(page, name)
+        # The Components editor and the User guide (ADR-0107).
+        await page.click("#btn-components")
+        await page.click('#components-list [data-kind="capability"]')
+        await page.wait_for_timeout(1000)
+        await page.locator("#comp-list .comp-row").first.click()
+        await page.wait_for_timeout(600)
+        await shot(page, "designer-components")
+        await page.click('#tabs button[data-view="user-guide"]')
+        await page.wait_for_timeout(800)
+        await shot(page, "designer-user-guide")
 
         # 8. The publish path, showing a real preflight verdict.
         await page.click('#tabs button[data-view="canvas"]')

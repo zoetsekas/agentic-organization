@@ -203,13 +203,19 @@ const NO_SYSTEM = "No organisation open. Choose or create one above.";
 /* ---------------------------------------------------------------- tabs */
 $("#tabs").addEventListener("click", (e) => {
   const btn = e.target.closest("button");
-  if (!btn) return;
+  // The Components menu's buttons open a view themselves.
+  if (!btn || !btn.dataset.view) return;
   showView(btn.dataset.view);
 });
 
 function showView(name) {
   document.querySelectorAll(".tabs button").forEach((b) =>
     b.classList.toggle("active", b.dataset.view === name));
+  $("#btn-components")?.classList.toggle("active",
+    name === "designer" || name === "components");
+  // Properties draws on the canvas again once the Components editor closes.
+  const d = design();
+  if (d && name !== "components") d.state.formHost = null;
   document.querySelectorAll(".view").forEach((v) =>
     v.classList.toggle("active", v.id === `view-${name}`));
   location.hash = `#/${name}`;
@@ -222,8 +228,22 @@ function showView(name) {
     org: renderOrg, designer: renderAgentView, workspace: loadWorkspaceView,
     catalog: loadCatalogView, marketplace: loadMarketplace,
     sessions: loadSessions, ops: loadOps, authority: loadAuthority,
+    components: () => design().renderComponents(), "user-guide": renderGuide,
   };
   (loaders[name] || (() => {}))();
+}
+
+window.showView = showView;
+
+/* The guide's contents, built from its own headings so the two cannot
+   disagree (ADR-0107). */
+function renderGuide() {
+  const toc = $("#guide-toc");
+  if (!toc || toc.childElementCount) return;
+  toc.replaceChildren(...[...document.querySelectorAll("#guide-body h2")].map((h) =>
+    el("button", { type: "button", class: "guide-link",
+                   onclick: () => h.scrollIntoView({ behavior: "smooth" }) },
+       h.textContent)));
 }
 
 function activeView() {
@@ -231,7 +251,7 @@ function activeView() {
 }
 
 window.addEventListener("hashchange", () => {
-  const route = location.hash.match(/^#\/(\w+)/)?.[1];
+  const route = location.hash.match(/^#\/([\w-]+)/)?.[1];
   const session = location.hash.match(/^#\/sessions\/(\S+)/)?.[1];
   if (session) { showView("sessions"); loadTrace(session); }
   else if (route) { showView(route); }
@@ -1865,6 +1885,7 @@ function setStatus(text) { $("#status").textContent = text; }
    Each layout keeps its CSS columns until somebody acts; the defaults below
    are those same columns, so "restore" means what the stylesheet says. */
 const PANEL_LAYOUTS = {
+  guide: ["260px", "minmax(0,1fr)"],      // before `split`: the guide is one
   "canvas-layout": ["250px", "minmax(0,1fr)", "340px"],
   designer: ["248px", "minmax(0,1fr)", "330px"],
   split: ["minmax(0,1.4fr)", "minmax(0,1fr)"],
@@ -2160,6 +2181,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   initPanels();
   wireWorkspaces();
   wireImport();
+  design()?.wireComponentsMenu();
   markAllRequired();
   try {
     wireAgentEditor();
@@ -2168,7 +2190,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     await window.initCanvas();
     await loadWhoami();
     renderIdentity();
-    const route = location.hash.match(/^#\/(\w+)/)?.[1];
+    const route = location.hash.match(/^#\/([\w-]+)/)?.[1];
     const session = location.hash.match(/^#\/sessions\/(\S+)/)?.[1];
     if (session) { showView("sessions"); loadTrace(session); }
     else showView(route || "org");
