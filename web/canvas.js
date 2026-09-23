@@ -1967,7 +1967,14 @@ function renderInspector() {
   const form = el("form", { class: "form", onsubmit: (e) => e.preventDefault() });
   for (const field of definition.fields) {
     const value = kind === "note" ? node.note : (component || {})[field.name];
-    form.appendChild(fieldControl(field, value, readOnly, (v) => {
+    // One field that throws used to take the whole inspector with it: the
+    // form was replaced at the end, so a mid-loop failure left the *previous*
+    // component's form on screen under this component's title. Showing the
+    // wrong data under a correct heading is worse than showing a gap, so a
+    // field that cannot render says so and the rest of the form still draws.
+    let control;
+    try {
+      control = fieldControl(field, value, readOnly, (v) => {
       if (kind === "note") {
         node.note = v;
       } else if (field.name === "id" && kind !== "note") {
@@ -1997,7 +2004,15 @@ function renderInspector() {
          step, and moving to the next box starts another. */
       markDirty(`edited ${id}.${field.name}`, true);
       renderCanvas();
-    }, kind, component));
+    }, kind, component);
+    } catch (err) {
+      console.error(`inspector: ${kind}.${field.name} did not render`, err);
+      control = el("label", { class: "stacked" }, field.name,
+        el("small", { class: "hint warn" },
+           `this control could not be drawn (${err.message}). The value is `
+           + "unchanged; edit it in the spec until this is fixed."));
+    }
+    form.appendChild(control);
   }
   const actions = el("div", { class: "actions" },
     el("button", {
@@ -2086,6 +2101,11 @@ function fieldContext(componentKind, fieldName) {
       knowledge:    { mode: "reflist", col: "knowledge" },
       endpoints:    { mode: "reflist", col: "endpoints" },
       environments: { mode: "reflist", col: "environments" },
+      workflows:    { mode: "reflist", col: "workflows" },
+      /* A successor must be an agent that exists, so the control offers the
+         ones that do rather than a free-text box that fails the gate later.
+         Leaving it unset is the safe answer and the picker says so. */
+      successor:    { mode: "ref",     fn: agentIds },
     },
     subagent: {
       capabilities: { mode: "reflist", col: "capabilities" },
@@ -2172,27 +2192,66 @@ function fieldContext(componentKind, fieldName) {
 /* Single-reference <select> — value is a string id */
 function renderRef(field, value, readOnly, onChange, options) {
   const attrs = readOnly ? { disabled: "" } : {};
-  const blank = el("option", { value: "" }, "— none —");
+  // What "none" *means* differs per field, and for a successor it is the whole
+  // point: unset is the safe answer, not a gap to be filled in.
+  const blank = el("option", { value: "" }, field.blank || "— none —");
   const sel = el("select", attrs, blank,
     ...options.map((o) => el("option", { value: o }, o)));
   sel.value = value ?? "";
+  // Named like every other control. The reference pickers return early, before
+  // the shared naming at the end of `fieldControl`, so their controls were the
+  // only ones a test or a screen reader could not address by field.
+  sel.setAttribute("name", field.name);
   sel.addEventListener("change", () => onChange(sel.value || null));
   return sel;
 }
 
-/* Multi-reference pill picker — value is string[] of ids */
+/* Multi-reference pill picker.
+
+   The value is usually string[] of ids, and sometimes is not: an agent's
+   `environments` is a list of `{environment: id}` objects, because a sandbox
+   reference can carry an override beside the id. This rendered the object
+   itself as a pill's child, which is not a Node, so the control threw — and
+   because the form was only swapped in at the end, the *whole* inspector kept
+   the previously selected component's fields under this one's title.
+
+   So: the shape is read and written back unchanged. An entry that carries more
+   than an id keeps whatever else it carries, because dropping an override
+   silently would be a worse bug than the one this fixes. */
+const REF_KEYS = ["environment", "id", "agent", "person", "capability"];
+
+function refId(entry) {
+  if (entry && typeof entry === "object") {
+    const key = REF_KEYS.find((k) => typeof entry[k] === "string");
+    return key ? entry[key] : "";
+  }
+  return entry ?? "";
+}
+
 function renderReflist(field, value, readOnly, onChange, options) {
   let selected = Array.isArray(value) ? [...value] : [];
+  // How this field writes an entry back: as a bare id, or in the shape the
+  // existing entries already use.
+  const objectKey = (() => {
+    for (const entry of selected) {
+      if (entry && typeof entry === "object") {
+        return REF_KEYS.find((k) => typeof entry[k] === "string") || null;
+      }
+    }
+    return field.name === "environments" ? "environment" : null;
+  })();
+  const wrapId = (id) => (objectKey ? { [objectKey]: id } : id);
 
-  const wrap = el("div", { class: "reflist-wrap" });
+  const wrap = el("div", { class: "reflist-wrap", "data-field": field.name });
 
   function redraw() {
-    const pills = selected.map((id) => {
+    const pills = selected.map((entry) => {
+      const id = refId(entry);
       const pill = el("span", { class: "ref-pill" }, id);
       if (!readOnly) {
         const x = el("button", { type: "button", "aria-label": `remove ${id}` }, "×");
         x.addEventListener("click", () => {
-          selected = selected.filter((v) => v !== id);
+          selected = selected.filter((v) => refId(v) !== id);
           onChange([...selected]);
           redraw();
         });
@@ -2201,7 +2260,8 @@ function renderReflist(field, value, readOnly, onChange, options) {
       return pill;
     });
 
-    const remaining = options.filter((o) => !selected.includes(o));
+    const chosen = new Set(selected.map(refId));
+    const remaining = options.filter((o) => !chosen.has(o));
     const adder = remaining.length && !readOnly
       ? (() => {
           const sel = el("select", {},
@@ -2209,8 +2269,8 @@ function renderReflist(field, value, readOnly, onChange, options) {
             ...remaining.map((o) => el("option", { value: o }, o)));
           sel.addEventListener("change", () => {
             if (!sel.value) return;
-            if (!selected.includes(sel.value)) {
-              selected = [...selected, sel.value];
+            if (!chosen.has(sel.value)) {
+              selected = [...selected, wrapId(sel.value)];
               onChange([...selected]);
               redraw();
             }
@@ -2230,8 +2290,8 @@ function renderReflist(field, value, readOnly, onChange, options) {
             if (e.key !== "Enter") return;
             e.preventDefault();
             const v = inp.value.trim();
-            if (v && !selected.includes(v)) {
-              selected = [...selected, v];
+            if (v && !chosen.has(v)) {
+              selected = [...selected, wrapId(v)];
               onChange([...selected]);
               inp.value = "";
               redraw();
@@ -2242,6 +2302,260 @@ function renderReflist(field, value, readOnly, onChange, options) {
       : null;
 
     wrap.replaceChildren(...pills, ...(adder ? [adder] : []), ...(freeText ? [freeText] : []));
+  }
+
+  redraw();
+  return wrap;
+}
+
+
+/* ------------------------------------------------- process graphs (ADR-0096)
+
+   A workflow is a process, and until now the designer could name one and not
+   say what it does: the palette carried id, name and description, so the
+   nodes and edges that *are* the workflow had to be written by hand in YAML.
+
+   The editor below is three things stacked, and the order matters. A picture
+   first, because the question a reader has about a process is its shape. Then
+   the steps. Then the edges, which is where the mistakes live.
+
+   It checks the same four rules the phase gate does, live, and says so in
+   place: a step nothing reaches, an edge to a step that is not there, a
+   non-branch step with two ways out, and an entry that is not a step. Learning
+   a rule from the control while you draw is a different experience from
+   learning it from a refusal afterwards, and these four are all rules people
+   break by accident.
+
+   A loop back to an earlier step is legal and drawn as one. A review loop that
+   runs until it passes is a real process; what stops one that never converges
+   is the step bound at run time, not a prohibition here. */
+
+const NODE_KINDS = [
+  ["tool", "tool", "calls a tool"],
+  ["agent", "agent", "hands the step to an agent"],
+  ["workflow", "workflow", "runs another workflow"],
+  ["branch", "", "chooses what runs next"],
+  ["transform", "expr", "reshapes the state"],
+  ["human", "", "pauses for a person"],
+];
+
+function graphIssues(graph) {
+  const nodes = graph.nodes || [];
+  const edges = graph.edges || [];
+  const ids = nodes.map((n) => n.id).filter(Boolean);
+  const known = new Set(ids);
+  const issues = [];
+  const entry = graph.entry || ids[0];
+
+  if (entry && !known.has(entry)) {
+    issues.push({ id: entry, text: `starts at “${entry}”, which is not a step` });
+  }
+  const out = {};
+  for (const e of edges) {
+    if (e.to && e.to !== "END" && !known.has(e.to)) {
+      issues.push({ id: e.from, text: `“${e.from}” leads to “${e.to}”, which is not a step` });
+      continue;
+    }
+    (out[e.from] = out[e.from] || []).push(e.to);
+  }
+  // A branch carries its own ways out as cases, and they are ways out. The
+  // gate counts them; this did not, so it drew reachable steps as unreachable
+  // and taught the opposite of the rule it was there to teach.
+  for (const n of nodes) {
+    if (n.kind !== "branch") continue;
+    const targets = [...(n.cases || []).map((c) => c.to),
+                     ...(n.default ? [n.default] : [])];
+    for (const t of targets) {
+      if (t && t !== "END" && !known.has(t)) {
+        issues.push({ id: n.id,
+          text: `“${n.id}” branches to “${t}”, which is not a step` });
+        continue;
+      }
+      (out[n.id] = out[n.id] || []).push(t);
+    }
+  }
+  for (const n of nodes) {
+    if (n.kind === "branch") continue;
+    if ((out[n.id] || []).length > 1) {
+      issues.push({ id: n.id,
+        text: `“${n.id}” has ${out[n.id].length} ways out and is not a branch, `
+              + "so nothing chooses between them" });
+    }
+  }
+  // Reachability, which is the one that finds a step that simply never runs.
+  const seen = new Set(entry ? [entry] : []);
+  const stack = entry ? [entry] : [];
+  while (stack.length) {
+    for (const t of out[stack.pop()] || []) {
+      if (t && t !== "END" && !seen.has(t)) { seen.add(t); stack.push(t); }
+    }
+  }
+  for (const id of ids) {
+    if (!seen.has(id)) {
+      issues.push({ id, text: `nothing reaches “${id}” — a step that cannot run is not a step` });
+    }
+  }
+  return issues;
+}
+
+/* The picture. Steps in a column, edges as arrows beside them, and an edge
+   that goes back up drawn as a loop and labelled one — because a cycle is the
+   fact a reader most needs to see and the one a list of edges hides best. */
+function graphPreview(graph) {
+  const nodes = (graph.nodes || []).filter((n) => n.id);
+  if (!nodes.length) {
+    return el("p", { class: "muted small" },
+              "No steps yet. Add one below and the shape appears here.");
+  }
+  const row = {}, H = 46, W = 300;
+  nodes.forEach((n, i) => { row[n.id] = i; });
+  const height = nodes.length * H + 18;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", `-16 0 ${W + 16} ${height}`);
+  svg.setAttribute("class", "graph-preview");
+  const mk = (tag, attrs, text) => {
+    const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    if (text !== undefined) n.textContent = text;
+    svg.appendChild(n);
+    return n;
+  };
+  const issueIds = new Set(graphIssues(graph).map((i) => i.id));
+  const entry = graph.entry || nodes[0].id;
+
+  const drawn = [...(graph.edges || [])];
+  for (const n of nodes) {
+    if (n.kind !== "branch") continue;
+    for (const c of n.cases || []) drawn.push({ from: n.id, to: c.to });
+    if (n.default) drawn.push({ from: n.id, to: n.default });
+  }
+  for (const e of drawn) {
+    const a = row[e.from], b = e.to === "END" ? nodes.length : row[e.to];
+    if (a === undefined || b === undefined) continue;
+    const y1 = a * H + 30, y2 = b * H + 30;
+    const back = b <= a;
+    const x = back ? 28 : 168;
+    mk("path", {
+      d: back
+        ? `M 30 ${y1} C ${x - 18} ${y1}, ${x - 18} ${y2}, 30 ${y2}`
+        : `M 160 ${y1} L 160 ${y2}`,
+      class: back ? "gp-edge gp-loop" : "gp-edge",
+    });
+    if (back) mk("text", { x: -14, y: (y1 + y2) / 2 + 3, class: "gp-loop-label" }, "↺ loop");
+  }
+  nodes.forEach((n, i) => {
+    const y = i * H + 14;
+    mk("rect", { x: 34, y, width: 124, height: 32, rx: 6,
+                 class: `gp-node${issueIds.has(n.id) ? " gp-bad" : ""}`
+                        + (n.id === entry ? " gp-entry" : "") });
+    mk("text", { x: 44, y: y + 14, class: "gp-id" }, n.id);
+    mk("text", { x: 44, y: y + 26, class: "gp-kind" }, n.kind || "—");
+  });
+  return svg;
+}
+
+function renderGraph(field, value, readOnly, onChange) {
+  let graph = value && typeof value === "object"
+    ? JSON.parse(JSON.stringify(value)) : { entry: "", nodes: [], edges: [] };
+  graph.nodes = graph.nodes || [];
+  graph.edges = graph.edges || [];
+  const wrap = el("div", { class: "graph-wrap" });
+
+  const push = () => { onChange(graph); redraw(); };
+  const ids = () => graph.nodes.map((n) => n.id).filter(Boolean);
+
+  function stepRow(node, i) {
+    const kind = el("select", readOnly ? { disabled: "" } : {},
+      ...NODE_KINDS.map(([k, , hint]) => el("option", { value: k, title: hint }, k)));
+    kind.value = node.kind || "tool";
+    kind.addEventListener("change", () => { node.kind = kind.value; push(); });
+
+    const id = el("input", { value: node.id || "", placeholder: "step id",
+                             ...(readOnly ? { disabled: "" } : {}) });
+    id.addEventListener("input", () => { node.id = id.value; onChange(graph); });
+
+    const keyName = (NODE_KINDS.find(([k]) => k === (node.kind || "tool")) || [])[1];
+    const target = keyName
+      ? (() => {
+          const t = el("input", { value: node[keyName] || "",
+                                  placeholder: keyName,
+                                  ...(readOnly ? { disabled: "" } : {}) });
+          t.addEventListener("input", () => { node[keyName] = t.value; onChange(graph); });
+          return t;
+        })()
+      : node.kind === "branch"
+      ? el("span", { class: "muted small" },
+           `${(node.cases || []).length} case(s)`
+           + (node.default ? ` · else ${node.default}` : " · no default"))
+      : el("span", { class: "muted small" }, "pauses for a person");
+
+    const del = el("button", { type: "button", class: "ghost",
+                               ...(readOnly ? { disabled: "" } : {}) }, "×");
+    del.addEventListener("click", () => {
+      const gone = graph.nodes[i].id;
+      graph.nodes.splice(i, 1);
+      graph.edges = graph.edges.filter((e) => e.from !== gone && e.to !== gone);
+      push();
+    });
+    return el("div", { class: "graph-row graph-step-row" }, id, kind, target, del);
+  }
+
+  function edgeRow(edge, i) {
+    const pick = (key, extra) => {
+      const sel = el("select", readOnly ? { disabled: "" } : {},
+        el("option", { value: "" }, "—"),
+        ...ids().map((v) => el("option", { value: v }, v)),
+        ...(extra ? [el("option", { value: extra }, extra)] : []));
+      sel.value = edge[key] || "";
+      sel.addEventListener("change", () => { edge[key] = sel.value; push(); });
+      return sel;
+    };
+    const del = el("button", { type: "button", class: "ghost",
+                               ...(readOnly ? { disabled: "" } : {}) }, "×");
+    del.addEventListener("click", () => { graph.edges.splice(i, 1); push(); });
+    return el("div", { class: "graph-row graph-edge-row" },
+      pick("from"), el("span", { class: "muted" }, "→"), pick("to", "END"), del);
+  }
+
+  function redraw() {
+    const entry = el("select", readOnly ? { disabled: "" } : {},
+      el("option", { value: "" }, "— first step —"),
+      ...ids().map((v) => el("option", { value: v }, v)));
+    entry.value = graph.entry || "";
+    entry.addEventListener("change", () => { graph.entry = entry.value; push(); });
+
+    const addStep = el("button", { type: "button", class: "ghost",
+                                   ...(readOnly ? { disabled: "" } : {}) },
+                       "+ step");
+    addStep.addEventListener("click", () => {
+      graph.nodes.push({ id: `step_${graph.nodes.length + 1}`, kind: "tool" });
+      push();
+    });
+    const addEdge = el("button", { type: "button", class: "ghost",
+                                   ...(readOnly ? { disabled: "" } : {}) },
+                       "+ edge");
+    addEdge.addEventListener("click", () => {
+      graph.edges.push({ from: ids()[0] || "", to: "END" });
+      push();
+    });
+
+    const issues = graphIssues(graph);
+    const problems = issues.length
+      ? el("ul", { class: "graph-issues" },
+           ...issues.map((i) => el("li", {}, i.text)))
+      : el("p", { class: "muted small" },
+           graph.nodes.length ? "Every step runs, and every way out is decided."
+                              : "");
+
+    wrap.replaceChildren(
+      graphPreview(graph),
+      el("label", { class: "inline" }, "starts at", entry),
+      el("div", { class: "graph-section" }, "Steps", addStep),
+      ...graph.nodes.map(stepRow),
+      el("div", { class: "graph-section" }, "What follows what", addEdge),
+      ...graph.edges.map(edgeRow),
+      problems,
+    );
   }
 
   redraw();
@@ -2364,6 +2678,14 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
       if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
       return label;
     }
+  }
+
+  /* ---- a process graph (ADR-0096) ---- */
+  if (field.type === "graph") {
+    const input = renderGraph(field, value, readOnly, onChange);
+    const label = el("label", { class: "stacked" }, field.name, input);
+    if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
+    return label;
   }
 
   /* ---- policy conditions (ADR-0008) ---- */

@@ -197,6 +197,11 @@ apart from association (ADR-0081), and live validation.*
 
 | | |
 |---|---|
+| [![A process with a loop in it](docs/images/designer-process.png)](docs/images/designer-process.png) | [![Continuity and scale on one agent](docs/images/designer-continuity.png)](docs/images/designer-continuity.png) |
+| **Process** — a workflow's steps and what follows what, drawn as you build it. A branch is the only step that may have several ways out; a step nothing reaches is named before the gate refuses it; and a back edge is drawn as a loop, because a cycle is the fact a reader most needs to see and the one a list of edges hides best (ADR-0096). | **Continuity and scale** — who stands in when this agent cannot run, and how many of it run. Leaving the successor unset means its manager, which grants nothing; naming a peer lends authority the chart did not (ADR-0094). The scaling help says what `min_instances: 0` costs, where the choice is made (ADR-0095). |
+
+| | |
+|---|---|
 | [![Publish](docs/images/designer-publish.png)](docs/images/designer-publish.png) | |
 | **Publish** — validate, compile, request. The verdict names the stage, and the refusal is the deliverable. | |
 

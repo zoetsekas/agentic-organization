@@ -2245,6 +2245,36 @@ PALETTE: dict[str, Any] = {
                                    "change of model, so it is opted into"},
                       ]},
                      {"name": "shared_service", "type": "bool"},
+                     {"name": "workflows", "type": "list",
+                      "help": "encoded processes this agent may invoke; a "
+                              "trigger can only run one the agent holds"},
+                     {"name": "successor", "type": "string",
+                      "blank": "— its manager stands in —",
+                      "help": "who stands in when this agent cannot run. "
+                              "Leave unset and its manager does — already "
+                              "holding this mandate, so nothing is granted. "
+                              "Naming a peer lends authority the chart did "
+                              "not, so it is bounded, recorded, and refused "
+                              "if it would collapse a separation (ADR-0094)"},
+                     {"name": "scaling", "type": "object",
+                      "help": "how many of this agent run. Leave unset and "
+                              "the platform default is still emitted "
+                              "explicitly — the one thing ruled out is a "
+                              "ceiling nobody chose (ADR-0095)",
+                      "fields": [
+                          {"name": "min_instances", "type": "number",
+                           "help": "kept warm. 0 scales to zero, which drops "
+                                   "any asynchronous work this agent was "
+                                   "holding — they settle as failed, not "
+                                   "silently"},
+                          {"name": "max_instances", "type": "number",
+                           "help": "the ceiling. Times the per-instance "
+                                   "figure below, this is how much work can "
+                                   "be in flight — a different bound from "
+                                   "max_parallel_subagents"},
+                          {"name": "concurrent_sessions_per_instance",
+                           "type": "number"},
+                      ]},
                      {"name": "humans", "type": "humans"},
                  ]},
                 # A mission is a short-lived team drawn from the standing
@@ -2395,6 +2425,15 @@ PALETTE: dict[str, Any] = {
                      {"name": "id", "type": "string", "required": True},
                      {"name": "name", "type": "string"},
                      {"name": "description", "type": "text"},
+                     {"name": "graph", "type": "graph",
+                      "help": "the process itself: steps, and what follows "
+                              "what. A branch is the only step that may have "
+                              "several ways out, because it is the only one "
+                              "that chooses; a step nothing reaches is "
+                              "refused, and a loop back to an earlier step is "
+                              "allowed and bounded (ADR-0096)"},
+                     {"name": "interrupt_before", "type": "list",
+                      "help": "step ids to pause at for a person"},
                  ]},
                 {"kind": "note", "label": "Note", "icon": "✎",
                  "fields": [{"name": "note", "type": "text"}]},

@@ -1026,3 +1026,49 @@ textarea.json.invalid { border-color: var(--clay); }
 }
 .dia-tab .ic { color: var(--ink-dim); }
 .dia-add { color: var(--ink-dim); font-size: var(--t-body); line-height: 1; }
+
+/* ---- process graph editor (ADR-0096) --------------------------------- */
+/* The picture comes first because the question a reader has about a process
+   is its shape, and a list of edges is the worst way to answer it. Every
+   colour here is a token: a component that invents one drifts out of the
+   system the moment the system moves. */
+.graph-wrap { display: flex; flex-direction: column; gap: .5rem; }
+.graph-preview {
+  width: 100%; max-height: 420px; background: var(--ground);
+  border: 1px solid var(--line); border-radius: 8px; padding: 4px;
+}
+.gp-node { fill: var(--raised); stroke: var(--line-strong); stroke-width: 1; }
+.gp-entry { stroke: var(--accent); stroke-width: 1.6; }
+.gp-bad { stroke: var(--amber); stroke-width: 1.6; }
+.gp-id { fill: var(--ink); font: 600 11px var(--mono, ui-monospace, monospace); }
+.gp-kind { fill: var(--ink-dim); font: 10px var(--mono, ui-monospace, monospace); }
+.gp-edge { stroke: var(--line-strong); stroke-width: 1.4; fill: none; }
+/* A cycle is the fact a reader most needs to see and the one a list of edges
+   hides best, so a back edge is drawn as a loop and labelled one. */
+.gp-loop { stroke: var(--accent); stroke-dasharray: 3 3; }
+.gp-loop-label { fill: var(--accent); font: 10px var(--mono, ui-monospace, monospace); }
+.graph-section {
+  display: flex; align-items: center; justify-content: space-between;
+  font: 600 11px/1.6 var(--sans, ui-sans-serif, system-ui);
+  letter-spacing: .04em; text-transform: uppercase; color: var(--ink-dim);
+  border-top: 1px solid var(--line); padding-top: .4rem;
+}
+/* Four controls on one line at inspector width truncates every one of them.
+   A step gets its id on its own line and its kind and target beneath. */
+.graph-step-row {
+  display: grid; gap: .35rem; align-items: center;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto;
+}
+.graph-step-row > :first-child { grid-column: 1 / -1; }
+.graph-edge-row {
+  display: grid; gap: .35rem; align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+}
+.graph-row input, .graph-row select, .graph-row span { min-width: 0; }
+.graph-row .small { white-space: nowrap; overflow: hidden;
+                    text-overflow: ellipsis; }
+/* Said in place, while you draw, rather than by a refusal afterwards. */
+.graph-issues {
+  margin: 0; padding-left: 1.1rem; color: var(--amber-ink);
+  font-size: 12px; line-height: 1.5;
+}

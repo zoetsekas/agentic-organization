@@ -40,6 +40,64 @@ from fastapi.testclient import TestClient
 c = TestClient(app)
 A = {"X-User": "ana", "X-User-Name": "Ana Silva"}
 spec = yaml.safe_load((ROOT / "examples" / "northwind" / "northwind.finance.system.yaml").read_text())
+
+# The capabilities the last few ADRs added are seeded here rather than in the
+# shipped design, because the screenshots exist to show what the *designer*
+# offers: a process with a loop in it, an agent with a declared stand-in, and
+# an agent whose scale somebody chose. Without them the captures would show
+# controls with nothing in them, which is a screenshot of an empty form.
+spec.setdefault("workflows", []).append({
+    "id": "payment_review",
+    "name": "payment-review",
+    "description": ("Review a payment run, correcting what fails the match "
+                    "and re-checking until nothing does."),
+    "graph": {
+        "entry": "match",
+        "nodes": [
+            {"id": "match", "kind": "tool", "tool": "ledger_query"},
+            # A branch carries its own ways out as cases; it is the one step
+            # that may have several, because it is the one that chooses. Left
+            # without them the two steps below become unreachable, and the
+            # gate refuses the design — which is how this seed was wrong the
+            # first time it was written.
+            {"id": "any_failures", "kind": "branch",
+             "cases": [{"when": "failures > 0", "to": "correct"}],
+             "default": "release"},
+            {"id": "correct", "kind": "agent", "agent": "controller"},
+            {"id": "release", "kind": "human"},
+        ],
+        # `correct → match` is the loop: having corrected something, match
+        # again. It goes back to the *measurement*, not to the branch, because
+        # a loop that re-tests a condition nothing has re-measured cannot
+        # converge — the easiest cyclic-workflow mistake there is.
+        "edges": [
+            {"from": "match", "to": "any_failures"},
+            {"from": "correct", "to": "match"},
+            {"from": "release", "to": "END"},
+        ],
+    },
+    "interrupt_before": ["release"],
+})
+
+
+def _find_agent(node, agent_id):
+    for member in node.get("members", []) or []:
+        if member.get("id") == agent_id:
+            return member
+    for team in node.get("teams", []) or []:
+        found = _find_agent(team, agent_id)
+        if found:
+            return found
+    return None
+
+
+_controller = _find_agent(spec["organization"], "controller")
+if _controller is not None:
+    # A lateral stand-in, and a scale somebody chose rather than inherited.
+    _controller["successor"] = "cfo"
+    _controller["scaling"] = {"min_instances": 1, "max_instances": 6,
+                              "concurrent_sessions_per_instance": 2}
+
 ws = c.post("/api/designer/workspaces", json={"name": "Northwind"}, headers=A).json()
 sys_ = c.post("/api/designer/systems",
               json={"workspace_id": ws["id"], "name": "Northwind Finance",
@@ -166,7 +224,41 @@ async def main():
               "| people:", await page.locator("#authority-people > *").count())
         await shot(page, "designer-authority")
 
-        # 4. The publish path, showing a real preflight verdict.
+        # 4. A process with a loop in it — the editor that did not exist,
+        #    because until now a workflow could be named and not described.
+        await page.click('#tabs button[data-view="canvas"]')
+        await page.wait_for_timeout(500)
+        await page.click('#side-tabs button[data-side="details"]')
+        await page.click('button[data-left="explorer"]')
+        await page.wait_for_timeout(400)
+        await page.fill("#explorer-filter", "payment")
+        await page.wait_for_timeout(400)
+        await page.click("#explorer-tree >> text=payment-review")
+        await page.wait_for_timeout(900)
+        steps = await page.locator("#inspector .graph-preview .gp-node").count()
+        loops = await page.locator("#inspector .graph-preview .gp-loop").count()
+        print(f"  process editor: {steps} steps drawn, {loops} loop edge(s)")
+        assert steps, "the graph editor drew no steps"
+        await shot(page, "designer-process", f"{steps} steps, {loops} loop")
+
+        # 5. Continuity and scale on one agent: who stands in, and how many
+        #    of it run. Both were model fields the canvas could not edit.
+        await page.fill("#explorer-filter", "financial-controller")
+        await page.wait_for_timeout(400)
+        await page.click("#explorer-tree >> text=financial-controller >> nth=0")
+        await page.wait_for_timeout(900)
+        # Both fields sit low in a long inspector, so scroll to them: a
+        # screenshot of the part of the form that has not changed is not
+        # evidence of anything.
+        await page.locator('#inspector label:has-text("successor")').first \
+            .scroll_into_view_if_needed()
+        await page.wait_for_timeout(500)
+        picked = await page.locator('#inspector select[name="successor"]') \
+            .first.input_value()
+        print(f"  continuity: successor = {picked or '(its manager)'}")
+        await shot(page, "designer-continuity", f"successor={picked}")
+
+        # 6. The publish path, showing a real preflight verdict.
         await page.click("#btn-publish")
         await page.wait_for_timeout(2500)
         print("  publish verdict:",
