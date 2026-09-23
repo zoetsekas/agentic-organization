@@ -1,4 +1,4 @@
-# agent-ai — an agentic system designer and compiler
+# agentic organization — an agentic system designer and compiler
 
 Define an organization of agents **once, abstractly** — through a UI or an SDK —
 then generate the agent code *and* the infrastructure to run it, on a laptop or
