@@ -461,7 +461,8 @@ function agentDetail(agent, id) {
       el("div", {}, el("span", { class: "grow" }, sub.name || sub.id),
         el("span", { class: "badge" }, sub.kind || "custom")))),
     el("h3", {}, "Environment"),
-    el("p", { class: "hint" }, agent.environment || "inherited"),
+    el("p", { class: "hint" },
+       agentEnvironments(agent).join(", ") || "inherited"),
     el("div", { class: "actions" },
       el("button", { onclick: () => editAgent(id) }, "Edit this agent")));
 }
@@ -514,7 +515,12 @@ function renderAgentView() {
   check("#pick-channels", agent.channels || []);
   fillSelect(form.elements.environment,
     [["", "— inherited —"], ...(s.environments || []).map((e2) => [e2.id, e2.id])]);
-  form.elements.environment.value = agent.environment || "";
+  const envs = agentEnvironments(agent);
+  form.elements.environment.value = envs[0] || "";
+  form.elements.environment.title = envs.length > 1
+    ? `also runs in ${envs.slice(1).join(", ")}; this control edits the first `
+      + "and leaves the rest alone"
+    : "";
   fillSelect(form.elements.artifact_store,
     [["", "— none —"], ...(s.artifact_stores || []).map((a) => [a.id, a.id])]);
   form.elements.artifact_store.value = agent.artifact_store || "";
@@ -627,6 +633,37 @@ const POSTURE_WORDS = {
   supervised: ["Supervised", "decides, a person confirms"],
   autonomous: ["Autonomous", "decides and acts alone"],
 };
+
+/* An agent's sandboxes (ADR-0082).
+
+   `environment:` was replaced by `environments: [{environment: id}]` when an
+   agent became able to run in more than one sandbox. This form kept reading
+   and writing the old singular key, so the control showed "inherited" for
+   every agent however many sandboxes it had — and, worse, *saving* an agent
+   wrote the legacy key back, which the validator then refused: "'environment:'
+   on an agent was replaced by 'environments:'". Every save through this form
+   downgraded the agent to a pre-1.3.0 shape.
+
+   The control edits one sandbox because a `<select>` is one value. An agent
+   with several keeps them: the first is what the control edits and the rest
+   are left alone and said out loud, because a single-select that silently
+   dropped the second sandbox would be a worse bug than the one it replaced. */
+function agentEnvironments(agent) {
+  return (agent.environments || []).map((e) =>
+    (e && typeof e === "object") ? e.environment : e).filter(Boolean);
+}
+
+function setAgentPrimaryEnvironment(agent, id) {
+  const rest = (agent.environments || []).slice(1);
+  if (!id) {
+    if (rest.length) { agent.environments = rest; } else { delete agent.environments; }
+    return;
+  }
+  const first = agent.environments?.[0];
+  const kept = (first && typeof first === "object")
+    ? { ...first, environment: id } : { environment: id };
+  agent.environments = [kept, ...rest];
+}
 
 async function loadAuthority() {
   /* The open design lives on the canvas's state and is reached through
@@ -976,7 +1013,7 @@ function applyAgentForm() {
   agent.skills = picked("#pick-skills");
   agent.plugins = picked("#pick-plugins");
   agent.channels = picked("#pick-channels");
-  agent.environment = form.elements.environment.value || null;
+  setAgentPrimaryEnvironment(agent, form.elements.environment.value);
   agent.artifact_store = form.elements.artifact_store.value || null;
   agent.output_contract = form.elements.output_contract.value || null;
   moveAgent(agent, form.elements.team_id.value, form.elements.leader.checked);

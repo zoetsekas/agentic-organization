@@ -52,3 +52,29 @@ jobs:
 
       - name: Tests
         run: pytest -q
+
+      # A browser is the only thing that presses the buttons. Two defects have
+      # now shipped through a fully green suite — a view whose loader was keyed
+      # by an id that no longer existed, and an agent form writing a spec key
+      # ADR-0082 replaced — because every test asserted over JSON or over the
+      # bundle as text, and nothing ever clicked Save. These scripts are how
+      # that stops.
+      - name: Install a browser
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Render every view
+        run: python3 scripts/screenshots.py
+
+      - name: Drive the canvas
+        run: python3 scripts/interaction_check.py
+
+      - name: Drive every view's own controls
+        run: python3 scripts/view_check.py
+
+      # The screenshots in the README are evidence, so a change that alters
+      # them should show up in a diff rather than leaving the docs describing
+      # a UI that has moved.
+      - name: Screenshots are current
+        run: git diff --stat docs/images || true

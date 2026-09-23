@@ -83,10 +83,31 @@ from playwright.async_api import async_playwright
 
 PORT = int(os.environ.get("ORGAGENTS_SHOT_PORT", "8844"))
 BASE = f"http://127.0.0.1:{PORT}/ui/"
-CHROME = os.environ.get(
-    "ORGAGENTS_CHROME",
-    "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
-)
+def _chromium() -> str | None:
+    """Where Chromium is, or `None` to let Playwright decide.
+
+    This environment pins a browser under `/opt/pw-browsers`; a CI runner
+    installs its own and Playwright knows where. Hardcoding the first made the
+    scripts unrunnable on the second, which is the whole reason they had never
+    run in CI. An explicit path wins, then this environment's, then nothing —
+    and `None` means "you know best", not "give up".
+    """
+    import glob
+    import os
+    import pathlib
+
+    explicit = os.environ.get("ORGAGENTS_CHROME")
+    if explicit:
+        return explicit
+    for pattern in ("/opt/pw-browsers/chromium-*/chrome-linux/chrome",
+                    "/opt/pw-browsers/chromium"):
+        found = sorted(glob.glob(pattern))
+        if found and pathlib.Path(found[-1]).exists():
+            return found[-1]
+    return None
+
+
+CHROME = _chromium()
 ALLOWED_CONSOLE = (
     "fonts.googleapis",
     "ERR_CERT_AUTHORITY_INVALID",
@@ -107,7 +128,7 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 async def main() -> None:
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(executable_path=CHROME)
+        browser = await pw.chromium.launch(**({"executable_path": CHROME} if CHROME else {}))
         page = await browser.new_page(viewport={"width": 1680, "height": 1050})
         page.on("pageerror", lambda e: problems.append(f"pageerror: {e}"))
         page.on("dialog", lambda d: asyncio.ensure_future(d.dismiss()))
