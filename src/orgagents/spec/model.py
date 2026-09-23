@@ -25,7 +25,8 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (BaseModel, Field, field_validator, model_serializer,
+                      model_validator)
 
 SPEC_VERSION = "1.4.0"
 
@@ -1091,7 +1092,36 @@ class ToolSpec(BaseModel):
     validate_output: bool = False
 
 
-class SubAgentSpec(BaseModel):
+class Worker(BaseModel):
+    """What an agent and a sub-agent have in common (ADR-0102).
+
+    Abstract: nothing is declared as a bare Worker. An Agent is a member of
+    the organisation — a team, a mandate, human counterparts, memory, a
+    successor. A SubAgent is none of those: it is a part of the agent that
+    calls it, run under that agent's identity. Neither is a kind of the
+    other, so both specialise this.
+    """
+
+    id: str
+    name: str = ""
+    #: How the worker operates: its system prompt, in the author's own words.
+    #: Distinct from `description` on purpose — the frameworks we surveyed all
+    #: separate the two, because "what it is for" and "how it behaves" are
+    #: different facts and conflating them means the discovery blurb leaks into
+    #: the prompt or the operating instructions leak into the router. The
+    #: compiler weaves this into the composed system prompt after the
+    #: accountability and organization context, never replacing them: the org
+    #: facts are not the author's to override (ADR-0083).
+    instructions: str = ""
+    #: What this worker may do. For a sub-agent, a subset of its parent's.
+    capabilities: list[str] = Field(default_factory=list)
+    knowledge: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
+    #: A checkable shape for what it returns (ADR-0037).
+    output_contract: Optional[str] = None
+
+
+class SubAgentSpec(Worker):
     """A task-scoped worker an agent calls like a tool (ADR-0027).
 
     A sub-agent is not an org member: it has no reporting line, no human
@@ -1100,21 +1130,14 @@ class SubAgentSpec(BaseModel):
     capabilities, returns a result, and is gone.
     """
 
-    id: str
-    name: str = ""
     kind: SubAgentKind = SubAgentKind.CUSTOM
     purpose: str = ""
-    instructions: str = ""
     # Must be a subset of the calling agent's capabilities; validated.
-    capabilities: list[str] = Field(default_factory=list)
-    tools: list[str] = Field(default_factory=list)
-    knowledge: list[str] = Field(default_factory=list)
     #: Sandboxes this sub-agent may run in, which must be among its parent's:
     #: a sub-agent that could pick its own would be a way to reach a sandbox
     #: the agent calling it was not given (ADR-0027, ADR-0082).
     environments: list[str] = Field(default_factory=list)       # environment class id, if it executes
     returns: str = ""                       # what the caller gets back
-    output_contract: Optional[str] = None   # a checkable shape (ADR-0037)
     max_turns: int = 8
     max_runtime_seconds: int = 300
     parallel_safe: bool = True
@@ -1291,7 +1314,7 @@ class HumanCounterpart(BaseModel):
         return self.person or self.contact or self.name
 
 
-class AgentSpec(BaseModel):
+class AgentSpec(Worker):
     """One agent: who it answers to, what it is for, what it may reach."""
 
     @field_validator("environments", mode="before")
@@ -1326,21 +1349,10 @@ class AgentSpec(BaseModel):
             )
         return data
 
-    id: str
-    name: str = ""
     #: What the agent is *for*: a one-line blurb used for discovery and for
     #: deciding when to delegate to it — the thing another agent reads to
     #: decide whether this is the one to hand work to.
     description: str = ""
-    #: How the agent operates: its system prompt, in the author's own words.
-    #: Distinct from `description` on purpose — the frameworks we surveyed all
-    #: separate the two, because "what it is for" and "how it behaves" are
-    #: different facts and conflating them means the discovery blurb leaks into
-    #: the prompt or the operating instructions leak into the router. The
-    #: compiler weaves this into the composed system prompt after the
-    #: accountability and organization context, never replacing them: the org
-    #: facts are not the author's to override (ADR-0083).
-    instructions: str = ""
     roles: list[RoleAssignment] = Field(default_factory=list)
     # One or more paired humans; exactly one carries the `owner` role.
     humans: list[HumanCounterpart] = Field(default_factory=list)
@@ -1353,11 +1365,8 @@ class AgentSpec(BaseModel):
     #: allowed in, and the intersection is the answer. An agent holding a
     #: capability no environment of its own admits is refused.
     environments: list[EnvironmentOverride] = Field(default_factory=list)
-    capabilities: list[str] = Field(default_factory=list)
-    knowledge: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
     plugins: list[str] = Field(default_factory=list)
-    tools: list[str] = Field(default_factory=list)
     # Tool-shaped workers this agent may call (ADR-0027).
     subagents: list[SubAgentSpec] = Field(default_factory=list)
     # External agents this agent may reach (ADR-0030).
@@ -1368,8 +1377,6 @@ class AgentSpec(BaseModel):
     # Where large intermediate material goes (ADR-0036).
     artifact_store: Optional[str] = None
     context: Optional[ContextPolicy] = None
-    # What this agent must return, when it must return something checkable.
-    output_contract: Optional[str] = None
     # Which models this agent may run on (ADR-0040).
     model_policy: Optional[ModelPolicy] = None
     workflows: list[str] = Field(default_factory=list)
@@ -1560,13 +1567,87 @@ class TriggerSpec(BaseModel):
     failure: FailurePolicy = Field(default_factory=FailurePolicy)
 
 
+class ActivityNodeKind(str, Enum):
+    """A workflow step, as the UML ActivityNode it is (ADR-0102)."""
+
+    TOOL = "tool"            # CallOperationAction on a «Tool»
+    AGENT = "agent"          # CallBehaviorAction invoking an «Agent»
+    WORKFLOW = "workflow"    # CallBehaviorAction invoking another «Workflow»
+    TRANSFORM = "transform"  # OpaqueAction: an expression over the state
+    BRANCH = "branch"        # DecisionNode
+    HUMAN = "human"          # AcceptEventAction: waits for a person
+
+
+class _AsWritten(BaseModel):
+    """Dumps only what the author wrote, so a typed graph serialises to the
+    same document it was read from — the runtime and compiler read it as
+    such, and a typed field that added a dozen empty keys to every step would
+    change every digest taken of it."""
+
+    model_config = {"extra": "allow", "populate_by_name": True}
+
+    @model_serializer(mode="wrap")
+    def _as_written(self, handler: Any) -> Any:
+        full = handler(self)
+        out = {}
+        for name, field in type(self).model_fields.items():
+            if name not in self.model_fields_set:
+                continue
+            value = full.get(name, full.get(field.alias or name))
+            out[field.alias or name] = value
+        for name in (self.__pydantic_extra__ or {}):
+            out[name] = full.get(name)
+        return out
+
+
+class ActivityNode(_AsWritten):
+    """One step of a workflow. The field it references depends on its kind:
+    `tool`, `agent` or `workflow`."""
+
+    id: str
+    kind: ActivityNodeKind
+    tool: str = ""
+    agent: str = ""
+    workflow: str = ""
+    expr: str = ""
+    args: dict[str, Any] = Field(default_factory=dict)
+    output: str = ""
+    cases: Any = None
+    default: str = ""
+
+
+class ControlFlow(_AsWritten):
+    """An edge between two steps; `END` is the ActivityFinalNode."""
+
+    source: str = Field(alias="from")
+    target: str = Field(alias="to")
+
+
+class ActivityGraph(_AsWritten):
+    """A workflow's steps and the flow between them. `entry` is where the
+    InitialNode leads."""
+
+    entry: str = ""
+    nodes: list[ActivityNode] = Field(default_factory=list)
+    edges: list[ControlFlow] = Field(default_factory=list)
+
+    # The graph is read as a document by the runtime and the compiler.
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.model_dump(by_alias=True).get(key, default)
+
+    def __bool__(self) -> bool:
+        return bool(self.model_fields_set or self.__pydantic_extra__)
+
+
 class WorkflowSpec(BaseModel):
-    """A declarative process graph (see `orgagents.workflows`)."""
+    """A declarative process graph (see `orgagents.workflows`): a UML
+    Activity whose nodes are actions calling tools, agents and other
+    workflows (ADR-0102)."""
 
     id: str
     name: str = ""
     description: str = ""
-    graph: dict[str, Any] = Field(default_factory=dict)
+    graph: ActivityGraph = Field(default_factory=ActivityGraph)
     interrupt_before: list[str] = Field(default_factory=list)
     inputs: dict[str, Any] = Field(default_factory=dict)
 

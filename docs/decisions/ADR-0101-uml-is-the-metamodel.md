@@ -145,7 +145,7 @@ diagram`, rendered with PlantUML) and a test fails when they fall behind the
 code.
 
 ### Known gaps
-- A Policy's `subjects` and `resources` are patterns, not references, so a
+- ~~A Policy's `subjects` and `resources` are patterns~~ — typed ends since ADR-0102; a
   Policy constrains no modelled element; typing them is a spec change of its
   own.
 - A Workflow's `graph` is free-form, so its steps are not yet UML Actions that

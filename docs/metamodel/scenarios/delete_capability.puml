@@ -1,0 +1,20 @@
+@startuml delete_capability
+!pragma layout smetana
+title Delete a capability that a role still grants
+object "ops_lead : Agent" as agent_ops_lead
+object "payer : Role" as role_payer
+object "acme : Organization" as organization_acme {
+  leader = ceo
+}
+object "secure : Environment" as environment_secure
+object "ops : Team" as team_ops {
+  leader = ops_lead
+}
+object "analyst : Agent" as agent_analyst
+organization_acme *-- role_payer : owns
+agent_ops_lead ..> environment_secure : runs in
+agent_ops_lead --> role_payer : plays
+team_ops *-- agent_ops_lead : member
+team_ops --> agent_ops_lead : leads
+agent_ops_lead --> agent_analyst : delegate
+@enduml

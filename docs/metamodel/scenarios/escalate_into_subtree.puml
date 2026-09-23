@@ -1,0 +1,27 @@
+@startuml escalate_into_subtree
+!pragma layout smetana
+title A unit escalating to its own sub-team
+object "ops : Team" as team_ops {
+  leader = ops_lead
+}
+object "ap : Team" as team_ap {
+  leader = clerk
+}
+object "acme : Organization" as organization_acme {
+  leader = ceo
+}
+object "ops_lead : Agent" as agent_ops_lead
+object "analyst : Agent" as agent_analyst
+object "clerk : Agent" as agent_clerk
+object "risk : Team" as team_risk {
+  leader = risk_lead
+}
+organization_acme *-- team_ops : contains
+team_ops *-- team_ap : contains
+team_ops *-- agent_ops_lead : member
+team_ops *-- agent_analyst : member
+team_ops --> agent_ops_lead : leads
+team_ap *-- agent_clerk : member
+team_ap --> agent_clerk : leads
+team_risk --> team_ops : oversees
+@enduml

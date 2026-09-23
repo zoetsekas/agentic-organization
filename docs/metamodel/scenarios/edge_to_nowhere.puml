@@ -1,0 +1,13 @@
+@startuml edge_to_nowhere
+!pragma layout smetana
+title A workflow edge to a step that does not exist
+object "month_end : Workflow" as workflow_month_end
+object "acme : Organization" as organization_acme {
+  leader = ceo
+}
+object "reconcile : Action" as action_reconcile
+object "lookup : Action" as action_lookup
+organization_acme *-- workflow_month_end : owns
+workflow_month_end *-- action_reconcile : step
+workflow_month_end *-- action_lookup : step
+@enduml

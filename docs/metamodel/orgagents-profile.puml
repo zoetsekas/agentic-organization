@@ -4,6 +4,7 @@ hide empty members
 left to right direction
 title OrgAgents profile — stereotypes extending UML metaclasses
 
+class "Action" as MC_ACTION <<metaclass>>
 class "Activity" as MC_ACTIVITY <<metaclass>>
 class "Actor" as MC_ACTOR <<metaclass>>
 class "Artifact" as MC_ARTIFACT <<metaclass>>
@@ -12,6 +13,7 @@ class "Class {isActive}" as MC_ACTIVE_CLASS <<metaclass>>
 class "Comment" as MC_COMMENT <<metaclass>>
 class "Component" as MC_COMPONENT <<metaclass>>
 class "Constraint" as MC_CONSTRAINT <<metaclass>>
+class "ControlFlow" as MC_CONTROL_FLOW <<metaclass>>
 class "DataType" as MC_DATA_TYPE <<metaclass>>
 class "Event" as MC_EVENT <<metaclass>>
 class "ExecutionEnvironment" as MC_EXECUTION_ENVIRONMENT <<metaclass>>
@@ -27,6 +29,20 @@ class "Agent" as ST_agent <<stereotype>>
 ST_agent --|> MC_ACTIVE_CLASS : <<extends>>
 class "SubAgent" as ST_subagent <<stereotype>>
 ST_subagent --|> MC_CLASS : <<extends>>
+class "Worker" as ST_worker <<stereotype>>
+ST_worker --|> MC_CLASS : <<extends>>
+class "Principal" as ST_principal <<stereotype>>
+ST_principal --|> MC_INTERFACE : <<extends>>
+class "Resource" as ST_resource <<stereotype>>
+ST_resource --|> MC_INTERFACE : <<extends>>
+class "Callable" as ST_callable <<stereotype>>
+ST_callable --|> MC_INTERFACE : <<extends>>
+class "Wrappable" as ST_wrappable <<stereotype>>
+ST_wrappable --|> MC_INTERFACE : <<extends>>
+class "Action" as ST_action <<stereotype>>
+ST_action --|> MC_ACTION : <<extends>>
+class "ControlFlow" as ST_control_flow <<stereotype>>
+ST_control_flow --|> MC_CONTROL_FLOW : <<extends>>
 class "Skill" as ST_skill <<stereotype>>
 ST_skill --|> MC_ARTIFACT : <<extends>>
 class "Plugin" as ST_plugin <<stereotype>>

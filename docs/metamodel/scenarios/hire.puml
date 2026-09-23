@@ -1,0 +1,26 @@
+@startuml hire
+!pragma layout smetana
+title Hire an agent into a team
+object "analyst_2 : Agent" as agent_analyst_2
+object "ops : Team" as team_ops {
+  leader = ops_lead
+}
+object "acme : Organization" as organization_acme {
+  leader = ceo
+}
+object "ap : Team" as team_ap {
+  leader = clerk
+}
+object "ops_lead : Agent" as agent_ops_lead
+object "analyst : Agent" as agent_analyst
+object "risk : Team" as team_risk {
+  leader = risk_lead
+}
+organization_acme *-- team_ops : contains
+team_ops *-- team_ap : contains
+team_ops *-- agent_ops_lead : member
+team_ops *-- agent_analyst : member
+team_ops *-- agent_analyst_2 : member
+team_ops --> agent_ops_lead : leads
+team_risk --> team_ops : oversees
+@enduml

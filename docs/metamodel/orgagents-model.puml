@@ -9,6 +9,13 @@ package "<<System>> Model" as SystemModel {
   class Team <<Team>>
   class Agent <<Agent>> <<active>>
   class Subagent <<SubAgent>>
+  abstract class Worker <<Worker>>
+  interface Principal <<Principal>>
+  interface Resource <<Resource>>
+  interface Callable <<Callable>>
+  interface Wrappable <<Wrappable>>
+  class Action <<Action>>
+  class ControlFlow <<ControlFlow>>
   class Skill <<Skill>>
   class Plugin <<Plugin>>
   interface Tool <<Tool>>
@@ -70,18 +77,20 @@ package "<<System>> Model" as SystemModel {
 }
 
 Organization --|> Team
+Agent --|> Worker
+Subagent --|> Worker
 Team "0..1" *-- "0..*" Team : contains >
 Team "1" *-- "0..*" Agent : member >
 Agent "1" *-- "0..*" Subagent : uses >
 Agent ..> Environment : <<deploy>> [environments]
 (Agent, Environment) .. EnvironmentOverride
-Agent "0..*" --> "0..*" Knowledge : consults [knowledge]
-Agent ..|> Capability : provides [capabilities]
+Worker "0..*" --> "0..*" Knowledge : consults [knowledge]
+Worker ..|> Capability : provides [capabilities]
 Agent "0..*" --> "0..*" Role : plays [roles]
 (Agent, Role) .. RoleAssignment
 Agent "0..*" --> "0..*" Skill : holds [skills]
 Agent "0..*" --> "0..*" Plugin : holds [plugins]
-Agent ..> Tool : <<use>> holds [tools]
+Worker ..> Tool : <<use>> holds [tools]
 Agent ..> Endpoint : <<use>> calls [endpoints]
 Agent ..> Workflow : <<use>> runs [workflows]
 Agent "0..*" --> "0..*" DataClass : produces [produces_data]
@@ -90,7 +99,7 @@ Agent "0..*" --> "0..*" DataClass : relies on [data_dependencies]
 Agent "0..*" --> "0..*" Person : paired with [humans]
 (Agent, Person) .. HumanCounterpart
 Agent "0..*" --> "0..*" Guardrail : guarded by [guardrails]
-Agent "0..*" --> "0..1" OutputContract : returns [output_contract]
+Worker "0..*" --> "0..1" OutputContract : returns [output_contract]
 Agent "0..*" --> "0..1" Agent : successor [successor]
 Team "0..1" --> "0..1" Agent : leads [leader] {subsets members}
 Agent "0..*" --> "0..*" Agent : flow [interaction_flows]
@@ -113,6 +122,31 @@ Separation "0..*" --> "2..*" Decision : keeps apart [decisions]
 Evaluation "0..*" --> "0..*" Agent : evaluates [applies_to]
 Channel "0..*" --> "0..*" Agent : includes [members]
 Mission "0..*" --> "0..*" Agent : includes [members]
-Subagent ..|> Capability : provides [capabilities]
-Subagent "0..*" --> "0..*" Knowledge : consults [knowledge]
+Subagent ..> Environment : <<deploy>> [environments] {subsets parent.environments}
+Capability ..|> Wrappable
+Subagent ..|> Wrappable
+Workflow ..|> Wrappable
+Endpoint ..|> Wrappable
+Tool "0..*" --> "1" Wrappable : wraps [wraps] {kind given by wraps_kind}
+Agent ..|> Principal
+Team ..|> Principal
+Role ..|> Principal
+DataClass ..|> Resource
+Capability ..|> Resource
+Agent ..|> Resource
+Team ..|> Resource
+Workflow ..|> Resource
+Environment ..|> Resource
+Channel ..|> Resource
+Policy "0..*" --> "0..*" Principal : applies to [subjects] {'*' = every principal}
+Policy "0..*" --> "0..*" Resource : governs [resources] {kind given by resource_kinds; '*' = every}
+Workflow "1" *-- "0..*" Action : step >
+Workflow "1" *-- "0..*" ControlFlow : edge >
+ControlFlow "0..*" --> "1" Action : from [source]
+ControlFlow "0..*" --> "0..1" Action : to [target] {'END' = the ActivityFinalNode}
+Tool ..|> Callable
+Capability ..|> Callable
+Action ..> Callable : <<use>> calls [tool] {kind = tool; 'c__op' = operation op of c}
+Action "0..*" --> "0..1" Agent : delegates to [agent] {kind = agent}
+Action "0..*" --> "0..1" Workflow : invokes [workflow] {kind = workflow}
 @enduml

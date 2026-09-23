@@ -8,6 +8,13 @@ class Organization <<Organization>>
 class Team <<Team>>
 class Agent <<Agent>>
 class Subagent <<SubAgent>>
+class Worker <<Worker>>
+class Principal <<Principal>>
+class Resource <<Resource>>
+class Callable <<Callable>>
+class Wrappable <<Wrappable>>
+class Action <<Action>>
+class ControlFlow <<ControlFlow>>
 class Skill <<Skill>>
 class Plugin <<Plugin>>
 class Tool <<Tool>>
@@ -31,9 +38,13 @@ class OutputContract <<OutputContract>>
 class Evaluation <<Evaluation>>
 class System <<System>>
 Organization --|> Team
+Agent --|> Worker
+Subagent --|> Worker
 Team "0..1" *-- "0..*" Team : teams
 Team "1" *-- "0..*" Agent : members
 Agent "1" *-- "0..*" Subagent : subagents
+Workflow "1" *-- "0..*" Action : graph.nodes
+Workflow "1" *-- "0..*" ControlFlow : graph.edges
 System "1" *-- "1" Organization : organization
 Organization "1" *-- "0..*" Skill : skills
 Organization "1" *-- "0..*" Plugin : plugins

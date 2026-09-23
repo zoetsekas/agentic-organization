@@ -1,0 +1,17 @@
+@startuml delete_called_tool
+!pragma layout smetana
+title Delete a tool a workflow step calls
+object "ledger_lookup : Tool" as tool_ledger_lookup
+object "month_end : Workflow" as workflow_month_end
+object "acme : Organization" as organization_acme {
+  leader = ceo
+}
+object "read_ledger : Capability" as capability_read_ledger
+object "reconcile : Action" as action_reconcile
+object "lookup : Action" as action_lookup
+organization_acme *-- tool_ledger_lookup : owns
+organization_acme *-- workflow_month_end : owns
+tool_ledger_lookup --> capability_read_ledger : wraps
+workflow_month_end *-- action_reconcile : step
+workflow_month_end *-- action_lookup : step
+@enduml

@@ -1,0 +1,21 @@
+@startuml policy
+!pragma layout smetana
+title A policy about a role, and one about nobody
+object "payer : Role" as role_payer
+object "no_ledger_for_payers : Policy" as policy_no_ledger_for_payers
+object "ledger : DataClass" as data_class_ledger
+object "acme : Organization" as organization_acme {
+  leader = ceo
+}
+object "ops_lead : Agent" as agent_ops_lead
+object "pay_supplier : Capability" as capability_pay_supplier
+object "read_ledger : Capability" as capability_read_ledger
+organization_acme *-- role_payer : owns
+organization_acme *-- policy_no_ledger_for_payers : owns
+organization_acme *-- data_class_ledger : owns
+agent_ops_lead --> role_payer : plays
+role_payer --> capability_pay_supplier : grants
+policy_no_ledger_for_payers --> role_payer : applies to
+policy_no_ledger_for_payers --> data_class_ledger : governs
+capability_read_ledger --> data_class_ledger : reaches
+@enduml

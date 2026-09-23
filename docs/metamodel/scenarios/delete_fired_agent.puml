@@ -1,0 +1,26 @@
+@startuml delete_fired_agent
+!pragma layout smetana
+title Delete an agent a trigger must fire
+object "analyst : Agent" as agent_analyst
+object "month_end : Workflow" as workflow_month_end
+object "acme : Organization" as organization_acme {
+  leader = ceo
+}
+object "sandbox : Environment" as environment_sandbox
+object "handbook : Knowledge" as knowledge_handbook
+object "read_ledger : Capability" as capability_read_ledger
+object "ops : Team" as team_ops {
+  leader = ops_lead
+}
+object "reconcile : Action" as action_reconcile
+object "lookup : Action" as action_lookup
+object "ops_lead : Agent" as agent_ops_lead
+organization_acme *-- workflow_month_end : owns
+agent_analyst ..> environment_sandbox : runs in
+agent_analyst --> knowledge_handbook : consults
+agent_analyst ..> capability_read_ledger : provides
+team_ops *-- agent_analyst : member
+workflow_month_end *-- action_reconcile : step
+workflow_month_end *-- action_lookup : step
+agent_ops_lead --> agent_analyst : delegate
+@enduml

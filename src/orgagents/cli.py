@@ -1019,9 +1019,14 @@ def main(argv: list[str] | None = None) -> int:
     p_mm = sub.add_parser(
         "metamodel", help="print the UML metamodel (ADR-0101) as PlantUML, or "
                           "regenerate docs/metamodel")
-    p_mm.add_argument("action", choices=["model", "profile", "diagram"],
+    p_mm.add_argument("action", choices=["model", "profile", "diagram",
+                                         "check", "scenarios"],
                       help="model/profile: print PlantUML; diagram: write "
-                           "docs/metamodel/*.puml")
+                           "docs/metamodel/*.puml; check: validate a spec "
+                           "against the model's constraints; scenarios: play "
+                           "and write docs/metamodel/scenarios")
+    p_mm.add_argument("spec", nargs="?", default="",
+                      help="for 'check': the spec file")
     p_mm.add_argument("--out", default="docs/metamodel")
 
     args = parser.parse_args(argv)
@@ -1033,6 +1038,31 @@ def main(argv: list[str] | None = None) -> int:
             print(to_plantuml(), end="")
         elif args.action == "profile":
             print(to_plantuml_profile(), end="")
+        elif args.action == "check":
+            from .metamodel.constraints import check
+            from .spec.loader import load_spec
+            found = check(load_spec(args.spec))
+            for v in found:
+                print(v)
+            print(f"{len(found)} violation(s)")
+            return 1 if found else 0
+        elif args.action == "scenarios":
+            from .metamodel.scenarios import (SCENARIOS, catalogue, play,
+                                              to_object_diagram)
+            out = Path(args.out)
+            (out / "scenarios").mkdir(parents=True, exist_ok=True)
+            failed = 0
+            for sc in SCENARIOS:
+                played = play(sc)
+                failed += bool(played.failures)
+                (out / "scenarios" / f"{sc.id}.puml").write_text(
+                    to_object_diagram(played))
+                for f in played.failures:
+                    print(f"{sc.id}: {f}")
+            (out / "scenarios.md").write_text(catalogue())
+            print(f"{len(SCENARIOS) - failed}/{len(SCENARIOS)} scenarios hold;"
+                  f" wrote {out}/scenarios.md and scenarios/*.puml")
+            return 1 if failed else 0
         else:
             out = Path(args.out)
             out.mkdir(parents=True, exist_ok=True)

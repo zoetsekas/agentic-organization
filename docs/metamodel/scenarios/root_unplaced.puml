@@ -1,0 +1,7 @@
+@startuml root_unplaced
+!pragma layout smetana
+title Stop the organisation being a placement boundary
+object "acme : Organization" as organization_acme {
+  leader = ceo
+}
+@enduml

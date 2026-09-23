@@ -1,0 +1,28 @@
+@startuml deploy
+!pragma layout smetana
+title Deploy an agent into a second environment, then undeploy
+object "analyst : Agent" as agent_analyst
+object "sandbox : Environment" as environment_sandbox
+object "secure : Environment" as environment_secure
+object "acme : Organization" as organization_acme {
+  leader = ceo
+}
+object "ceo : Agent" as agent_ceo
+object "ops_lead : Agent" as agent_ops_lead
+object "handbook : Knowledge" as knowledge_handbook
+object "read_ledger : Capability" as capability_read_ledger
+object "ops : Team" as team_ops {
+  leader = ops_lead
+}
+object "nightly : Trigger" as trigger_nightly
+organization_acme *-- environment_sandbox : owns
+organization_acme *-- environment_secure : owns
+agent_ceo ..> environment_secure : runs in
+agent_ops_lead ..> environment_secure : runs in
+agent_analyst ..> environment_secure : runs in\n{network: none}
+agent_analyst --> knowledge_handbook : consults
+agent_analyst ..> capability_read_ledger : provides
+team_ops *-- agent_analyst : member
+trigger_nightly --> agent_analyst : fires
+agent_ops_lead --> agent_analyst : delegate
+@enduml

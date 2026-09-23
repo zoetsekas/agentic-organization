@@ -1,0 +1,13 @@
+@startuml separation_of_one
+!pragma layout smetana
+title A separation that keeps one decision apart
+object "four_eyes : Separation" as separation_four_eyes
+object "acme : Organization" as organization_acme {
+  leader = ceo
+}
+object "approve_payment : Decision" as decision_approve_payment
+object "release_payment : Decision" as decision_release_payment
+organization_acme *-- separation_four_eyes : owns
+separation_four_eyes --> decision_approve_payment : keeps apart
+separation_four_eyes --> decision_release_payment : keeps apart
+@enduml

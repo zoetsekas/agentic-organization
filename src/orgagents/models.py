@@ -15,7 +15,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .ids import new_id, now_iso
 
@@ -348,6 +348,13 @@ class WorkflowRef(BaseModel):
     entrypoint: str = ""
     graph: Optional[dict[str, Any]] = None
     input_schema: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("graph", mode="before")
+    @classmethod
+    def _graph_as_document(cls, v: Any) -> Any:
+        # The spec types a graph as a UML Activity (ADR-0102); the runtime
+        # reads it as the document it was written as.
+        return v.model_dump() if isinstance(v, BaseModel) else v
     checkpointer: Literal["memory", "postgres", "sqlite"] = "sqlite"
     interrupt_before: list[str] = Field(default_factory=list)
 

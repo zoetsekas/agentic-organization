@@ -1,0 +1,11 @@
+@startuml delete_agent
+!pragma layout smetana
+title Delete an agent nothing requires
+object "ap : Team" as team_ap {
+  leader = —
+}
+object "ops : Team" as team_ops {
+  leader = ops_lead
+}
+team_ops *-- team_ap : contains
+@enduml

@@ -1,0 +1,32 @@
+@startuml move_leader
+!pragma layout smetana
+title Move a team's leader out
+object "ops_lead : Agent" as agent_ops_lead
+object "ops : Team" as team_ops {
+  leader = —
+}
+object "risk : Team" as team_risk {
+  leader = risk_lead
+}
+object "acme : Organization" as organization_acme {
+  leader = ceo
+}
+object "secure : Environment" as environment_secure
+object "payer : Role" as role_payer
+object "ap : Team" as team_ap {
+  leader = clerk
+}
+object "analyst : Agent" as agent_analyst
+object "risk_lead : Agent" as agent_risk_lead
+organization_acme *-- team_ops : contains
+organization_acme *-- team_risk : contains
+agent_ops_lead ..> environment_secure : runs in
+agent_ops_lead --> role_payer : plays
+team_ops *-- team_ap : contains
+team_ops *-- agent_analyst : member
+team_risk *-- agent_risk_lead : member
+team_risk *-- agent_ops_lead : member
+team_risk --> agent_risk_lead : leads
+agent_ops_lead --> agent_analyst : delegate
+team_risk --> team_ops : oversees
+@enduml

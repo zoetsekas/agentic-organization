@@ -46,7 +46,12 @@ def test_every_relationship_names_a_field_the_spec_has(rel):
     """The check that keeps the metamodel honest."""
     from orgagents.metamodel import RelKind
     if rel.kind is RelKind.GENERALIZATION:
+        # A specialisation is a subclass in the spec, not a field.
         assert issubclass(_model(rel.source), _model(rel.target))
+        return
+    if rel.kind is RelKind.REALIZATION and not rel.field:
+        # Realising an interface (Principal, Resource, Tool) is structural:
+        # nothing is stored, the kind simply may stand where it is asked for.
         return
     if rel.shape is Shape.RECORD:
         assert rel.field in spec_model.Organization.model_fields
@@ -183,3 +188,39 @@ def test_each_system_has_exactly_one_organization_as_its_root():
     assert not [r for r in PROFILE.relationships
                 if r.target == "organization" and r.source != "system"], \
         "nothing but the System owns or contains the organisation"
+
+
+def test_a_subagent_is_not_an_agent_and_both_are_workers():
+    """ADR-0102: neither specialises the other; both specialise Worker."""
+    from orgagents.spec.model import AgentSpec, SubAgentSpec, Worker
+    assert not issubclass(SubAgentSpec, AgentSpec)
+    assert not issubclass(AgentSpec, SubAgentSpec)
+    assert issubclass(AgentSpec, Worker) and issubclass(SubAgentSpec, Worker)
+    assert PROFILE.stereotype("worker").abstract
+
+
+def test_what_a_worker_has_both_kinds_have():
+    """A Worker relationship is inherited by each concrete kind."""
+    rules = {(r["source"], r["target"], r["field"]) for r in link_rules()}
+    for kind in ("agent", "subagent"):
+        assert (kind, "knowledge", "knowledge") in rules
+        assert (kind, "capability", "capabilities") in rules
+        assert (kind, "tool", "tools") in rules
+    assert not [r for r in link_rules() if r["source"] == "worker"]
+
+
+def test_a_policy_is_about_principals_and_governs_resources():
+    from orgagents.metamodel import specialisations
+    # An Organization is a Team, so it may stand wherever a Team may.
+    assert set(specialisations("principal")) == {"agent", "team",
+                                                 "organization", "role"}
+    assert set(specialisations("resource")) == {
+        "data_class", "capability", "agent", "team", "organization",
+        "workflow", "environment", "channel"}
+
+
+def test_a_workflow_is_an_activity_whose_actions_reference_the_model():
+    from orgagents.spec.model import ActivityNodeKind
+    fields = {r.field for r in PROFILE.relationships if r.source == "action"}
+    assert fields == {"tool", "agent", "workflow"}
+    assert {k.value for k in ActivityNodeKind} >= {"tool", "agent", "workflow"}

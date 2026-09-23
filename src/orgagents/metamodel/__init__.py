@@ -64,6 +64,11 @@ class MetaClass(str, Enum):
     ASSOCIATION_CLASS = "AssociationClass"
     #: The configuration of one Deployment (UML 19.3): a sandbox override.
     DEPLOYMENT_SPECIFICATION = "DeploymentSpecification"
+    #: A step of an Activity that does something: calls a tool, an agent, a
+    #: workflow, evaluates an expression, or waits for a person.
+    ACTION = "Action"
+    #: An edge of an Activity: control passes from one node to the next.
+    CONTROL_FLOW = "ControlFlow"
 
 
 class RelKind(str, Enum):
@@ -135,6 +140,9 @@ class Stereotype:
     #: The spec model class, by name, whose fields relationships may name.
     model: str = ""
     doc: str = ""
+    #: `{isAbstract}`: never instantiated itself, only through a
+    #: specialisation (Worker) or a realisation (Principal, Resource).
+    abstract: bool = False
 
 
 @dataclass(frozen=True)
@@ -214,6 +222,26 @@ STEREOTYPES = [
       "An active class: it has its own thread of control."),
     S("SubAgent", "subagent", MC.CLASS, "", "SubAgentSpec",
       "A tool-shaped worker owned by the agent that calls it (ADR-0027)."),
+    S("Worker", "worker", MC.CLASS, "", "Worker",
+      "What an agent and a sub-agent share. Neither is a kind of the other "
+      "(ADR-0102).", abstract=True),
+    S("Principal", "principal", MC.INTERFACE, "", "",
+      "Anything a policy can be about: an agent, a team, a role.",
+      abstract=True),
+    S("Resource", "resource", MC.INTERFACE, "", "",
+      "Anything a permission or policy can govern (ADR-0008).",
+      abstract=True),
+    S("Callable", "callable", MC.INTERFACE, "", "",
+      "Anything a workflow step may call as a tool: a declared Tool, or a "
+      "Capability (and its operations, `capability__operation`).",
+      abstract=True),
+    S("Wrappable", "wrappable", MC.INTERFACE, "", "",
+      "What a Tool may wrap: a Capability, a SubAgent, a Workflow or an "
+      "Endpoint (ADR-0029).", abstract=True),
+    S("Action", "action", MC.ACTION, "", "ActivityNode",
+      "A step of a workflow (ADR-0102)."),
+    S("ControlFlow", "control_flow", MC.CONTROL_FLOW, "", "ControlFlow",
+      "An edge between two steps of a workflow."),
     S("Skill", "skill", MC.ARTIFACT, "skills", "SkillSpec"),
     S("Plugin", "plugin", MC.COMPONENT, "plugins", "PluginSpec"),
     S("Tool", "tool", MC.INTERFACE, "tools", "ToolSpec"),
@@ -248,7 +276,9 @@ STEREOTYPES = [
 ]
 
 #: Stereotypes that are not palette kinds.
-NON_PALETTE = {"system", "organization"}
+NON_PALETTE = {"system", "organization", "worker", "principal", "resource",
+               "callable", "wrappable",
+               "action", "control_flow"}
 
 R = Relationship
 K = RelKind
@@ -261,6 +291,10 @@ RELATIONSHIPS = [
       linkable=False, draw=Draw.NONE,
       help="an Organization is a Team: it has a leader, members and "
            "sub-teams, and is the one unit with no parent"),
+    R("agent", "worker", K.GENERALIZATION, "", "", SH.REF,
+      linkable=False, draw=Draw.NONE),
+    R("subagent", "worker", K.GENERALIZATION, "", "", SH.REF,
+      linkable=False, draw=Draw.NONE),
 
     R("team", "team", K.COMPOSITION, "contains", "teams", SH.PART,
       source_mult="0..1", legacy="contains",
@@ -282,10 +316,10 @@ RELATIONSHIPS = [
            "(ADR-0082). Drop an agent into an environment's box to deploy it"),
 
     # -- associations an agent owns -----------------------------------------
-    R("agent", "knowledge", K.ASSOCIATION, "consults", "knowledge", SH.REFS,
-      help="grounding material this agent may consult"),
-    R("agent", "capability", K.REALIZATION, "provides", "capabilities",
-      SH.REFS, help="what this agent may do"),
+    R("worker", "knowledge", K.ASSOCIATION, "consults", "knowledge", SH.REFS,
+      help="grounding material this worker may consult"),
+    R("worker", "capability", K.REALIZATION, "provides", "capabilities",
+      SH.REFS, help="what this worker may do"),
     R("agent", "role", K.ASSOCIATION, "plays", "roles", SH.REF_OBJECTS,
       key="role", association_class="RoleAssignment", help="a role and the capabilities it grants"),
     R("agent", "skill", K.ASSOCIATION, "holds", "skills", SH.REFS,
@@ -295,7 +329,7 @@ RELATIONSHIPS = [
     R("agent", "plugin", K.ASSOCIATION, "holds", "plugins", SH.REFS,
       draw=Draw.INLINE, legacy="holds",
       help="a packaged extension this agent loads"),
-    R("agent", "tool", K.USAGE, "holds", "tools", SH.REFS,
+    R("worker", "tool", K.USAGE, "holds", "tools", SH.REFS,
       draw=Draw.INLINE, legacy="holds",
       help="a tool this agent may call. A tool held by one agent is drawn "
            "inside it; one held by several is drawn shared"),
@@ -312,7 +346,7 @@ RELATIONSHIPS = [
       SH.REF_OBJECTS, key="person", association_class="HumanCounterpart",
       help="a human counterpart (ADR-0026)"),
     R("agent", "guardrail", K.ASSOCIATION, "guarded by", "guardrails", SH.REFS),
-    R("agent", "output_contract", K.ASSOCIATION, "returns", "output_contract",
+    R("worker", "output_contract", K.ASSOCIATION, "returns", "output_contract",
       SH.REF, target_mult="0..1"),
     R("agent", "agent", K.ASSOCIATION, "successor", "successor", SH.REF,
       target_mult="0..1", linkable=False,
@@ -367,9 +401,54 @@ RELATIONSHIPS = [
     R("evaluation", "agent", K.ASSOCIATION, "evaluates", "applies_to", SH.REFS),
     R("channel", "agent", K.ASSOCIATION, "includes", "members", SH.REFS),
     R("mission", "agent", K.ASSOCIATION, "includes", "members", SH.REFS),
-    R("subagent", "capability", K.REALIZATION, "provides", "capabilities",
-      SH.REFS),
-    R("subagent", "knowledge", K.ASSOCIATION, "consults", "knowledge", SH.REFS),
+    R("subagent", "environment", K.DEPLOYMENT, "runs in", "environments",
+      SH.REFS, draw=Draw.NEST,
+      constraint="{subsets parent.environments}",
+      help="a sandbox this sub-agent runs in; one of its parent's"),
+    # A sub-agent is called like a tool by being *wrapped* by one — not by
+    # being one: `agent.tools` holds Tool ids, never sub-agents (ADR-0027).
+    *[R(k, "wrappable", K.REALIZATION, "", "", SH.REF, linkable=False,
+        draw=Draw.NONE) for k in ("capability", "subagent", "workflow",
+                                  "endpoint")],
+    R("tool", "wrappable", K.ASSOCIATION, "wraps", "wraps", SH.REF,
+      target_mult="1", linkable=False, draw=Draw.NONE,
+      constraint="{kind given by wraps_kind}",
+      help="what the tool names and narrows (ADR-0029)"),
+
+    # -- what a policy is about (ADR-0008) ------------------------------------
+    *[R(k, "principal", K.REALIZATION, "", "", SH.REF, linkable=False,
+        draw=Draw.NONE) for k in ("agent", "team", "role")],
+    *[R(k, "resource", K.REALIZATION, "", "", SH.REF, linkable=False,
+        draw=Draw.NONE) for k in ("data_class", "capability", "agent", "team",
+                                  "workflow", "environment", "channel")],
+    R("policy", "principal", K.ASSOCIATION, "applies to", "subjects", SH.REFS,
+      constraint="{'*' = every principal}",
+      help="who the rule is about: agents, teams or roles, by id"),
+    R("policy", "resource", K.ASSOCIATION, "governs", "resources", SH.REFS,
+      constraint="{kind given by resource_kinds; '*' = every}",
+      help="what the rule allows or denies acting on"),
+
+    # -- a workflow is an Activity (ADR-0102) ---------------------------------
+    R("workflow", "action", K.COMPOSITION, "step", "graph.nodes", SH.PART,
+      source_mult="1", linkable=False, draw=Draw.NONE),
+    R("workflow", "control_flow", K.COMPOSITION, "edge", "graph.edges",
+      SH.PART, source_mult="1", linkable=False, draw=Draw.NONE),
+    R("control_flow", "action", K.ASSOCIATION, "from", "source", SH.REF,
+      target_mult="1", linkable=False, draw=Draw.NONE),
+    R("control_flow", "action", K.ASSOCIATION, "to", "target", SH.REF,
+      target_mult="0..1", linkable=False, draw=Draw.NONE,
+      constraint="{'END' = the ActivityFinalNode}"),
+    *[R(k, "callable", K.REALIZATION, "", "", SH.REF, linkable=False,
+        draw=Draw.NONE) for k in ("tool", "capability")],
+    R("action", "callable", K.USAGE, "calls", "tool", SH.REF,
+      target_mult="0..1", linkable=False, draw=Draw.NONE,
+      constraint="{kind = tool; 'c__op' = operation op of c}"),
+    R("action", "agent", K.ASSOCIATION, "delegates to", "agent", SH.REF,
+      target_mult="0..1", linkable=False, draw=Draw.NONE,
+      constraint="{kind = agent}"),
+    R("action", "workflow", K.ASSOCIATION, "invokes", "workflow", SH.REF,
+      target_mult="0..1", linkable=False, draw=Draw.NONE,
+      constraint="{kind = workflow}"),
 ]
 
 # -- ownership: the System owns one Organization, which owns its elements --
@@ -395,6 +474,37 @@ PROFILE = Profile(name="OrgAgents", stereotypes=STEREOTYPES,
 # Projections
 # --------------------------------------------------------------------------
 
+def specialisations(kind: str, profile: Profile = PROFILE) -> list[str]:
+    """The concrete kinds that may stand where `kind` is asked for: itself
+    unless abstract, its specialisations (Team → Organization; Worker →
+    Agent, SubAgent) and, for an interface, its realisers (Principal →
+    Agent, Team, Role). UML substitutability, computed once."""
+    st = profile.stereotype(kind)
+    out: list[str] = [] if (st is not None and st.abstract) else [kind]
+    for r in profile.relationships:
+        if r.target == kind and not r.field and r.kind in (
+                RelKind.GENERALIZATION, RelKind.REALIZATION):
+            out.extend(k for k in specialisations(r.source, profile)
+                       if k not in out)
+    return out
+
+
+def _concrete(profile: Profile) -> list[Relationship]:
+    """Every relationship with its abstract ends replaced by concrete ones:
+    a Worker's `knowledge` is an Agent's and a SubAgent's. This is UML
+    inheritance of association ends, applied once, here."""
+    from dataclasses import replace
+    out = []
+    for r in profile.relationships:
+        if r.kind in (RelKind.GENERALIZATION, RelKind.REALIZATION) \
+                and not r.field:
+            continue
+        for src in specialisations(r.source, profile):
+            for tgt in specialisations(r.target, profile):
+                out.append(replace(r, source=src, target=tgt))
+    return out
+
+
 def link_rules(profile: Profile = PROFILE) -> list[dict[str, Any]]:
     """The designer's link table, derived from the profile.
 
@@ -404,8 +514,8 @@ def link_rules(profile: Profile = PROFILE) -> list[dict[str, Any]]:
     `shape`. `writes` keeps its old form, `<owner kind>.<field>`.
     """
     rules = []
-    for r in profile.relationships:
-        if not r.linkable:
+    for r in _concrete(profile):
+        if not r.linkable or r.source in NON_PALETTE or r.target in NON_PALETTE:
             continue
         rules.append({
             "source": r.source,
@@ -546,6 +656,8 @@ def to_plantuml(profile: Profile = None) -> str:  # type: ignore[assignment]
                                      MetaClass.ACTIVE_CLASS else "")
         kw = {MetaClass.INTERFACE: "interface", MetaClass.ACTOR: "class",
               MetaClass.DATA_TYPE: "class"}.get(s.extends, "class")
+        if s.abstract and kw == "class":
+            kw = "abstract class"
         out.append(f"  {kw} {_cls(s.kind)} {stereo}")
     for r in p.relationships:
         if r.association_class:
@@ -572,7 +684,8 @@ def to_plantuml(profile: Profile = None) -> str:  # type: ignore[assignment]
         if r.kind is RelKind.COMPOSITION:
             line = f"{a} {sm} *-- {tm} {b} : {r.stereotype} >"
         elif r.kind is RelKind.REALIZATION:
-            line = f"{a} ..|> {b} : {r.stereotype} [{role}]"
+            line = (f"{a} ..|> {b} : {r.stereotype} [{role}]" if r.field
+                    else f"{a} ..|> {b}")
         elif r.kind is RelKind.USAGE:
             line = f"{a} ..> {b} : <<use>> {r.stereotype} [{role}]"
         elif r.kind is RelKind.DEPLOYMENT:

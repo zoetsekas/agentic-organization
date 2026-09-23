@@ -1,0 +1,31 @@
+@startuml subagent_too_wide
+!pragma layout smetana
+title Give a sub-agent more than its parent has
+object "analyst : Agent" as agent_analyst
+object "pay_supplier : Capability" as capability_pay_supplier
+object "secure : Environment" as environment_secure
+object "acme : Organization" as organization_acme {
+  leader = ceo
+}
+object "ceo : Agent" as agent_ceo
+object "ops_lead : Agent" as agent_ops_lead
+object "sandbox : Environment" as environment_sandbox
+object "handbook : Knowledge" as knowledge_handbook
+object "read_ledger : Capability" as capability_read_ledger
+object "ops : Team" as team_ops {
+  leader = ops_lead
+}
+object "payer : Role" as role_payer
+object "nightly : Trigger" as trigger_nightly
+organization_acme *-- capability_pay_supplier : owns
+organization_acme *-- environment_secure : owns
+agent_ceo ..> environment_secure : runs in
+agent_ops_lead ..> environment_secure : runs in
+agent_analyst ..> environment_sandbox : runs in
+agent_analyst --> knowledge_handbook : consults
+agent_analyst ..> capability_read_ledger : provides
+team_ops *-- agent_analyst : member
+role_payer --> capability_pay_supplier : grants
+trigger_nightly --> agent_analyst : fires
+agent_ops_lead --> agent_analyst : delegate
+@enduml

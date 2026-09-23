@@ -1,0 +1,27 @@
+@startuml subagent_through_role
+!pragma layout smetana
+title A sub-agent may use what its parent's role grants
+object "ops_lead : Agent" as agent_ops_lead
+object "remitter : SubAgent" as subagent_remitter {
+  capabilities = ['pay_supplier']
+}
+object "payer : Role" as role_payer
+object "acme : Organization" as organization_acme {
+  leader = ceo
+}
+object "secure : Environment" as environment_secure
+object "ops : Team" as team_ops {
+  leader = ops_lead
+}
+object "pay_supplier : Capability" as capability_pay_supplier
+object "analyst : Agent" as agent_analyst
+organization_acme *-- role_payer : owns
+agent_ops_lead *-- subagent_remitter : uses
+agent_ops_lead ..> environment_secure : runs in
+agent_ops_lead --> role_payer : plays
+team_ops *-- agent_ops_lead : member
+team_ops --> agent_ops_lead : leads
+subagent_remitter ..> capability_pay_supplier : provides
+role_payer --> capability_pay_supplier : grants
+agent_ops_lead --> agent_analyst : delegate
+@enduml

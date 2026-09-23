@@ -778,6 +778,22 @@ organization:
       input_schema: {metric: string, period: string}
       output_schema: {value: number, source_tables: array}
       constraints: {max_rows: 100, allowed_operations: [select]}
+    # The two steps of `answer_question` that are not operations of the
+    # warehouse itself. Declared so the workflow calls nothing the model does
+    # not know (ADR-0102).
+    - id: draft_query
+      description: Draft a read-only query for a question over the listed tables.
+      wraps_kind: capability
+      wraps: warehouse_query
+      input_schema: {question: string, tables: array}
+      output_schema: {query: string}
+      constraints: {allowed_operations: [select]}
+    - id: summarize_rows
+      description: Summarise query rows into a short answer.
+      wraps_kind: capability
+      wraps: warehouse_query
+      input_schema: {rows: array}
+      output_schema: {answer: string}
     - id: ask_market_research
       description: Ask the external market-research desk a question.
       wraps_kind: endpoint
