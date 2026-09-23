@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -1258,6 +1258,41 @@ def create_app(
             raise HTTPException(409, str(e)) from e
         payload = result.to_dict()
         return {"changes": payload["changes"], "summary": payload["summary"]}
+
+    @app.post("/api/designer/layout")
+    def designer_layout(body: dict = Body(...)) -> dict:
+        """Place a set of nodes, by algorithm or by what the diagram is.
+
+        Server-side because a layout is a function from a graph to coordinates,
+        which makes "no two nodes overlap" and "a child sits below its parent"
+        assertions rather than opinions (ADR-0100). A layout that ran only in
+        the canvas would be the one part of this platform nothing checked.
+        """
+        from .designer.layout import LayoutEdge, LayoutNode, arrange
+
+        nodes = [
+            LayoutNode(id=str(n["id"]), parent=n.get("parent") or None,
+                       label=str(n.get("label") or ""))
+            for n in body.get("nodes", []) if n.get("id")
+        ]
+        edges = [
+            LayoutEdge(source=str(e["source"]), target=str(e["target"]))
+            for e in body.get("edges", [])
+            if e.get("source") and e.get("target")
+        ]
+        try:
+            result = arrange(nodes, edges,
+                             algorithm=str(body.get("algorithm") or ""),
+                             kind=str(body.get("kind") or "organisation"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "algorithm": result.algorithm,
+            "positions": result.positions,
+            "notes": result.notes,
+            "width": result.width,
+            "height": result.height,
+        }
 
     @app.get("/api/designer/palette")
     def designer_palette() -> dict:

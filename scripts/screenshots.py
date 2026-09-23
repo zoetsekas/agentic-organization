@@ -105,24 +105,42 @@ sys_ = c.post("/api/designer/systems",
 # Lay the organisation out so the canvas and its placement regions have
 # something real to draw. Saved through the API, so it is the stored layout.
 opened = c.get(f"/api/designer/systems/{sys_['id']}", headers=A).json()["record"]
-nodes, col_of = {}, {}
-def place(team, depth, slot):
-    nodes[team.id if hasattr(team, "id") else team["id"]] = None
-def walk(team, depth, slot):
-    tid = team["id"]
-    nodes[tid] = {"id": tid, "kind": "team", "x": 40 + depth * 300,
-                  "y": 70 + slot[0] * 105, "width": 240, "height": 80,
-                  "collapsed": False, "note": ""}
-    slot[0] += 1
+# The product's own `tree` layout, not a hand-rolled one (ADR-0100). The
+# previous version here assigned a column per depth and a slot per sibling,
+# which cascaded diagonally: by twelve agents the organisation ran off the
+# right edge of every capture. Using the real algorithm means the screenshots
+# show what a reader actually gets when they press Arrange.
+from orgagents.designer.layout import LayoutNode, arrange
+
+kinds, parents = {}, {}
+def walk(team, parent=None):
+    kinds[team["id"]] = "team"
+    parents[team["id"]] = parent
     for m in team.get("members", []):
-        nodes[m["id"]] = {"id": m["id"], "kind": "agent",
-                          "x": 40 + (depth + 1) * 300, "y": 70 + slot[0] * 105,
-                          "width": 240, "height": 80, "collapsed": False,
-                          "note": ""}
-        slot[0] += 1
+        kinds[m["id"]] = "agent"
+        parents[m["id"]] = team["id"]
     for t in team.get("teams", []):
-        walk(t, depth + 1, slot)
-walk(spec["organization"], 0, [0])
+        walk(t, team["id"])
+walk(spec["organization"])
+
+laid_out = arrange(
+    [LayoutNode(id=i, parent=parents[i]) for i in kinds],
+    kind="organisation",
+)
+placed = laid_out.positions
+# Real coordinates, not squashed ones: a capture that scaled the layout down
+# to fit would not be showing what the algorithm produces.
+nodes = {
+    i: {"id": i, "kind": kinds[i], "x": 40 + placed[i]["x"],
+        "y": 70 + placed[i]["y"], "width": 240, "height": 80,
+        "collapsed": False, "note": ""}
+    for i in kinds
+}
+# The canvas has no zoom — `Layout.viewport.zoom` is persisted and read by
+# nothing — so a 21-node organisation is navigated by scrolling and by the
+# outline, and a capture shows a portion of it. Saying that here rather than
+# scaling the coordinates down to make the picture fit, which would be a
+# screenshot of something the algorithm does not produce.
 # One model, many diagrams: the whole organisation, plus a drill-down of one
 # unit, so the captures show what the diagram tabs are for.
 treasury = spec["organization"]["teams"][0]["teams"][2]
@@ -206,6 +224,12 @@ async def main():
         await page.wait_for_timeout(900)
         print("  canvas drawn:", await page.locator("#canvas-nodes > *").count(),
               "| regions:", await page.locator("#canvas-regions > *").count())
+        # Press the real Arrange button rather than trusting the seeded
+        # coordinates: the capture should show what a reader gets, not what
+        # this script pre-computed (ADR-0100).
+        await page.click('.dia-arrange:has-text("tree")')
+        await page.wait_for_timeout(900)
+        print("  arranged:", (await page.text_content("#status") or "").strip()[:60])
         await shot(page, "designer-canvas")
 
         # 3. The issues tab: every finding, attributed to a component.

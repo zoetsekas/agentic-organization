@@ -299,7 +299,100 @@ function renderDiagramBar() {
       class: "dia-add", title: "a new, empty diagram of this design",
       disabled: readOnly ? "" : null,
       onclick: () => addDiagram(""),
-    }, "+"));
+    }, "+"),
+    /* Arrange. The layout runs on the server, where it is a function from a
+       graph to coordinates and can be asserted about; a layout that ran only
+       here is the one part of this platform nothing would check (ADR-0100).
+
+       It moves nodes, so it is an edit: it marks the design dirty and undoes
+       like any other. A layout that could not be undone would make people
+       afraid of the button, and the first thing anybody does with a new
+       arrange button is press it on a diagram they spent an hour on. */
+    el("span", { class: "dia-spacer" }),
+    ...(readOnly ? [] : Object.entries({
+      tree: "parents over children, depth down the page",
+      layered: "ranked by flow; a loop back is drawn, not ranked",
+      grid: "reading order, for a set with no structure to honour",
+    }).map(([name, why]) => {
+      const button = el("button", { class: "dia-arrange", title: why }, name);
+      button.addEventListener("click", () => arrangeDiagram(name));
+      return button;
+    })));
+}
+
+/* ------------------------------------------------------------ arranging */
+
+async function arrangeDiagram(algorithm) {
+  const current = diagram();
+  if (!current) return;
+  const nodes = Object.keys(current.nodes || {});
+  if (!nodes.length) return setStatus("nothing on this diagram to arrange");
+
+  /* The parent each node sits under, and the edges between them, are read
+     from the spec — the same derivation the canvas draws from, so the layout
+     is laid out over the picture people are actually looking at. */
+  const parentOf = {};
+  for (const team of allTeams()) {
+    for (const member of team.members || []) parentOf[member.id] = team.id;
+    for (const sub of team.teams || []) parentOf[sub.id] = team.id;
+  }
+  const kind = current.kind || "organisation";
+  const edges = kind === "process" ? processEdges(current.root) : [];
+
+  try {
+    const result = await dapi("/layout", {
+      method: "POST",
+      body: JSON.stringify({
+        kind, algorithm,
+        nodes: nodes.map((id) => ({ id, parent: parentOf[id] || null })),
+        edges,
+      }),
+    });
+    for (const [id, at] of Object.entries(result.positions || {})) {
+      if (!current.nodes[id]) continue;
+      current.nodes[id].x = at.x;
+      current.nodes[id].y = at.y;
+    }
+    markDirty(`arranged with ${result.algorithm}`);
+    renderCanvas();
+    /* Put the reader at the start of what was just arranged. There is no
+       zoom on this canvas — `Layout.viewport.zoom` is persisted and read by
+       nothing, which is its own gap — so a large diagram is navigated by
+       scrolling and by the outline, and the least a rearrangement can do is
+       not leave you looking at empty grid. */
+    const surface = $("#canvas");
+    if (surface) {
+      const xs = Object.values(result.positions || {});
+      surface.scrollLeft = Math.max(0, Math.min(...xs.map((p) => p.x)) - 40);
+      surface.scrollTop = Math.max(0, Math.min(...xs.map((p) => p.y)) - 40);
+    }
+    setStatus(result.notes?.length
+      ? `${result.algorithm}: ${result.notes[0]}`
+      : `arranged with ${result.algorithm}`);
+  } catch (err) {
+    setStatus(`could not arrange: ${err.message}`);
+  }
+}
+
+/* A process diagram's edges are the workflow's own, read from the spec and
+   never stored on the diagram. That is the one rule the diagram model has,
+   and a process canvas is exactly where a second copy would drift. */
+function processEdges(workflowId) {
+  const workflow = (spec()?.workflows || []).find((w) => w.id === workflowId);
+  const graph = workflow?.graph || {};
+  const edges = (graph.edges || [])
+    .filter((e) => e.from && e.to && e.to !== "END")
+    .map((e) => ({ source: e.from, target: e.to }));
+  for (const node of graph.nodes || []) {
+    if (node.kind !== "branch") continue;
+    for (const c of node.cases || []) {
+      if (c.to && c.to !== "END") edges.push({ source: node.id, target: c.to });
+    }
+    if (node.default && node.default !== "END") {
+      edges.push({ source: node.id, target: node.default });
+    }
+  }
+  return edges;
 }
 
 /* The nodes of the diagram currently open, always an object. */

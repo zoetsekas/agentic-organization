@@ -20,6 +20,8 @@ from .merge import apply_resolutions, merge
 from .models import (
     Conflict,
     DesignerSettings,
+    Diagram,
+    DiagramKind,
     Layout,
     Lock,
     LockScope,
@@ -369,6 +371,7 @@ class DesignerService:
         if spec is not None:
             updated.spec = spec
         if layout is not None:
+            _check_diagram_kinds(layout, spec if spec is not None else record.spec)
             updated.layout = layout
         if name is not None:
             updated.name = name
@@ -708,6 +711,36 @@ class DesignerService:
                 for f in findings
             ],
         }
+
+
+
+class DiagramKindMismatch(ValueError):
+    """A diagram claims to draw something its root is not (ADR-0100).
+
+    A kind is a claim about what a canvas contains, and a canvas that quietly
+    drew the wrong thing for its contents would be worse than one that
+    refused: the picture is what people review.
+    """
+
+
+def _check_diagram_kinds(layout: Layout, spec: dict[str, Any]) -> None:
+    workflow_ids = {w.get("id") for w in (spec or {}).get("workflows", [])
+                    if isinstance(w, dict)}
+    for diagram in layout.diagrams.values():
+        if diagram.kind is DiagramKind.PROCESS:
+            if not diagram.root:
+                raise DiagramKindMismatch(
+                    f"diagram '{diagram.name}' is a process canvas and names "
+                    "no workflow. A process canvas draws one workflow's graph")
+            if diagram.root not in workflow_ids:
+                raise DiagramKindMismatch(
+                    f"diagram '{diagram.name}' is a process canvas rooted at "
+                    f"'{diagram.root}', which is not a workflow in this design")
+        elif diagram.root and diagram.root in workflow_ids:
+            raise DiagramKindMismatch(
+                f"diagram '{diagram.name}' is an organisation canvas rooted at "
+                f"workflow '{diagram.root}'. Set its kind to process, or root "
+                "it at a team")
 
 
 def _merge_layout(theirs: Layout, ours: Layout) -> Layout:

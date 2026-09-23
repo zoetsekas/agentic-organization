@@ -104,6 +104,25 @@ class CanvasNode(BaseModel):
 MAIN_DIAGRAM = "main"
 
 
+class DiagramKind(str, Enum):
+    """What a canvas draws (ADR-0100).
+
+    A kind is a claim about what a diagram can contain, so it is checked: a
+    process diagram whose root is not a workflow is refused, and so is an
+    organisation diagram that names one. A canvas that quietly drew the wrong
+    thing for its contents would be worse than one that refused.
+    """
+
+    #: Units containing agents, edges derived from the reporting structure.
+    #: What every diagram was before this, and the default, so nothing
+    #: migrates.
+    ORGANISATION = "organisation"
+    #: One workflow's graph: `root` is the workflow, the nodes are its steps,
+    #: and the edges are the workflow's own — read from the spec, never stored
+    #: here.
+    PROCESS = "process"
+
+
 class Diagram(BaseModel):
     """One view onto the model: where each node sits, and what it is about.
 
@@ -120,6 +139,9 @@ class Diagram(BaseModel):
 
     id: str = Field(default_factory=lambda: new_id("dia"))
     name: str = "Organisation"
+    #: What this canvas draws (ADR-0100). Existing diagrams load as
+    #: `organisation`, which is what they are.
+    kind: DiagramKind = DiagramKind.ORGANISATION
     #: The component this diagram is *about*. Empty means the whole
     #: organisation. Set to a team's id, it is that team's own diagram —
     #: which is what makes diagrams nest.

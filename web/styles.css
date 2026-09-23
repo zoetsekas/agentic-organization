@@ -1072,3 +1072,13 @@ textarea.json.invalid { border-color: var(--clay); }
   margin: 0; padding-left: 1.1rem; color: var(--amber-ink);
   font-size: 12px; line-height: 1.5;
 }
+
+/* ---- arrange controls on the diagram bar (ADR-0100) ------------------- */
+.dia-spacer { flex: 1 1 auto; }
+.dia-arrange {
+  font: 500 11px/1 var(--sans, ui-sans-serif, system-ui);
+  color: var(--ink-dim); background: transparent;
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: .3rem .5rem; cursor: pointer;
+}
+.dia-arrange:hover { color: var(--ink); border-color: var(--line-strong); }
