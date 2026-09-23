@@ -39,9 +39,21 @@ def test_every_shipped_example_is_a_valid_model(path):
 
 def test_every_constraint_is_shown_refusing_something():
     """A constraint no scenario ever trips is a rule nobody has seen work."""
-    refused = {step.refused_by for sc in SCENARIOS for step in sc.steps}
+    refused = {step.refused_by or step.incomplete
+               for sc in SCENARIOS for step in sc.steps}
     assert {c.name for c in CONSTRAINTS} <= refused, \
         sorted({c.name for c in CONSTRAINTS} - refused)
+
+
+def test_a_draft_may_be_incomplete_but_never_broken():
+    """ADR-0103: a new element may lack a required end; an existing one may
+    not be made to, and integrity is never broken."""
+    from orgagents.metamodel.operations import create, delete
+    made = create(base(), "trigger", "hourly")
+    assert made.accepted and {v.constraint for v in made.incomplete} == \
+        {"multiplicities_hold"}
+    refused = delete(base(), "tool", "ledger_lookup")
+    assert not refused.accepted
 
 
 def test_every_constraint_states_its_rule_in_ocl_and_has_a_context():

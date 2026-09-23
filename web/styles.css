@@ -424,6 +424,19 @@ legend {
   box-shadow: 0 0 0 3px var(--accent-wash);
 }
 .canvas-surface .node.locked { opacity: .65; cursor: not-allowed; }
+/* An environment is a container (ADR-0101): the one relationship where
+   "inside" is the truthful picture. It is drawn behind the workers deployed
+   in it, sized by its author, and dropping a worker into it deploys it. */
+.canvas-surface .node.container {
+  max-width: none; z-index: 0; background: var(--surface-2);
+  border: 1.5px dashed var(--slate-line); overflow: hidden;
+}
+.canvas-surface .node:not(.container) { z-index: 1; }
+.canvas-surface .node .n-resize {
+  position: absolute; right: 0; bottom: 0; width: 14px; height: 14px;
+  cursor: nwse-resize; border-right: 2px solid var(--slate-line);
+  border-bottom: 2px solid var(--slate-line);
+}
 .canvas-surface .node .n-kind {
   font-family: var(--font-mono); font-size: var(--t-micro);
   text-transform: uppercase; letter-spacing: .1em; color: var(--ink-dim);

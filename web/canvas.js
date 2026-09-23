@@ -748,6 +748,8 @@ function renderCanvas() {
   nodes.replaceChildren(
     ...Object.values(layout.nodes)
       .filter((node) => !inlined.has(node.id))
+      // Containers first, so the workers deployed in them draw on top.
+      .sort((a, b) => isContainer(b) - isContainer(a))
       .map((node) => renderNode(node)));
   $("#canvas-empty").hidden = Object.keys(layout.nodes).length > 0;
   renderRegions();
@@ -835,7 +837,8 @@ function renderNode(node) {
   }
 
   const box = el("div", {
-    class: `node${canvas.selected?.id === node.id ? " selected" : ""}`
+    class: `node${isContainer(node) ? " container" : ""}`
+      + `${canvas.selected?.id === node.id ? " selected" : ""}`
       + `${blocked ? " locked" : ""}`
       + (linking
           ? (linking.id === node.id ? " link-source"
@@ -845,7 +848,10 @@ function renderNode(node) {
     "data-shape": shapeOf(node.kind),
     "data-classification": node.kind === "agent"
       ? classificationOf(component) : null,
-    style: `left:${node.x}px; top:${node.y}px; min-width:${node.width}px`,
+    style: `left:${node.x}px; top:${node.y}px; min-width:${node.width}px`
+      + (isContainer(node)
+          ? `; width:${node.width}px; height:${node.height || CONTAINER.height}px`
+          : ""),
     title: blocked ? `locked by ${blocked.holder_name || blocked.holder}` : "",
   },
     delBtn,
@@ -855,9 +861,15 @@ function renderNode(node) {
     el("div", { class: "n-kind" }, kindSpec(node.kind).label),
     titleEl,
     el("div", { class: "n-sub" }, nodeSubtitle(node.kind, component, node)),
-    ...(node.kind === "agent" ? heldChips(component, readOnly) : []));
+    ...(node.kind === "agent" ? heldChips(component, readOnly) : []),
+    ...(isContainer(node) && !readOnly
+        ? [el("span", { class: "n-resize", title: "Drag to resize" })] : []));
   box.addEventListener("mousedown", (e) => {
     if (e.target === delBtn) return;
+    if (e.target.classList?.contains("n-resize")) {
+      startResize(e, node, box);
+      return;
+    }
     /* While a link is being drawn, a press is aiming at a target rather than
        picking the node up. */
     if (canvas.linking) return;
@@ -1047,9 +1059,15 @@ async function modelOperation(request) {
   return answer;
 }
 
+/* What else the model changed, and what a new element still lacks: a draft
+   may be incomplete, and says so rather than hiding it (ADR-0103). */
 function effectsLine(answer) {
-  return (answer.effects || []).length
+  const effects = (answer.effects || []).length
     ? ` — ${answer.effects.join("; ")}` : "";
+  const lacks = (answer.incomplete || []).length
+    ? ` — still needs: ${answer.incomplete.map((v) => v.message).join("; ")}`
+    : "";
+  return effects + lacks;
 }
 
 function linkRule(sourceKind, targetKind) {
@@ -1201,54 +1219,56 @@ async function applyLink(rule, from, target) {
 /* Unlinking is defined for what a link created. A structural link put the
    component somewhere, so undoing it returns it to the root; a flow is a
    declaration, so undoing it removes the declaration. */
-function unlink(node) {
+async function unlink(node) {
   const s = spec();
+  if (node.kind === "subagent") {
+    return alert("A sub-agent is a part of the agent that calls it: move it "
+      + "to another agent or delete it.");
+  }
+  const requests = [];
   if (node.kind === "team" || node.kind === "agent") {
     if (node.id === s.organization?.id) {
       return alert("The organisation itself has nowhere to be unlinked to.");
     }
-    const moved = detach(node.kind, node.id);
-    if (!moved) return;
-    if (node.kind === "team") {
-      (s.organization.teams = s.organization.teams || []).push(moved);
-    } else {
-      (s.organization.members = s.organization.members || []).push(moved);
-      if (!s.organization.leader) s.organization.leader = moved.id;
-    }
-    markDirty(`unlinked ${node.id}`);
-    setStatus(`${node.id} moved to ${s.organization.id}`);
-  } else if (node.kind === "subagent") {
-    alert("A sub-agent belongs to the agent that calls it; delete it instead.");
-    return;
+    // A part has one whole; "unlinked" is moved to the organisation's root.
+    requests.push({ op: "link",
+      source: { kind: "team", id: s.organization.id },
+      target: { kind: node.kind, id: node.id },
+      relationship: node.kind === "team" ? "teams" : "members" });
   }
   if (HELD_KINDS[node.kind]) {
-    /* Held by any number of agents, so unlinking releases it from all of
-       them; it stays declared at the top level. */
-    const field = HELD_KINDS[node.kind];
-    let released = 0;
-    for (const { agent } of allAgents()) {
-      const held = agent[field] || [];
-      const at = held.indexOf(node.id);
-      if (at >= 0) { held.splice(at, 1); released += 1; }
+    for (const holder of holdersOf(node.kind, node.id)) {
+      requests.push({ op: "unlink", source: { kind: "agent", id: holder },
+        target: { kind: node.kind, id: node.id },
+        relationship: HELD_KINDS[node.kind] });
     }
-    if (!released) return alert(`Nothing holds ${node.id}.`);
-    markDirty(`released ${node.id}`);
-    setStatus(`${node.id} released from ${released} agent`
-      + (released === 1 ? "" : "s"));
   }
-  const links = org(s).unit_links || [];
-  const keptLinks = links.filter(
-    (l) => l.source !== node.id && l.target !== node.id);
-  if (keptLinks.length !== links.length) {
-    org(s).unit_links = keptLinks;
-    markDirty(`removed associations on ${node.id}`);
+  for (const l of org(s).unit_links || []) {
+    if (l.source === node.id || l.target === node.id) {
+      requests.push({ op: "unlink", source: { kind: "team", id: l.source },
+        target: { kind: "team", id: l.target }, relationship: "unit_links" });
+    }
   }
-  const flows = org(s).interaction_flows || [];
-  const kept = flows.filter((f) => f.source !== node.id && f.target !== node.id);
-  if (kept.length !== flows.length) {
-    org(s).interaction_flows = kept;
-    markDirty(`removed flows on ${node.id}`);
+  for (const f of org(s).interaction_flows || []) {
+    if (f.source === node.id || f.target === node.id) {
+      requests.push({ op: "unlink", source: { kind: "agent", id: f.source },
+        target: { kind: "agent", id: f.target },
+        relationship: "interaction_flows" });
+    }
   }
+  if (!requests.length) return alert(`Nothing links ${node.id}.`);
+  const said = [];
+  for (const request of requests) {
+    try {
+      const answer = await modelOperation(request);
+      said.push((answer.effects || []).join("; ")
+        || `${request.op} ${request.target.id}`);
+    } catch (err) {
+      said.push(`refused: ${err.message}`);
+    }
+  }
+  markDirty(`unlinked ${node.id}`);
+  setStatus(said.filter(Boolean).join(" · "));
   renderCanvas();
   renderInspector();
 }
@@ -1772,10 +1792,136 @@ function startDrag(event, node, box) {
     renderEdges();
     renderRegions();
   }
+  const before = containersHolding(node);
   function end() {
     window.removeEventListener("mousemove", move);
     window.removeEventListener("mouseup", end);
     markDirty();
+    if (node.x === originX && node.y === originY) return;   // a click
+    droppedAt(node, before);
+  }
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", end);
+}
+
+/* ---------------------------------------------- containers and dropping
+   Where a box is let go is a gesture (ADR-0103), and the model says what it
+   means: onto a whole it is part of → a move; into an environment's box → a
+   deployment; out of one it was in → an undeployment. Anywhere else it is
+   only a new position. */
+const CONTAINER = { width: 360, height: 220 };
+
+function isContainer(node) {
+  return node && node.kind === "environment";
+}
+
+function centre(node) {
+  return { x: node.x + (node.width || 200) / 2,
+           y: node.y + (node.height || 80) / 2 };
+}
+
+function inside(point, box) {
+  return point.x >= box.x && point.x <= box.x + box.width
+    && point.y >= box.y && point.y <= box.y + (box.height || CONTAINER.height);
+}
+
+/* The environment boxes a node's centre is in. */
+function containersHolding(node) {
+  const c = centre(node);
+  return Object.values(layoutNodes())
+    .filter((n) => isContainer(n) && n.id !== node.id && inside(c, n))
+    .map((n) => n.id);
+}
+
+/* The rule for a part let go onto a whole: a composition from that whole. */
+function composeRule(hostKind, kind) {
+  return (canvas.palette?.links || []).find(
+    (r) => r.source === hostKind && r.target === kind && r.shape === "part");
+}
+
+function wholeOf(kind, id) {
+  if (kind === "agent") return teamOf(id)?.id || null;
+  if (kind === "team") {
+    let parent = null;
+    walkTeams(spec()?.organization, (t) => {
+      if ((t.teams || []).some((c) => c.id === id)) parent = t.id;
+    });
+    return parent;
+  }
+  if (kind === "subagent") {
+    return allAgents().find(({ agent }) =>
+      (agent.subagents || []).some((x) => x.id === id))?.agent.id || null;
+  }
+  return null;
+}
+
+async function droppedAt(node, before) {
+  const requests = [];
+  const deploys = (canvas.palette?.links || []).some(
+    (r) => r.source === node.kind && r.target === "environment");
+  if (deploys) {
+    const after = containersHolding(node);
+    for (const env of after.filter((e) => !before.includes(e))) {
+      requests.push([`${node.id} deployed in ${env}`, {
+        op: "link", source: { kind: node.kind, id: node.id },
+        target: { kind: "environment", id: env }, relationship: "environments",
+      }]);
+    }
+    for (const env of before.filter((e) => !after.includes(e))) {
+      requests.push([`${node.id} no longer deployed in ${env}`, {
+        op: "unlink", source: { kind: node.kind, id: node.id },
+        target: { kind: "environment", id: env }, relationship: "environments",
+      }]);
+    }
+  }
+  const c = centre(node);
+  const host = Object.values(layoutNodes())
+    .filter((n) => n.id !== node.id && !isContainer(n) && inside(c, n))
+    .sort((a, b) => a.width * (a.height || 80) - b.width * (b.height || 80))[0];
+  const rule = host && composeRule(host.kind, node.kind);
+  if (rule && wholeOf(node.kind, node.id) !== host.id) {
+    requests.push([`${node.id} moved into ${host.id}`, {
+      op: "link", source: { kind: host.kind, id: host.id },
+      target: { kind: node.kind, id: node.id }, relationship: rule.field,
+    }]);
+  }
+  const said = [];
+  for (const [text, request] of requests) {
+    try {
+      const answer = await modelOperation(request);
+      said.push(text + effectsLine(answer));
+    } catch (err) {
+      said.push(`refused: ${err.message}`);
+    }
+  }
+  if (said.length) {
+    setStatus(said.join(" · "));
+    markDirty(said[0]);
+    renderCanvas();
+    renderInspector();
+  }
+}
+
+/* An environment box is resized by its corner; the size is the layout's and
+   is kept like a position. */
+function startResize(event, node, box) {
+  event.preventDefault();
+  event.stopPropagation();
+  const startX = event.clientX, startY = event.clientY;
+  const w0 = node.width || CONTAINER.width;
+  const h0 = node.height || CONTAINER.height;
+  function move(e) {
+    node.width = Math.max(200, Math.round((w0 + e.clientX - startX) / 10) * 10);
+    node.height = Math.max(120, Math.round((h0 + e.clientY - startY) / 10) * 10);
+    box.style.width = `${node.width}px`;
+    box.style.height = `${node.height}px`;
+    box.style.minWidth = `${node.width}px`;
+  }
+  function end() {
+    window.removeEventListener("mousemove", move);
+    window.removeEventListener("mouseup", end);
+    markDirty(`resized ${node.id}`);
+    renderCanvas();
   }
   window.addEventListener("mousemove", move);
   window.addEventListener("mouseup", end);
@@ -2122,36 +2268,99 @@ function dropRule(hostKind, kind) {
   return null;
 }
 
-function placeComponent(kind, x, y) {
+/* What the model is told a new component starts as. Only what the palette
+   would otherwise leave the author to type before anything works: a name,
+   and the few seeds a kind needs to mean anything. */
+function seedFor(kind, id) {
+  const seed = { name: nextName(kind, id) };
+  if (kind === "subagent") Object.assign(seed, { kind: "research" });
+  if (kind === "memory_namespace") Object.assign(seed, { scope: "private" });
+  if (kind === "evaluation") {
+    // No `applies_to` would apply it to every agent — a wider claim than a
+    // drop on a canvas means (ADR-0102).
+    Object.assign(seed, { given: "", expect: "", applies_to: [] });
+  }
+  if (!(kindSpec(kind).fields || []).some((f) => f.name === "name")) {
+    delete seed.name;
+  }
+  return seed;
+}
+
+/* Dropping from the palette is `create` (ADR-0103): inside the whole it was
+   dropped on when it is a part of one, and in the organisation otherwise.
+   Only the canvas's own things — a note, and the first team becoming the
+   organisation's root — are placed without asking the model. */
+async function placeComponent(kind, x, y) {
   const id = nextId(kind);
   const host = nodeAt(x, y);
+  const size = kind === "environment" ? CONTAINER : { width: 200, height: 80 };
+  const s = spec();
+  const firstTeam = kind === "team" && (!s.organization?.id
+    || (!(s.organization.members || []).length
+        && !(s.organization.teams || []).length
+        && !layoutNodes()[s.organization.id]));
+  const place = () => {
+    layoutNodes()[id] = {
+      id, kind, x, y, width: size.width, height: size.height,
+      collapsed: false, note: "",
+    };
+  };
+
+  if (kind === "note" || firstTeam) {
+    try {
+      const made = addComponent(kind, id, { x, y });
+      if (made && typeof made.name === "string") made.name = nextName(kind, id);
+    } catch (err) {
+      setStatus(err.message);
+      return;
+    }
+    place();
+    markDirty();
+    renderCanvas();
+    selectNode(layoutNodes()[id]);
+    return;
+  }
+
+  const whole = host && host.id !== id && composeRule(host.kind, kind)
+    ? host : null;
+  let owner = whole?.id || "";
+  if (!owner && kind === "subagent") {
+    // A sub-agent is always some agent's part; dropped on open ground it
+    // goes to the first agent, and the status line says which.
+    owner = allAgents()[0]?.agent.id || "";
+    if (!owner) return setStatus("add an Agent before adding a sub-agent");
+  }
+  let said = "";
   try {
-    const made = addComponent(kind, id, { x, y });
-    if (made && typeof made.name === "string") made.name = nextName(kind, id);
+    const answer = await modelOperation(
+      { op: "create", kind, id, ...(owner ? { owner } : {}),
+        attrs: seedFor(kind, id) });
+    said = `${id} created${owner ? ` in ${owner}` : ""}${effectsLine(answer)}`;
   } catch (err) {
     setStatus(err.message);
     return;
   }
-  layoutNodes()[id] = {
-    id, kind, x, y, width: 200, height: 80, collapsed: false, note: "",
-  };
+  place();
 
-  /* Dropped inside something that can hold it → linked, there and then.
-     Dropped inside something that cannot → still placed, and told why, rather
-     than silently landing on top of a box it has no relationship with. */
-  if (host && host.id !== id) {
+  /* Dropped onto something that references rather than owns it — a tool
+     onto an agent — the drop also draws that link. Onto anything else it is
+     placed on its own, and told why. */
+  if (host && host.id !== id && !whole) {
     const rule = dropRule(host.kind, kind);
     if (rule) {
-      applyLink(rule, { kind: host.kind, id: host.id }, { kind, id })
-        .then((answer) => setStatus(
-          `${host.id} ${rule.label} ${id}${effectsLine(answer)}`))
-        .catch((err) => setStatus(err.message))
-        .finally(() => { markDirty(); renderCanvas(); renderInspector(); });
+      try {
+        const answer = await applyLink(rule, { kind: host.kind, id: host.id },
+                                       { kind, id });
+        said = `${host.id} ${rule.label} ${id}${effectsLine(answer)}`;
+      } catch (err) {
+        said = err.message;
+      }
     } else {
-      setStatus(`${an(host.kind, true)} does not hold ${an(kind)}, so `
-        + `${id} was placed on its own`);
+      said = `${an(host.kind, true)} does not hold ${an(kind)}, so `
+        + `${id} was placed on its own`;
     }
   }
+  setStatus(said);
   markDirty();
   renderCanvas();
   selectNode(layoutNodes()[id]);
@@ -2185,39 +2394,78 @@ const DERIVED_FIELDS = {
     get: (component, id) =>
       allAgents().find(({ agent }) =>
         (agent.subagents || []).some((x) => x.id === id))?.agent.id || "",
-    set: (component, id, value) => {
+    /* A move: the sub-agent becomes a part of the chosen agent (ADR-0103). */
+    set: async (component, id, value) => {
       if (!value) throw new Error("a sub-agent belongs to an agent; pick one");
-      const target = findComponent("agent", value);
-      if (!target) throw new Error(`no agent '${value}'`);
-      const moved = detach("subagent", id);
-      if (!moved) throw new Error(`${id} is not under any agent`);
-      delete moved.parent;              // never a key; clear an old stray one
-      (target.subagents = target.subagents || []).push(moved);
-      return `${id} now belongs to ${value}`;
+      const answer = await modelOperation({
+        op: "link", source: { kind: "agent", id: value },
+        target: { kind: "subagent", id }, relationship: "subagents",
+      });
+      return `${id} now belongs to ${value}${effectsLine(answer)}`;
     },
   },
   "agent.leads_team": {
     get: (component, id) => teamOf(id)?.leader === id,
-    set: (component, id, value) => {
+    /* The team's `leader` {subsets members}: set by the model, and unset
+       leaves the team without one — the gate reports it; the canvas does
+       not pick a successor on the author's behalf. */
+    set: async (component, id, value) => {
       const team = teamOf(id);
       if (!team) throw new Error(`${id} is not a member of any team`);
-      const before = team.leader;
-      if (value) {
-        team.leader = id;
-        return before && before !== id
-          ? `${id} now leads ${team.id} (was ${before})`
-          : `${id} leads ${team.id}`;
-      }
-      if (before !== id) return `${id} did not lead ${team.id}`;
-      /* A team without a leader is a finding the gate reports, not a state to
-         leave silently: hand it to the next member if there is one. */
-      const next = (team.members || []).find((m) => m.id !== id)?.id || "";
-      team.leader = next;
-      return next ? `${next} now leads ${team.id}`
-                  : `${team.id} has no leader; the gate will say so`;
+      const answer = value
+        ? await modelOperation({ op: "set_leader", team: team.id, agent: id })
+        : await modelOperation({ op: "update", kind: "team", id: team.id,
+                                 attrs: { leader: "" } });
+      return (value ? `${id} leads ${team.id}` : `${team.id} has no leader`)
+        + effectsLine(answer);
     },
   },
 };
+
+/* A Properties edit is the model's `update` (ADR-0103). The box writes at
+   once, so typing stays typing; when it pauses, the value is sent against
+   the draft as it was before the edit began, so a value the model refuses
+   is caught and put back — with the reason — rather than kept. */
+const pendingEdits = {};
+
+function confirmEdit(kind, id, field, base) {
+  const key = `${kind}:${id}:${field}`;
+  const entry = pendingEdits[key] || (pendingEdits[key] = { base });
+  clearTimeout(entry.timer);
+  entry.timer = setTimeout(async () => {
+    delete pendingEdits[key];
+    const component = findComponent(kind, id);
+    if (!component) return;
+    const request = { op: "update", kind, id,
+                      attrs: { [field]: component[field] } };
+    let refusal = null;
+    try {
+      const answer = await dapi("/operations", {
+        method: "POST", body: JSON.stringify({ spec: entry.base, request }),
+      });
+      if (!answer.accepted) refusal = new ModelRefusal(answer).message;
+    } catch (err) {
+      refusal = err.message;
+    }
+    if (!refusal) return;
+    const was = findIn(entry.base, kind, id);
+    component[field] = was ? was[field] : undefined;
+    setStatus(`${id}.${field} put back — ${refusal}`);
+    renderCanvas();
+    if (canvas.selected?.id === id) renderInspector();
+  }, 700);
+}
+
+/* The same component in another copy of the draft. */
+function findIn(draft, kind, id) {
+  const saved = canvas.record.spec;
+  canvas.record.spec = draft;
+  try {
+    return findComponent(kind, id);
+  } finally {
+    canvas.record.spec = saved;
+  }
+}
 
 /* ------------------------------------------------------------- inspector */
 function selectNode(node) {
@@ -2249,9 +2497,9 @@ function renderInspector() {
     const derivedField = DERIVED_FIELDS[`${kind}.${field.name}`];
     if (derivedField) {
       const value = derivedField.get(component, id);
-      form.appendChild(fieldControl(field, value, readOnly, (v) => {
+      form.appendChild(fieldControl(field, value, readOnly, async (v) => {
         try {
-          setStatus(derivedField.set(component, id, v));
+          setStatus(await derivedField.set(component, id, v));
         } catch (err) {
           setStatus(err.message);
           renderInspector();          // put the real value back in the box
@@ -2295,7 +2543,10 @@ function renderInspector() {
           setStatus(`another ${definition.label.toLowerCase()} is already `
             + `called '${v}'`);
         }
+        const base = pendingEdits[`${kind}:${id}:${field.name}`]?.base
+          || structuredClone(spec());
         component[field.name] = v;
+        confirmEdit(kind, id, field.name, base);
       }
       /* Named per field and per component: a run of typing in one box is one
          step, and moving to the next box starts another. */
@@ -2314,14 +2565,7 @@ function renderInspector() {
   const actions = el("div", { class: "actions" },
     el("button", {
       type: "button", disabled: readOnly ? "" : null,
-      onclick: () => {
-        if (!window.confirm(`Remove ${id}?`)) return;
-        removeComponent(kind, id);
-        canvas.selected = null;
-        markDirty();
-        renderCanvas();
-        renderInspector();
-      },
+      onclick: () => deleteNode(kind, id),
     }, "Remove"));
   form.appendChild(actions);
   host.replaceChildren(form,

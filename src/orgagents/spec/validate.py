@@ -1809,6 +1809,14 @@ def validate_spec(
 
     # The fabric's own rules, and its ranking of ours, come last: a policy
     # judges the whole finding set rather than being one more rule inside it.
+    # -- the model's own constraints (ADR-0102, ADR-0103) ------------------
+    # A draft may be incomplete; a design that is published may not. Every
+    # constraint of the metamodel is an error here, integrity and
+    # completeness alike, named `model_<constraint>`.
+    from ..metamodel.constraints import check as model_check
+    for v in model_check(spec):
+        err(f"model_{v.constraint}", f"{v.element}: {v.message}", v.element)
+
     return _with_platform_policy(out, platform_policy, spec)
 
 

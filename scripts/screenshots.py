@@ -46,7 +46,7 @@ spec = yaml.safe_load((ROOT / "examples" / "northwind" / "northwind.finance.syst
 # offers: a process with a loop in it, an agent with a declared stand-in, and
 # an agent whose scale somebody chose. Without them the captures would show
 # controls with nothing in them, which is a screenshot of an empty form.
-spec.setdefault("workflows", []).append({
+spec["organization"].setdefault("workflows", []).append({
     "id": "payment_review",
     "name": "payment-review",
     "description": ("Review a payment run, correcting what fails the match "

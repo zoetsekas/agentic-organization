@@ -248,6 +248,8 @@ def evaluate(spec: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
         "effects": result.effects,
         "violations": [{"constraint": v.constraint, "element": v.element,
                         "message": v.message} for v in result.violations],
+        "incomplete": [{"constraint": v.constraint, "element": v.element,
+                        "message": v.message} for v in result.incomplete],
     }
     if result.accepted:
         answer["spec"] = result.spec.model_dump(mode="json", by_alias=True,

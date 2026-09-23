@@ -220,13 +220,26 @@ Then: the deny is added and the ghost is not.
 
 ## A separation that keeps one decision apart
 
-A separation keeps two or more decisions apart; one naming a single decision separates nothing.
+A separation keeps two or more decisions apart; one naming a single decision separates nothing yet. It may be drafted — a new element may start incomplete — and the answer says what it lacks; it may not be published so.
 
 | Step | Model's answer |
 |---|---|
-| create Separation lonely {approve_payment} | refused — [multiplicities_hold] separation:lonely: keeps apart [decisions] holds 1; 2..* required |
+| create Separation lonely {approve_payment} | accepted — incomplete: [multiplicities_hold] separation:lonely: keeps apart [decisions] holds 1; 2..* required |
 
 ![separation_of_one](scenarios/separation_of_one.png)
+
+## Drop a tool, then say what it wraps
+
+A tool fresh from the palette wraps nothing: accepted, and told it is incomplete. Linking it to what it wraps completes it.
+
+| Step | Model's answer |
+|---|---|
+| create Tool summarise | accepted — incomplete: [multiplicities_hold] tool:summarise: wraps [wraps] holds 0; 1 required |
+| set Tool summarise wraps := read_ledger | accepted |
+
+Then: summarise wraps read_ledger.
+
+![tool_from_palette](scenarios/tool_from_palette.png)
 
 ## Name a successor, and refuse an agent as its own
 

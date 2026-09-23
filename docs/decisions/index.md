@@ -105,7 +105,7 @@
 | [ADR-0100](ADR-0100-a-canvas-per-aspect-and-layouts-that-place-things.md) | A canvas per aspect, and layouts that actually place things | Accepted | 1.0.0 | designer | WS-003 | — |
 | [ADR-0101](ADR-0101-uml-is-the-metamodel.md) | UML is the metamodel, and the platform's kinds are a UML profile | Accepted | 1.2.0 | designer, spec | WS-003 | — |
 | [ADR-0102](ADR-0102-model-first-constraints-operations-scenarios.md) | Model first — abstractions, constraints in OCL, operations with UML semantics, and scenarios as the specification | Accepted | 1.0.0 | spec, metamodel | WS-003 | — |
-| [ADR-0103](ADR-0103-the-designer-is-a-view-of-the-model.md) | The designer is a view of the model — every gesture is one model operation | Accepted | 1.0.0 | designer, metamodel | WS-003 | — |
+| [ADR-0103](ADR-0103-the-designer-is-a-view-of-the-model.md) | The designer is a view of the model — every gesture is one model operation | Accepted | 1.1.0 | designer, metamodel | WS-003 | — |
 
 ## By status
 

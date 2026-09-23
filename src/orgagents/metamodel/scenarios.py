@@ -99,6 +99,8 @@ class Step:
     text: str
     #: None: accepted. Otherwise the constraint that must refuse it.
     refused_by: Optional[str] = None
+    #: Accepted, leaving the new element incomplete under this constraint.
+    incomplete: Optional[str] = None
 
 
 @dataclass
@@ -342,12 +344,25 @@ SCENARIOS: list[Scenario] = [
     Scenario(
         "separation_of_one", "A separation that keeps one decision apart",
         "A separation keeps two or more decisions apart; one naming a single "
-        "decision separates nothing.",
+        "decision separates nothing yet. It may be drafted — a new element "
+        "may start incomplete — and the answer says what it lacks; it may "
+        "not be published so.",
         [S(lambda s: op.create(s, "separation", "lonely",
                                decisions=["approve_payment"]),
            "create Separation lonely {approve_payment}",
-           "multiplicities_hold")],
-        [], ["four_eyes"]),
+           incomplete="multiplicities_hold")],
+        [], ["four_eyes", "lonely"]),
+    Scenario(
+        "tool_from_palette", "Drop a tool, then say what it wraps",
+        "A tool fresh from the palette wraps nothing: accepted, and told it "
+        "is incomplete. Linking it to what it wraps completes it.",
+        [S(lambda s: op.create(s, "tool", "summarise"),
+           "create Tool summarise", incomplete="multiplicities_hold"),
+         S(lambda s: op.update(s, "tool", "summarise", wraps="read_ledger"),
+           "set Tool summarise wraps := read_ledger")],
+        [("summarise wraps read_ledger",
+          lambda s: s.tool("summarise").wraps == "read_ledger")],
+        ["summarise", "read_ledger"]),
     Scenario(
         "successor", "Name a successor, and refuse an agent as its own",
         "The analyst stands in for the ops lead; the ops lead cannot stand "
@@ -394,6 +409,10 @@ def play(scenario: Scenario) -> Played:
     for step in scenario.steps:
         result = step.run(spec)
         outcomes.append((step, result))
+        if step.incomplete and (not result.accepted or step.incomplete not in
+                                {v.constraint for v in result.incomplete}):
+            failures.append(f"'{step.text}' should be accepted and left "
+                            f"incomplete under {step.incomplete}")
         if step.refused_by is None and not result.accepted:
             failures.append(f"'{step.text}' was refused: "
                             f"{[str(v) for v in result.violations]}")
@@ -409,8 +428,9 @@ def play(scenario: Scenario) -> Played:
     for text, predicate in scenario.then:
         if not predicate(spec):
             failures.append(f"then: {text} — false")
-    if check(spec):
-        failures.append(f"the final model is invalid: {check(spec)}")
+    from .constraints import integrity
+    if integrity(check(spec)):
+        failures.append(f"the final model is invalid: {integrity(check(spec))}")
     return Played(scenario, spec, outcomes, failures)
 
 
@@ -518,6 +538,9 @@ def catalogue() -> str:
             if result.accepted:
                 answer = "accepted" + (
                     ": " + "; ".join(result.effects) if result.effects else "")
+                if result.incomplete:
+                    answer += " — incomplete: " + "; ".join(
+                        str(v) for v in result.incomplete)
             else:
                 answer = "refused — " + "; ".join(
                     str(v) for v in result.violations)

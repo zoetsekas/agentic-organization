@@ -24,7 +24,7 @@ from typing import Any, Callable, Optional
 
 from ..spec import model as spec_model
 from . import PROFILE, Relationship, RelKind, Shape, specialisations
-from .constraints import Violation, check
+from .constraints import Violation, check, integrity
 from .instances import collect
 
 
@@ -42,6 +42,9 @@ class Result:
     effects: list[str] = field(default_factory=list)
     #: Why it was refused: the violations it would have introduced.
     violations: list[Violation] = field(default_factory=list)
+    #: Accepted, but what the element it created still lacks before the
+    #: model is complete: a tool that wraps nothing yet (ADR-0103).
+    incomplete: list[Violation] = field(default_factory=list)
 
 
 # -- lookups -----------------------------------------------------------------
@@ -95,8 +98,14 @@ def _new(kind: str, id_: str, attrs: dict[str, Any]) -> Any:
 # -- the transaction ---------------------------------------------------------
 
 def _transact(spec: spec_model.SystemSpec,
-              change: Callable[[spec_model.SystemSpec, list[str]], None]
-              ) -> Result:
+              change: Callable[[spec_model.SystemSpec, list[str]], None],
+              created: frozenset[str] = frozenset()) -> Result:
+    """Apply `change` to a copy and let the constraints decide.
+
+    Refused if it breaks integrity anywhere, or leaves incomplete an element
+    that was complete. The element it `created` may start incomplete — a
+    tool dropped from the palette wraps nothing yet — and the answer says
+    what it still lacks."""
     before = {str(v) for v in check(spec)}
     work = spec.model_copy(deep=True)
     effects: list[str] = []
@@ -109,19 +118,24 @@ def _transact(spec: spec_model.SystemSpec,
         return Result(spec, False, effects,
                       [Violation("well_formed", "-", str(exc).splitlines()[0])])
     new = [v for v in check(work) if str(v) not in before]
-    if new:
-        return Result(spec, False, effects, new)
-    return Result(work, True, effects)
+    broken = integrity(new)
+    unfinished = [v for v in new if v not in broken]
+    refused = broken + [v for v in unfinished if v.element not in created]
+    if refused:
+        return Result(spec, False, effects, refused)
+    return Result(work, True, effects, incomplete=unfinished)
 
 
 # -- operations ----------------------------------------------------------------
 
-def create(spec: spec_model.SystemSpec, kind: str, id_: str, *,
+def create(spec: spec_model.SystemSpec, of: str, id_: str, *,
            owner: str = "", **attrs: Any) -> Result:
     """A new instance, created inside its owner — the whole of the
     composition that holds its kind, found in the profile: an agent in a
     team, a sub-agent in an agent, a step in a workflow, anything else in the
-    organisation (the default owner)."""
+    organisation (the default owner). `of` is the kind: `kind` is left free
+    for attributes of that name (a sub-agent's kind, a flow's kind)."""
+    kind = of
     def change(s: spec_model.SystemSpec, effects: list[str]) -> None:
         obj = _new(kind, id_, attrs)
         model = collect(s)
@@ -129,7 +143,9 @@ def create(spec: spec_model.SystemSpec, kind: str, id_: str, *,
             if rel.shape is not Shape.PART or \
                     kind not in specialisations(rel.target):
                 continue
-            whole = model.get(rel.source, owner or s.organization.id)
+            default = (s.metadata.name if rel.source == "system"
+                       else s.organization.id)
+            whole = model.get(rel.source, owner or default)
             if whole is None or whole.kind not in specialisations(rel.source):
                 continue
             target: Any = whole.obj
@@ -139,23 +155,27 @@ def create(spec: spec_model.SystemSpec, kind: str, id_: str, *,
             getattr(target, last).append(obj)
             return
         raise OperationError(f"no {kind} can be created in '{owner}'")
-    return _transact(spec, change)
+    ref = (f"action:{owner}.{id_}" if kind == "action" else f"{kind}:{id_}")
+    return _transact(spec, change, created=frozenset({ref}))
 
 
 def update(spec: spec_model.SystemSpec, kind: str, id_: str,
            **attrs: Any) -> Result:
     """Change an instance's own attributes — what Properties edits.
 
-    A field that holds a relationship the canvas draws is not an attribute:
-    it is changed by `link`/`unlink`, so its effects and refusals are the
-    relationship's. The ones set in Properties instead (a successor, a
-    leader) may be set here."""
-    drawn = {r.field for r in PROFILE.relationships
-             if r.field and r.linkable and kind in specialisations(r.source)}
-    if drawn & set(attrs):
+    A set of references (an agent's knowledge, a policy's subjects) may be
+    set whole here: it is the same as linking and unlinking each, and the
+    constraints check every reference either way. What may not be set here is
+    a composite part (a team's members: that is a move, `link`) or an
+    association-class record (a flow: `link`), whose effects are the
+    relationship's own."""
+    structural = {r.field for r in PROFILE.relationships
+                  if r.field and r.shape in (Shape.PART, Shape.RECORD)
+                  and kind in specialisations(r.source)}
+    if structural & set(attrs):
         raise OperationError(
-            f"{sorted(drawn & set(attrs))} of a {kind} are relationships: "
-            "link or unlink them")
+            f"{sorted(structural & set(attrs))} of a {kind} are parts or "
+            "links: link or unlink them")
 
     def change(s: spec_model.SystemSpec, effects: list[str]) -> None:
         obj = _find(s, kind, id_).obj

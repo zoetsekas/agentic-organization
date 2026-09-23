@@ -416,6 +416,122 @@ async def main() -> None:
         check("the knowledge source is still one element", copies == 1,
               f"{copies} copies of {source}")
 
+        # -- 4e. Where a box is let go is a gesture (ADR-0103) ---------------
+        # Asked for by a user: an environment box that can be resized, and an
+        # agent dropped into it is deployed there. Dragged out, undeployed;
+        # dragged onto another team, moved. The model decides each.
+        async def centre_of(node_id):
+            box = await page.locator(f'#canvas-nodes [data-id="{node_id}"]').bounding_box()
+            return box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+
+        async def drag(node_id, x, y):
+            sx, sy = await centre_of(node_id)
+            await page.mouse.move(sx, sy)
+            await page.mouse.down()
+            await page.mouse.move((sx + x) / 2, (sy + y) / 2, steps=5)
+            await page.mouse.move(x, y, steps=5)
+            await page.mouse.up()
+            await page.wait_for_timeout(1200)
+
+        await drop("Environment", 900, 820)
+        env = await page.evaluate("""() => {
+          const e = window.designer.spec().organization.environments || [];
+          return e[e.length - 1].id;
+        }""")
+        mover = agents[-1]
+        # Mouse events land only inside the window, and the canvas is larger
+        # than it: set the agent and the environment side by side, in view.
+        await page.evaluate("""([a, e]) => {
+          const d = window.designer;
+          const nodes = d.diagram().nodes;
+          const surface = document.querySelector("#canvas");
+          nodes[e].x = nodes[a].x + (nodes[a].width || 200) + 60;
+          nodes[e].y = nodes[a].y;
+          d.renderCanvas();
+          surface.scrollTo({ left: Math.max(0, nodes[a].x - 60),
+                             top: Math.max(0, nodes[a].y - 60) });
+        }""", [mover, env])
+        await page.wait_for_timeout(400)
+        before = await page.evaluate("""(id) =>
+          ({ ...window.designer.diagram().nodes[id] })""", env)
+        handle = page.locator(f'#canvas-nodes [data-id="{env}"] .n-resize')
+        hb = await handle.bounding_box()
+        await page.mouse.move(hb["x"] + 5, hb["y"] + 5)
+        await page.mouse.down()
+        await page.mouse.move(hb["x"] + 125, hb["y"] + 85, steps=6)
+        await page.mouse.up()
+        await page.wait_for_timeout(500)
+        after = await page.evaluate("""(id) =>
+          ({ ...window.designer.diagram().nodes[id] })""", env)
+        check("an environment box can be resized, and the size is kept",
+              after["width"] > before["width"]
+              and after["height"] > before["height"],
+              f"{before['width']}x{before['height']} → "
+              f"{after['width']}x{after['height']}")
+
+        home = await centre_of(mover)
+        ex, ey = await centre_of(env)
+        await drag(mover, ex, ey)
+        deployed = await page.evaluate("""([a, e]) => (window.designer.agents()
+          .find(({ agent }) => agent.id === a)?.agent.environments || [])
+          .some((x) => x.environment === e)""", [mover, env])
+        check("an agent dropped into an environment box is deployed there",
+              deployed, f"{mover} in {env}: {deployed}")
+
+        await drag(mover, home[0], home[1])
+        still = await page.evaluate("""([a, e]) => (window.designer.agents()
+          .find(({ agent }) => agent.id === a)?.agent.environments || [])
+          .some((x) => x.environment === e)""", [mover, env])
+        check("dragged back out, it is no longer deployed there", not still,
+              f"{mover} in {env}: {still}")
+
+        target_team = await page.evaluate("""(a) => {
+          const d = window.designer;
+          const mine = d.teams().find((t) => (t.members || [])
+            .some((m) => m.id === a))?.id;
+          return d.teams().map((t) => t.id)
+            .find((id) => id !== mine && d.diagram().nodes[id]) || null;
+        }""", mover)
+        if target_team:
+            await page.evaluate("""([a, t]) => {
+              const nodes = window.designer.diagram().nodes;
+              nodes[t].x = nodes[a].x; nodes[t].y = nodes[a].y + 180;
+              window.designer.renderCanvas();
+            }""", [mover, target_team])
+            await page.wait_for_timeout(300)
+            tx, ty = await centre_of(target_team)
+            await drag(mover, tx, ty)
+            now_in = await page.evaluate("""(a) => window.designer.teams()
+              .find((t) => (t.members || []).some((m) => m.id === a))?.id""",
+                                         mover)
+            check("an agent dragged onto another team becomes its member",
+                  now_in == target_team, f"{mover} is in {now_in}, "
+                  f"dragged onto {target_team}")
+
+        # A Properties value the model refuses is put back, with the reason.
+        await page.click(f'#canvas-nodes [data-id="{mover}"]')
+        await page.wait_for_timeout(500)
+        field = page.locator('#inspector [name="successor"]')
+        if await field.count():
+            # Whatever the control offers, set the agent as its own successor
+            # the way a person's edit would arrive: a value, then its event.
+            await field.evaluate("""(e, a) => {
+              if (e.tagName === "SELECT" && ![...e.options].some((o) => o.value === a)) {
+                e.add(new Option(a, a));
+              }
+              e.value = a;
+              e.dispatchEvent(new Event("input", { bubbles: true }));
+              e.dispatchEvent(new Event("change", { bubbles: true }));
+            }""", mover)
+            await page.wait_for_timeout(1800)
+            kept = await page.evaluate("""(a) => window.designer.agents()
+              .find(({ agent }) => agent.id === a)?.agent.successor || ""
+            """, mover)
+            status = (await page.text_content("#status") or "")
+            check("a value the model refuses in Properties is put back",
+                  kept != mover and "put back" in status,
+                  f"successor={kept!r}; status={status[:90]!r}")
+
         # -- 5. It saves ---------------------------------------------------
         await page.click("#btn-save")
         await page.wait_for_timeout(2000)

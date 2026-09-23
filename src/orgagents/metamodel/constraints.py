@@ -33,6 +33,10 @@ class Violation:
         return f"[{self.constraint}] {self.element}: {self.message}"
 
 
+INTEGRITY = "integrity"
+COMPLETENESS = "completeness"
+
+
 @dataclass(frozen=True)
 class Constraint:
     name: str
@@ -40,6 +44,11 @@ class Constraint:
     ocl: str
     doc: str
     check: Callable[[Instances], Iterable[Violation]]
+    #: `integrity`: never broken by any edit — a dangling reference, a
+    #: duplicate, a sub-agent wider than its parent. `completeness`: what a
+    #: finished model has and a draft may still lack — a required end not
+    #: yet filled in. Drafts may be incomplete; publishing may not (ADR-0103).
+    severity: str = INTEGRITY
 
 
 def _lower(mult: str) -> int:
@@ -277,7 +286,9 @@ CONSTRAINTS: list[Constraint] = [
     Constraint("multiplicities_hold", "*",
                "self.<end>->size() >= lower and <= upper",
                "Every end holds as many as its multiplicity allows. Derived "
-               "from the profile.", _multiplicities_hold),
+               "from the profile. A lower bound not yet met is incompleteness,"
+               " which a draft may have.", _multiplicities_hold,
+               COMPLETENESS),
     Constraint("ids_are_unique", "*",
                "<kind>.allInstances()->isUnique(id)",
                "No two instances of a kind share an id; an agent is therefore "
@@ -319,7 +330,7 @@ CONSTRAINTS: list[Constraint] = [
                "(kind = tool implies tool <> '') and (kind = agent implies "
                "agent <> '') and (kind = workflow implies workflow <> '')",
                "A step that calls something says what (ADR-0102).",
-               _actions_name_what_they_call),
+               _actions_name_what_they_call, COMPLETENESS),
     Constraint("control_flow_ends", "workflow",
                "self.graph.edges->forAll(e | steps->includes(e.source) and "
                "(e.target = 'END' or steps->includes(e.target)))",
@@ -328,7 +339,16 @@ CONSTRAINTS: list[Constraint] = [
 ]
 
 
+SEVERITY = {c.name: c.severity for c in CONSTRAINTS}
+
+
 def check(spec: spec_model.SystemSpec) -> list[Violation]:
-    """Every violation of every constraint; empty means a valid model."""
+    """Every violation of every constraint; empty means a valid, complete
+    model."""
     model = collect(spec)
     return [v for c in CONSTRAINTS for v in c.check(model)]
+
+
+def integrity(violations: Iterable[Violation]) -> list[Violation]:
+    return [v for v in violations if SEVERITY.get(v.constraint,
+                                                  INTEGRITY) == INTEGRITY]

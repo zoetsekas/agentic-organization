@@ -2,7 +2,7 @@
 id: ADR-0103
 title: The designer is a view of the model — every gesture is one model operation
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-23
 updated: 2026-09-23
 deciders: [Platform Architecture]
@@ -64,14 +64,42 @@ with `accepted: false`; a request the model cannot read is a 422.
 The draft comes back complete, defaults included: the canvas reads a flow's
 kind whether or not its author wrote it.
 
-### What conforms now, and what follows
-Drawing a link and deleting a box go through the model. A relationship that
-may be drawn from either end is offered from both — "Link from here" on a
-knowledge source reaches the agents that consult it. The remaining gestures —
-palette creation, drag-to-compose, deploy by nesting in a resizable environment
-box, Properties edits — are specified and tested at the API; the canvas moves
-them onto the operations in the next change, each against its row in the
-catalogue.
+### Every gesture conforms
+Every gesture in the catalogue goes through the model:
+
+- **Palette** drops are `create` — inside the whole they land on when the
+  kind is a part of it, in the organisation otherwise. Only the canvas's own
+  things (a note; the first team becoming the organisation's root) are not.
+- **Letting a box go** is a gesture: onto a whole it can be a part of → a
+  move; into an **environment box** → a deployment; out of one it was in → an
+  undeployment. An environment is drawn as a container, behind the workers in
+  it, and resized from its corner; the size is kept in the layout.
+- **Properties** edits are `update`. The box writes at once so typing stays
+  typing; when it pauses, the value is sent against the draft as it was before
+  the edit began, and a value the model refuses is put back with the reason.
+  A sub-agent's parent is a move; "Leads its team" is `set_leader`, and
+  unticking it leaves the team without a leader rather than the canvas
+  choosing one.
+- **Unlink** from the context menu is a sequence of operations: a part moves
+  to the root, a held component is released from each holder, its flows and
+  unit links are unlinked.
+
+### A draft may be incomplete; it may not be broken
+Conforming exposed a question the model had not answered: a tool fresh from
+the palette wraps nothing, and a Tool's `wraps` is `1`. So every constraint now
+has a severity, as UML separates well-formedness from completeness:
+
+- **integrity** — a dangling reference, a duplicate, a sub-agent wider than its
+  parent, an overseer inside what it oversees: never introduced by any edit;
+- **completeness** — a required end not yet filled in (lower multiplicities), a
+  step that names nothing to call.
+
+An operation is refused if it breaks integrity anywhere, or leaves incomplete an
+element that was complete (deleting a tool a step calls is still refused). The
+element it *creates* may start incomplete, and the answer says what it still
+needs. The gate is where completeness is enforced: `validate_spec` reports every
+model constraint as an error (`model_<constraint>`), so an incomplete design
+does not publish.
 
 ## Scope
 The gesture catalogue; the operations route; linking and deleting on the canvas
@@ -119,11 +147,16 @@ then the transformation from the model to the physical representation.
   deployment in and out, move by drag, refusal as an answer, effects of a
   delete, 422 for an unreadable request; the catalogue is current.
 - `scripts/interaction_check.py`: a knowledge source linked from its own end
-  reaches two agents and stays one element; the existing link, sub-agent and
-  leadership checks pass through the model.
+  reaches two agents and stays one element; an environment box resizes and
+  keeps its size; an agent dropped into it is deployed, dragged out is
+  undeployed, dragged onto another team is moved; a refused Properties value
+  is put back; the existing link, sub-agent and leadership checks pass
+  through the model.
+- `tests/test_model_scenarios.py`: a draft may be incomplete but never broken.
 
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-23 | Every gesture conforms: palette create, drop to move/deploy/undeploy, resizable environment containers, Properties through `update`. Constraints gain a severity (integrity, completeness); the gate enforces the model. |
 | 1.0.0 | 2026-09-23 | Accepted. The designer specified as gestures on the model; linking and deleting through `POST /api/designer/operations`. |
