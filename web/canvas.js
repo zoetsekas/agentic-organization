@@ -61,11 +61,19 @@ async function dapi(path, options = {}) {
        front of a person: the "Break the lock?" prompt read
        `{"error":"'*' is locked by ben until 2026-…","lock":{"id":"lck_…`.
        The sentence is the message; the object stays on `detail` for code. */
+    /* A field-by-field refusal carries `{message, fields}` (ADR-0106), and
+       the framework's own validation a list of `{loc, msg}`; both keep their
+       structure on `detail` so a form can put each under its field. */
     const message = typeof detail === "string"
       ? detail
       : (detail && typeof detail.error === "string"
           ? detail.error
-          : JSON.stringify(detail));
+          : detail && typeof detail.message === "string"
+            ? detail.message
+            : Array.isArray(detail)
+              ? detail.map((d) => `${(d.loc || []).slice(-1)[0] || ""}: `
+                  + `${d.msg || ""}`).join("; ")
+              : JSON.stringify(detail));
     const err = new Error(message);
     err.status = res.status;
     err.detail = detail;
@@ -2007,25 +2015,54 @@ function wholeOf(kind, id) {
   return null;
 }
 
-async function droppedAt(node, before) {
+/* The workers a box stands for when it is let go in an environment: itself,
+   when it can be deployed (an agent, a sub-agent), or — for a team — every
+   agent in it and in its sub-teams. A team is not deployed; its agents are
+   (ADR-0082), and dropping the team is how a person says "all of them". */
+function deployables(kind, id) {
+  if ((canvas.palette?.links || []).some(
+      (r) => r.source === kind && r.target === "environment")) {
+    return [{ kind, id }];
+  }
+  if (kind === "team") {
+    const team = allTeams().find((t) => t.id === id)
+      || (spec()?.organization?.id === id ? spec().organization : null);
+    const out = [];
+    walkTeams(team, (t) => (t.members || []).forEach(
+      (m) => out.push({ kind: "agent", id: m.id })));
+    return out;
+  }
+  return [];
+}
+
+function deploymentRequests(kind, id, before, after) {
   const requests = [];
-  const deploys = (canvas.palette?.links || []).some(
-    (r) => r.source === node.kind && r.target === "environment");
-  if (deploys) {
-    const after = containersHolding(node);
-    for (const env of after.filter((e) => !before.includes(e))) {
-      requests.push([`${node.id} deployed in ${env}`, {
-        op: "link", source: { kind: node.kind, id: node.id },
-        target: { kind: "environment", id: env }, relationship: "environments",
-      }]);
-    }
-    for (const env of before.filter((e) => !after.includes(e))) {
-      requests.push([`${node.id} no longer deployed in ${env}`, {
-        op: "unlink", source: { kind: node.kind, id: node.id },
+  const workers = deployables(kind, id);
+  for (const env of after.filter((e) => !before.includes(e))) {
+    for (const w of workers) {
+      requests.push([`${w.id} deployed in ${env}`, {
+        op: "link", source: { kind: w.kind, id: w.id },
         target: { kind: "environment", id: env }, relationship: "environments",
       }]);
     }
   }
+  for (const env of before.filter((e) => !after.includes(e))) {
+    for (const w of workers) {
+      requests.push([`${w.id} no longer deployed in ${env}`, {
+        op: "unlink", source: { kind: w.kind, id: w.id },
+        target: { kind: "environment", id: env }, relationship: "environments",
+      }]);
+    }
+  }
+  if (kind === "team" && !workers.length && after.length > before.length) {
+    requests.push([`${id} has no agents yet, so nothing was deployed`, null]);
+  }
+  return requests;
+}
+
+async function droppedAt(node, before) {
+  const requests = deploymentRequests(node.kind, node.id, before,
+                                      containersHolding(node));
   const c = centre(node);
   const host = Object.values(layoutNodes())
     .filter((n) => n.id !== node.id && !isContainer(n) && inside(c, n))
@@ -2039,6 +2076,7 @@ async function droppedAt(node, before) {
   }
   const said = [];
   for (const [text, request] of requests) {
+    if (!request) { said.push(text); continue; }
     try {
       const answer = await modelOperation(request);
       said.push(text + effectsLine(answer));
@@ -2502,10 +2540,23 @@ async function placeComponent(kind, x, y) {
   }
   place();
 
+  /* Dropped inside an environment's box: deployed there, as if it had been
+     dragged in (ADR-0105). */
+  const envs = containersHolding(layoutNodes()[id]).filter((e) => e !== id);
+  for (const [text, request] of deploymentRequests(kind, id, [], envs)) {
+    if (!request) { said += ` — ${text}`; continue; }
+    try {
+      const answer = await modelOperation(request);
+      said += ` — ${text}${effectsLine(answer)}`;
+    } catch (err) {
+      said += ` — refused: ${err.message}`;
+    }
+  }
+
   /* Dropped onto something that references rather than owns it — a tool
      onto an agent — the drop also draws that link. Onto anything else it is
      placed on its own, and told why. */
-  if (host && host.id !== id && !whole) {
+  if (host && host.id !== id && !whole && !isContainer(host)) {
     const rule = dropRule(host.kind, kind);
     if (rule) {
       try {
@@ -2612,8 +2663,22 @@ function confirmEdit(kind, id, field, base) {
     component[field] = was ? was[field] : undefined;
     setStatus(`${id}.${field} put back — ${refusal}`);
     renderCanvas();
-    if (canvas.selected?.id === id) renderInspector();
+    if (canvas.selected?.id === id) {
+      renderInspector();
+      inspectorError(field, `Put back: ${refusal}`);
+    }
   }, 700);
+}
+
+/* A message under one field of Properties (ADR-0106). */
+function inspectorError(fieldName, message) {
+  const holder = document.querySelector(
+    `#inspector [data-field-name="${CSS.escape(fieldName)}"]`);
+  if (!holder) return;
+  holder.querySelector(":scope > .field-error")?.remove();
+  holder.querySelector("input, select, textarea")?.classList.add("invalid");
+  holder.appendChild(el("small", { class: "field-error", role: "alert" },
+    message));
 }
 
 /* The same component in another copy of the draft. */
@@ -2657,18 +2722,21 @@ function renderInspector() {
     const derivedField = DERIVED_FIELDS[`${kind}.${field.name}`];
     if (derivedField) {
       const value = derivedField.get(component, id);
-      form.appendChild(fieldControl(field, value, readOnly, async (v) => {
+      const derivedControl = fieldControl(field, value, readOnly, async (v) => {
         try {
           setStatus(await derivedField.set(component, id, v));
         } catch (err) {
           setStatus(err.message);
           renderInspector();          // put the real value back in the box
+          inspectorError(field.name, err.message);
           return;
         }
         markDirty(`${id}.${field.name}`);
         renderCanvas();
         renderInspector();
-      }, kind, component));
+      }, kind, component);
+      derivedControl.setAttribute?.("data-field-name", field.name);
+      form.appendChild(derivedControl);
       continue;
     }
     const value = kind === "note" ? node.note : (component || {})[field.name];
@@ -2720,7 +2788,17 @@ function renderInspector() {
            `this control could not be drawn (${err.message}). The value is `
            + "unchanged; edit it in the spec until this is fixed."));
     }
+    control.setAttribute?.("data-field-name", field.name);
     form.appendChild(control);
+    /* A required field left empty says so under itself, the way every form
+       does (ADR-0106), rather than only in the Issues tab. */
+    const empty = value === undefined || value === null || value === ""
+      || (Array.isArray(value) && !value.length);
+    if (field.required && empty && kind !== "note" && !readOnly) {
+      control.appendChild(el("small", { class: "field-error", role: "alert" },
+        "Required."));
+      control.querySelector("input, select, textarea")?.classList.add("invalid");
+    }
   }
   const actions = el("div", { class: "actions" },
     el("button", {
@@ -2792,7 +2870,10 @@ function fieldContext(componentKind, fieldName) {
   const s = spec();
   if (!s) return null;
 
-  const ids = (col) => (s[col] || []).map((x) => x.id).filter(Boolean);
+  // The organisation owns its collections (ADR-0101); roles are its
+  // `role_definitions`, a team's own `roles` being assignments.
+  const ids = (col) => (org(s)[col === "roles" ? "role_definitions" : col] || [])
+    .map((x) => x.id).filter(Boolean);
   const agentIds = () => allAgents().map((a) => a.agent.id);
 
   const REF_MAP = {
@@ -2875,19 +2956,27 @@ function fieldContext(componentKind, fieldName) {
   };
 
   const entry = REF_MAP[componentKind]?.[fieldName];
-  if (!entry) return null;
-
-  /* resolve options */
-  let options;
-  if (entry.fn) {
+  if (entry) {
     /* fn may accept the currently-selected node id for context (team.leader) */
-    options = entry.fn(canvas.selected?.id);
-  } else {
-    options = ids(entry.col);
+    const options = entry.fn ? entry.fn(canvas.selected?.id) : ids(entry.col);
+    const kindOfCol = Object.entries(COLLECTIONS)
+      .find(([, col]) => col === entry.col)?.[0];
+    return { mode: entry.mode, options,
+             target: kindOfCol ? (kindSpec(kindOfCol)?.label || kindOfCol) : "" };
   }
-  /* only activate picker when there are options; otherwise fall through */
-  if (!options.length) return null;
-  return { mode: entry.mode, options };
+  /* Everything else that is a reference comes from the model's link rules
+     (ADR-0101): a field that holds a relationship gets a picker of what that
+     relationship may point at, whatever the kind. A field that is not a
+     relationship stays what it is. */
+  const rules = (canvas.palette?.links || []).filter(
+    (r) => r.source === componentKind && r.field === fieldName
+      && ["ref", "refs", "ref_objects"].includes(r.shape));
+  if (!rules.length) return null;
+  const targets = [...new Set(rules.map((r) => r.target))];
+  const options = [...new Set(targets.flatMap(
+    (t) => componentsOf(t).map((x) => x.id).filter(Boolean)))];
+  return { mode: rules[0].shape === "ref" ? "ref" : "reflist", options,
+           target: targets.map((t) => kindSpec(t)?.label || t).join(" or ") };
 }
 
 /* Single-reference <select> — value is a string id */
@@ -2919,7 +3008,8 @@ function renderRef(field, value, readOnly, onChange, options) {
    So: the shape is read and written back unchanged. An entry that carries more
    than an id keeps whatever else it carries, because dropping an override
    silently would be a worse bug than the one this fixes. */
-const REF_KEYS = ["environment", "id", "agent", "person", "capability"];
+const REF_KEYS = ["environment", "role", "data_class", "person", "agent",
+                  "capability", "id"];
 
 function refId(entry) {
   if (entry && typeof entry === "object") {
@@ -2929,7 +3019,12 @@ function refId(entry) {
   return entry ?? "";
 }
 
-function renderReflist(field, value, readOnly, onChange, options) {
+/* A list of references, as chips plus a searchable dropdown (ADR-0106): type
+   to filter what the design has of the right kind, pick one to add it, press
+   × on a chip to remove it. Only what exists can be chosen — an id the model
+   does not have would be refused anyway — and when nothing exists yet the
+   control says what to add first rather than offering an empty box. */
+function renderReflist(field, value, readOnly, onChange, options, targetLabel = "") {
   let selected = Array.isArray(value) ? [...value] : [];
   // How this field writes an entry back: as a bare id, or in the shape the
   // existing entries already use.
@@ -2942,13 +3037,14 @@ function renderReflist(field, value, readOnly, onChange, options) {
     return field.name === "environments" ? "environment" : null;
   })();
   const wrapId = (id) => (objectKey ? { [objectKey]: id } : id);
+  const listId = `rl-${field.name}-${Math.random().toString(36).slice(2, 8)}`;
 
   const wrap = el("div", { class: "reflist-wrap", "data-field": field.name });
 
   function redraw() {
     const pills = selected.map((entry) => {
       const id = refId(entry);
-      const pill = el("span", { class: "ref-pill" }, id);
+      const pill = el("span", { class: "ref-pill", "data-id": id }, id);
       if (!readOnly) {
         const x = el("button", { type: "button", "aria-label": `remove ${id}` }, "×");
         x.addEventListener("click", () => {
@@ -2963,50 +3059,67 @@ function renderReflist(field, value, readOnly, onChange, options) {
 
     const chosen = new Set(selected.map(refId));
     const remaining = options.filter((o) => !chosen.has(o));
-    const adder = remaining.length && !readOnly
-      ? (() => {
-          const sel = el("select", {},
-            el("option", { value: "" }, "+ add…"),
-            ...remaining.map((o) => el("option", { value: o }, o)));
-          sel.addEventListener("change", () => {
-            if (!sel.value) return;
-            if (!chosen.has(sel.value)) {
-              selected = [...selected, wrapId(sel.value)];
-              onChange([...selected]);
-              redraw();
-            }
-          });
-          return sel;
-        })()
-      : null;
-
-    /* free-text fallback for IDs not in the spec yet */
-    const freeText = !readOnly
-      ? (() => {
-          const inp = el("input", {
-            class: "reflist-free", placeholder: "type id + Enter",
-            title: "Add an id not yet in the spec",
-          });
-          inp.addEventListener("keydown", (e) => {
-            if (e.key !== "Enter") return;
-            e.preventDefault();
-            const v = inp.value.trim();
-            if (v && !chosen.has(v)) {
-              selected = [...selected, wrapId(v)];
-              onChange([...selected]);
-              inp.value = "";
-              redraw();
-            }
-          });
-          return inp;
-        })()
-      : null;
-
-    wrap.replaceChildren(...pills, ...(adder ? [adder] : []), ...(freeText ? [freeText] : []));
+    let picker = null;
+    if (!readOnly && remaining.length) {
+      const input = el("input", {
+        class: "reflist-search", type: "search", list: listId,
+        placeholder: `search to add${targetLabel ? " " + targetLabel : ""}…`,
+        "aria-label": `add to ${field.name}`, autocomplete: "off",
+      });
+      const names = optionNames();
+      const datalist = el("datalist", { id: listId },
+        ...remaining.map((o) => el("option", { value: o },
+          names[o] && names[o] !== o ? names[o] : "")));
+      const add = () => {
+        const v = input.value.trim();
+        if (!v) return;
+        if (!remaining.includes(v)) {
+          input.setCustomValidity("not in the design");
+          input.classList.add("invalid");
+          input.title = `'${v}' is not in the design — choose one from the list`;
+          return;
+        }
+        selected = [...selected, wrapId(v)];
+        onChange([...selected]);
+        redraw();
+        wrap.querySelector(".reflist-search")?.focus();
+      };
+      input.addEventListener("input", () => {
+        input.classList.remove("invalid");
+        input.setCustomValidity("");
+        // Picking from the list fires `input` with an exact match: add it.
+        if (remaining.includes(input.value.trim())) add();
+      });
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); add(); }
+      });
+      picker = el("span", { class: "reflist-picker" }, input, datalist);
+    } else if (!readOnly && !options.length) {
+      picker = el("small", { class: "hint" },
+        `nothing to choose yet${targetLabel ? ` — add ${targetLabel} to the design first` : ""}`);
+    }
+    wrap.replaceChildren(...pills, ...(picker ? [picker] : []));
   }
-
   redraw();
   return wrap;
+}
+
+/* Display names for ids, so a dropdown reads "cfo — Chief Financial
+   Officer" rather than a bare id where a name exists. */
+function optionNames() {
+  const out = {};
+  const s = spec();
+  if (!s) return out;
+  const add = (x) => { if (x?.id) out[x.id] = x.name || x.title || ""; };
+  allTeams().forEach(add);
+  allAgents().forEach(({ agent }) => {
+    add(agent);
+    (agent.subagents || []).forEach(add);
+  });
+  for (const value of Object.values(org(s))) {
+    if (Array.isArray(value)) value.forEach((x) => typeof x === "object" && add(x));
+  }
+  return out;
 }
 
 
@@ -3374,7 +3487,8 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
     if (ctx) {
       input = ctx.mode === "ref"
         ? renderRef(field, value, readOnly, onChange, ctx.options)
-        : renderReflist(field, value, readOnly, onChange, ctx.options);
+        : renderReflist(field, value, readOnly, onChange, ctx.options,
+                        ctx.target ? an(ctx.target.toLowerCase()) : "");
       const label = el("label", {}, `${field.name}${field.required ? " *" : ""}`, input);
       if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
       return label;

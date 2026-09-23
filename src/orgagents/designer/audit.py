@@ -45,6 +45,9 @@ class AuditAction(str, Enum):
     MEMBER_ADD = "workspace.member.add"
     MEMBER_REMOVE = "workspace.member.remove"
     WORKSPACE_CREATE = "workspace.create"
+    WORKSPACE_UPDATE = "workspace.update"
+    WORKSPACE_DELETE = "workspace.delete"
+    SYSTEM_IMPORT = "system.import"
     AUDIT_READ = "audit.read"
     # Authentication happens before any of the above, and its failures leave no
     # other trace (ADR-0047). Successes are not logged: they are every request.

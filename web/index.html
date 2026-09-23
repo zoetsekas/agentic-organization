@@ -43,6 +43,13 @@
   <span class="sep"></span>
   <label class="inline" for="ws-select"><span class="eyebrow">Workspace</span></label>
   <select id="ws-select" title="Workspace"></select>
+  <!-- Workspaces: create, rename, delete (ADR-0106). -->
+  <button id="btn-ws-new" class="icon-btn" title="New workspace"
+          aria-label="New workspace">＋</button>
+  <button id="btn-ws-edit" class="icon-btn" title="Rename workspace"
+          aria-label="Rename workspace">✎</button>
+  <button id="btn-ws-delete" class="icon-btn" title="Delete workspace"
+          aria-label="Delete workspace">🗑</button>
   <label class="inline" for="sys-select"><span class="eyebrow">Org</span></label>
   <select id="sys-select" data-org-select title="Organisation"></select>
   <button id="btn-new-system">New organisation</button>
@@ -113,6 +120,8 @@
       <button id="btn-org-new">New…</button>
       <button id="btn-org-example"
               title="open one of the shipped example organisations, laid out">Load example…</button>
+      <button id="btn-org-import"
+              title="open an organisation from a *.system.yaml on this computer">Import from file…</button>
       <button id="btn-org-edit">Edit definition…</button>
       <button id="btn-org-duplicate">Duplicate</button>
       <button id="btn-org-delete">Delete…</button>
@@ -522,6 +531,55 @@
     </div>
   </section>
 </main>
+<!-- A workspace, created or renamed. -->
+<dialog id="ws-dialog" class="dialog">
+  <form id="wsform" class="form" method="dialog">
+    <h3 id="wsform-title">New workspace</h3>
+    <label>Name<input name="name" required maxlength="120"
+      placeholder="Finance transformation" /></label>
+    <label>Description<textarea name="description" rows="2"
+      placeholder="What this workspace is for."></textarea></label>
+    <div class="actions">
+      <button type="submit" class="primary" id="btn-wsform-save">Create</button>
+      <button type="button" id="btn-wsform-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Deleting a workspace: says what it holds before anything goes. -->
+<dialog id="ws-delete-dialog" class="dialog">
+  <form id="wsdeleteform" class="form" method="dialog">
+    <h3>Delete workspace</h3>
+    <p id="wsdelete-summary"></p>
+    <label class="inline" id="wsdelete-cascade-row" hidden>
+      <input type="checkbox" name="cascade" />
+      Also delete its organisations — this cannot be undone
+    </label>
+    <label>Type the workspace's name to confirm<input name="confirm" required
+      autocomplete="off" /></label>
+    <div class="actions">
+      <button type="submit" class="danger">Delete</button>
+      <button type="button" id="btn-wsdelete-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- A design from a file on this computer (ADR-0106). -->
+<dialog id="import-dialog" class="dialog">
+  <form id="importform" class="form" method="dialog">
+    <h3>Import an organisation from a file</h3>
+    <label>File<input name="file" type="file" required
+      accept=".yaml,.yml,.json" /></label>
+    <label>Name<input name="name"
+      placeholder="leave empty to use the organisation's own name" /></label>
+    <label>Workspace<select name="workspace"></select></label>
+    <div class="actions">
+      <button type="submit" class="primary">Import</button>
+      <button type="button" id="btn-import-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+
 <script src="app.js"></script>
 <script src="canvas.js"></script>
 <div id="ctx-menu" hidden></div>

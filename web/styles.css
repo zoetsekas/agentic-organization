@@ -1162,3 +1162,43 @@ textarea.json.invalid { border-color: var(--clay); }
 .panel-resizer:hover { background: var(--accent-wash); }
 .panel-side.panel-min > .panel-resizer, .panel-max > .panel-resizer { display: none !important; }
 @media (max-width: 1200px) { .panel-resizer { display: none; } }
+
+/* -- forms: required marks and errors under each field (ADR-0106) ---------- */
+.req { color: var(--err); margin-left: 2px; font-weight: 700; }
+.form-note { font-size: var(--t-small); color: var(--ink-dim); margin: 0 0 var(--s3); }
+.field-error {
+  display: block; margin-top: var(--s1); color: var(--err);
+  font-size: var(--t-small); line-height: 1.35;
+}
+input.invalid, select.invalid, textarea.invalid {
+  border-color: var(--err) !important;
+  box-shadow: 0 0 0 2px var(--clay-ground);
+}
+.form-error {
+  margin: var(--s3) 0; padding: var(--s2) var(--s3); color: var(--err);
+  border: 1px solid var(--err); border-radius: var(--r-sm);
+  background: var(--clay-ground); font-size: var(--t-small);
+}
+
+/* -- reference pickers: chips and a searchable dropdown --------------------- */
+.reflist-wrap { display: flex; flex-wrap: wrap; gap: var(--s1); align-items: center; }
+.reflist-picker { flex: 1 1 160px; min-width: 140px; }
+.reflist-picker .reflist-search { width: 100%; }
+
+/* The filter strip's checkboxes are checkboxes, not form fields. */
+.edge-filter input[type="checkbox"] {
+  width: auto; height: auto; min-height: 0; margin: 0 var(--s1) 0 0;
+  padding: 0; box-shadow: none; flex: none;
+}
+.edge-filter label { display: inline-flex; align-items: center; white-space: nowrap; }
+
+/* -- dialogs (ADR-0106) ------------------------------------------------------ */
+.dialog {
+  border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  background: var(--panel); color: var(--ink); padding: var(--s6);
+  width: min(520px, calc(100vw - 32px));
+}
+.dialog::backdrop { background: var(--bg); opacity: .7; }
+.dialog h3 { margin-top: 0; }
+.icon-btn { min-width: 30px; padding-left: var(--s2); padding-right: var(--s2); }
+button.danger { border-color: var(--err); color: var(--err); }

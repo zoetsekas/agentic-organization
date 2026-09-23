@@ -273,7 +273,7 @@ def _referenced_paths(*sources: str) -> set[str]:
     found: set[str] = set()
     for source in sources:
         for raw in re.findall(r"[`\"']((?:/systems|/workspaces|/palette"
-                              r"|/settings|/whoami|/audit|/layout|/examples|/metamodel|/operations|/gestures)[^`\"'\s]*)",
+                              r"|/settings|/whoami|/audit|/layout|/examples|/metamodel|/operations|/gestures|/import)[^`\"'\s]*)",
                               source):
             path = "/api/designer" + raw.split("?")[0]
             path = re.sub(r"\$\{[^}]*\}", "{}", path).rstrip("/")

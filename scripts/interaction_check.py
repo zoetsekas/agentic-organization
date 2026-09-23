@@ -1005,6 +1005,161 @@ async def main() -> None:
         check("and undo says so rather than offering a lie",
               await page.locator("#btn-undo").is_disabled())
 
+        # -- 12. What a person reported (ADR-0106) --------------------------
+        # "I am not able to drag and drop a team and agent into an
+        # environment": a team dropped in deploys its agents; an agent dropped
+        # from the palette into the box is deployed there.
+        # Back on the organisation's own diagram, scrolled to open ground.
+        await page.evaluate("""() => {
+          const d = window.designer;
+          const main = Object.keys(d.state.record.layout.diagrams)[0];
+          d.openDiagram(main);
+        }""")
+        await page.wait_for_timeout(600)
+        await page.evaluate("""() => document.querySelector("#canvas")
+          .scrollTo({ left: 0, top: 0 })""")
+        await page.wait_for_timeout(300)
+        await drop("Environment", 900, 300)
+        env2 = await page.evaluate("""() => {
+          const e = window.designer.spec().organization.environments || [];
+          return e[e.length - 1].id;
+        }""")
+        team = await page.evaluate("""() => window.designer.teams()
+          .find((t) => (t.members || []).length
+                && window.designer.diagram().nodes[t.id])?.id""")
+        await page.evaluate("""([t, e]) => {
+          const d = window.designer, nodes = d.diagram().nodes;
+          nodes[e].x = nodes[t].x + (nodes[t].width || 200) + 80;
+          nodes[e].y = nodes[t].y; nodes[e].width = 420; nodes[e].height = 260;
+          d.renderCanvas();
+          document.querySelector("#canvas").scrollTo(
+            { left: Math.max(0, nodes[t].x - 60), top: Math.max(0, nodes[t].y - 60) });
+        }""", [team, env2])
+        await page.wait_for_timeout(400)
+        ex, ey = await centre_of(env2)
+        await drag(team, ex, ey)
+        members = await page.evaluate("""([t, e]) => {
+          const team = window.designer.teams().find((x) => x.id === t);
+          return (team.members || []).map((m) => ({ id: m.id,
+            in: (m.environments || []).some((x) => x.environment === e) }));
+        }""", [team, env2])
+        check("a team dropped into an environment deploys its agents",
+              members and all(m["in"] for m in members), json.dumps(members))
+
+        known = await page.evaluate("""() => window.designer.agents()
+          .map(({ agent }) => agent.id)""")
+        box = await page.locator(f'#canvas-nodes [data-id="{env2}"]').bounding_box()
+        surface = await page.locator("#canvas").bounding_box()
+        await page.locator(".drag-item", has_text="Agent").first.drag_to(
+            page.locator("#canvas"), target_position={
+                "x": box["x"] - surface["x"] + box["width"] - 120,
+                "y": box["y"] - surface["y"] + box["height"] - 60})
+        await page.wait_for_timeout(1200)
+        fresh = await page.evaluate("""([e, known]) => {
+          const a = window.designer.agents().map(({ agent }) => agent)
+            .find((x) => !known.includes(x.id));
+          return a ? { id: a.id, in: (a.environments || [])
+            .some((x) => x.environment === e) } : { id: null, in: false };
+        }""", [env2, known])
+        check("an agent dropped from the palette into an environment is "
+              "deployed there", fresh["in"], json.dumps(fresh))
+
+        # "the comma separated must be replaced with selectors": a reference
+        # field is a searchable dropdown of what the design has.
+        await page.click(f'#canvas-nodes [data-id="{fresh["id"]}"]')
+        await page.wait_for_timeout(600)
+        knowledge = page.locator('#inspector [data-field-name="knowledge"]')
+        search = knowledge.locator(".reflist-search")
+        check("a reference field is a searchable picker, not comma text",
+              await search.count() == 1
+              and await page.locator('#inspector input[placeholder="comma separated"]').count() == 0,
+              f"{await search.count()} picker(s)")
+        choice = await page.evaluate("""() =>
+          (window.designer.spec().organization.knowledge || [])[0]?.id""")
+        if choice:
+            await search.fill(choice)
+            await page.wait_for_timeout(900)
+            chips = await knowledge.locator(f'.ref-pill[data-id="{choice}"]').count()
+            check("choosing from the picker adds it", chips == 1, choice)
+
+        # "clearly define the mandatory fields and highlight any errors":
+        # every form marks what it needs and says what is wrong under it.
+        await page.click("#btn-ws-new")
+        await page.wait_for_timeout(300)
+        wsform = page.locator("#wsform")
+        check("a required field is marked", await wsform.locator("label .req").count() >= 1)
+        await wsform.locator("button[type=submit]").click()
+        await page.wait_for_timeout(300)
+        under = await wsform.locator("input[name=name] ~ .field-error").text_content() \
+            if await wsform.locator("input[name=name] ~ .field-error").count() else ""
+        check("submitting without it says so under the field",
+              "required" in under.lower()
+              and await wsform.locator("input[name=name].invalid").count() == 1,
+              repr(under))
+        await wsform.locator("input[name=name]").fill("Second workspace")
+        check("typing clears the error",
+              await wsform.locator(".field-error").count() == 0)
+        await wsform.locator("button[type=submit]").click()
+        await page.wait_for_timeout(1500)
+        names = await page.evaluate("""() => [...document.querySelectorAll(
+          "#ws-select option")].map((o) => o.textContent)""")
+        check("a workspace is created", "Second workspace" in names, str(names))
+
+        await page.click("#btn-ws-edit")
+        await page.wait_for_timeout(300)
+        await wsform.locator("input[name=name]").fill("Renamed workspace")
+        await wsform.locator("button[type=submit]").click()
+        await page.wait_for_timeout(1200)
+        names = await page.evaluate("""() => [...document.querySelectorAll(
+          "#ws-select option")].map((o) => o.textContent)""")
+        check("a workspace is renamed", "Renamed workspace" in names, str(names))
+
+        # Import a design from a file on this computer, into this workspace.
+        await page.click('#tabs button[data-view="org"]')
+        await page.wait_for_timeout(500)
+        await page.click("#btn-org-import")
+        await page.wait_for_timeout(300)
+        importform = page.locator("#importform")
+        await importform.locator("button[type=submit]").click()
+        await page.wait_for_timeout(300)
+        check("importing without a file says so under the file field",
+              await importform.locator("input[name=file] ~ .field-error").count() == 1)
+        await importform.locator("input[name=file]").set_input_files(
+            str(ROOT / "examples" / "sentinel" / "sentinel.secops.system.yaml"))
+        await importform.locator("button[type=submit]").click()
+        await page.wait_for_timeout(2500)
+        orgs = await page.evaluate("""() => [...document.querySelectorAll(
+          "#sys-select option")].map((o) => o.textContent)""")
+        check("a design is imported from a file on disk",
+              any("Sentinel" in o for o in orgs), str(orgs))
+
+        # And deleted with its organisations, only when asked in words.
+        await page.click("#btn-ws-delete")
+        await page.wait_for_timeout(300)
+        delform = page.locator("#wsdeleteform")
+        await delform.locator("button[type=submit]").click()
+        await page.wait_for_timeout(300)
+        check("deleting asks for the name, under the field",
+              await delform.locator("input[name=confirm] ~ .field-error").count() == 1)
+        await delform.locator("input[name=confirm]").fill("Renamed workspace")
+        await delform.locator("input[name=cascade]").check()
+        await delform.locator("button[type=submit]").click()
+        await page.wait_for_timeout(1500)
+        names = await page.evaluate("""() => [...document.querySelectorAll(
+          "#ws-select option")].map((o) => o.textContent)""")
+        check("the workspace is deleted", "Renamed workspace" not in names,
+              str(names))
+
+        # The organisation form's required name.
+        await page.click("#btn-org-new")
+        await page.wait_for_timeout(300)
+        orgform = page.locator("#orgform")
+        await orgform.locator("input[name=name]").fill("")
+        await orgform.locator("button[type=submit]").click()
+        await page.wait_for_timeout(300)
+        check("creating an organisation without a name says so under it",
+              await orgform.locator("input[name=name] ~ .field-error").count() == 1)
+
         await page.screenshot(path="/tmp/interaction-final.png")
         await browser.close()
 

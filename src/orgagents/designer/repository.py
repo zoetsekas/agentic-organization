@@ -63,6 +63,7 @@ class Repository(Protocol):
     def list_workspaces(self) -> list[Workspace]: ...
     def get_workspace(self, workspace_id: str) -> Optional[Workspace]: ...
     def save_workspace(self, workspace: Workspace) -> Workspace: ...
+    def delete_workspace(self, workspace_id: str) -> bool: ...
     def locks(self, system_id: str) -> list[Lock]: ...
     def put_lock(self, lock: Lock) -> Lock: ...
     def drop_lock(self, lock_id: str) -> bool: ...
@@ -161,6 +162,9 @@ class MemoryRepository(_Base):
     def save_workspace(self, workspace: Workspace) -> Workspace:
         self._workspaces[workspace.id] = workspace
         return workspace
+
+    def delete_workspace(self, workspace_id: str) -> bool:
+        return self._workspaces.pop(workspace_id, None) is not None
 
     def locks(self, system_id: str) -> list[Lock]:
         return [lock for lock in self._locks.values() if lock.system_id == system_id]
@@ -309,6 +313,12 @@ class FileSystemRepository(_Base):
                     workspace.model_dump(mode="json"))
         return workspace
 
+    def delete_workspace(self, workspace_id: str) -> bool:
+        path = self.root / "workspaces" / f"{workspace_id}.json"
+        existed = path.is_file()
+        path.unlink(missing_ok=True)
+        return existed
+
     def locks(self, system_id: str) -> list[Lock]:
         out = []
         for path in (self.root / "locks").glob("*.json"):
@@ -417,6 +427,9 @@ class SqlRepository(_Base):
     def save_workspace(self, workspace: Workspace) -> Workspace:
         self.store.put(WORKSPACES, workspace, name=workspace.name)
         return workspace
+
+    def delete_workspace(self, workspace_id: str) -> bool:
+        return self.store.delete(WORKSPACES, workspace_id)
 
     def locks(self, system_id: str) -> list[Lock]:
         return self.store.list(LOCKS, Lock, parent=system_id, limit=500)

@@ -774,7 +774,8 @@ def _records_command(args: argparse.Namespace) -> int:
 
 
 def _examples_command(args) -> int:
-    """`orgagents examples list|load` — the designer's Load example, in a shell.
+    """`orgagents examples list|load|import` — the designer's Load example
+    and Import from file, in a shell.
 
     The same module the UI's route calls, over the same designer store the
     server uses, so an example loaded here is the one a reader opens there.
@@ -795,7 +796,7 @@ def _examples_command(args) -> int:
 
     if not args.example:
         print("load needs an example id (see 'orgagents examples list'), "
-              "or 'all'")
+              "or 'all'; import needs a path")
         return 2
     if not args.user:
         # Not defaulted: a workspace is visible only to its members, so an
@@ -811,6 +812,25 @@ def _examples_command(args) -> int:
     app = create_app(args.db, args.base_url)
     designer = app.state.designer
     who = Principal(user_id=args.user, display_name=args.user)
+    if args.action == "import":
+        # A design from anywhere on disk, not only the shipped examples.
+        from .designer.service import FieldErrors
+        path = Path(args.example)
+        if not path.is_file():
+            print(f"no file {path}")
+            return 2
+        workspace = args.workspace or designer.create_workspace(
+            who, args.name or path.stem.removesuffix(".system")).id
+        try:
+            record = designer.import_system(
+                who, workspace_id=workspace, text=path.read_text(),
+                filename=path.name, name=args.name)
+        except FieldErrors as e:
+            print(f"refused: {e}")
+            return 1
+        print(f"imported {path.name} as '{record.name}' ({record.id}) into "
+              f"workspace {workspace}")
+        return 0
     ids = [e.id for e in examples] if args.example == "all" else [args.example]
     for example_id in ids:
         try:
@@ -1003,9 +1023,10 @@ def main(argv: list[str] | None = None) -> int:
     p_ex = sub.add_parser(
         "examples", help="list the shipped example organisations, or load one "
                          "into the designer")
-    p_ex.add_argument("action", choices=["list", "load"])
+    p_ex.add_argument("action", choices=["list", "load", "import"])
     p_ex.add_argument("example", nargs="?", default="",
-                      help="for 'load': an id from 'examples list', or 'all'")
+                      help="for 'load': an id from 'examples list', or 'all'; "
+                           "for 'import': the path of a *.system.yaml on disk")
     p_ex.add_argument("--user", default="",
                       help="for 'load': who owns it — the name you use in the "
                            "designer's 'as' box, since a workspace is only "

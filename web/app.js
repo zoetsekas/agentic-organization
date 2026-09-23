@@ -29,6 +29,157 @@ const el = (tag, attrs = {}, ...kids) => {
   return n;
 };
 
+/* ------------------------------------------------------------- the form kit
+   One way every form says what it needs and what is wrong (ADR-0106):
+
+   - a required field is marked `*`, and the form says what the mark means;
+   - on submit, each field that is missing or malformed is outlined, and the
+     reason is written *under that field* — not in a banner the reader has to
+     map back to the form;
+   - a refusal from the server names its fields too (`{message, fields}` or
+     the framework's `[{loc, msg}]`) and is shown the same way; anything it
+     cannot place goes in the form's own error line;
+   - editing a field clears its error.
+
+   Used by every form in the designer, and by the canvas's Properties. */
+const formKit = {
+  control(form, name) {
+    return form.querySelector(`[name="${CSS.escape(name)}"]`);
+  },
+
+  /* The label a control sits in, or the nearest block around it. */
+  holder(control) {
+    return control.closest("label") || control.parentElement;
+  },
+
+  markRequired(form) {
+    let any = false;
+    for (const control of form.querySelectorAll("[required]")) {
+      any = true;
+      control.setAttribute("aria-required", "true");
+      const label = formKit.holder(control);
+      if (label && !label.querySelector(":scope > .req")) {
+        const mark = el("span", { class: "req", "aria-hidden": "true",
+                                  title: "Required" }, "*");
+        // After the label's own words, before the control.
+        const first = label.firstChild;
+        if (first && first.nodeType === 3) first.after(mark);
+        else label.prepend(mark);
+      }
+    }
+    if (any && !form.querySelector(":scope > .form-note")) {
+      form.prepend(el("p", { class: "form-note" },
+        el("span", { class: "req", "aria-hidden": "true" }, "*"),
+        " marks a required field."));
+    }
+  },
+
+  clear(form) {
+    form.querySelectorAll(".field-error").forEach((n) => n.remove());
+    form.querySelectorAll(".invalid").forEach((n) => {
+      n.classList.remove("invalid");
+      n.removeAttribute("aria-invalid");
+      n.removeAttribute("aria-describedby");
+    });
+    const general = form.querySelector(":scope > .form-error");
+    if (general) general.remove();
+  },
+
+  fieldError(control, message) {
+    const holder = formKit.holder(control);
+    holder.querySelector(":scope > .field-error")?.remove();
+    control.classList.add("invalid");
+    control.setAttribute("aria-invalid", "true");
+    const id = `err-${control.name || Math.random().toString(36).slice(2)}`;
+    control.setAttribute("aria-describedby", id);
+    holder.appendChild(el("small", { class: "field-error", id, role: "alert" },
+      message));
+    const clearIt = () => {
+      control.classList.remove("invalid");
+      control.removeAttribute("aria-invalid");
+      holder.querySelector(":scope > .field-error")?.remove();
+    };
+    control.addEventListener("input", clearIt, { once: true });
+    control.addEventListener("change", clearIt, { once: true });
+  },
+
+  /* Show `{field: message}`; returns true when anything was shown. */
+  show(form, fields, general = "") {
+    formKit.clear(form);
+    const unplaced = [];
+    let first = null;
+    for (const [name, message] of Object.entries(fields || {})) {
+      const control = formKit.control(form, name);
+      if (!control) { unplaced.push(`${name}: ${message}`); continue; }
+      formKit.fieldError(control, message);
+      first = first || control;
+    }
+    const text = [general, ...unplaced].filter(Boolean).join(" ");
+    if (text) {
+      const actions = form.querySelector(":scope > .actions");
+      const line = el("div", { class: "form-error", role: "alert" }, text);
+      if (actions) actions.before(line); else form.appendChild(line);
+    }
+    first?.focus();
+    return !!(first || text);
+  },
+
+  /* What the browser and the `required` marks say is wrong. */
+  check(form) {
+    const fields = {};
+    for (const control of form.querySelectorAll("input, select, textarea")) {
+      if (!control.name || control.disabled || control.type === "hidden") continue;
+      const empty = control.type === "file"
+        ? !control.files?.length
+        : control.type === "checkbox" ? false : !String(control.value).trim();
+      if (control.required && empty) {
+        fields[control.name] = "Required.";
+      } else if (!empty && !control.checkValidity()) {
+        fields[control.name] = control.validationMessage;
+      }
+    }
+    return fields;
+  },
+
+  /* A server refusal as `{fields, general}`. */
+  fromError(err) {
+    const detail = err?.detail;
+    if (detail && typeof detail === "object" && detail.fields) {
+      return { fields: detail.fields, general: "" };
+    }
+    if (Array.isArray(detail)) {
+      const fields = {};
+      for (const d of detail) {
+        const name = (d.loc || []).filter((x) => typeof x === "string")
+          .filter((x) => x !== "body").slice(-1)[0];
+        if (name) fields[name] = d.msg; 
+      }
+      return { fields, general: "" };
+    }
+    return { fields: {}, general: err?.message || String(err) };
+  },
+
+  /* Validate on submit; call `submit(values)` only when the form is right,
+     and show what the server refuses the same way. */
+  wire(form, submit, validate = null) {
+    form.noValidate = true;       // our messages, under the field, not the browser's bubbles
+    formKit.markRequired(form);
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      formKit.clear(form);
+      const fields = { ...formKit.check(form), ...(validate ? validate(form) : {}) };
+      if (Object.keys(fields).length) return formKit.show(form, fields);
+      try {
+        await submit(Object.fromEntries(new FormData(form).entries()), form);
+      } catch (err) {
+        const { fields: bad, general } = formKit.fromError(err);
+        formKit.show(form, bad, general);
+      }
+    });
+  },
+};
+window.formKit = formKit;
+
 async function api(path, options = {}) {
   const res = await fetch(API + path, {
     headers: { "Content-Type": "application/json" },
@@ -176,6 +327,7 @@ function showOrgForm(mode) {
   const form = $("#orgform");
   form.dataset.mode = mode;
   $("#orgform-error").textContent = "";
+  formKit.clear(form);
   $("#org-error").textContent = "";
   const record = design()?.state.record;
   const metadata = mode === "edit" ? (orgMetadata() || {}) : {};
@@ -393,21 +545,15 @@ function wireOrgView() {
   });
   $("#btn-org-delete").addEventListener("click", deleteOrganisation);
   $("#btn-orgform-cancel").addEventListener("click", hideOrgForm);
-  $("#orgform").addEventListener("submit", async (e) => {
-    e.preventDefault();
+  formKit.wire($("#orgform"), async (_values, form) => {
     const values = orgFormValues();
-    if (!values.name) return;
-    try {
-      if (e.target.dataset.mode === "edit") {
-        applyOrgMetadata(values);
-        await design().save();
-      } else {
-        await createOrganisation(values);
-      }
-      hideOrgForm();
-    } catch (err) {
-      $("#orgform-error").textContent = err.message;
+    if (form.dataset.mode === "edit") {
+      applyOrgMetadata(values);
+      await design().save();
+    } else {
+      await createOrganisation(values);
     }
+    hideOrgForm();
   });
 }
 
@@ -1128,7 +1274,20 @@ function wireAgentEditor() {
       renderOrg();
     } catch (err) { setStatus(err.message); }
   });
-  $("#btn-agent-save").addEventListener("click", () => design().save());
+  $("#btn-agent-save").addEventListener("click", async () => {
+    // Checked like every form (ADR-0106): what is wrong is said under the
+    // field, before anything is sent.
+    const form = $("#agentform");
+    formKit.clear(form);
+    const errors = formKit.check(form);
+    if (Object.keys(errors).length) return formKit.show(form, errors);
+    try {
+      await design().save();
+    } catch (err) {
+      const { fields, general } = formKit.fromError(err);
+      formKit.show(form, fields, general);
+    }
+  });
   $("#btn-agent-remove").addEventListener("click", () => {
     const agent = currentAgent();
     if (!agent || !window.confirm(`Remove ${agent.id} from this organisation?`)) return;
@@ -1180,25 +1339,20 @@ async function removeMember(userId) {
 }
 
 function wireWorkspaceView() {
-  $("#memberform").addEventListener("submit", async (e) => {
-    e.preventDefault();
+  formKit.wire($("#memberform"), async (f, form) => {
     const d = design();
-    const f = Object.fromEntries(new FormData(e.target).entries());
-    try {
-      await d.dapi(`/workspaces/${d.state.workspaceId}/members`, {
-        method: "POST",
-        body: JSON.stringify({
-          user_id: f.user_id, display_name: f.display_name || f.user_id,
-          email: f.email, role: f.role,
-        }),
-      });
-      e.target.reset();
-      await d.reloadWorkspaces();
-      loadWorkspaceView();
-    } catch (err) {
-      $("#members-error").textContent = err.message;
-    }
-  });
+    await d.dapi(`/workspaces/${d.state.workspaceId}/members`, {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: f.user_id.trim(), display_name: f.display_name || f.user_id,
+        email: f.email, role: f.role,
+      }),
+    });
+    form.reset();
+    await d.reloadWorkspaces();
+    loadWorkspaceView();
+  }, (form) => (/\s/.test(form.elements.user_id.value.trim())
+      ? { user_id: "A user id has no spaces." } : {}));
   $("#btn-audit-reload").addEventListener("click", loadAudit);
   ["#audit-system", "#audit-actor", "#audit-action"].forEach((sel) =>
     $(sel).addEventListener("input", debounce(loadAudit, 250)));
@@ -1511,10 +1665,15 @@ async function openEntryForm(entryId = null, preset = null) {
   const attrBox = el("div", { class: "form" });
   const drawAttributes = () => {
     const fields = fieldsFor(kindSelect.value);
-    attrBox.replaceChildren(...fields.map((f) =>
-      el("label", {}, f.label,
-        Object.assign(attributeInput(f, entry.attributes?.[f.name]),
-          locked ? { disabled: true } : {}))));
+    attrBox.replaceChildren(...fields.map((f) => {
+      const input = attributeInput(f, entry.attributes?.[f.name]);
+      input.name = `attr_${f.name}`;
+      if (f.required && input.type !== "checkbox") input.required = true;
+      if (locked) input.disabled = true;
+      return el("label", {}, f.label, input);
+    }));
+    const form = attrBox.closest("form");
+    if (form) formKit.markRequired(form);
   };
   kindSelect.addEventListener("change", drawAttributes);
 
@@ -1535,11 +1694,15 @@ async function openEntryForm(entryId = null, preset = null) {
 
   const editorial = PC_EDITORIAL.map(([key, label]) =>
     el("label", {}, label,
-      el("input", { id: `pc-f-${key}`,
+      el("input", { id: `pc-f-${key}`, name: key,
+        ...(key === "name" ? { required: "" } : {}),
+        ...(key === "documentation_url" ? { type: "url" } : {}),
         value: key === "tags" ? (entry.tags || []).join(", ") : (entry[key] || "") })));
 
   box.hidden = false;
-  box.replaceChildren(
+  const form = el("form", { class: "pc-entry" });
+  box.replaceChildren(form);
+  form.append(
     el("h3", {}, entryId ? `Edit ${entry.name}` : "New catalog entry"),
     banner,
     /* Editorial is housekeeping and stays live at any status; kind, version
@@ -1555,15 +1718,19 @@ async function openEntryForm(entryId = null, preset = null) {
       el("div", { class: "form" },
         el("label", {}, "Kind", kindSelect),
         el("label", {}, "Version",
-          el("input", { id: "pc-f-version", value: entry.version || "1.0.0",
+          el("input", { id: "pc-f-version", name: "version", required: "",
+            pattern: "\\d+\\.\\d+\\.\\d+([-+].*)?",
+            title: "a semantic version, e.g. 1.2.0",
+            value: entry.version || "1.0.0",
             ...(locked ? { disabled: true } : {}) }))),
       el("h4", {}, "Attributes"),
       attrBox),
     el("div", { class: "actions" },
-      el("button", { onclick: () => saveEntryForm(entryId, locked, kindSelect.value) },
-        "Save"),
-      el("button", { onclick: () => { box.hidden = true; } }, "Cancel")));
+      el("button", { type: "submit", class: "primary" }, "Save"),
+      el("button", { type: "button", onclick: () => { box.hidden = true; } },
+        "Cancel")));
   drawAttributes();
+  formKit.wire(form, () => saveEntryForm(entryId, locked, kindSelect.value));
 }
 
 async function saveEntryForm(entryId, locked, kindId) {
@@ -1598,6 +1765,13 @@ async function saveEntryForm(entryId, locked, kindId) {
     loadCatalogView();
   } catch (e) {
     setStatus(e.message);
+    // Attribute errors come back named `attributes.x`; the form's fields are
+    // `attr_x`, so a refusal lands under the field it is about.
+    if (e.detail?.fields) {
+      e.detail.fields = Object.fromEntries(Object.entries(e.detail.fields)
+        .map(([k, v]) => [k.replace(/^attributes\./, "attr_"), v]));
+    }
+    throw e;
   }
 }
 
@@ -1843,8 +2017,150 @@ function wirePanel(layout, side, panel) {
   panel.appendChild(grip);
 }
 
+/* ------------------------------------------------------------ workspaces
+   Create, rename and delete (ADR-0106). Deleting says what the workspace
+   holds, asks for its name, and deletes its organisations only when asked
+   to in so many words. */
+function currentWorkspace() {
+  const d = design();
+  return (d.state.workspaces || []).find((w) => w.id === d.state.workspaceId);
+}
+
+function wireWorkspaces() {
+  const dialog = $("#ws-dialog");
+  const form = $("#wsform");
+  const open = (mode) => {
+    const ws = currentWorkspace();
+    if (mode === "edit" && !ws) return setStatus("no workspace is open");
+    form.reset();
+    formKit.clear(form);
+    form.dataset.mode = mode;
+    $("#wsform-title").textContent = mode === "edit"
+      ? `Rename ${ws.name}` : "New workspace";
+    $("#btn-wsform-save").textContent = mode === "edit" ? "Save" : "Create";
+    if (mode === "edit") {
+      form.elements.name.value = ws.name;
+      form.elements.description.value = ws.description || "";
+    }
+    dialog.showModal();
+    form.elements.name.focus();
+  };
+  $("#btn-ws-new").addEventListener("click", () => open("create"));
+  $("#btn-ws-edit").addEventListener("click", () => open("edit"));
+  $("#btn-wsform-cancel").addEventListener("click", () => dialog.close());
+  formKit.wire(form, async (values) => {
+    const d = design();
+    const body = JSON.stringify({ name: values.name.trim(),
+                                  description: values.description || "" });
+    if (form.dataset.mode === "edit") {
+      await d.dapi(`/workspaces/${d.state.workspaceId}`, { method: "PUT", body });
+      setStatus(`workspace renamed to ${values.name.trim()}`);
+    } else {
+      const made = await d.dapi("/workspaces", { method: "POST", body });
+      d.state.workspaceId = made.id;
+      d.state.systemId = null;
+      setStatus(`workspace ${made.name} created`);
+    }
+    dialog.close();
+    await d.reloadWorkspaces();
+  });
+
+  const del = $("#ws-delete-dialog");
+  const delForm = $("#wsdeleteform");
+  $("#btn-ws-delete").addEventListener("click", () => {
+    const ws = currentWorkspace();
+    if (!ws) return setStatus("no workspace is open");
+    const count = (design().state.systems || []).length;
+    delForm.reset();
+    formKit.clear(delForm);
+    $("#wsdelete-summary").textContent = count
+      ? `“${ws.name}” holds ${count} organisation(s). Deleting the workspace `
+        + "deletes them too, and there is no undo."
+      : `“${ws.name}” holds no organisations.`;
+    $("#wsdelete-cascade-row").hidden = !count;
+    delForm.dataset.count = String(count);
+    del.showModal();
+  });
+  $("#btn-wsdelete-cancel").addEventListener("click", () => del.close());
+  formKit.wire(delForm, async (values) => {
+    const d = design();
+    const ws = currentWorkspace();
+    await d.dapi(`/workspaces/${ws.id}?cascade=${values.cascade ? "true" : "false"}`,
+                 { method: "DELETE" });
+    del.close();
+    d.state.workspaceId = null;
+    d.state.systemId = null;
+    setStatus(`workspace ${ws.name} deleted`);
+    await d.reloadWorkspaces();
+  }, (f) => {
+    const ws = currentWorkspace();
+    const errors = {};
+    if (f.elements.confirm.value.trim() !== (ws?.name || "")) {
+      errors.confirm = `Type “${ws?.name}” exactly to confirm.`;
+    }
+    if (Number(f.dataset.count) && !f.elements.cascade.checked) {
+      errors.cascade = "Tick this to delete the workspace with its organisations.";
+    }
+    return errors;
+  });
+}
+
+/* ---------------------------------------------------------- import a file */
+const IMPORT_LIMIT = 5 * 1024 * 1024;
+
+function wireImport() {
+  const dialog = $("#import-dialog");
+  const form = $("#importform");
+  $("#btn-org-import").addEventListener("click", () => {
+    const d = design();
+    form.reset();
+    formKit.clear(form);
+    fillSelect(form.elements.workspace,
+      (d.state.workspaces || []).map((w) => [w.id, w.name]));
+    form.elements.workspace.value = d.state.workspaceId || "";
+    dialog.showModal();
+  });
+  $("#btn-import-cancel").addEventListener("click", () => dialog.close());
+  formKit.wire(form, async (_values, f) => {
+    const d = design();
+    const file = f.elements.file.files[0];
+    const answer = await d.dapi("/import", {
+      method: "POST",
+      body: JSON.stringify({
+        workspace_id: f.elements.workspace.value,
+        text: await file.text(), filename: file.name,
+        name: f.elements.name.value.trim(),
+      }),
+    });
+    dialog.close();
+    d.state.workspaceId = f.elements.workspace.value;
+    d.state.systemId = answer.system_id;
+    await d.reloadWorkspaces();
+    setStatus(`imported ${file.name} as ${answer.name}`);
+  }, (f) => {
+    const file = f.elements.file.files[0];
+    if (!file) return {};
+    if (!/\.(ya?ml|json)$/i.test(file.name)) {
+      return { file: "Choose a .yaml, .yml or .json file." };
+    }
+    if (file.size > IMPORT_LIMIT) {
+      return { file: "The file is larger than 5 MB; no design is that big." };
+    }
+    return {};
+  });
+}
+
+/* Every other form that has a `required` field is marked, even before it is
+   wired: the mark is how a person knows what they must fill in. */
+function markAllRequired() {
+  document.querySelectorAll("form").forEach((f) => formKit.markRequired(f));
+}
+
 window.addEventListener("DOMContentLoaded", async () => {
   initPanels();
+  wireWorkspaces();
+  wireImport();
+  markAllRequired();
   try {
     wireAgentEditor();
     wireOrgView();

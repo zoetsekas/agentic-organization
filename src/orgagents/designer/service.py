@@ -39,6 +39,7 @@ from .rbac import (
     DELETE,
     EDIT,
     LOCK,
+    DELETE_WORKSPACE,
     MANAGE_MEMBERS,
     MANAGE_SETTINGS,
     PUBLISH,
@@ -53,6 +54,19 @@ from .rbac import (
     role_of,
 )
 from .repository import Repository, VersionConflict
+
+
+class FieldErrors(ValueError):
+    """A request refused field by field: `{field: what is wrong with it}`.
+
+    Forms show each message under its own field (ADR-0106), so a refusal
+    names the field rather than describing it in a sentence somebody has to
+    map back to the form."""
+
+    def __init__(self, fields: dict[str, str], message: str = ""):
+        self.fields = fields
+        super().__init__(message or "; ".join(f"{k}: {v}"
+                                              for k, v in fields.items()))
 
 
 class DesignerError(RuntimeError):
@@ -216,6 +230,7 @@ class DesignerService:
 
     def create_workspace(self, principal: Principal, name: str,
                          description: str = "") -> Workspace:
+        name = self._workspace_name(principal, name)
         workspace = Workspace(
             name=name, description=description,
             members=[Member(user_id=principal.user_id,
@@ -226,6 +241,120 @@ class DesignerService:
         self.audit.record(AuditAction.WORKSPACE_CREATE, principal,
                           workspace_id=saved.id, detail={"name": saved.name})
         return saved
+
+    def _workspace_name(self, principal: Principal, name: str,
+                        keep: str = "") -> str:
+        """A workspace needs a name, and one its members can tell apart from
+        their other workspaces."""
+        name = (name or "").strip()
+        if not name:
+            raise FieldErrors({"name": "A workspace needs a name."})
+        if len(name) > 120:
+            raise FieldErrors({"name": "At most 120 characters."})
+        if any(w.name.strip().lower() == name.lower() and w.id != keep
+               for w in self.workspaces(principal)):
+            raise FieldErrors({"name": f"You already have a workspace called "
+                                       f"'{name}'."})
+        return name
+
+    def update_workspace(self, principal: Principal, workspace_id: str, *,
+                         name: Optional[str] = None,
+                         description: Optional[str] = None) -> Workspace:
+        """Rename a workspace or change its description: an administrator's
+        act, like managing its members."""
+        workspace = self._workspace(workspace_id)
+        self._require(workspace, principal, MANAGE_MEMBERS,
+                      AuditAction.WORKSPACE_UPDATE)
+        before = workspace.name
+        if name is not None:
+            workspace.name = self._workspace_name(principal, name,
+                                                  keep=workspace_id)
+        if description is not None:
+            workspace.description = description.strip()
+        saved = self.repository.save_workspace(workspace)
+        self.audit.record(AuditAction.WORKSPACE_UPDATE, principal,
+                          workspace_id=workspace_id,
+                          detail={"name": saved.name, "was": before})
+        return saved
+
+    def delete_workspace(self, principal: Principal, workspace_id: str, *,
+                         cascade: bool = False) -> dict[str, Any]:
+        """Delete a workspace — its owner's act. A workspace that still holds
+        organisations is refused unless `cascade` says to delete them too:
+        deleting designs should never be the side effect of tidying a list."""
+        workspace = self._workspace(workspace_id)
+        self._require(workspace, principal, DELETE_WORKSPACE,
+                      AuditAction.WORKSPACE_DELETE)
+        systems = self.repository.list_systems(workspace_id)
+        if systems and not cascade:
+            raise FieldErrors(
+                {"workspace": f"It holds {len(systems)} organisation(s): "
+                              + ", ".join(s.name for s in systems[:5])
+                              + ". Delete them first, or confirm deleting "
+                              "them with the workspace."})
+        for record in systems:
+            self.repository.delete_system(record.id)
+            self.audit.record(AuditAction.SYSTEM_DELETE, principal,
+                              workspace_id=workspace_id, system_id=record.id,
+                              detail={"name": record.name,
+                                      "with_workspace": True})
+        deleted = self.repository.delete_workspace(workspace_id)
+        self.audit.record(AuditAction.WORKSPACE_DELETE, principal,
+                          workspace_id=workspace_id,
+                          detail={"name": workspace.name,
+                                  "systems": len(systems)})
+        return {"deleted": deleted, "systems_deleted": len(systems)}
+
+    def import_system(self, principal: Principal, *, workspace_id: str,
+                      text: str, filename: str = "",
+                      name: str = "") -> SystemRecord:
+        """A design read from a file on the author's disk (ADR-0106).
+
+        Parsed and migrated the way `load_spec` reads a file, laid out the
+        way a shipped example is, and refused field by field when the file
+        is not a design."""
+        import yaml
+
+        from ..spec.loader import load_spec_text_with_migration
+        from .examples import initial_layout
+
+        if not (text or "").strip():
+            raise FieldErrors({"file": "The file is empty."})
+        try:
+            raw = yaml.safe_load(text)
+        except yaml.YAMLError as e:
+            mark = getattr(e, "problem_mark", None)
+            where = f" (line {mark.line + 1})" if mark else ""
+            raise FieldErrors({"file": f"Not valid YAML or JSON{where}: "
+                                       f"{getattr(e, 'problem', e)}"}) from e
+        if not isinstance(raw, dict) or "metadata" not in raw:
+            raise FieldErrors({"file": "Not a system spec: it has no "
+                                       "`metadata`. Choose a *.system.yaml."})
+        try:
+            spec, _changes = load_spec_text_with_migration(text)
+        except Exception as e:           # a validation error, named per field
+            errors = getattr(e, "errors", None)
+            if callable(errors):
+                first = errors()[0]
+                where = ".".join(str(p) for p in first.get("loc", ()))
+                raise FieldErrors({"file": f"{where}: {first.get('msg')}"})                     from e
+            raise FieldErrors({"file": str(e).splitlines()[0]}) from e
+        # Stored in the current layout, whatever the file's: a file in the
+        # pre-ADR-0101 layout would otherwise open with its collections where
+        # the canvas no longer looks.
+        from ..spec.loader import dump_spec
+        data = yaml.safe_load(dump_spec(spec))
+        title = (name or "").strip() or spec.organization.name or \
+            spec.metadata.name or (filename.rsplit("/", 1)[-1] or "Imported")
+        record = self.create_system(
+            principal, workspace_id=workspace_id, name=title,
+            description=spec.metadata.description or
+            f"Imported from {filename or 'a file'}",
+            spec=data, layout=initial_layout(data))
+        self.audit.record(AuditAction.SYSTEM_IMPORT, principal,
+                          workspace_id=workspace_id, system_id=record.id,
+                          detail={"file": filename, "name": title})
+        return record
 
     def workspaces(self, principal: Principal) -> list[Workspace]:
         return [
@@ -776,12 +905,10 @@ def _starter_spec(name: str) -> dict[str, Any]:
         # No mandate: a new organization has not said what it may decide, and
         # validation says so rather than defaulting it to unlimited
         # (ADR-0065 rule 5).
+        # The organisation owns its collections (ADR-0101); they start empty
+        # and appear as the author adds to them.
         "organization": {"id": "root", "name": name, "leader": "",
                          "members": [], "teams": []},
-        "data_classes": [], "capabilities": [], "decisions": [],
-        "environments": [], "roles": [],
-        "policies": [], "channels": [], "triggers": [], "knowledge": [],
-        "skills": [], "plugins": [], "tools": [], "endpoints": [],
     }
 
 

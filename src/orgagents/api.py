@@ -631,8 +631,14 @@ def create_app(
             raise HTTPException(401, str(e)) from e
 
     def _guard(fn, *args, **kwargs):
+        from .designer.service import FieldErrors
         try:
             return fn(*args, **kwargs)
+        except FieldErrors as e:
+            # Named per field, so a form can put each message under its own
+            # field (ADR-0106).
+            raise HTTPException(422, {"message": str(e),
+                                      "fields": e.fields}) from e
         except PermissionDenied as e:
             raise HTTPException(403, str(e)) from e
         except LockConflict as e:
@@ -666,8 +672,37 @@ def create_app(
     @app.post("/api/designer/workspaces")
     def designer_create_workspace(req: WorkspaceRequest,
                                   user: Principal = Depends(principal)) -> dict:
-        return designer.create_workspace(user, req.name,
-                                         req.description).model_dump(mode="json")
+        return _guard(designer.create_workspace, user, req.name,
+                      req.description).model_dump(mode="json")
+
+    @app.put("/api/designer/workspaces/{workspace_id}")
+    def designer_update_workspace(workspace_id: str, req: dict[str, Any],
+                                  user: Principal = Depends(principal)) -> dict:
+        return _guard(designer.update_workspace, user, workspace_id,
+                      name=req.get("name"),
+                      description=req.get("description")).model_dump(mode="json")
+
+    @app.delete("/api/designer/workspaces/{workspace_id}")
+    def designer_delete_workspace(workspace_id: str, cascade: bool = False,
+                                  user: Principal = Depends(principal)) -> dict:
+        return _guard(designer.delete_workspace, user, workspace_id,
+                      cascade=cascade)
+
+    @app.post("/api/designer/import")
+    def designer_import(req: dict[str, Any],
+                        user: Principal = Depends(principal)) -> dict:
+        """A design from a file on the author's disk (ADR-0106)."""
+        if not req.get("workspace_id"):
+            raise HTTPException(422, {"message": "choose a workspace",
+                                      "fields": {"workspace": "Choose a "
+                                                 "workspace to import into."}})
+        record = _guard(designer.import_system, user,
+                        workspace_id=req["workspace_id"],
+                        text=req.get("text") or "",
+                        filename=req.get("filename") or "",
+                        name=req.get("name") or "")
+        return {"system_id": record.id, "name": record.name,
+                "version": record.version}
 
     @app.post("/api/designer/workspaces/{workspace_id}/members")
     def designer_add_member(workspace_id: str, req: MemberRequest,
