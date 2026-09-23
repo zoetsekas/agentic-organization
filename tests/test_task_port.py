@@ -325,8 +325,16 @@ def test_the_local_backend_satisfies_the_port(backend):
 
 
 def test_the_reference_backend_has_not_grown_a_board():
-    """WS-031: if the reference backend grows a board, we have gone wrong."""
-    board_words = ("column", "board", "swimlane", "priority", "sprint", "label")
+    """WS-031: if the reference backend grows a board, we have gone wrong.
+
+    `priority` left this list under ADR-0097 and the guard got stronger, not
+    weaker. A priority is not board machinery: it is set once by the person
+    opening the work, in `open_task`, which is the human side and explicitly
+    not the port. What would make it a board is the backend being able to
+    *change* it — so that is what is asserted below, rather than the word
+    being absent.
+    """
+    board_words = ("column", "board", "swimlane", "sprint", "label")
     text = (SRC / "tasks" / "local.py").read_text(encoding="utf-8").lower()
     body = "\n".join(
         line for line in text.splitlines() if not line.strip().startswith("#")
@@ -336,6 +344,28 @@ def test_the_reference_backend_has_not_grown_a_board():
     code = body.split('"""')[-1]
     assert [w for w in board_words if w in code] == []
     assert set(TaskRecord.model_fields) >= {"state", "agent_id", "session_id"}
+
+
+def test_the_reference_backend_cannot_change_a_priority():
+    """Observed, never written (ADR-0097).
+
+    Priority is intent, and intent belongs to the people. A backend that could
+    move it would be a second source of truth for what matters most, competing
+    with the tool the assigners actually look at.
+    """
+    from orgagents.tasks.local import LocalTaskBackend
+
+    for name in dir(LocalTaskBackend):
+        if name.startswith("_") or name == "open_task":
+            continue
+        assert "priorit" not in name.lower(), (
+            f"LocalTaskBackend.{name} can move a priority"
+        )
+    source = (SRC / "tasks" / "local.py").read_text(encoding="utf-8")
+    # The only assignment is the one the human makes when opening the work.
+    assert source.count("priority=") == 2, (
+        "priority is set somewhere other than open_task"
+    )
 
 
 # --------------------------------------------------------------------------

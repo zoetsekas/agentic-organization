@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 
 from ..catalog import Catalog
 from ..continuity import ActingAssignment
+from ..tasks.model import TaskPriority
 from ..data.planes import AccessDenied, DataPlanes
 from ..harness.builder import HarnessBuilder
 from ..ids import now_iso
@@ -89,6 +90,7 @@ class _Assignment:
     task: str
     future: "Future[RunResult]"
     assigned_at: str
+    priority: str = TaskPriority.UNKNOWN.value
     assigned_at_mark: int = 0       # the parent's message count when assigned
     collected: bool = False
     abandoned: bool = False
@@ -142,6 +144,69 @@ class AgentRuntime:
         # The live budget of each running session, so a settled child's spend
         # can be charged to the parent that commissioned it (rule 4).
         self._budgets: dict[str, TurnBudget] = {}
+
+    def _by_priority(self, handles: list[str]) -> list[str]:
+        """Handles, most important first, stably.
+
+        Ordering is the whole of what priority does to a handle, alongside
+        naming the lowest-priority one in a refusal and appearing on the audit
+        event. It does not preempt, queue or schedule — ADR-0093 refuses
+        rather than queues, on purpose, and a field that quietly did nothing
+        would be one more dead control (ADR-0097).
+        """
+        def rank(handle: str) -> int:
+            with self._assign_lock:
+                assignment = self._assignments.get(handle)
+            if assignment is None:
+                return TaskPriority.UNKNOWN.rank
+            return TaskPriority(assignment.priority).rank
+        return sorted(handles, key=rank)
+
+    def team_workload(self, agent_id: str) -> list[dict[str, Any]]:
+        """Every unsettled run across this agent's subtree.
+
+        A leader could already ask what *it* had outstanding. "What is my team
+        doing right now" had nothing to call, although all of it existed: every
+        run is a session, every session names an agent, and the org chart says
+        who reports to whom. This joins them.
+
+        Bounded by the subtree and nothing wider. Delegation reach and
+        visibility are the same question, and a view that reached further —
+        across mission peers, say — would quietly widen every mission grant
+        ever written: a mission lends the right to hand over work, not the
+        right to watch.
+        """
+        out: list[dict[str, Any]] = []
+        now = datetime.now(timezone.utc)
+        for member in self.org.subtree(agent_id):
+            standing = self.org.acting_for(member.id)
+            for session in self.sessions.list(member.id, limit=200):
+                if session.state in TERMINAL_STATES:
+                    continue
+                try:
+                    started = datetime.fromisoformat(session.created_at)
+                except ValueError:
+                    started = now
+                out.append({
+                    "agent_id": member.id,
+                    "agent": member.name,
+                    "session_id": session.id,
+                    "session_url": self.sessions.url(session.id),
+                    "title": session.title,
+                    "state": session.state.value,
+                    "waiting_human": session.state is SessionState.WAITING_HUMAN,
+                    "running_for_s": round(
+                        (now - started).total_seconds(), 1),
+                    "tokens": session.token_usage,
+                    # An agent being stood in for is not just busy, it is
+                    # covered by somebody else (ADR-0094), and a leader
+                    # reading this needs to know which.
+                    "stood_in_for_by": (
+                        standing.successor_agent_id if standing else None),
+                })
+        out.sort(key=lambda row: (not row["waiting_human"],
+                                  -row["running_for_s"]))
+        return out
 
     # -- leader continuity (ADR-0094) --------------------------------------
 
@@ -1018,7 +1083,8 @@ class AgentRuntime:
                 "error": child.error,
             }
 
-        def assign(to_agent_id: str, task: str) -> dict[str, Any]:
+        def assign(to_agent_id: str, task: str,
+                   priority: str = TaskPriority.UNKNOWN.value) -> dict[str, Any]:
             """Hand a task to another agent and get a handle back immediately.
 
             Use this to ask several agents at once, or when the answer is not
@@ -1028,7 +1094,24 @@ class AgentRuntime:
 
             Who you may hand work to is decided here and does not change: the
             same check `delegate` makes, with the same refusal.
+
+            `priority` is one of urgent, high, normal, low. It orders what
+            `check`, `gather` and your outstanding list return, and it names
+            the least important thing you are holding when you hit your
+            parallel bound. It does **not** jump the queue, because there is
+            no queue: at the bound this refuses rather than waiting, and an
+            urgent task assigned over the bound is still refused.
             """
+            try:
+                rank = TaskPriority(priority)
+            except ValueError:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"unknown priority {priority!r}; use one of "
+                        f"{[p.value for p in TaskPriority]}"
+                    ),
+                }
             if not self.org.can_delegate(agent.id, to_agent_id):
                 return {
                     "ok": False,
@@ -1042,16 +1125,27 @@ class AgentRuntime:
             # It refuses rather than queueing: a queue nobody declared is a
             # bound nobody reviewed, with a latency nobody reviewed either.
             bound = agent.harness.max_parallel_subagents
-            held = self.unsettled_handles(session_id)
+            held = self._by_priority(self.unsettled_handles(session_id))
             if bound and len(held) >= bound:
+                # Naming the least important thing being held makes the
+                # refusal actionable rather than merely correct: the leader
+                # can see what to collect or let go of (ADR-0097).
+                lowest = held[-1]
+                with self._assign_lock:
+                    low = self._assignments.get(lowest)
                 return {
                     "ok": False,
                     "error": (
                         f"{agent.name} already holds {len(held)} unsettled "
                         f"handles and max_parallel_subagents is {bound}; "
-                        "collect one with check or gather before assigning more"
+                        f"the least important is {lowest} "
+                        f"({low.priority if low else 'unknown'}: "
+                        f"{low.task[:60] if low else '?'}). Collect or "
+                        "abandon one before assigning more — priority orders "
+                        "what you see, it does not jump this bound"
                     ),
                     "outstanding": held,
+                    "lowest_priority_handle": lowest,
                     "max_parallel_subagents": bound,
                 }
 
@@ -1070,6 +1164,7 @@ class AgentRuntime:
                 to_agent_id=to_agent_id,
                 task=task,
                 future=Future(),            # replaced by the submitted one below
+                priority=rank.value,
                 assigned_at=now_iso(),
                 assigned_at_mark=self._parent_turn_mark(session_id),
             )
@@ -1087,6 +1182,9 @@ class AgentRuntime:
                     "state": child.state.value,
                     "mode": "assign",
                     "handle": child.id,
+                    # On the audit event, so the trail says what the leader
+                    # thought mattered at the time rather than what it says now.
+                    "priority": rank.value,
                 },
             )
             assignment.future = self._worker_pool().submit(
@@ -1098,6 +1196,7 @@ class AgentRuntime:
                 "to": to_agent_id,
                 "state": child.state.value,
                 "settled": False,
+                "priority": rank.value,
                 "session_url": self.sessions.url(child.id),
             }
 
@@ -1131,6 +1230,7 @@ class AgentRuntime:
                 "handle": handle,
                 "to": assignment.to_agent_id,
                 "task": assignment.task,
+                "priority": assignment.priority,
                 "assigned_at": assignment.assigned_at,
                 "state": child.state.value,
                 "settled": settled,
@@ -1178,8 +1278,10 @@ class AgentRuntime:
             ) or 300.0
             deadline = time.monotonic() + window
 
+            # Most important first, so a leader reading a long list reads the
+            # thing that matters first rather than the thing assigned first.
             results: list[dict[str, Any]] = []
-            for handle in list(handles):
+            for handle in self._by_priority(list(handles)):
                 assignment = _held(handle)
                 if assignment is None:
                     results.append({
@@ -1218,7 +1320,8 @@ class AgentRuntime:
             return {
                 "ok": all(r.get("ok") for r in results),
                 "results": results,
-                "outstanding": self.unsettled_handles(session_id),
+                "outstanding": self._by_priority(
+                    self.unsettled_handles(session_id)),
             }
 
         def spawn_subagent(name: str, task: str, instructions: str = "") -> dict[str, Any]:

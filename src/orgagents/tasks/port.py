@@ -45,6 +45,12 @@ class BackendCapabilities(BaseModel):
     tenant_id: str = ""
     #: Whether a non-human principal can be the assignee of a task at all.
     supports_non_human_assignee: bool = False
+    #: Whether this backend reports what the assigners said matters. Declared
+    #: rather than inferred from a column of `unknown`s, so a leader can tell
+    #: "this backend does not do priority" from "nobody has set one yet"
+    #: (ADR-0097). Note what is *not* here and never will be: a way to write
+    #: one. Intent belongs to the people (ADR-0057 rule 4).
+    reports_priority: bool = False
     notes: str = ""
 
 

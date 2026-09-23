@@ -22,6 +22,7 @@ from .model import (
     TaskActor,
     TaskComment,
     TaskEvent,
+    TaskPriority,
     TaskRecord,
     TaskState,
     check_transition,
@@ -62,6 +63,10 @@ class LocalTaskBackend:
             agent_principal_id=self._principal,
             tenant_id=self.tenant_id,
             supports_non_human_assignee=bool(self._principal),
+            # The reference backend reports priority so that the conformance
+            # suite's rules about it are exercised somewhere. A suite whose
+            # only implementation skips a rule is not holding that rule.
+            reports_priority=True,
             notes="reference backend; exercises the port, stores nothing else",
         )
 
@@ -77,8 +82,15 @@ class LocalTaskBackend:
         mission_id: str = "",
         approval_state: ApprovalState = ApprovalState.NOT_REQUIRED,
         external_id: str = "",
+        priority: TaskPriority = TaskPriority.NORMAL,
+        priority_raw: str = "",
     ) -> TaskRecord:
-        """Stand-in for a person creating work in their own tool."""
+        """Stand-in for a person creating work in their own tool.
+
+        Priority arrives here, on the *human* side, and never through the
+        port: this is the person setting it in their own tool, which is the
+        only place it is ever set (ADR-0097).
+        """
         record = TaskRecord(
             tenant_id=self.tenant_id,
             agent_id=agent_id,
@@ -88,6 +100,8 @@ class LocalTaskBackend:
             mission_id=mission_id,
             approval_state=approval_state,
             external_id=external_id,
+            priority=priority,
+            priority_raw=priority_raw or priority.value,
         )
         return self._save(record)
 

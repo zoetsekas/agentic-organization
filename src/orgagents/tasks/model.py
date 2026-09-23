@@ -42,6 +42,38 @@ class TaskActor(str, Enum):
     AGENT = "agent"    # the assignee, acting as itself
 
 
+class TaskPriority(str, Enum):
+    """What the assigning humans said matters, in four neutral buckets.
+
+    Read from the backend and never written by this platform. A task lives in
+    the tool the people who assigned it already use, where it already has a
+    priority they set and look at; a second one owned here would diverge from
+    it the moment either was edited, and the one they trust is not ours
+    (ADR-0097).
+
+    `UNKNOWN` is the important member. A backend that does not report priority
+    yields it, never `NORMAL`: "nobody said" and "somebody said it is
+    ordinary" are different facts, and a leader sorting by the second when it
+    has the first is sorting by an assumption.
+    """
+
+    UNKNOWN = "unknown"
+    URGENT = "urgent"
+    HIGH = "high"
+    NORMAL = "normal"
+    LOW = "low"
+
+    @property
+    def rank(self) -> int:
+        """Sort key: urgent first, unknown last.
+
+        Unknown sorts last rather than in the middle, so an unreported
+        priority never displaces something a person actually marked.
+        """
+        return {"urgent": 0, "high": 1, "normal": 2, "low": 3,
+                "unknown": 4}[self.value]
+
+
 class ApprovalState(str, Enum):
     """Where this piece of work got to in the approval policy (ADR-0026)."""
 
@@ -166,6 +198,13 @@ class TaskRecord(BaseModel):
     mission_id: str = ""
     approval_state: ApprovalState = ApprovalState.NOT_REQUIRED
     title: str = ""
+    #: What the assigning humans said matters (ADR-0097). Observed, never
+    #: written: there is no way to set this through the port, on purpose.
+    priority: TaskPriority = TaskPriority.UNKNOWN
+    #: The backend's own value, kept verbatim. Four buckets cannot hold a
+    #: five-level scheme, and a report that lost the backend's own label to
+    #: say `high` cannot be checked against the tool the humans actually use.
+    priority_raw: str = ""
     #: Written by a human in another system: untrusted input (ADR-0035).
     description: str = ""
     assigner: str = ""            # the paired human's contact/user id

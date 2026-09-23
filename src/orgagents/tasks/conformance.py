@@ -25,6 +25,7 @@ import pytest
 
 from .model import (
     IllegalTaskTransition,
+    TaskPriority,
     TaskRecord,
     TaskState,
     TaskTransitionDenied,
@@ -153,6 +154,45 @@ class TaskPortConformance:
         record = backend.get(task.id)
         move = [e for e in record.events if e.kind == "transition"][-1]
         assert (move.source, move.target) == (TaskState.OPEN, TaskState.CLAIMED)
+
+    # -- priority (ADR-0097) -----------------------------------------------
+
+    def test_priority_is_reported_or_honestly_unknown(self, backend, task):
+        """`unknown` is a fact, and `normal` is a claim.
+
+        A backend that does not do priority must say `unknown` rather than
+        defaulting to `normal`, because a leader sorting by an assumption is
+        worse off than one looking at an obviously empty column.
+        """
+        caps = backend.capabilities()
+        record = backend.get(task.id)
+        assert isinstance(record.priority, TaskPriority)
+        if not caps.reports_priority:
+            assert record.priority is TaskPriority.UNKNOWN, (
+                "a backend that does not declare reports_priority must not "
+                "guess a priority"
+            )
+
+    def test_a_reported_priority_keeps_the_backends_own_value(self, backend,
+                                                              task):
+        """Four buckets cannot hold a five-level scheme. The raw value is
+        what lets a report be checked against the tool the humans use."""
+        if not backend.capabilities().reports_priority:
+            pytest.skip("this backend does not report priority")
+        record = backend.get(task.id)
+        if record.priority is not TaskPriority.UNKNOWN:
+            assert record.priority_raw, (
+                "a reported priority lost the backend's own value"
+            )
+
+    def test_the_port_offers_no_way_to_write_a_priority(self, backend):
+        """Intent belongs to the people (ADR-0057 rule 4). A priority this
+        platform could write would be a second source of truth for it."""
+        for name in ("set_priority", "prioritize", "reprioritize",
+                     "update_priority"):
+            assert not hasattr(TaskPort, name), (
+                f"TaskPort grew {name}; priority is observed, never written"
+            )
 
     def test_unknown_task_raises_rather_than_returning_a_blank(self, backend):
         with pytest.raises(KeyError):
