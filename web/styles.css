@@ -194,13 +194,17 @@ main {
 
 /* ---------------------------------------------------- shared design context */
 .contextbar {
-  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  /* One line: on a window too narrow for it, it scrolls sideways rather than
+     pushing every screen down by a second row. */
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: nowrap;
+  overflow-x: auto; white-space: nowrap;
   background: var(--panel); border-bottom: 1px solid var(--line);
   padding: var(--s4) var(--s6); width: 100%; max-width: none; margin: 0;
 }
 .contextbar .sep { width: 1px; height: 22px; background: var(--line); }
 .contextbar .grow { flex: 1; }
-.contextbar select { min-width: 150px; }
+.contextbar select { min-width: 120px; max-width: 220px; }
+.contextbar > * { flex: none; }
 .contextbar .who { font-size: var(--t-small); color: var(--ink-muted); }
 .contextbar .eyebrow { margin: 0; }
 

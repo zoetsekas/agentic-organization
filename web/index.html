@@ -59,7 +59,8 @@
           aria-label="Delete workspace">🗑</button>
   <label class="inline" for="sys-select"><span class="eyebrow">Org</span></label>
   <select id="sys-select" data-org-select title="Organisation"></select>
-  <button id="btn-new-system">New organisation</button>
+  <button id="btn-new-system" class="icon-btn" title="New organisation"
+          aria-label="New organisation">＋</button>
   <span id="version-badge" class="badge">v—</span>
   <span id="lock-badge" class="badge"></span>
   <span class="sep"></span>
@@ -71,9 +72,14 @@
   <button id="btn-redo" title="nothing to redo" disabled>↷</button>
   <button id="btn-save" class="primary">Save</button>
   <button id="btn-publish" title="Validate, compile and ask the fabric to run this design">Publish…</button>
-  <button id="btn-revisions">History</button>
-  <button id="btn-members">People</button>
-  <button id="btn-designer-settings">Settings</button>
+  <!-- Icons, named in full for the tooltip and a screen reader, so the bar
+       stays on one line (ADR-0107). -->
+  <button id="btn-revisions" class="icon-btn" title="History — versions of this design"
+          aria-label="History">🕘</button>
+  <button id="btn-members" class="icon-btn" title="People — members of this workspace"
+          aria-label="People">👥</button>
+  <button id="btn-designer-settings" class="icon-btn" title="Settings — designer settings"
+          aria-label="Settings">⚙</button>
 </div>
 
 <!-- The publish path (WS-032 M9). It sits above every view because it acts on
