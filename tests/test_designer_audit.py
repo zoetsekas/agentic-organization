@@ -31,12 +31,20 @@ BOB = Principal("bob", "Bob")        # editor
 CAI = Principal("cai", "Cai")        # viewer
 
 
-@pytest.fixture(params=["memory", "filesystem", "relational"])
+@pytest.fixture(params=["memory", "filesystem", "relational", "postgres"])
 def repository(request, tmp_path):
     if request.param == "memory":
         return MemoryRepository()
     if request.param == "filesystem":
         return FileSystemRepository(tmp_path / "designer")
+    if request.param == "postgres":
+        # The relational backend over PostgreSQL (ADR-0113); skipped, with
+        # the reason, where there is no Docker to start one.
+        from orgagents.designer.repository import PostgresRepository
+        repo = PostgresRepository.from_url(
+            request.getfixturevalue("postgres_url"))
+        request.addfinalizer(repo.engine.dispose)
+        return repo
     return SqlRepository(Store(tmp_path / "designer.db"))
 
 

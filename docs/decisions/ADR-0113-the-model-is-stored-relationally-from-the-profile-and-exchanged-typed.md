@@ -2,9 +2,9 @@
 id: ADR-0113
 title: The model is stored in relational tables generated from the UML profiles, and exchanged as YAML or JSON in which every element names its UML type
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 deciders: [Platform Architecture]
 consulted: [Designer, Compiler, Data Governance, Operations]
 informed: [All engineering]
@@ -85,7 +85,7 @@ own does not say what it is.
    type: Core::Model
    profiles: {Core: 1.0.0, Organisation: 1.0.0, Authority: 1.0.0, Data: 1.0.0}
    organization:
-     type: Organisation::Organisation
+     type: Organisation::Organization
      id: ayc
      teams:
        - type: Organisation::Team
@@ -112,6 +112,137 @@ own does not say what it is.
    → JSON reproduce the input's elements, properties, relationships and order,
    with `type` added where it was missing. A published JSON Schema for the
    typed format is generated from the profiles alongside the DDL.
+
+## The queries the schema must serve (1.1.0)
+An architecture review asked whether full normalisation earns its cost. It
+does only if the tables answer questions a JSON body cannot, so those
+questions are written down here and each one is a test
+(`tests/test_persistence_queries.py`) that runs the SQL below against a real
+PostgreSQL. A schema change that breaks one of them is a breaking change to
+this ADR. `:rev` is a revision (`core.revision.revision_id`); the head of a
+design is `core.model.head_revision`.
+
+| # | Question | Tables it reads |
+|---|---|---|
+| Q1 | Which agents rely on data class X? | `data.data_dependency` → `organisation.worker`, `data.data_class` |
+| Q2 | Who may decide Y? (every team, agent, person or mission whose mandate names decision Y) | `authority.mandate__decisions` → `authority.decision`, `core.element` |
+| Q3 | Which capabilities reach server Z, and on which target? | `deployment.capability_binding` → `deployment.server`, `access.capability`, `deployment.target` |
+| Q4 | All elements of UML type T across every design (at their heads) | `core.element` → `core.model` |
+| Q5 | Which agents hold capability C, directly or through a role they play? | `organisation.worker__capabilities`, `organisation.role_assignment`, `organisation.role__capabilities` |
+
+```sql
+-- Q1: agents that rely on data class :x
+SELECT w.id FROM data.data_dependency dd
+  JOIN organisation.worker w ON w.row_id = dd.owner_row
+  JOIN data.data_class dc   ON dc.row_id = dd.data_class__row
+ WHERE dd.revision_id = :rev AND dc.id = :x ORDER BY w.id;
+
+-- Q2: who may decide :y
+SELECT e.uml_type, e.id FROM authority.mandate__decisions md
+  JOIN authority.decision d ON d.row_id = md.target_row
+  JOIN core.element e       ON e.row_id = md.owner_row
+ WHERE md.revision_id = :rev AND d.id = :y ORDER BY e.uml_type, e.id;
+
+-- Q3: capabilities deployed on server :z
+SELECT c.id, t.target FROM deployment.capability_binding cb
+  JOIN deployment.server s    ON s.row_id = cb.server__row
+  JOIN access.capability c    ON c.row_id = cb.capability__row
+  JOIN deployment.target t    ON t.row_id = cb.owner_row
+ WHERE cb.revision_id = :rev AND s.id = :z ORDER BY c.id, t.target;
+
+-- Q4: every element of UML type :t, across designs
+SELECT m.model_id, e.id, e.name FROM core.element e
+  JOIN core.model m ON m.head_revision = e.revision_id
+ WHERE e.uml_type = :t ORDER BY m.model_id, e.id;
+
+-- Q5: agents holding capability :c, directly or through a role
+SELECT w.id FROM organisation.worker__capabilities wc
+  JOIN organisation.agent a  ON a.row_id = wc.owner_row
+  JOIN organisation.worker w ON w.row_id = a.row_id
+  JOIN access.capability c   ON c.row_id = wc.target_row
+ WHERE wc.revision_id = :rev AND c.id = :c
+UNION
+SELECT w.id FROM organisation.role_assignment ra
+  JOIN organisation.agent a  ON a.row_id = ra.owner_row
+  JOIN organisation.worker w ON w.row_id = a.row_id
+  JOIN organisation.role__capabilities rc ON rc.owner_row = ra.role__row
+  JOIN access.capability c   ON c.row_id = rc.target_row
+ WHERE ra.revision_id = :rev AND c.id = :c
+ORDER BY 1;
+```
+
+### How the mapping is made concrete (1.1.0)
+Decision 1's table, as generated (`orgagents.persistence.relational`):
+
+- **Row identity.** Every row has a `row_id` from one sequence
+  (`core.row_seq`) and the `revision_id` of the snapshot it belongs to
+  (`ON DELETE CASCADE`, so pruning a revision is one delete). An element row
+  also carries `model_id` and `version`, and its `row_id` is its key in
+  `core.element`. A specialisation's row shares its general row's `row_id`
+  (`organisation.agent.row_id` → `organisation.worker.row_id`).
+- **Ownership.** A part (a composition, a multi-valued DataType or an
+  association-class instance) has `owner_row`, `owner_field` (its dotted path
+  inside the owner, so `lifecycle.evaluations` and `memory.namespaces` are
+  told apart) and `ordinal`. The foreign key goes to the owner's table when
+  there is one owner table, and to `core.element` when a part can sit in
+  several (`organisation.role_assignment` under a team, an agent or a
+  mission), always `ON DELETE CASCADE`.
+- **A reference keeps what was written and what it resolved to.** A
+  reference is two columns: the id as written (`data_class`), which the round
+  trip reads, and the row it resolves to (`data_class__row`), a deferrable
+  foreign key to the target's table — or to `core.element` when the target
+  is abstract (Principal, Resource). An id that resolves to nothing (a design
+  mid-edit) keeps its text and a null row; the validator, not the database,
+  owns the rule that it must resolve (ADR-0065's checks already run on every
+  save). A to-many reference is a link table named after its owner class and
+  field (`authority.mandate__decisions`) with the same two columns
+  (`target_id`, `target_row`) and an `ordinal`.
+- **Single-valued DataTypes** are flattened into the owner with `__`
+  between path segments (`mandate__enforcement__enforced_by`); an optional
+  one adds a `<path>__set` boolean. Identifiers longer than PostgreSQL's 63
+  bytes are shortened with a stable hash suffix.
+- **Primitives and enumerations.** Multi-valued primitives are PostgreSQL
+  arrays; an enumeration is `text` with a `CHECK` against its literals (an
+  array one with `<@`), and every enumeration has a reader table
+  (`<schema>.enum_<name>`). `Map` and `Any` are `json`, not `jsonb` as
+  Decision 2 first said: `jsonb` reorders an object's keys, and the round
+  trip (Decision 6) is the contract. A reader casts (`labels::jsonb`) to
+  query inside one; drafts and layouts are `json` for the same reason.
+- **Written-as-is parts.** The activity graph (`_AsWritten`, ADR-0110) keeps
+  which fields were written and its extra keys (`fields_set`, `extra`), so a
+  workflow round-trips to the same document.
+- **What is not a model.** The designer stores drafts. A revision whose spec
+  the model refuses — or that holds keys the model would drop — is stored
+  whole in `core.revision.draft_spec` and has no element rows; the same holds
+  for a binding. Nothing an author saved is ever lost to normalisation.
+- **Designer records.** Systems, revisions' layout, workspaces, locks,
+  settings and the audit log live in the same database (`designer.system`,
+  `designer.revision`, and the unchanged document table as
+  `designer.documents`) so one PostgreSQL holds the whole designer. Without
+  `ORGAGENTS_DATABASE_URL` the `relational` setting keeps the SQLite document
+  store it had, for tests and single-user use; the designer container sets
+  the URL.
+- **Migrations.** `orgagents db generate-migration` diffs the previous
+  generated schema (`migrations/schema.json`) with the profiles' and writes
+  the next forward-only `NNNN_*.sql`; `orgagents db migrate` (and every
+  start) applies what is missing under an advisory lock. A test applies the
+  committed migrations to an empty database and compares the catalogue with
+  the generated DDL applied directly.
+- **Existing designs.** `orgagents db migrate-from-sqlite <designer.db>`
+  copies every workspace, system, revision, lock, setting and audit event
+  from the SQLite document store into PostgreSQL, reading the SQLite file
+  only. The container runs it once on first start against the volume's
+  `designer.db` (recorded in `designer.imports`, so never twice).
+- **Scoped ids.** Some ids are unique only inside their owner (a server in
+  its target, a step in its workflow). When an id names several elements of
+  the kinds a reference may point at, the one nearest the reference in the
+  ownership tree is its row; a tie leaves the row empty.
+- **Not yet built (1.1.0).** The designer UI's *Export…* action and typed
+  files in its Import dialog are served by the API
+  (`GET /api/designer/systems/{id}/export`, `POST /api/designer/import`)
+  but not yet wired into `web/`. The example files are not rewritten with
+  types: untyped input is valid, and `orgagents export` produces the typed
+  form on demand.
 
 ## Scope
 Designer persistence (a new `relational` backend replacing the document-body
@@ -195,4 +326,5 @@ refused with a catalogued issue code.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-24 | The queries the schema must serve (Q1–Q5), each held by a test against PostgreSQL; how the mapping is made concrete (row identity, ownership, references that keep the written id and the resolved row, flattening, drafts, designer records in the same database, generated migrations, migration of existing SQLite designs). The root type is `Core::Model`, and `Organisation::Organization` is the organisation stereotype's name. |
 | 1.0.0 | 2026-09-23 | Accepted. |

@@ -73,3 +73,45 @@ def test_the_build_context_excludes_local_databases():
     ignored = (ROOT / ".dockerignore").read_text().splitlines()
     assert "*.db" in ignored
     assert ".git" in ignored
+
+
+# -- the designer's PostgreSQL (ADR-0113) -------------------------------------
+
+def _locked(repository: str) -> str:
+    for line in (ROOT / "docker" / "images.lock").read_text().splitlines():
+        parts = line.split("#", 1)[0].split()
+        if len(parts) >= 2 and parts[0].split(":", 1)[0] == repository:
+            return f"{parts[0]}@{parts[1]}"
+    raise AssertionError(f"{repository} is not in docker/images.lock")
+
+
+def test_postgres_is_pinned_to_the_lock_files_digest():
+    image = COMPOSE["services"]["postgres"]["image"]
+    assert "@sha256:" in image
+    assert image == _locked("postgres")
+
+
+def test_postgres_is_not_published_and_is_hardened():
+    pg = COMPOSE["services"]["postgres"]
+    assert "ports" not in pg, "only the designer reaches it (ADR-0114)"
+    assert pg["read_only"] is True
+    assert pg["cap_drop"] == ["ALL"] and "cap_add" not in pg
+    assert "no-new-privileges:true" in pg["security_opt"]
+    assert pg["user"] == "70:70"
+    assert pg["pids_limit"]
+    assert "pg_isready" in pg["healthcheck"]["test"]
+    assert "designer-postgres:/var/lib/postgresql/data" in pg["volumes"]
+    assert "designer-postgres" in COMPOSE["volumes"]
+
+
+def test_the_designer_waits_for_postgres_and_is_told_where_it_is():
+    designer = COMPOSE["services"]["designer"]
+    assert designer["depends_on"]["postgres"]["condition"] == \
+        "service_healthy"
+    url = designer["environment"]["ORGAGENTS_DATABASE_URL"]
+    assert url.startswith("postgresql://") and "@postgres:5432/" in url
+
+
+def test_existing_sqlite_designs_move_once_at_start():
+    assert "db migrate-from-sqlite" in ENTRYPOINT and "--once" in ENTRYPOINT
+    assert "sqlalchemy" in DOCKERFILE and "psycopg" in DOCKERFILE

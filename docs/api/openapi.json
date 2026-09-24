@@ -6345,6 +6345,143 @@
         ]
       }
     },
+    "/api/v1/designer/systems/{system_id}/export": {
+      "get": {
+        "description": "A design as YAML or JSON in which every element names its UML\ntype (ADR-0113), as a file to save. `part=binding` exports the\nbinding it was saved with; `version` an earlier revision.",
+        "operationId": "designer_export_v1_api_v1_designer_systems__system_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "system_id",
+            "required": true,
+            "schema": {
+              "title": "System Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "yaml",
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "part",
+            "required": false,
+            "schema": {
+              "default": "spec",
+              "title": "Part",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "typed",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Typed",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-user",
+            "required": false,
+            "schema": {
+              "default": "anonymous",
+              "title": "X-User",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-user-name",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-User-Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-user-email",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-User-Email",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-orgagents-proxy-secret",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-Orgagents-Proxy-Secret",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "A design as YAML or JSON in which every element names its UML type (ADR-0113), as a fil...",
+        "tags": [
+          "designer: designs"
+        ]
+      }
+    },
     "/api/v1/designer/systems/{system_id}/gate": {
       "get": {
         "description": "The evaluation gate for every agent in a design. Reads only.",

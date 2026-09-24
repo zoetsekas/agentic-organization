@@ -32,7 +32,12 @@ mcp = ["mcp>=1.10,<2", "httpx>=0.27,<1"]
 # (ADR-0118); every generated agent image installs it. Tested on 2.16; capped
 # below 3 because a major version may change the JetStream client API.
 bus = ["nats-py>=2.7,<3"]
-dev = ["pytest>=8.0", "httpx>=0.27", "jsonschema>=4.20", "nats-py>=2.7,<3"]
+# The designer's relational store (ADR-0113): SQLAlchemy Core over psycopg 3
+# against PostgreSQL. Capped below the next major versions, whose Core and
+# driver APIs this is written against; raising a cap is a tested change.
+postgres = ["sqlalchemy>=2,<3", "psycopg[binary]>=3.1,<4"]
+dev = ["pytest>=8.0", "httpx>=0.27", "jsonschema>=4.20", "nats-py>=2.7,<3",
+       "sqlalchemy>=2,<3", "psycopg[binary]>=3.1,<4"]
 
 [project.scripts]
 orgagents = "orgagents.cli:main"
@@ -62,6 +67,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "orgagents.spec" = ["issue_catalog.yaml"]
+"orgagents.persistence" = ["migrations/*.sql", "migrations/*.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

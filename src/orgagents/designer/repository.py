@@ -468,12 +468,199 @@ class SqlRepository(_Base):
         return found[-limit:]
 
 
+class PostgresRepository(SqlRepository):
+    """The relational backend (ADR-0113): the model in tables generated from
+    the UML profiles, in PostgreSQL.
+
+    A save is a revision: a `core.revision` row and a snapshot of the spec's
+    and the binding's rows under it (copy-on-save), written in one
+    transaction with the `designer.system` row that carries the version
+    optimistic concurrency checks (ADR-0033). A draft the model refuses is
+    stored whole on its revision. Workspaces, locks, settings and the audit
+    log keep their document shape in `designer.documents` (ADR-0031,
+    ADR-0043), in the same database.
+    """
+
+    def __init__(self, eng: Any, *, migrate: bool = True) -> None:
+        from ..persistence.store import DocumentStore
+        from ..persistence.store import migrate as apply_migrations
+        if migrate:
+            apply_migrations(eng)
+        self.engine = eng
+        super().__init__(DocumentStore(eng))  # type: ignore[arg-type]
+
+    @classmethod
+    def from_url(cls, url: str = "", **kwargs: Any) -> "PostgresRepository":
+        from ..persistence.store import engine
+        return cls(engine(url), **kwargs)
+
+    # -- reading -----------------------------------------------------------
+
+    _SYSTEM = ("SELECT s.model_id, s.workspace_id, s.name, s.description, "
+               "s.status, s.tags, s.version, s.created_by, s.created_at, "
+               "s.updated_by, s.updated_at, m.head_revision "
+               "FROM designer.system s JOIN core.model m USING (model_id)")
+
+    def _records(self, conn: Any, heads: list[Any]) -> list[SystemRecord]:
+        from ..persistence.store import read_revisions
+        revisions = read_revisions(conn, [h["head_revision"] for h in heads
+                                          if h["head_revision"]])
+        layouts = self._layouts(conn, list(revisions))
+        out = []
+        for h in heads:
+            rev = revisions.get(h["head_revision"])
+            out.append(SystemRecord(
+                id=h["model_id"], workspace_id=h["workspace_id"],
+                name=h["name"], description=h["description"],
+                status=h["status"], tags=list(h["tags"] or []),
+                spec=(rev.spec if rev and rev.spec is not None else {}),
+                binding=rev.binding if rev else None,
+                layout=layouts.get(h["head_revision"], {}).get("layout")
+                or {}, version=h["version"], created_by=h["created_by"],
+                created_at=h["created_at"], updated_by=h["updated_by"],
+                updated_at=h["updated_at"]))
+        return out
+
+    @staticmethod
+    def _layouts(conn: Any, revision_ids: list[int]) -> dict[int, Any]:
+        from sqlalchemy import text
+        if not revision_ids:
+            return {}
+        rows = conn.execute(text(
+            "SELECT revision_id, revision_key, layout, created_at "
+            "FROM designer.revision WHERE revision_id = ANY(:ids)"),
+            {"ids": revision_ids}).mappings()
+        return {r["revision_id"]: dict(r) for r in rows}
+
+    def list_systems(self, workspace_id: Optional[str] = None) -> list[SystemRecord]:
+        from sqlalchemy import text
+        sql = self._SYSTEM + (" WHERE s.workspace_id = :w" if workspace_id
+                              is not None else "")
+        with self.engine.connect() as conn:
+            heads = conn.execute(text(sql), {"w": workspace_id}).mappings() \
+                .all()
+            records = self._records(conn, list(heads))
+        return sorted(records, key=lambda r: r.updated_at, reverse=True)
+
+    def get_system(self, system_id: str) -> Optional[SystemRecord]:
+        with self.engine.connect() as conn:
+            return self._get(conn, system_id)
+
+    def _get(self, conn: Any, system_id: str) -> Optional[SystemRecord]:
+        from sqlalchemy import text
+        heads = conn.execute(text(self._SYSTEM + " WHERE s.model_id = :i"),
+                             {"i": system_id}).mappings().all()
+        return self._records(conn, list(heads))[0] if heads else None
+
+    # -- writing -----------------------------------------------------------
+
+    def save_system(self, record, *, expected_version, author, message="") -> SystemRecord:
+        from sqlalchemy import text
+
+        from ..persistence.store import write_revision
+        with self.engine.begin() as conn:
+            # One writer per design at a time; the version check below is
+            # then exact (ADR-0033), and a racing second writer sees the
+            # first one's version and is told it is stale.
+            conn.execute(text("SELECT pg_advisory_xact_lock("
+                              "hashtextextended(:i, 113))"), {"i": record.id})
+            current = self._get(conn, record.id)
+            record = self._prepare(record, current, expected_version, author)
+            written = write_revision(
+                conn, model_id=record.id, version=record.version,
+                spec=record.spec, binding=record.binding, author=author,
+                message=message)
+            revision = self._revision(record, author, message)
+            conn.execute(text(
+                "INSERT INTO designer.revision (revision_id, revision_key, "
+                "layout, created_at) VALUES (:r, :k, CAST(:l AS json), :c)"),
+                {"r": written["revision_id"], "k": revision.id,
+                 "l": record.layout.model_dump_json(),
+                 "c": revision.created_at})
+            conn.execute(text(
+                "INSERT INTO designer.system (model_id, workspace_id, name, "
+                "description, status, tags, version, created_by, created_at, "
+                "updated_by, updated_at) VALUES (:i, :w, :n, :d, :s, :t, :v, "
+                ":cb, :ca, :ub, :ua) ON CONFLICT (model_id) DO UPDATE SET "
+                "workspace_id = EXCLUDED.workspace_id, name = EXCLUDED.name, "
+                "description = EXCLUDED.description, status = EXCLUDED.status,"
+                " tags = EXCLUDED.tags, version = EXCLUDED.version, "
+                "updated_by = EXCLUDED.updated_by, "
+                "updated_at = EXCLUDED.updated_at"),
+                {"i": record.id, "w": record.workspace_id, "n": record.name,
+                 "d": record.description, "s": record.status.value,
+                 "t": list(record.tags), "v": record.version,
+                 "cb": record.created_by, "ca": record.created_at,
+                 "ub": record.updated_by, "ua": record.updated_at})
+            conn.execute(text(
+                "DELETE FROM core.revision WHERE model_id = :i "
+                "AND version <= :v"),
+                {"i": record.id, "v": record.version - self.max_revisions})
+        return record
+
+    def delete_system(self, system_id: str) -> bool:
+        from sqlalchemy import text
+        with self.engine.begin() as conn:
+            return conn.execute(text(
+                "DELETE FROM core.model WHERE model_id = :i"),
+                {"i": system_id}).rowcount > 0
+
+    # -- revisions ---------------------------------------------------------
+
+    def _revisions(self, system_id: str, limit: int,
+                   version: Optional[int] = None) -> list[Revision]:
+        from sqlalchemy import text
+
+        from ..persistence.store import read_revisions
+        with self.engine.connect() as conn:
+            ids = conn.execute(text(
+                "SELECT revision_id FROM core.revision WHERE model_id = :i"
+                + (" AND version = :v" if version is not None else "")
+                + " ORDER BY version DESC LIMIT :l"),
+                {"i": system_id, "v": version, "l": limit}).scalars().all()
+            stored = read_revisions(conn, ids)
+            layouts = self._layouts(conn, list(ids))
+        out = []
+        for rid in ids:
+            s, extra = stored[rid], layouts.get(rid, {})
+            out.append(Revision(
+                id=extra.get("revision_key") or f"rev_{rid}",
+                system_id=system_id, version=s.version,
+                spec=s.spec if s.spec is not None else {},
+                binding=s.binding, layout=extra.get("layout") or {},
+                author=s.author, message=s.message,
+                created_at=extra.get("created_at") or str(s.created_at)))
+        return out
+
+    def revisions(self, system_id: str, limit: int = 50) -> list[Revision]:
+        return self._revisions(system_id, limit)
+
+    def revision(self, system_id: str, version: int) -> Optional[Revision]:
+        found = self._revisions(system_id, 1, version)
+        return found[0] if found else None
+
+    def settings(self) -> DesignerSettings:
+        stored = self.store.list(SETTINGS, DesignerSettings, limit=1)
+        return stored[0] if stored else DesignerSettings(
+            persistence="relational")
+
+
 def build_repository(settings: DesignerSettings,
-                     store: Optional[Store] = None) -> Repository:
-    """Instantiate the backend the settings ask for."""
+                     store: Optional[Store] = None,
+                     database_url: Optional[str] = None) -> Repository:
+    """Instantiate the backend the settings ask for.
+
+    `relational` is PostgreSQL when `ORGAGENTS_DATABASE_URL` (or
+    `database_url`) is set (ADR-0113); without one it stays the SQLite
+    document store it was, for tests and single-user use."""
+    import os
     if settings.persistence == "filesystem":
         return FileSystemRepository(settings.storage_path)
     if settings.persistence == "relational":
+        url = database_url if database_url is not None else \
+            os.environ.get("ORGAGENTS_DATABASE_URL", "")
+        if url:
+            return PostgresRepository.from_url(url)
         if store is None:
             raise ValueError("the relational backend needs a Store")
         return SqlRepository(store)

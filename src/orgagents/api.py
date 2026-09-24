@@ -1006,6 +1006,49 @@ def create_app(
         return {"system_id": record.id, "name": record.name,
                 "version": record.version}
 
+    @app.get("/api/designer/systems/{system_id}/export")
+    def designer_export(system_id: str, format: str = "yaml",
+                        part: str = "spec", version: Optional[int] = None,
+                        typed: bool = True,
+                        user: Principal = Depends(principal)):
+        """A design as YAML or JSON in which every element names its UML
+        type (ADR-0113), as a file to save. `part=binding` exports the
+        binding it was saved with; `version` an earlier revision."""
+        from fastapi.responses import Response
+
+        from .spec import exchange
+        from .spec.binding import Binding
+
+        if format not in exchange.FORMATS:
+            raise HTTPException(422, f"format must be one of "
+                                     f"{', '.join(exchange.FORMATS)}")
+        if part not in ("spec", "binding"):
+            raise HTTPException(422, "part must be spec or binding")
+        raw, binding, at = _guard(designer.spec_at, user, system_id, version)
+        if part == "binding":
+            if not binding:
+                raise HTTPException(404, "this design has no binding")
+            doc = binding if "targets" in binding else {
+                "spec": (raw.get("metadata") or {}).get("name", ""),
+                "targets": [binding]}
+            try:
+                obj = Binding.model_validate(
+                    exchange.strip_types(doc, Binding))
+            except Exception as e:
+                raise HTTPException(
+                    422, f"this binding does not load: {e}") from e
+        else:
+            obj = _designer_spec(raw)
+        text_out = exchange.dump(obj, format, typed=typed)
+        stem = (raw.get("metadata") or {}).get("name") or system_id
+        suffix = "system" if part == "spec" else "binding"
+        media = "application/json" if format == "json" else "application/yaml"
+        return Response(
+            text_out, media_type=f"{media}; charset=utf-8",
+            headers={"Content-Disposition":
+                     f'attachment; filename="{stem}.{suffix}.{format}"',
+                     "X-Design-Version": str(at)})
+
     @app.post("/api/designer/workspaces/{workspace_id}/members")
     def designer_add_member(workspace_id: str, req: MemberRequest,
                             user: Principal = Depends(principal)) -> dict:
