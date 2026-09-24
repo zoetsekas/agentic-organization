@@ -23,5 +23,9 @@ def blank(tmp_path) -> Platform:
 
 
 # A real PostgreSQL, started in Docker when a test asks for one (ADR-0113).
-from pg import (empty_postgres_url, postgres_server,  # noqa: E402,F401
-                postgres_template, postgres_url)
+from pg import (  # noqa: E402,F401
+    empty_postgres_url,
+    postgres_server,
+    postgres_template,
+    postgres_url,
+)

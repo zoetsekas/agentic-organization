@@ -18,7 +18,7 @@ BINDING = "examples/acme/acme.binding.yaml"
 @pytest.fixture
 def widened(tmp_path) -> str:
     """The same system with one extra permission on a role."""
-    doc = yaml.safe_load(open(SPEC).read())
+    doc = yaml.safe_load(open(SPEC, encoding="utf-8").read())
     for role in doc["organization"]["role_definitions"]:
         if "analyst" in role["id"]:
             role.setdefault("permissions", []).append(
@@ -26,7 +26,7 @@ def widened(tmp_path) -> str:
             )
             break
     path = tmp_path / "after.yaml"
-    path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    path.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
     return str(path)
 
 

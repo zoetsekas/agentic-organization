@@ -29,10 +29,16 @@ import pytest
 import yaml
 
 from orgagents.harness.builder import ApprovalGrants
-from orgagents.security.service_auth import (ApprovalTokenError, NonceStore,
-                                             bearer_matches, generate_signing_key,
-                                             issue_approval, parse_public_keys,
-                                             public_key_of, verify_approval)
+from orgagents.security.service_auth import (
+    ApprovalTokenError,
+    NonceStore,
+    bearer_matches,
+    generate_signing_key,
+    issue_approval,
+    parse_public_keys,
+    public_key_of,
+    verify_approval,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 AYC = ROOT / "examples" / "ayc"
@@ -216,7 +222,7 @@ def test_a_signed_release_grants_once_and_is_audited(worker_client):
     assert r.status_code == 200 and r.json()["approval"]["approver"] == "p_coo"
     assert client.post("/approve", headers=AUTH, json=body).status_code == 403  # replay
     assert platform.harness.approvals.consume("ap_agent", "pay", ARGS)
-    logged = [json.loads(line)["event"] for line in audit.read_text().splitlines()]
+    logged = [json.loads(line)["event"] for line in audit.read_text(encoding="utf-8").splitlines()]
     assert logged == ["approval_granted", "approval_consumed"]
     assert client.get("/audit", headers=AUTH).json()["events"][0]["approver"] == "p_coo"
 
@@ -332,9 +338,10 @@ def _hardened(service):
 
 @pytest.fixture(scope="module")
 def stack():
+    import tempfile
+
     from orgagents.compiler import compile_system
     from orgagents.spec import load_binding, load_spec
-    import tempfile
 
     out = Path(tempfile.mkdtemp())
     compile_system(load_spec(str(AYC / "ayc.system.yaml")), targets=["local"],

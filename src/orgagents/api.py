@@ -20,10 +20,17 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+# Imported at module level, not inside `create_app`: this module uses
+# `from __future__ import annotations`, so FastAPI resolves a route's
+# annotations as strings against the *module* globals. A model imported inside
+# the factory is invisible there, and FastAPI silently degrades the parameter
+# to a query field — which is how POST /api/catalogs came to be uncallable.
+from .catalogs import CatalogEntry as PlatformCatalogEntry
+from .catalogs import Entitlement as PlatformEntitlement
 from .models import (
     Agent,
     ChannelKind,
@@ -35,13 +42,6 @@ from .models import (
     Visibility,
     WorkflowRef,
 )
-# Imported at module level, not inside `create_app`: this module uses
-# `from __future__ import annotations`, so FastAPI resolves a route's
-# annotations as strings against the *module* globals. A model imported inside
-# the factory is invisible there, and FastAPI silently degrades the parameter
-# to a query field — which is how POST /api/catalogs came to be uncallable.
-from .catalogs import CatalogEntry as PlatformCatalogEntry
-from .catalogs import Entitlement as PlatformEntitlement
 from .platform import Platform
 from .store import PLUGINS, SKILLS, WORKFLOWS
 
@@ -206,7 +206,7 @@ def create_app(
         build_repository,
     )
     from .designer.audit import AuditOutcome as DesignerAuditOutcome
-    from .designer.auth import AuthError, Authenticator, verifier_from_settings
+    from .designer.auth import Authenticator, AuthError, verifier_from_settings
     from .designer.models import DesignerSettings
 
     designer_settings = DesignerSettings(
@@ -301,6 +301,7 @@ def create_app(
     # authenticator -- and asks `RuntimeAccess` what they may do. No route
     # reads an identity header itself (a test holds this file to that).
 
+    from .designer.audit import AuditAction as DesignerAuditAction
     from .fabric import rbac as fabric_rbac
     from .fabric.rbac import OperatorRegistry
     from .runtime_access import (
@@ -317,7 +318,6 @@ def create_app(
         Grants,
         RuntimeAccess,
     )
-    from .designer.audit import AuditAction as DesignerAuditAction
 
     # Created here rather than with the rest of the fabric below, because the
     # runtime's operator grants are read from the same registry (ADR-0116).
@@ -1279,7 +1279,8 @@ def create_app(
         report, and says so rather than guessing a default.
         """
         from .designer.service import stored_target_binding
-        from .runtime.engines import UnknownEngine, engine as engine_of
+        from .runtime.engines import UnknownEngine
+        from .runtime.engines import engine as engine_of
 
         _raw, binding, _version = _guard(designer.spec_at, user, system_id)
         bound = stored_target_binding(binding)
@@ -2397,16 +2398,6 @@ def create_app(
 
 # What the canvas can place, and the form each component needs (ADR-0034).
 # Derived from the spec model so the palette cannot drift from what validates.
-from .spec.model import (  # noqa: E402  (the palette is data, built below)
-    POLICY_CONDITION_KEYS,
-    Action,
-    Effect,
-    FlowKind,
-    MissionStatus,
-    ResourceKind,
-    UnitLinkKind,
-)
-
 # Which components may be linked to which, and what the spec calls it
 # (ADR-0006, ADR-0024). The canvas asks rather than guesses: a drop used to
 # nest whatever you dropped near whatever was nearest, which wrote a parent
@@ -2421,6 +2412,13 @@ from .spec.model import (  # noqa: E402  (the palette is data, built below)
 # that knew them still does; the rest of what the spec can hold is now
 # drawable too.
 from .metamodel import link_rules as _link_rules  # noqa: E402
+from .spec.model import (  # noqa: E402  (the palette is data, built below)
+    POLICY_CONDITION_KEYS,
+    Action,
+    Effect,
+    MissionStatus,
+    ResourceKind,
+)
 
 LINK_RULES: list[dict[str, Any]] = _link_rules()
 

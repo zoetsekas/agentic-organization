@@ -59,7 +59,7 @@ def _spec_language_command(args: argparse.Namespace) -> int:
     if args.action == "schema":
         text = system_spec_schema_json()
         if args.out:
-            Path(args.out).write_text(text)
+            Path(args.out).write_text(text, encoding="utf-8")
             print(f"wrote {args.out}")
         else:
             print(text, end="")
@@ -88,7 +88,7 @@ def _spec_language_command(args: argparse.Namespace) -> int:
     # document should fail loudly rather than overwrite the original.
     spec = load_spec_text(yaml.safe_dump(upgraded, sort_keys=False))
     if args.write:
-        Path(args.path).write_text(dump_spec(spec))
+        Path(args.path).write_text(dump_spec(spec), encoding="utf-8")
         print(f"wrote {args.path}")
     else:
         print("(pass --write to save)")
@@ -132,7 +132,7 @@ def _spec_new_command(args: argparse.Namespace) -> int:
     if out.exists() and not args.force:
         print(f"error: {out} exists; pass --force to overwrite")
         return 1
-    out.write_text(text)
+    out.write_text(text, encoding="utf-8")
     print(f"wrote {out}")
     print(f"  next: orgagents spec validate {out}")
     print(f"        orgagents phase {out} --target local --scaffold")
@@ -260,7 +260,7 @@ def _compiler_command(args: argparse.Namespace) -> int:
                                 target=args.target,
                                 catalog=_approved_catalog(args))
             if args.out:
-                Path(args.out).write_text(text)
+                Path(args.out).write_text(text, encoding="utf-8")
                 print(f"\nscaffold written to {args.out}")
             else:
                 print("\n" + text)
@@ -288,7 +288,7 @@ def _compiler_command(args: argparse.Namespace) -> int:
             if closed and args.write:
                 from .spec.loader import dump_spec
 
-                Path(args.path).write_text(dump_spec(spec))
+                Path(args.path).write_text(dump_spec(spec), encoding="utf-8")
                 print(f"wrote {args.path}")
             elif closed:
                 print("(pass --write to save; the runtime already ignores them)")
@@ -306,8 +306,8 @@ def _compiler_command(args: argparse.Namespace) -> int:
     if args.cmd == "schedule":
         from datetime import datetime, timedelta, timezone
 
-        from .scheduling import describe, next_fire_times
         from .runtime.scheduler import SchedulerService
+        from .scheduling import describe, next_fire_times
 
         now = datetime.now(timezone.utc)
         for trigger in spec.triggers:
@@ -605,6 +605,7 @@ def _tenants_command(args: argparse.Namespace) -> int:
     as `fabric_admin`; the transition table still decides every move, and a
     refusal here is the same refusal the API gives (WS-028 M5).
     """
+    from .designer.audit import AuditOutcome
     from .fabric.audit import FabricAuditAction, FabricAuditLog
     from .fabric.deployments import DeploymentService, OperatorRole
     from .fabric.tenants import (
@@ -615,7 +616,6 @@ def _tenants_command(args: argparse.Namespace) -> int:
         TenantStatus,
         TenantTransitionDenied,
     )
-    from .designer.audit import AuditOutcome
     from .platform import Platform
 
     platform = Platform(args.db, configure_logs=False)
@@ -1254,13 +1254,12 @@ def main(argv: list[str] | None = None) -> int:
         from .designer.gestures import catalogue
         out = Path(args.out)
         out.mkdir(parents=True, exist_ok=True)
-        (out / "gestures.md").write_text(catalogue())
+        (out / "gestures.md").write_text(catalogue(), encoding="utf-8")
         print(f"wrote {out}/gestures.md")
         return 0
 
     if args.cmd == "metamodel":
-        from .metamodel import (to_plantuml, to_plantuml_ownership,
-                                to_plantuml_profile)
+        from .metamodel import to_plantuml, to_plantuml_ownership, to_plantuml_profile
         if args.action == "model":
             print(to_plantuml(), end="")
         elif args.action == "profile":
@@ -1304,12 +1303,11 @@ def main(argv: list[str] | None = None) -> int:
             from .metamodel.transformation import describe
             out = Path(args.out)
             out.mkdir(parents=True, exist_ok=True)
-            (out / "transformation.md").write_text(describe())
+            (out / "transformation.md").write_text(describe(), encoding="utf-8")
             print(f"wrote {out}/transformation.md")
             return 0
         elif args.action == "scenarios":
-            from .metamodel.scenarios import (SCENARIOS, catalogue, play,
-                                              to_object_diagram)
+            from .metamodel.scenarios import SCENARIOS, catalogue, play, to_object_diagram
             out = Path(args.out)
             (out / "scenarios").mkdir(parents=True, exist_ok=True)
             failed = 0
@@ -1317,20 +1315,20 @@ def main(argv: list[str] | None = None) -> int:
                 played = play(sc)
                 failed += bool(played.failures)
                 (out / "scenarios" / f"{sc.id}.puml").write_text(
-                    to_object_diagram(played))
+                    to_object_diagram(played), encoding="utf-8")
                 for f in played.failures:
                     print(f"{sc.id}: {f}")
-            (out / "scenarios.md").write_text(catalogue())
+            (out / "scenarios.md").write_text(catalogue(), encoding="utf-8")
             print(f"{len(SCENARIOS) - failed}/{len(SCENARIOS)} scenarios hold;"
                   f" wrote {out}/scenarios.md and scenarios/*.puml")
             return 1 if failed else 0
         else:
             out = Path(args.out)
             out.mkdir(parents=True, exist_ok=True)
-            (out / "orgagents-model.puml").write_text(to_plantuml())
-            (out / "orgagents-profile.puml").write_text(to_plantuml_profile())
+            (out / "orgagents-model.puml").write_text(to_plantuml(), encoding="utf-8")
+            (out / "orgagents-profile.puml").write_text(to_plantuml_profile(), encoding="utf-8")
             (out / "orgagents-ownership.puml").write_text(
-                to_plantuml_ownership())
+                to_plantuml_ownership(), encoding="utf-8")
             print(f"wrote {out}/orgagents-model.puml, orgagents-profile.puml "
                   "(render with PlantUML)")
         return 0

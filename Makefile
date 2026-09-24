@@ -26,6 +26,25 @@ help:
 test: ## Run the test suite
 	$(PY) -m pytest -q
 
+.PHONY: lint
+lint: ## Lint and import order (ruff), as CI runs it
+	$(PY) -m ruff check .
+
+.PHONY: types
+types: ## Type-check src/orgagents (mypy), as CI runs it
+	$(PY) -m mypy
+
+.PHONY: cov
+cov: ## Run the suite with coverage and the per-package floors CI enforces
+	$(PY) -m pytest -q --cov=orgagents --cov-report=term --cov-report=json:coverage.json
+	$(PY) scripts/coverage_floor.py coverage.json
+
+.PHONY: lock
+lock: ## Re-resolve constraints.txt from pyproject.toml (uv pip compile)
+	uv pip compile pyproject.toml --extra dev --extra mcp --extra postgres \
+	  --extra client --extra bus --extra browser --python-version 3.10 --universal \
+	  -o constraints.txt
+
 .PHONY: check
 check: ## Validate the records, the spec and the generated Compose files
 	$(PY) -m orgagents.cli records validate

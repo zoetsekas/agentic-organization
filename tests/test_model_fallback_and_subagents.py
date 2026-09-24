@@ -118,7 +118,7 @@ def test_fallback_is_visible_in_the_registry(spec, binding, catalog, tmp_path):
     _local(over).agent_overrides["analyst"] = {"model": {"model": "claude-opus-5"}}
     result = compile_system(_allow_fallback(spec, "analyst"), targets=["local"],
                             out_dir=tmp_path, binding=over, catalog=catalog)[0]
-    registry = (result.out_dir / "REGISTRY.md").read_text()
+    registry = (result.out_dir / "REGISTRY.md").read_text(encoding="utf-8")
     assert "Agents moved to a fallback model:** `analyst`" in registry
     assert "fell back to" in registry
 

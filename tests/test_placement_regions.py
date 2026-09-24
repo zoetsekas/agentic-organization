@@ -36,8 +36,11 @@ const mod = require(path);
 mod.__canvas.record = {{ spec: {json.dumps(spec_dict)}, layout: {{ nodes: {{}} }} }};
 process.stdout.write(JSON.stringify(mod.derivedPlacements()));
 """
+    # On stdin, not `node -e`: a spec inlined into the command line passes
+    # Windows' 32 767-character limit (WinError 206).
     out = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, timeout=60,
+        ["node", "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=60,
     )
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
@@ -87,9 +90,9 @@ def test_the_region_carries_the_network_posture_it_was_made_from(northwind_dict)
 
 def test_the_canvas_source_says_a_region_is_not_a_boundary():
     """A picture of boxes reads as a wall unless the source says otherwise."""
-    source = CANVAS.read_text()
+    source = CANVAS.read_text(encoding="utf-8")
     assert "derivedPlacements" in source
     assert "function renderRegions" in source
-    css = (ROOT / "web" / "styles.css").read_text()
+    css = (ROOT / "web" / "styles.css").read_text(encoding="utf-8")
     assert ".region {" in css
     assert "not a security boundary" in css

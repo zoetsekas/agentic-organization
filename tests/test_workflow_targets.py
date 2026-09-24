@@ -113,7 +113,8 @@ def test_adk_names_the_constructs_it_declined_to_use():
 
 
 def _spec_with_graph(graph: dict):
-    from spec_fixtures import BASE, org as _org
+    from spec_fixtures import BASE
+    from spec_fixtures import org as _org
     return _org({**BASE, "workflows": [
         {"id": "wf", "name": "wf", "graph": graph}]})
 

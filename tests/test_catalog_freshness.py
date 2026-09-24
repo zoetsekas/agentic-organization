@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from orgagents.catalogs import (
+    STALE_MARKER,
     ApprovalStatus,
-    CatalogEntry,
     CatalogError,
     CatalogKind,
     CatalogService,
@@ -20,8 +20,6 @@ from orgagents.catalogs import (
     FigureProvenance,
     FileFigureSource,
     HttpFigureSource,
-    MappingFigureSource,
-    STALE_MARKER,
     seed_catalog,
 )
 from orgagents.compiler import build_ir
@@ -63,7 +61,7 @@ def _payload(**figures):
 
 def _file_source(tmp_path, payload):
     path = tmp_path / "figures.json"
-    path.write_text(json.dumps(payload))
+    path.write_text(json.dumps(payload), encoding="utf-8")
     return FileFigureSource(path)
 
 

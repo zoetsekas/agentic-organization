@@ -149,7 +149,7 @@ def test_infrastructure_says_when_it_is_ready(compose):
 def test_the_runtime_image_builds_without_a_published_package(generated):
     dockerfile = (generated / "Dockerfile").read_text(encoding="utf-8")
     assert "COPY requirements.txt wheel[s] /wheels/" in dockerfile
-    assert "orgagents[langgraph]" in (generated / "requirements.txt").read_text()
+    assert "orgagents[langgraph]" in (generated / "requirements.txt").read_text(encoding="utf-8")
 
 
 def test_the_committed_stack_is_current(generated):

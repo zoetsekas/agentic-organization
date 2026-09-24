@@ -177,7 +177,7 @@ class StaticDirectory:
         path = Path(path)
         text = path.read_text(encoding="utf-8")
         if path.suffix in {".yaml", ".yml"}:
-            import yaml            # already a hard dependency of the spec loader
+            import yaml  # already a hard dependency of the spec loader
 
             data = yaml.safe_load(text) or {}
         else:

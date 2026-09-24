@@ -37,10 +37,10 @@ def _templates(tmp_path: pathlib.Path) -> pathlib.Path:
     d = tmp_path / "templates"
     (d / "jobs").mkdir(parents=True)
     (d / "README.md.tmpl").write_text(
-        "# $system_name\n$agent_count agents\n")
+        "# $system_name\n$agent_count agents\n", encoding="utf-8")
     (d / "jobs" / "{agent}.nomad.tmpl").write_text(
         'job "$agent_id" {\n  # $agent_description\n'
-        '  # team: $team\n  # approval: $requires_approval_for\n}\n')
+        '  # team: $team\n  # approval: $requires_approval_for\n}\n', encoding="utf-8")
     return d
 
 
@@ -105,7 +105,7 @@ def test_an_unknown_placeholder_is_left_alone_and_reported(tmp_path, ayc):
     compile must not die on one — but a real typo still has to be findable."""
     spec, binding = ayc
     templates = _templates(tmp_path)
-    (templates / "typo.txt.tmpl").write_text("$agnet_name and $HOME\n")
+    (templates / "typo.txt.tmpl").write_text("$agnet_name and $HOME\n", encoding="utf-8")
     result = _compile(spec, binding, tmp_path, templates)
     rendered = next(f for f in result.files if f.path == "typo.txt").content
     assert rendered == "$agnet_name and $HOME\n"   # untouched, not crashed

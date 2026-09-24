@@ -7,22 +7,21 @@ own, which is what makes the frontend genuinely replaceable (ADR-0031).
 """
 from __future__ import annotations
 
-from pydantic import ValidationError as PydanticValidationError
-
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from ..spec.loader import load_spec_text
+from pydantic import ValidationError as PydanticValidationError
+
 from ..spec.issue_codes import lookup as lookup_issue
-from ..spec.validate import Finding, validate_spec, workflow_binding_findings
+from ..spec.loader import load_spec_text
 from ..spec.model import org_collection
+from ..spec.validate import Finding, validate_spec, workflow_binding_findings
 from .audit import AuditAction, AuditEvent, AuditLog, AuditOutcome
 from .locks import LockConflict, LockManager
 from .merge import apply_resolutions, merge
 from .models import (
     Conflict,
     DesignerSettings,
-    Diagram,
     DiagramKind,
     Layout,
     Lock,
@@ -38,9 +37,9 @@ from .rbac import (
     BREAK_LOCK,
     CREATE,
     DELETE,
+    DELETE_WORKSPACE,
     EDIT,
     LOCK,
-    DELETE_WORKSPACE,
     MANAGE_MEMBERS,
     MANAGE_SETTINGS,
     PUBLISH,

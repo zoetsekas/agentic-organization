@@ -13,8 +13,7 @@ from orgagents.cli import main
 from orgagents.spec import exchange
 from orgagents.spec.binding import Binding
 from orgagents.spec.issue_codes import catalog
-from orgagents.spec.loader import (dump_spec, load_binding, load_spec,
-                                   load_spec_text)
+from orgagents.spec.loader import dump_spec, load_binding, load_spec, load_spec_text
 from orgagents.spec.model import SystemSpec
 
 ROOT = Path(__file__).resolve().parents[1]

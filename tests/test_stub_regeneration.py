@@ -73,17 +73,17 @@ def test_recompile_preserves_an_implementation(tmp_path, ayc):
     out = tmp_path / "gen"
     _compile(spec, binding, out)
     tools = out / "langgraph" / "graphs" / "tools.py"
-    original = tools.read_text()
+    original = tools.read_text(encoding="utf-8")
     assert "def stock_lookup(" in original
 
     # The engineer implements the stub.
     tools.write_text(original.replace(
         'raise NotImplementedError("TODO: implement stock_lookup")',
-        'return {"on_hand": 7}  # engineer implementation'))
+        'return {"on_hand": 7}  # engineer implementation'), encoding="utf-8")
 
     # A second compile into the same directory must not clobber it.
     result = _compile(spec, binding, out)
-    after = tools.read_text()
+    after = tools.read_text(encoding="utf-8")
     assert "engineer implementation" in after
     assert "TODO: implement stock_lookup" not in after
     assert tools.as_posix().endswith("tools.py")
@@ -98,5 +98,5 @@ def test_backends_and_agent_modules_stay_do_not_edit(tmp_path, ayc):
     out = tmp_path / "gen"
     _compile(spec, binding, out)
     backends = out / "langgraph" / "graphs" / "_backends.py"
-    assert "engineer-owned" not in backends.read_text()
-    assert "Do not edit" in backends.read_text()
+    assert "engineer-owned" not in backends.read_text(encoding="utf-8")
+    assert "Do not edit" in backends.read_text(encoding="utf-8")

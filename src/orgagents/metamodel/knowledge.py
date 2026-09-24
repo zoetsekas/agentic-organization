@@ -3,14 +3,12 @@ grounding knowledge, memory and its policies, skills, plugins, tools, and how
 a long run keeps its context usable."""
 from __future__ import annotations
 
-from .uml import DataType, Draw, Enumeration
+from .uml import DataType, Draw, Enumeration, Profile, props
 from .uml import MetaClass as MC
-from .uml import Profile
 from .uml import Relationship as R
 from .uml import RelKind as K
 from .uml import Shape as SH
 from .uml import Stereotype as S
-from .uml import props
 
 STEREOTYPES = [
     S("Skill", "skill", MC.ARTIFACT, "skills", "SkillSpec"),

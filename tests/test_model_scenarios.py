@@ -13,8 +13,7 @@ import pytest
 from orgagents.metamodel.constraints import CONSTRAINTS, check
 from orgagents.metamodel.instances import collect
 from orgagents.metamodel.operations import OperationError, link, relationship
-from orgagents.metamodel.scenarios import (SCENARIOS, base, catalogue, play,
-                                           to_object_diagram)
+from orgagents.metamodel.scenarios import SCENARIOS, base, catalogue, play, to_object_diagram
 from orgagents.spec.loader import load_spec
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,7 +85,7 @@ def test_the_catalogue_and_diagrams_are_current():
     """docs/metamodel/scenarios* are generated; regenerate with
     `orgagents metamodel scenarios`."""
     docs = ROOT / "docs" / "metamodel"
-    assert (docs / "scenarios.md").read_text() == catalogue()
+    assert (docs / "scenarios.md").read_text(encoding="utf-8") == catalogue()
     for sc in SCENARIOS:
-        assert (docs / "scenarios" / f"{sc.id}.puml").read_text() == \
+        assert (docs / "scenarios" / f"{sc.id}.puml").read_text(encoding="utf-8") == \
             to_object_diagram(play(sc)), sc.id

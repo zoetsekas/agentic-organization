@@ -160,9 +160,9 @@ def register_builtin_targets() -> TargetRegistry:
     own target first silently lost every built-in.
     """
     def _builtins() -> None:
-        from .targets.local import LocalTarget
         from .targets.adk import GoogleADKTarget
         from .targets.langgraph import LangGraphPlatformTarget
+        from .targets.local import LocalTarget
         from .targets.maf import MicrosoftAgentFrameworkTarget
         from .targets.terraform import TerraformTarget
 

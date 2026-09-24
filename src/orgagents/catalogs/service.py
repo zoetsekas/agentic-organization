@@ -260,7 +260,7 @@ class CatalogService:
         Deliberate, and consequential: the entry stops being selectable, so
         the systems already using it are named in the event.
         """
-        entry = self._require(entry_id)
+        self._require(entry_id)
         users = self.usage.systems_using(entry_id)
         reason = note or "sent back for review"
         if users:

@@ -72,7 +72,7 @@ def test_deleting_a_workspace_with_designs_needs_saying_so(client):
 def test_a_design_is_imported_from_a_file(client):
     ws = _ws(client)
     text = (ROOT / "examples" / "northwind" /
-            "northwind.finance.system.yaml").read_text()
+            "northwind.finance.system.yaml").read_text(encoding="utf-8")
     made = client.post("/api/designer/import", headers=A, json={
         "workspace_id": ws["id"], "text": text,
         "filename": "northwind.finance.system.yaml"}).json()
@@ -125,7 +125,7 @@ def test_the_cli_imports_a_file_from_anywhere_on_disk(tmp_path, capsys):
     from orgagents.cli import main
     path = tmp_path / "mine.system.yaml"
     path.write_text((ROOT / "examples" / "sentinel" /
-                     "sentinel.secops.system.yaml").read_text())
+                     "sentinel.secops.system.yaml").read_text(encoding="utf-8"), encoding="utf-8")
     code = main(["--db", str(tmp_path / "d.db"), "examples", "import",
                  str(path), "--user", "ana"])
     assert code == 0 and "imported mine.system.yaml" in capsys.readouterr().out

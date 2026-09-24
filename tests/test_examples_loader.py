@@ -61,7 +61,7 @@ def test_a_loaded_example_opens_laid_out(client):
 def test_the_layout_is_the_products_own_tree():
     import yaml
 
-    spec = yaml.safe_load(get_example("northwind").path.read_text())
+    spec = yaml.safe_load(get_example("northwind").path.read_text(encoding="utf-8"))
     nodes = initial_layout(spec).diagrams["main"].nodes
     root = spec["organization"]["id"]
     child = spec["organization"]["teams"][0]["id"]

@@ -165,7 +165,7 @@ def ensure_bus_nkeys(have: dict[str, str], ir: dict) -> list[str]:
     to verify signed hops with. Returns the names it added."""
     nk = _nkey_module()
     added: list[str] = []
-    for ident, seed_name, pub_name in (
+    for _ident, seed_name, pub_name in (
             [("orgagents_bus_admin", "ORGAGENTS_BUS_ADMIN_SEED", "ORGAGENTS_BUS_ADMIN_NKEY")]
             + [(a["id"], f"ORGAGENTS_BUS_SEED_{_suffix(a['id'])}",
                 f"ORGAGENTS_BUS_NKEY_{_suffix(a['id'])}") for a in ir["agents"]]):

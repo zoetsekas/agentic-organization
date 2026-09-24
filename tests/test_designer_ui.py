@@ -25,17 +25,17 @@ BUNDLE = ROOT / "web"
 
 @pytest.fixture(scope="module")
 def app_js() -> str:
-    return (BUNDLE / "app.js").read_text()
+    return (BUNDLE / "app.js").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def canvas_js() -> str:
-    return (BUNDLE / "canvas.js").read_text()
+    return (BUNDLE / "canvas.js").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def index_html() -> str:
-    return (BUNDLE / "index.html").read_text()
+    return (BUNDLE / "index.html").read_text(encoding="utf-8")
 
 
 @pytest.fixture()
@@ -193,7 +193,7 @@ def test_a_refusal_is_shown_in_the_api_s_own_words(app_js):
 
 def test_denied_audit_entries_are_visibly_distinct(app_js, index_html):
     assert 'event.outcome === "denied"' in app_js
-    assert "denied" in (BUNDLE / "styles.css").read_text()
+    assert "denied" in (BUNDLE / "styles.css").read_text(encoding="utf-8")
     assert 'id="audit"' in index_html
 
 
@@ -293,7 +293,7 @@ def test_every_designer_route_has_something_that_calls_it(client, app_js,
     went wrong: `.../placements` was built, served, tested, and reachable by
     nobody.
     """
-    settings_js = (BUNDLE / "settings.js").read_text()
+    settings_js = (BUNDLE / "settings.js").read_text(encoding="utf-8")
     referenced = _referenced_paths(app_js, canvas_js, settings_js)
     orphans = {}
     for route in client.app.routes:
@@ -466,7 +466,7 @@ def test_settings_are_a_dialog_not_a_prompt(canvas_js, index_html):
     """The old ⚙ was a window.prompt over raw JSON."""
     assert 'id="settings-dialog"' in index_html
     assert "Designer settings:" not in canvas_js
-    settings_js = (BUNDLE / "settings.js").read_text()
+    settings_js = (BUNDLE / "settings.js").read_text(encoding="utf-8")
     assert 'dapi("/settings", { method: "PUT"' in settings_js
 
 
@@ -477,14 +477,14 @@ def test_the_theme_is_applied_before_the_body_paints(index_html):
 
 
 def test_every_theme_choice_resolves_to_a_palette(index_html):
-    settings_js = (BUNDLE / "settings.js").read_text()
-    theme_css = (BUNDLE / "theme.css").read_text()
+    settings_js = (BUNDLE / "settings.js").read_text(encoding="utf-8")
+    theme_css = (BUNDLE / "theme.css").read_text(encoding="utf-8")
     for choice in ("light", "system", "dark"):
         assert f'["{choice}"' in settings_js
     # `system` is resolved in script, so CSS needs exactly one light palette,
     # and it must redefine every colour token the dark one defines.
     assert theme_css.count(':root[data-theme="light"] {') == 1
-    css = (BUNDLE / "styles.css").read_text()
+    css = (BUNDLE / "styles.css").read_text(encoding="utf-8")
     root = css[css.index(":root {"):css.index("}", css.index(":root {"))]
     colour_tokens = set(re.findall(r"(--[a-z0-9-]+):\s*(?:#|rgba)", root))
     light = theme_css[theme_css.index(':root[data-theme="light"] {'):]

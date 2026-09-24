@@ -18,7 +18,7 @@ lie the phase gate exists to prevent (ADR-0073). The author has to mean it.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 

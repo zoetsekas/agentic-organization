@@ -12,8 +12,8 @@ import pytest
 
 from orgagents.compiler.engine import CompileError, compile_system
 from orgagents.compiler.ir import build_ir
-from orgagents.platform_policy import PlatformPolicy, load
 from orgagents.phases import review
+from orgagents.platform_policy import PlatformPolicy, load
 from orgagents.spec.loader import load_spec
 from orgagents.spec.model import AutonomyPosture
 from orgagents.spec.validate import errors, validate_spec

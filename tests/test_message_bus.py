@@ -279,10 +279,11 @@ def test_the_generated_bus_carries_the_tenant_subject_prefix(tenant_compose):
 
 
 def test_the_fabric_bus_is_not_the_tenants_bus():
-    fabric = yaml.safe_load((ROOT / "docker" / "compose" / "fabric.yml").read_text())
+    fabric = yaml.safe_load((ROOT / "docker" / "compose" / "fabric.yml").read_text(
+        encoding="utf-8"))
     nats = fabric["services"]["nats"]
     assert nats["image"] == "nats:2.15.0-alpine"
     assert nats["networks"] == ["fabric"]
     assert "fabric-nats" in fabric["volumes"]
     assert "carries no tenant payloads" in (
-        ROOT / "docker" / "compose" / "fabric.yml").read_text()
+        ROOT / "docker" / "compose" / "fabric.yml").read_text(encoding="utf-8")

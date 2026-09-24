@@ -160,7 +160,7 @@ def test_completed_missions_stop_conferring_anything(spec):
 def test_the_registry_lists_missions(spec, binding, tmp_path, catalog):
     result = compile_system(spec, targets=["local"], out_dir=tmp_path,
                             binding=binding, catalog=catalog)[0]
-    registry = (result.out_dir / "REGISTRY.md").read_text()
+    registry = (result.out_dir / "REGISTRY.md").read_text(encoding="utf-8")
     assert "Missions (short-lived teams)" in registry
     assert "q4_forecast_rebuild" in registry and "2026-10-31" in registry
     assert "Missions with no end date:** none" in registry

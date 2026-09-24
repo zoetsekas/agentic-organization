@@ -30,7 +30,7 @@ BINDING = ROOT / "examples" / "acme" / "acme.binding.yaml"
 
 @pytest.fixture(scope="module")
 def raw():
-    return yaml.safe_load(EXAMPLE.read_text())
+    return yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")

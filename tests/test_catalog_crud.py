@@ -329,7 +329,7 @@ def test_the_cli_adds_from_a_json_file(tmp_path, capsys):
     path = tmp_path / "entries.json"
     path.write_text(json.dumps([
         {"kind": "guardrail", "name": "no-secrets", "attributes":
-         {"checks": ["secrets"], "on_violation": "block"}}]))
+         {"checks": ["secrets"], "on_violation": "block"}}]), encoding="utf-8")
     db = str(tmp_path / "file.db")
     assert main(["--db", db, "catalogs", "add", "--file", str(path)]) == 0
     assert "no-secrets" in capsys.readouterr().out
@@ -354,7 +354,7 @@ def _called_catalog_routes(source: str) -> set[tuple[str, str]]:
 
 
 def test_the_catalog_routes_the_bundle_calls_exist(client):
-    source = (ROOT / "web" / "app.js").read_text()
+    source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     backend = {(method, re.sub(r"\{[^}]+\}", "{}", route.path))
                for route in client.app.routes
                for method in getattr(route, "methods", ())}
@@ -364,8 +364,8 @@ def test_the_catalog_routes_the_bundle_calls_exist(client):
 
 
 def test_the_bundle_offers_add_edit_retire_send_back_and_delete():
-    source = (ROOT / "web" / "app.js").read_text()
-    html = (ROOT / "web" / "index.html").read_text()
+    source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+    html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
     assert 'id="pc-add"' in html
     for affordance in ("openEntryForm", "sendBackEntry", "retireEntry",
                        "deleteEntry"):
@@ -374,7 +374,7 @@ def test_the_bundle_offers_add_edit_retire_send_back_and_delete():
 
 def test_the_bundle_builds_its_form_from_the_kind_attributes():
     """Twelve kinds, one form: the fields come from `/catalogs/kinds`."""
-    source = (ROOT / "web" / "app.js").read_text()
+    source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     assert "attributeInput" in source and "readAttributes" in source
     assert "k.attributes" in source or ".attributes || []" in source
     # A substantive input is disabled while the entry is locked, and the
@@ -385,7 +385,7 @@ def test_the_bundle_builds_its_form_from_the_kind_attributes():
 
 
 def test_the_ui_says_a_new_entry_is_not_selectable():
-    html = (ROOT / "web" / "index.html").read_text()
-    source = (ROOT / "web" / "app.js").read_text()
+    html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+    source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     assert "proposed" in html and "approve" in html.lower()
     assert "not selectable" in source or "selectable" in html

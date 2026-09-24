@@ -12,20 +12,20 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCKERFILE = (ROOT / "Dockerfile").read_text()
-ENTRYPOINT = (ROOT / "docker" / "entrypoint.sh").read_text()
-COMPOSE = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+DOCKERFILE = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+ENTRYPOINT = (ROOT / "docker" / "entrypoint.sh").read_text(encoding="utf-8")
+COMPOSE = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
 
 
 def test_the_healthcheck_hits_a_route_the_app_serves():
-    api = (ROOT / "src" / "orgagents" / "api.py").read_text()
+    api = (ROOT / "src" / "orgagents" / "api.py").read_text(encoding="utf-8")
     assert '@app.get("/healthz")' in api
     assert "/healthz" in DOCKERFILE
     assert "/healthz" in COMPOSE["services"]["designer"]["healthcheck"]["test"][-1]
 
 
 def test_the_entrypoint_only_uses_flags_the_cli_accepts():
-    cli = (ROOT / "src" / "orgagents" / "cli.py").read_text()
+    cli = (ROOT / "src" / "orgagents" / "cli.py").read_text(encoding="utf-8")
     for flag in re.findall(r"--[a-z][a-z-]+", ENTRYPOINT):
         assert f'"{flag}"' in cli, f"entrypoint passes {flag}, which the CLI does not define"
 
@@ -40,7 +40,7 @@ def test_the_entrypoint_does_not_assume_an_installed_console_script():
 def test_the_web_assets_resolve_where_the_image_puts_them():
     # api.py finds the UI relative to its own file (parents[2]/web), so the
     # image must preserve that layout: /app/src/orgagents/api.py -> /app/web.
-    api = (ROOT / "src" / "orgagents" / "api.py").read_text()
+    api = (ROOT / "src" / "orgagents" / "api.py").read_text(encoding="utf-8")
     assert "parents[2]" in api and '/ "web"' in api
     assert "PYTHONPATH=/app/src" in DOCKERFILE
     assert "COPY --chown=designer:designer src/ ./src/" in DOCKERFILE
@@ -70,7 +70,7 @@ def test_the_scheduler_is_opt_in():
 
 
 def test_the_build_context_excludes_local_databases():
-    ignored = (ROOT / ".dockerignore").read_text().splitlines()
+    ignored = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
     assert "*.db" in ignored
     assert ".git" in ignored
 
@@ -78,7 +78,7 @@ def test_the_build_context_excludes_local_databases():
 # -- the designer's PostgreSQL (ADR-0113) -------------------------------------
 
 def _locked(repository: str) -> str:
-    for line in (ROOT / "docker" / "images.lock").read_text().splitlines():
+    for line in (ROOT / "docker" / "images.lock").read_text(encoding="utf-8").splitlines():
         parts = line.split("#", 1)[0].split()
         if len(parts) >= 2 and parts[0].split(":", 1)[0] == repository:
             return f"{parts[0]}@{parts[1]}"

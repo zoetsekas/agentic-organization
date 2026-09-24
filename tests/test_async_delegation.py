@@ -8,7 +8,6 @@ exactly as it did, because most delegation genuinely wants an answer now.
 from __future__ import annotations
 
 import threading
-import time
 from pathlib import Path
 
 import pytest
@@ -415,7 +414,7 @@ def test_no_generated_conformance_report_claims_asynchronous_delegation():
     reports = list(root.glob("examples/**/CONFORMANCE.md"))
     assert reports, "no generated conformance reports to check"
     for report in reports:
-        text = report.read_text()
+        text = report.read_text(encoding="utf-8")
         for claim in ("assign(", "gather(", "max_parallel_subagents"):
             assert claim not in text, f"{report} claims {claim}"
 

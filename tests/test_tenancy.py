@@ -60,7 +60,7 @@ def two_tenants(registry):
 
 def test_the_spec_layer_knows_nothing_about_tenants():
     """Tenancy is assigned by the fabric, never declared by a design (ADR-0050)."""
-    source = (ROOT / "src" / "orgagents" / "spec" / "model.py").read_text()
+    source = (ROOT / "src" / "orgagents" / "spec" / "model.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     names = {
         node.id for node in ast.walk(tree) if isinstance(node, ast.Name)
@@ -254,7 +254,7 @@ def test_the_generated_ir_json_carries_the_tenant(spec, two_tenants, tmp_path):
     north, _ = two_tenants
     compile_system(spec, targets=["local"], out_dir=tmp_path, tenant=north.to_ir())
     ir = json.loads(
-        (tmp_path / "northwind" / "local" / "system.ir.json").read_text()
+        (tmp_path / "northwind" / "local" / "system.ir.json").read_text(encoding="utf-8")
     )
     assert ir["tenant"]["id"] == "northwind"
     assert ir["tenant"]["isolation_domain"] == "northwind-domain"

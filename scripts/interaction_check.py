@@ -18,7 +18,6 @@ one.
 
 import os
 import pathlib
-import subprocess
 import sys
 import tempfile
 import threading
@@ -31,13 +30,15 @@ sys.path.insert(0, str(ROOT / "src"))
 WORK = pathlib.Path(tempfile.mkdtemp(prefix="orgagents-shots-"))
 os.chdir(WORK)
 from orgagents.api import create_app
+
 app = create_app(str(WORK / "designer.db"))
 
 # Seed: a workspace, the worked finance organisation, and a tenant to publish to.
 from fastapi.testclient import TestClient
+
 c = TestClient(app)
 A = {"X-User": "ana", "X-User-Name": "Ana Silva"}
-spec = yaml.safe_load((ROOT / "examples" / "northwind" / "northwind.finance.system.yaml").read_text())
+spec = yaml.safe_load((ROOT / "examples" / "northwind" / "northwind.finance.system.yaml").read_text(encoding="utf-8"))
 ws = c.post("/api/designer/workspaces", json={"name": "Northwind"}, headers=A).json()
 sys_ = c.post("/api/designer/systems",
               json={"workspace_id": ws["id"], "name": "Northwind Finance",
@@ -975,7 +976,7 @@ async def main() -> None:
               f"{before} -> {redone}")
 
         # Typing is not one undo per keystroke.
-        await page.click(f'#canvas-nodes [data-id="treasury"]')
+        await page.click('#canvas-nodes [data-id="treasury"]')
         await page.wait_for_timeout(400)
         depth_before = await page.evaluate(
             "() => window.designer.state.history.past.length")

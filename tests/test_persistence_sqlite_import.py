@@ -8,8 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from orgagents.designer import (DesignerService, Member, Principal,
-                                SqlRepository, UserRole)
+from orgagents.designer import DesignerService, Member, Principal, SqlRepository, UserRole
 from orgagents.designer.models import DesignerSettings
 from orgagents.spec import exchange
 from orgagents.spec.loader import load_spec

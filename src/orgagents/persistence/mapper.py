@@ -18,8 +18,18 @@ from typing import Any, Callable, Iterable, Iterator, Optional
 from pydantic import BaseModel
 from pydantic_core import to_jsonable_python
 
-from .relational import (ELEMENT, ClassTable, Flat, Links, Parts, Plan, Ref,
-                         Scalar, concrete_kinds, plan)
+from .relational import (
+    ELEMENT,
+    ClassTable,
+    Flat,
+    Links,
+    Parts,
+    Plan,
+    Ref,
+    Scalar,
+    concrete_kinds,
+    plan,
+)
 
 __all__ = ["Rows", "to_rows", "from_rows", "resolve"]
 

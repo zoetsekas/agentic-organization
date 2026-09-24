@@ -30,13 +30,20 @@ import pytest
 
 pytest.importorskip("nats", reason="nats-py is not installed (pip install 'orgagents[bus]')")
 
-from orgagents.compiler import links as L                      # noqa: E402
-from orgagents.compiler.ir import build_ir                     # noqa: E402
-from orgagents.compiler.targets.local import BUS_IMAGE         # noqa: E402
-from orgagents.runtime.agent_bus import (AgentMessenger, BusRefused, HopContext,  # noqa: E402
-                                         HopKeys, LinkPolicy, NatsTransport, bus_init)
-from orgagents.security import nkey                            # noqa: E402
-from orgagents.spec import load_binding, load_spec             # noqa: E402
+from orgagents.compiler import links as L  # noqa: E402
+from orgagents.compiler.ir import build_ir  # noqa: E402
+from orgagents.compiler.targets.local import BUS_IMAGE  # noqa: E402
+from orgagents.runtime.agent_bus import (  # noqa: E402
+    AgentMessenger,
+    BusRefused,
+    HopContext,
+    HopKeys,
+    LinkPolicy,
+    NatsTransport,
+    bus_init,
+)
+from orgagents.security import nkey  # noqa: E402
+from orgagents.spec import load_binding, load_spec  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 AYC = ROOT / "examples" / "ayc"
@@ -63,7 +70,11 @@ def _wait_port(port: int, timeout: float = 20) -> bool:
 def _docker_ok() -> bool:
     if shutil.which("docker") is None:
         return False
-    return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+    # A Windows-containers daemon (GitHub's windows-latest) answers `docker
+    # info` but cannot run the Linux nats image.
+    probe = subprocess.run(["docker", "info", "--format", "{{.OSType}}"],
+                           capture_output=True, text=True)
+    return probe.returncode == 0 and probe.stdout.strip() == "linux"
 
 
 @pytest.fixture(scope="module")

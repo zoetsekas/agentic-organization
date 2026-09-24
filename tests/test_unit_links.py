@@ -31,7 +31,7 @@ NORTHWIND = ROOT / "examples" / "northwind" / "northwind.finance.system.yaml"
 
 
 def doc() -> dict:
-    return yaml.safe_load(NORTHWIND.read_text())
+    return yaml.safe_load(NORTHWIND.read_text(encoding="utf-8"))
 
 
 def errors_of(document: dict) -> dict[str, str]:

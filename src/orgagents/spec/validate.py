@@ -11,11 +11,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal, Optional
 
 from .model import (
-    DataRelationKind,
     ChannelPurpose,
+    DataRelationKind,
     EndpointTrust,
     HumanRole,
-    MemoryTier,
     LifecycleStage,
     NetworkPosture,
     Permission,
@@ -1976,7 +1975,7 @@ def directory_findings(
     * a directory that knows nothing — `NullDirectory`, an empty one, or one
       that could not be reached — produces nothing at all.
     """
-    from ..directory import reconcile   # deferred: `directory` imports this package
+    from ..directory import reconcile  # deferred: `directory` imports this package
 
     if directory is None:
         return []

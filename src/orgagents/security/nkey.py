@@ -19,6 +19,11 @@ dependency, ADR-0114). `install_nkeys_shim()` registers it under the name
 """
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 import base64
 import sys
 import types
@@ -91,7 +96,7 @@ def decode_public(public: str, prefix: Optional[int] = PREFIX_USER) -> bytes:
     return body[1:]
 
 
-def _private(raw_seed: bytes):
+def _private(raw_seed: bytes) -> "Ed25519PrivateKey":
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     return Ed25519PrivateKey.from_private_bytes(raw_seed)
 
@@ -114,7 +119,8 @@ def public_of(seed: str) -> str:
 
 
 def sign(seed: str, data: bytes) -> bytes:
-    return _private(decode_seed(seed)[1]).sign(data)
+    signature: bytes = _private(decode_seed(seed)[1]).sign(data)
+    return signature
 
 
 def verify(public: str, data: bytes, signature: bytes) -> bool:

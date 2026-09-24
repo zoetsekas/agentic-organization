@@ -217,7 +217,7 @@ def drawn(tmp_path_factory):
         (ROOT / "examples/ayc/ayc.local.binding.yaml").read_text("utf-8"))
     path = tmp_path_factory.mktemp("dd") / "in.json"
     path.write_text(json.dumps({"spec": spec, "links": link_rules(),
-                                "binding": binding}))
+                                "binding": binding}), encoding="utf-8")
     out = subprocess.run([node, "tests/data_diagram_check.mjs", str(path)],
                          capture_output=True, text=True, cwd=ROOT, timeout=60)
     assert out.returncode == 0, out.stderr

@@ -26,8 +26,8 @@ from .store import (
     PLUGINS,
     SESSIONS,
     SKILLS,
-    Store,
     WORKFLOWS,
+    Store,
 )
 from .store import SANDBOX_TEMPLATES as TEMPLATE_COLLECTION
 

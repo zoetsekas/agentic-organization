@@ -38,11 +38,20 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from . import (access, assurance, authority, core, data, deployment,
-               knowledge, organisation, process)
+from . import access, assurance, authority, core, data, deployment, knowledge, organisation, process
 from .core import SYSTEM_OWNED
-from .uml import (DataType, Draw, Enumeration, MetaClass, Profile, Property,
-                  Relationship, RelKind, Shape, Stereotype)
+from .uml import (
+    DataType,
+    Draw,
+    Enumeration,
+    MetaClass,
+    Profile,
+    Property,
+    Relationship,
+    RelKind,
+    Shape,
+    Stereotype,
+)
 
 __all__ = [
     "MetaClass", "RelKind", "Shape", "Draw", "Stereotype", "Relationship",
@@ -297,7 +306,7 @@ def _attributes(owner: str, profile: Profile) -> list[str]:
             for p in profile.properties if p.owner == owner]
 
 
-def to_plantuml_profile(profile: Profile = None) -> str:  # type: ignore[assignment]
+def to_plantuml_profile(profile: Optional[Profile] = None) -> str:
     """The profile diagram: each stereotype extends a UML metaclass."""
     p = profile or PROFILE
     out = ["@startuml OrgAgentsProfile", "!pragma layout smetana",
@@ -305,9 +314,9 @@ def to_plantuml_profile(profile: Profile = None) -> str:  # type: ignore[assignm
            'title OrgAgents profile — stereotypes extending UML metaclasses', ""]
     for mc in sorted({s.extends for s in p.stereotypes}, key=lambda m: m.value):
         out.append(f'class "{mc.value}" as MC_{mc.name} <<metaclass>>')
-    out.append(f'class "AssociationClass" as MC_ASSOCIATION_CLASS <<metaclass>>')
-    out.append(f'class "DeploymentSpecification" as MC_DEPLOYMENT_SPECIFICATION'
-               f' <<metaclass>>')
+    out.append('class "AssociationClass" as MC_ASSOCIATION_CLASS <<metaclass>>')
+    out.append('class "DeploymentSpecification" as MC_DEPLOYMENT_SPECIFICATION'
+               ' <<metaclass>>')
     for s in p.stereotypes:
         out.append(f'class "{s.name}" as ST_{s.kind} <<stereotype>>')
         # UML extension: a line with a filled arrowhead to the metaclass.
@@ -323,7 +332,7 @@ def to_plantuml_profile(profile: Profile = None) -> str:  # type: ignore[assignm
     return "\n".join(out) + "\n"
 
 
-def to_plantuml(profile: Profile = None) -> str:  # type: ignore[assignment]
+def to_plantuml(profile: Optional[Profile] = None) -> str:
     """The model as a strict UML class diagram.
 
     Everything the «System» Model owns sits in its package (ownership by
@@ -404,7 +413,7 @@ def to_plantuml(profile: Profile = None) -> str:  # type: ignore[assignment]
     return "\n".join(out) + "\n"
 
 
-def to_plantuml_ownership(profile: Profile = None) -> str:  # type: ignore[assignment]
+def to_plantuml_ownership(profile: Optional[Profile] = None) -> str:
     """Who owns what: the System owns one Organization; the Organization is
     a Team and owns every element of its model. Each element has exactly one
     owner, which is what makes the containment tree a tree."""

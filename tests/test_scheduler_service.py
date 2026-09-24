@@ -112,9 +112,10 @@ def test_results_are_delivered_to_channels():
 
 
 def test_from_manifest_round_trips_a_compiled_trigger(tmp_path):
+    from pathlib import Path
+
     from orgagents.compiler import build_ir
     from orgagents.spec import load_binding, load_spec
-    from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
     ir = build_ir(

@@ -18,7 +18,7 @@ abstract thing unrealized cannot be compiled.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from .spec.binding import Binding, TargetBinding
 from .spec.model import (

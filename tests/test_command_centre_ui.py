@@ -24,12 +24,12 @@ APP_JS = BUNDLE / "app.js"
 
 @pytest.fixture(scope="module")
 def app_js() -> str:
-    return APP_JS.read_text()
+    return APP_JS.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def fixture() -> dict:
-    return json.loads(FIXTURE.read_text())
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
 
 
 @pytest.fixture()
@@ -58,7 +58,7 @@ def test_the_designer_bundle_is_not_reused(app_js):
     # Nothing imported from the designer: one application cannot become the other.
     assert "canvas.js" not in app_js
     assert not re.search(r"""["'`]\.\./(app|canvas|styles)""", app_js)
-    assert "../app.js" not in (BUNDLE / "index.html").read_text()
+    assert "../app.js" not in (BUNDLE / "index.html").read_text(encoding="utf-8")
 
 
 # -- every route the UI calls is one the contract defines ------------------
@@ -66,7 +66,7 @@ def test_the_designer_bundle_is_not_reused(app_js):
 def documented_routes() -> set[tuple[str, str]]:
     """The route table of docs/COMMAND_CENTRE_API.md, as (method, path) pairs."""
     routes = set()
-    for line in CONTRACT.read_text().splitlines():
+    for line in CONTRACT.read_text(encoding="utf-8").splitlines():
         match = re.match(
             r"\|\s*(GET|POST|PUT|DELETE)\s*\|\s*`([^`]+)`\s*\|", line.strip())
         if match:
@@ -149,7 +149,7 @@ def test_the_routes_the_ui_calls_exist_on_the_backend(client, app_js):
 # -- read across tenants, author inside none -------------------------------
 
 def test_the_ui_contains_no_spec_editing_route(app_js):
-    html = (BUNDLE / "index.html").read_text()
+    html = (BUNDLE / "index.html").read_text(encoding="utf-8")
     for forbidden in ("/api/designer", "/api/systems", "/api/workspaces",
                       "/api/spec", "/api/agents", "/api/org", "/api/roles",
                       "/api/canvas", "/api/revisions", "/api/locks"):
@@ -186,7 +186,7 @@ def test_api_errors_are_surfaced_rather_than_reworded(app_js):
 
 def test_bundled_fixture_matches_the_generated_one(fixture):
     assert fixture == json.loads(
-        (ROOT / "docs" / "fixtures" / "command-centre.sample.json").read_text())
+        (ROOT / "docs" / "fixtures" / "command-centre.sample.json").read_text(encoding="utf-8"))
     assert fixture["contract"] == "docs/COMMAND_CENTRE_API.md"
 
 
@@ -195,7 +195,7 @@ def test_the_ui_falls_back_to_the_fixture(app_js):
     assert "degradeToFixture" in app_js
     # And says so on screen rather than passing fixture data off as live.
     assert "source-banner" in app_js
-    assert "Fixture data" in (BUNDLE / "index.html").read_text()
+    assert "Fixture data" in (BUNDLE / "index.html").read_text(encoding="utf-8")
 
 
 def test_fixture_covers_every_route_the_ui_reads(app_js, fixture):

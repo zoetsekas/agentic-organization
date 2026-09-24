@@ -276,4 +276,4 @@ def _write(result: CompileResult, *, force: bool) -> None:
             indent=2,
         )
         + "\n"
-    )
+    , encoding="utf-8")

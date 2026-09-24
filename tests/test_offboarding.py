@@ -42,6 +42,7 @@ def reconciled():
     smaller.agents = [a for a in smaller.agents if a.id != "cs_agent"]
     report = load_system(platform, smaller)
     yield platform, report
+    platform.close()  # Windows will not delete the open database file.
     tmp.cleanup()
 
 

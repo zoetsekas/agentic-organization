@@ -21,8 +21,6 @@ import pathlib
 import subprocess
 import sys
 
-import pytest
-
 from orgagents.compiler.engine import compile_system
 from orgagents.phases import review
 from orgagents.scaffold import (
@@ -301,6 +299,6 @@ def test_phase_scaffold_writes_the_gaps(tmp_path):
     # that exit code.
     assert out.returncode == 1, out.stdout
     assert "scaffold written to gaps.yaml" in out.stdout
-    gaps = (tmp_path / "gaps.yaml").read_text()
+    gaps = (tmp_path / "gaps.yaml").read_text(encoding="utf-8")
     assert "Data is classified" in gaps
     assert "budgets:" in gaps

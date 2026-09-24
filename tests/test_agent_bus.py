@@ -20,9 +20,17 @@ import pytest
 
 from orgagents.compiler import links as L
 from orgagents.compiler.ir import build_ir
-from orgagents.runtime.agent_bus import (AgentMessenger, BusRefused, HopContext, HopKeys,
-                                         LinkPolicy, body_digest, named_decisions,
-                                         render_task, separation_guard)
+from orgagents.runtime.agent_bus import (
+    AgentMessenger,
+    BusRefused,
+    HopContext,
+    HopKeys,
+    LinkPolicy,
+    body_digest,
+    named_decisions,
+    render_task,
+    separation_guard,
+)
 from orgagents.security import nkey
 from orgagents.spec import load_binding, load_spec
 
@@ -557,7 +565,7 @@ def test_the_stub_model_reads_later_turns_and_substitutes_the_last_result():
 
 def test_the_stub_model_runs_a_two_turn_script():
     pytest.importorskip("langchain_core")
-    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from langchain_core.messages import HumanMessage, ToolMessage
 
     from orgagents.runtime.stub_model import stub_chat_model
 

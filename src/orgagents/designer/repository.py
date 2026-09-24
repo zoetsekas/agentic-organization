@@ -235,7 +235,7 @@ class FileSystemRepository(_Base):
         path.parent.mkdir(parents=True, exist_ok=True)
         # Write-then-rename: a crash mid-write never leaves a half file.
         temporary = path.with_suffix(path.suffix + ".tmp")
-        temporary.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+        temporary.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         temporary.replace(path)
 
     # -- systems -----------------------------------------------------------

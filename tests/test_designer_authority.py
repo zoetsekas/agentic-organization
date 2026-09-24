@@ -27,7 +27,7 @@ def client(tmp_path) -> TestClient:
 def northwind(client) -> str:
     """The worked finance function, opened as a design."""
     spec = yaml.safe_load(
-        pathlib.Path("examples/northwind/northwind.finance.system.yaml").read_text()
+        pathlib.Path("examples/northwind/northwind.finance.system.yaml").read_text(encoding="utf-8")
     )
     ws = client.post("/api/designer/workspaces", json={"name": "ws"},
                      headers=ALICE).json()

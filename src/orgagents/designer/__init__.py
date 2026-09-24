@@ -1,7 +1,8 @@
+from .audit import AuditAction, AuditEvent, AuditLog, AuditOutcome
 from .auth import (
+    AuthConfigurationError,
     AuthenticatedPrincipal,
     Authenticator,
-    AuthConfigurationError,
     AuthError,
     GroupRoleMapping,
     JWKSCache,
@@ -9,7 +10,6 @@ from .auth import (
     TokenVerifier,
     verifier_from_settings,
 )
-from .audit import AuditAction, AuditEvent, AuditLog, AuditOutcome
 from .locks import LockConflict, LockManager
 from .merge import apply_resolutions, merge, summarize
 from .models import (
@@ -26,12 +26,12 @@ from .models import (
     UserRole,
     Workspace,
 )
-from .rbac import Principal, PermissionDenied, decide, permissions_for, require
+from .rbac import PermissionDenied, Principal, decide, permissions_for, require
 from .repository import (
     FileSystemRepository,
     MemoryRepository,
-    Repository,
     PostgresRepository,
+    Repository,
     SqlRepository,
     VersionConflict,
     build_repository,

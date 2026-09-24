@@ -9,12 +9,9 @@ from __future__ import annotations
 
 import threading
 
-import pytest
-
 from orgagents.models import SessionState
 from orgagents.tasks.model import TaskPriority, TaskRecord
 from orgagents.tasks.port import BackendCapabilities, TaskPort
-
 
 # -- priority is read, never written ----------------------------------------
 
@@ -137,7 +134,7 @@ def test_the_bound_refusal_names_the_least_important_thing_held(platform):
 
 def test_priority_is_on_the_audit_event(platform):
     session = platform.sessions.create("agt_cfo")
-    handle = _tools(platform, "agt_cfo", session.id)["assign"](
+    _tools(platform, "agt_cfo", session.id)["assign"](
         "agt_fin_analyst", "Pull invoice aging.", priority="high")["handle"]
     events = [e for e in platform.sessions.events(session.id)
               if e.type == "delegation"]

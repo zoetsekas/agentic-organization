@@ -18,50 +18,40 @@ from ..mandates import EffectiveMandate, MandateMap
 from ..mandates import resolve as resolve_mandates
 from ..spec.binding import TargetBinding, default_binding
 from ..spec.model import (
-    UnitLink,
     Action,
     AgentEndpoint,
     AgentSpec,
+    ArtifactStore,
     Budget,
     Capability,
     ChannelClass,
-    ChannelSpec,
     Compliance,
+    ContextPolicy,
     DataClass,
+    DataDependency,
     EnvironmentClass,
     FlowKind,
+    Guardrail,
     HumanCounterpart,
     HumanRole,
     InteractionFlow,
-    KnowledgeSource,
-    ArtifactStore,
-    ContextPolicy,
-    Guardrail,
     Lifecycle,
     Memory,
-    Mission,
-    ModelPolicy,
     MemoryNamespace,
-    MemoryPolicy,
-    MemoryTier,
+    ModelPolicy,
     Observability,
-    PluginSpec,
-    RecallMode,
+    OutputContract,
     Permission,
     PolicyRule,
-    DataDependency,
+    Resilience,
     ScalingPolicy,
     SeparationRule,
-    Resilience,
-    ResourceKind,
-    OutputContract,
     SharingScope,
     SkillSpec,
     SystemSpec,
     Team,
-    ToolSpec,
     TriggerKind,
-    TriggerSpec,
+    UnitLink,
     WorkflowSpec,
 )
 
@@ -540,7 +530,7 @@ class AgentIR(BaseModel):
             lines += [
                 "",
                 "## Memory",
-                f"- Session memory is yours for this session only.",
+                "- Session memory is yours for this session only.",
                 f"- Long-term namespaces you may recall from: {spaces}.",
                 "- Promote something into long-term memory only when it will be "
                 "useful again; everything you happen to see is not a memory.",
@@ -858,7 +848,8 @@ def _delegation_targets(
 
 def _resolve_triggers(spec: SystemSpec, bound: TargetBinding) -> list[TriggerIR]:
     """Normalize triggers and precompute fire times for review (ADR-0020)."""
-    from datetime import datetime, timezone as _tz
+    from datetime import datetime
+    from datetime import timezone as _tz
 
     from ..scheduling import describe, next_fire_times, parse_cadence
 

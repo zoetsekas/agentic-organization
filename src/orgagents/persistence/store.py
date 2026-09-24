@@ -227,6 +227,7 @@ def read_revisions(conn: Any, revision_ids: Iterable[int]
     """Revisions by id, each rebuilt from its rows (or its draft), with one
     query per table however many are asked for."""
     from sqlalchemy import text
+
     from ..spec.binding import Binding
     from ..spec.exchange import canonical
     from ..spec.model import SystemSpec
@@ -299,7 +300,7 @@ class DocumentStore:
                 "ON CONFLICT (collection, id) DO UPDATE SET "
                 "body = EXCLUDED.body, parent = EXCLUDED.parent, "
                 "name = EXCLUDED.name, updated_at = clock_timestamp()"),
-                {"c": collection, "i": getattr(obj, "id"), "p": parent,
+                {"c": collection, "i": obj.id, "p": parent,
                  "n": name or getattr(obj, "name", None),
                  "b": obj.model_dump_json()})
         return obj

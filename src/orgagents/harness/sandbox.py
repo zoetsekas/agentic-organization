@@ -306,7 +306,7 @@ class SandboxRunner:
             for rel, content in (files or {}).items():
                 path = Path(workdir) / rel
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(content)
+                path.write_text(content, encoding="utf-8")
             env = {"PATH": os.environ.get("PATH", ""), "HOME": workdir, **t.env}
             try:
                 proc = subprocess.run(

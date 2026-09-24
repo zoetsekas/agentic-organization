@@ -26,12 +26,14 @@ from typing import Iterator, Optional
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = "orgagents_template"
+# One template per pytest-xdist worker: workers sharing a server (the
+# ORGAGENTS_TEST_DATABASE_URL case) would otherwise drop each other's.
+TEMPLATE = "orgagents_template_" + os.environ.get("PYTEST_XDIST_WORKER", "main")
 
 
 def pinned_postgres() -> str:
     """The postgres image as ADR-0053 pins it: `repository:tag@digest`."""
-    for line in (ROOT / "docker" / "images.lock").read_text().splitlines():
+    for line in (ROOT / "docker" / "images.lock").read_text(encoding="utf-8").splitlines():
         parts = line.split("#", 1)[0].split()
         if len(parts) >= 2 and parts[0].startswith("postgres:") \
                 and parts[1].startswith("sha256:"):
@@ -50,10 +52,16 @@ def _why_not() -> Optional[str]:
     if not shutil.which("docker"):
         return "Docker is not available to start PostgreSQL"
     try:
-        subprocess.run(["docker", "info"], capture_output=True, check=True,
-                       timeout=20)
+        probe = subprocess.run(["docker", "info", "--format", "{{.OSType}}"],
+                               capture_output=True, check=True, timeout=20,
+                               text=True)
     except Exception:
         return "the Docker daemon is not reachable to start PostgreSQL"
+    # GitHub's windows-latest has Docker, but a Windows-containers daemon
+    # that cannot run the Linux postgres image.
+    if probe.stdout.strip() != "linux":
+        return f"the Docker daemon runs {probe.stdout.strip() or 'unknown'} " \
+               "containers, not the Linux postgres image"
     return None
 
 

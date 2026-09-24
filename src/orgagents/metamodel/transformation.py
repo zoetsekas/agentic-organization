@@ -17,11 +17,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from ..spec import model as spec_model
 from . import PROFILE, RelKind, Shape, specialisations
-from .instances import Instance, Instances, collect
+from .instances import Instances, collect
 
 
 class Mode(str, Enum):
@@ -256,7 +256,6 @@ class Trace:
 def _images(model: Instances, ir: Any, trace: Trace) -> dict[str, Any]:
     """The IR image of every model instance the mapping builds."""
     images: dict[str, Any] = {}
-    agents_ir = {a.id: a for a in ir.agents}
     for inst in model:
         rule = _rule(inst.kind)
         if rule is None:

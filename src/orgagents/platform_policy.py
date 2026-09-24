@@ -323,8 +323,9 @@ class PlatformPolicy(BaseModel):
 
 
 def load(path: str) -> PlatformPolicy:
-    import yaml
     from pathlib import Path
+
+    import yaml
 
     return PlatformPolicy.model_validate(
         yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}

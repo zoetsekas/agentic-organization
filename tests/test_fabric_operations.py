@@ -35,10 +35,10 @@ from orgagents.fabric.quotas import (
     evaluate,
 )
 from orgagents.fabric.services import (
+    FABRIC_COMMON_SERVICES,
     CommonService,
     Direction,
     Exposure,
-    FABRIC_COMMON_SERVICES,
     ServiceKind,
     ServiceRegistry,
     ServiceRegistryError,

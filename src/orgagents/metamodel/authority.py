@@ -3,14 +3,12 @@ decisions, mandates, separations of duty, policies and permissions, who
 enforces each control, and how autonomously an activity may be done."""
 from __future__ import annotations
 
-from .uml import DataType, Draw, Enumeration
+from .uml import DataType, Draw, Enumeration, Profile, props
 from .uml import MetaClass as MC
-from .uml import Profile
 from .uml import Relationship as R
 from .uml import RelKind as K
 from .uml import Shape as SH
 from .uml import Stereotype as S
-from .uml import props
 
 STEREOTYPES = [
     S("Decision", "decision", MC.DATA_TYPE, "decisions", "DecisionClass"),

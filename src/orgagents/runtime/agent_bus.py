@@ -606,7 +606,8 @@ class AgentMessenger:
             except (KeyError, TypeError, ValueError) as e:
                 reason = f"signed chain refused: malformed ({type(e).__name__})"
         if not reason:
-            inputs = body.get("inputs") if isinstance(body.get("inputs"), dict) else {}
+            raw_inputs = body.get("inputs")
+            inputs: dict = raw_inputs if isinstance(raw_inputs, dict) else {}
             if kind == DELEGATE:
                 named = named_decisions(self.policy, str(body.get("text") or ""),
                                         {**inputs, **({"decision": body["decision"]}
@@ -871,7 +872,7 @@ def hop_keys_from_env(agent_id: str, env: dict[str, str]) -> HopKeys:
     try:
         mine = nkey.public_of(seed)
     except nkey.NKeyError as e:
-        raise SystemExit(f"worker {agent_id}: ORGAGENTS_BUS_NKEY_SEED is not a seed: {e}")
+        raise SystemExit(f"worker {agent_id}: ORGAGENTS_BUS_NKEY_SEED is not a seed: {e}") from e
     if keys.get(agent_id) != mine:
         raise SystemExit(f"worker {agent_id}: its seed is not the key the stack lists "
                          "for it in ORGAGENTS_BUS_PUBLIC_KEYS")

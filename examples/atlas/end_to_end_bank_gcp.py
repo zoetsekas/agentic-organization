@@ -46,7 +46,7 @@ def main() -> dict:
     register_builtin_targets()
 
     banner("1", "Load and migrate")
-    spec, changes = load_spec_text_with_migration(SPEC.read_text())
+    spec, changes = load_spec_text_with_migration(SPEC.read_text(encoding="utf-8"))
     binding = load_binding(str(BINDING))
     policy = load_platform_policy(str(POLICY))
     print(f"  '{spec.metadata.name}' at spec_version {spec.metadata.spec_version}; "
@@ -55,7 +55,7 @@ def main() -> dict:
 
     banner("2", "Feature coverage — every block the spec has")
     import yaml
-    doc = yaml.safe_load(SPEC.read_text())
+    doc = yaml.safe_load(SPEC.read_text(encoding="utf-8"))
     blocks = list(SystemSpec.model_fields)
     used = [b for b in blocks if doc.get(b)]
     missing = [b for b in blocks if not doc.get(b)]
@@ -165,6 +165,9 @@ def main() -> dict:
             result = platform.runtime.run(aid, "Carry out your next task.")
             ran[aid] = result.state.value
             print(f"  {aid}: {result.state.value}")
+        # The store holds the database open, and Windows will not delete an
+        # open file: close it before the temporary directory is removed.
+        platform.close()
 
     banner("✓", "A global bank: every feature used, gated, compiled to Gemini/GCP, and run.")
     return {

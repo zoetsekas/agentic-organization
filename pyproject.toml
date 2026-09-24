@@ -3,12 +3,19 @@ name = "orgagents"
 version = "0.1.0"
 description = "Organizational agentic system: hierarchy-aware agents, harnesses, sandboxes, sessions and a marketplace catalog."
 requires-python = ">=3.10"
+# Upper bounds: a framework on a 0.x line may break its API on any minor
+# release, and a 1.x one on the next major, so each is capped at the release
+# line it was last tested against. Raising a cap is a tested change (re-run
+# `make lock` and the suite), not a bump. The exact versions CI and the
+# images install are in constraints.txt (docs/DEVELOPERS.md, "Dependencies").
 dependencies = [
-  "pydantic>=2.6",
-  "fastapi>=0.110",
-  "uvicorn>=0.29",
-  "python-multipart>=0.0.9",
-  "pyyaml>=6.0",
+  "pydantic>=2.6,<3",
+  "fastapi>=0.110,<1",
+  "uvicorn>=0.29,<1",
+  "python-multipart>=0.0.9,<1",
+  "pyyaml>=6.0,<7",
+  # Windows has no IANA time-zone database; `zoneinfo` needs this there.
+  "tzdata; sys_platform == 'win32'",
   # Ed25519 approval tokens (ADR-0114): the issuer signs, workers verify.
   "cryptography>=42,<47",
 ]
@@ -16,11 +23,13 @@ dependencies = [
 [project.optional-dependencies]
 # Pinned to the 1.x line: deep agents took `system_prompt`/`subagents` in
 # their current shape from 0.7, and the adapter targets that API.
-langgraph = ["langgraph>=1.0", "langchain-core>=1.0", "deepagents>=0.7",
-             "langchain-mcp-adapters>=0.1"]
+# Tested on langgraph 1.2, langchain-core 1.6, deepagents 0.7.18 and
+# langchain-mcp-adapters 0.3.
+langgraph = ["langgraph>=1.0,<2", "langchain-core>=1.0,<2", "deepagents>=0.7,<0.8",
+             "langchain-mcp-adapters>=0.1,<0.4"]
 # `Agent.as_tool` is how a sub-agent returns to its caller (ADR-0027).
-openai = ["openai-agents>=0.2"]
-anthropic = ["anthropic>=0.40"]
+openai = ["openai-agents>=0.2,<0.23"]
+anthropic = ["anthropic>=0.40,<2"]
 # The typed API client, `orgagents.client` (ADR-0115).
 client = ["httpx>=0.27,<1"]
 # `orgagents mcp designer|runtime` (ADR-0115). The floor is a 1.x with
@@ -36,8 +45,13 @@ bus = ["nats-py>=2.7,<3"]
 # against PostgreSQL. Capped below the next major versions, whose Core and
 # driver APIs this is written against; raising a cap is a tested change.
 postgres = ["sqlalchemy>=2,<3", "psycopg[binary]>=3.1,<4"]
-dev = ["pytest>=8.0", "httpx>=0.27", "jsonschema>=4.20", "nats-py>=2.7,<3",
-       "sqlalchemy>=2,<3", "psycopg[binary]>=3.1,<4"]
+dev = ["pytest>=8.0", "httpx>=0.27,<1", "jsonschema>=4.20", "nats-py>=2.7,<3",
+       "sqlalchemy>=2,<3", "psycopg[binary]>=3.1,<4",
+       "pytest-xdist>=3.5", "pytest-cov>=5", "ruff>=0.6", "mypy>=1.11",
+       "types-PyYAML"]
+# The browser checks (scripts/*.py, `pytest -m e2e`). constraints.txt pins
+# the exact version CI installs, and so the Chromium build it downloads.
+browser = ["playwright>=1.40,<2"]
 
 [project.scripts]
 orgagents = "orgagents.cli:main"
@@ -75,3 +89,328 @@ testpaths = ["tests"]
 markers = [
     "e2e: drives a real browser; skipped where Playwright or its browser is absent",
 ]
+
+# Lint (ruff) and import order; `make lint` runs exactly what CI runs.
+# Formatting is not enforced: reformatting the whole tree would bury every
+# other change in the history. The rules are the correctness set (pyflakes,
+# pycodestyle errors and warnings, bugbear) plus import sorting.
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+# `examples/*/generated` is compiler output, checked in as evidence of it.
+extend-exclude = [".claude", "build", "web", "examples/*/generated"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = [
+  # FastAPI's `Depends(...)`/`Query(...)` in defaults is the framework's idiom.
+  "B008",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["orgagents"]
+
+# Types (mypy); `make types` runs exactly what CI runs. Lenient across the
+# package, strict-ish where a wrong type is a wrong spec or a wrong row: the
+# spec model, the metamodel, security and persistence. Errors present when
+# mypy was introduced are the per-module baseline at the end of this file;
+# shrink it, never grow it.
+[tool.mypy]
+python_version = "3.10"
+files = ["src/orgagents"]
+ignore_missing_imports = true
+warn_unused_configs = true
+warn_redundant_casts = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = [
+  "orgagents.spec.*",
+  "orgagents.metamodel.*",
+  "orgagents.security.*",
+  "orgagents.persistence.*",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+warn_return_any = true
+warn_unused_ignores = true
+strict_equality = true
+
+# Baseline: ~100 findings in 38 files (mostly E501, E402), recorded when ruff was
+# introduced. Shrink it; never grow it. New files get the full rule set.
+[tool.ruff.lint.extend-per-file-ignores]
+"examples/atlas/end_to_end_bank_gcp.py" = ["E402"]
+"examples/ayc/chat/server.py" = ["B905"]
+"examples/ayc/end_to_end_operations.py" = ["F401", "F541", "I001"]
+"examples/helios/end_to_end_pharma.py" = ["E402"]
+"examples/sentinel/end_to_end.py" = ["E402"]
+"scripts/concurrency_check.py" = ["E402", "E501", "E702"]
+"scripts/interaction_check.py" = ["E402", "E501", "E731"]
+"scripts/screenshots.py" = ["E402", "E501"]
+"src/orgagents/api.py" = ["B904", "E731"]
+"src/orgagents/compiler/diff.py" = ["B905"]
+"src/orgagents/compiler/registry.py" = ["E501"]
+"src/orgagents/compiler/targets/local.py" = ["F841", "I001"]
+"src/orgagents/compiler/targets/terraform.py" = ["E501"]
+"src/orgagents/designer/auth.py" = ["B905"]
+"src/orgagents/designer/service.py" = ["E501"]
+"src/orgagents/fabric/rbac.py" = ["E501"]
+"src/orgagents/harness/relational.py" = ["B905"]
+"src/orgagents/metamodel/scenarios.py" = ["E501", "E741"]
+"src/orgagents/metamodel/transformation.py" = ["B007"]
+"src/orgagents/runtime/__init__.py" = ["I001"]
+"src/orgagents/runtime/a2a.py" = ["I001"]
+"src/orgagents/runtime/engine.py" = ["F401", "I001"]
+"src/orgagents/runtime/loader.py" = ["I001"]
+"src/orgagents/runtime/worker.py" = ["I001"]
+"src/orgagents/seed.py" = ["E501"]
+"src/orgagents/spec/model.py" = ["E501"]
+"tests/test_channel_bridge.py" = ["E741"]
+"tests/test_designer_accessibility.py" = ["E501"]
+"tests/test_designer_data_deployment.py" = ["F811"]
+"tests/test_designer_palette_coverage.py" = ["E501"]
+"tests/test_layout.py" = ["E501"]
+"tests/test_maf_target.py" = ["E741"]
+"tests/test_mcp_servers.py" = ["B017"]
+"tests/test_runtime_access.py" = ["B905"]
+"tests/test_service_auth.py" = ["B017"]
+"tests/test_spec_migration_and_schema.py" = ["B905"]
+"tests/test_transformation.py" = ["E741"]
+"tests/test_unit_links.py" = ["E741"]
+
+# mypy baseline: 262 errors in 58 modules when mypy was introduced.
+# Each entry silences only the codes that module had; remove a code once
+# the module is clean of it. Never add one.
+[[tool.mypy.overrides]]
+module = "orgagents.api"
+disable_error_code = ["arg-type", "attr-defined", "union-attr"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.catalogs.service"
+disable_error_code = ["attr-defined", "index", "union-attr", "valid-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.cli"
+disable_error_code = ["arg-type", "assignment", "attr-defined"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.compiler.diff"
+disable_error_code = ["union-attr"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.compiler.registry"
+disable_error_code = ["assignment", "attr-defined"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.compiler.targets.adk"
+disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.compiler.targets.langgraph"
+disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.compiler.targets.local"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.compiler.targets.template"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.compiler.targets.terraform"
+disable_error_code = ["arg-type", "attr-defined", "operator", "union-attr", "var-annotated"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.compiler.tenancy"
+disable_error_code = ["union-attr"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.designer.auth"
+disable_error_code = ["call-arg"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.designer.examples"
+disable_error_code = ["union-attr"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.designer.gestures"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.designer.layout"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.designer.rbac"
+disable_error_code = ["assignment", "operator"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.designer.repository"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.evaluations"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.fabric.deployments"
+disable_error_code = ["valid-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.fabric.rbac"
+disable_error_code = ["valid-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.fabric.services"
+disable_error_code = ["valid-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.fabric.tenants"
+disable_error_code = ["valid-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.guardrails"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.harness.builder"
+disable_error_code = ["arg-type", "attr-defined", "misc"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.harness.mcp"
+disable_error_code = ["dict-item"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.mcp_server.designer"
+disable_error_code = ["arg-type", "return-value"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.metamodel"
+disable_error_code = ["assignment"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.metamodel.completeness"
+disable_error_code = ["arg-type", "assignment", "attr-defined", "no-untyped-def", "union-attr"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.metamodel.constraints"
+disable_error_code = ["union-attr"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.metamodel.operations"
+disable_error_code = ["no-any-return"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.metamodel.reference"
+disable_error_code = ["misc", "union-attr"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.metamodel.scenarios"
+disable_error_code = ["union-attr"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.metamodel.transformation"
+disable_error_code = ["union-attr"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.metamodel.uml"
+disable_error_code = ["assignment"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.models"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.persistence.mapper"
+disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.persistence.migrations"
+disable_error_code = ["no-any-return"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.persistence.queries"
+disable_error_code = ["no-any-return"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.persistence.relational"
+disable_error_code = ["arg-type", "assignment", "attr-defined", "misc", "no-untyped-def", "return-value", "var-annotated"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.persistence.sqlite_import"
+disable_error_code = ["attr-defined", "no-any-return"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.persistence.store"
+disable_error_code = ["assignment", "attr-defined", "comparison-overlap", "list-item", "no-any-return", "no-untyped-def", "var-annotated"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.platform_policy"
+disable_error_code = ["union-attr"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.plugins"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.runtime.adapters"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.runtime.agent_bus"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.runtime.engine"
+disable_error_code = ["attr-defined", "call-arg", "misc", "union-attr"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.runtime.loader"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.runtime.scheduler"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.runtime.worker"
+disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.scheduling"
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.security.service_auth"
+disable_error_code = ["no-any-return"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.seed"
+disable_error_code = ["assignment"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.sessions"
+disable_error_code = ["attr-defined", "valid-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.spec.exchange"
+disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.spec.model"
+disable_error_code = ["no-any-return", "no-untyped-def", "union-attr"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.spec.validate"
+disable_error_code = ["assignment", "attr-defined", "no-any-return", "no-redef", "no-untyped-def", "operator", "union-attr", "unused-ignore"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.store"
+disable_error_code = ["attr-defined", "valid-type"]
+
+[[tool.mypy.overrides]]
+module = "orgagents.workflows.engine"
+disable_error_code = ["arg-type", "assignment", "call-overload", "type-var"]
+

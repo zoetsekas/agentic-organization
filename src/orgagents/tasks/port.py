@@ -15,7 +15,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional, Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from .model import TaskRecord, TaskState
 

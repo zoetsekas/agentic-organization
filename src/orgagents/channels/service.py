@@ -14,7 +14,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Mapping, Optional, Protocol
 
-from ..humans import RoutingPlan, plan as route
+from ..humans import RoutingPlan
+from ..humans import plan as route
 from ..spec.model import ChannelPurpose, ChannelSpec
 from .approvals import DEFAULT_EXPIRY_MINUTES, ApprovalLedger
 from .binding import BoundChannelBridge

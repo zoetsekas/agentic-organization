@@ -74,7 +74,7 @@ def test_static_directory_from_file(tmp_path):
     path.write_text(json.dumps({"people": [
         {"contact": "ana@acme.example", "active": True, "displayName": "Ana"},
         {"userName": "tom@acme.example", "active": False},
-    ]}))
+    ]}), encoding="utf-8")
     d = StaticDirectory.from_file(path)
     assert len(d) == 2
     assert d.lookup("ana@acme.example").display_name == "Ana"

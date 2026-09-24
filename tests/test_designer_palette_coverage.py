@@ -23,7 +23,7 @@ BUNDLE = Path(__file__).resolve().parents[1] / "web"
 
 @pytest.fixture(scope="module")
 def canvas_js() -> str:
-    return (BUNDLE / "canvas.js").read_text()
+    return (BUNDLE / "canvas.js").read_text(encoding="utf-8")
 
 
 @pytest.fixture()
@@ -194,12 +194,12 @@ def test_an_unset_model_policy_inherits_rather_than_permitting_nothing(canvas_js
 
 @pytest.fixture(scope="module")
 def app_js() -> str:
-    return (BUNDLE / "app.js").read_text()
+    return (BUNDLE / "app.js").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def index_html() -> str:
-    return (BUNDLE / "index.html").read_text()
+    return (BUNDLE / "index.html").read_text(encoding="utf-8")
 
 
 def test_the_capability_bundle_can_be_authored(kinds):
@@ -354,7 +354,7 @@ def test_policies_and_missions_can_be_placed():
     assert {"policy", "mission"} <= kinds
 
     canvas = (pathlib.Path(__file__).resolve().parents[1]
-              / "web" / "canvas.js").read_text()
+              / "web" / "canvas.js").read_text(encoding="utf-8")
     collections = canvas.split("const COLLECTIONS = {")[1].split("};")[0]
     assert 'policy: "policies"' in collections
     assert 'mission: "missions"' in collections

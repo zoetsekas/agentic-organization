@@ -6,7 +6,7 @@ import pytest
 from orgagents.compiler import build_ir
 from orgagents.security import PolicyEngine, Request, Subject
 from orgagents.spec import load_spec
-from orgagents.spec.model import Action, Effect, Permission, PolicyRule, ResourceKind
+from orgagents.spec.model import Action, Permission, ResourceKind
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "acme" / "acme.system.yaml"
 

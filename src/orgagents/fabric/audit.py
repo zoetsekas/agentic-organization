@@ -33,9 +33,9 @@ from typing import Any, Optional
 
 from pydantic import Field
 
+from ..designer.audit import AuditEvent, AuditOutcome
 from ..ids import new_id, now_iso
 from ..store import Store
-from ..designer.audit import AuditEvent, AuditOutcome
 
 logger = logging.getLogger(__name__)
 

@@ -26,17 +26,17 @@ BUNDLE = ROOT / "web"
 
 @pytest.fixture(scope="module")
 def app_js() -> str:
-    return (BUNDLE / "app.js").read_text()
+    return (BUNDLE / "app.js").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def canvas_js() -> str:
-    return (BUNDLE / "canvas.js").read_text()
+    return (BUNDLE / "canvas.js").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def index_html() -> str:
-    return (BUNDLE / "index.html").read_text()
+    return (BUNDLE / "index.html").read_text(encoding="utf-8")
 
 
 @pytest.fixture()
@@ -230,7 +230,7 @@ def test_the_ui_says_organisation_while_the_wire_says_system(index_html, app_js)
     assert "New organisation" in index_html
     assert "New system" not in index_html
     # The protocol is untouched: same paths, same payload fields.
-    assert "/api/designer" in (BUNDLE / "canvas.js").read_text()
+    assert "/api/designer" in (BUNDLE / "canvas.js").read_text(encoding="utf-8")
     assert "workspace_id:" in app_js
     assert "/systems" in app_js
 

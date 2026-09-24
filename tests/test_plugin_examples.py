@@ -131,7 +131,7 @@ def test_the_acme_example_compiles_the_design(design, acme_target):
 def test_the_acme_example_never_imports_the_spec_package():
     """The rule that keeps every target agreeing about who may do what — and
     the example has to model it, since people will copy this file."""
-    source = (ACME_SRC / "acme_onprem" / "target.py").read_text()
+    source = (ACME_SRC / "acme_onprem" / "target.py").read_text(encoding="utf-8")
     for node in ast.walk(ast.parse(source)):
         module = (node.module if isinstance(node, ast.ImportFrom)
                   else ",".join(a.name for a in node.names)
@@ -208,7 +208,7 @@ def acme_modules():
 def test_one_distribution_declares_all_three_entry_point_groups():
     """The realistic case: a vendor ships how they deploy, the framework they
     run and the cloud they run it on, together."""
-    pyproject = (PLUGINS / "acme-onprem" / "pyproject.toml").read_text()
+    pyproject = (PLUGINS / "acme-onprem" / "pyproject.toml").read_text(encoding="utf-8")
     for group in ("orgagents.targets", "orgagents.runtime_adapters",
                   "orgagents.provider_profiles"):
         assert f'[project.entry-points."{group}"]' in pyproject
@@ -267,7 +267,7 @@ def test_the_example_cloud_becomes_a_terraform_target(design, acme_modules):
 def test_a_plugin_cloud_carries_its_own_iam_mapping(acme_modules):
     """The built-in role table cannot know about a cloud shipped elsewhere, so
     a plugin profile brings its own or fails saying so."""
-    from orgagents.compiler.targets.terraform import ProviderProfile, action_roles
+    from orgagents.compiler.targets.terraform import action_roles
 
     _, cloud = acme_modules
     assert action_roles(cloud.ACME_CLOUD)["administer"] == "admin"
@@ -309,7 +309,7 @@ def test_the_overlay_example_is_valid_compose_and_changes_only_deployment():
     import yaml
 
     overlay = yaml.safe_load(
-        (PLUGINS / "compose-overlay" / "10-local-dev.yaml").read_text())
+        (PLUGINS / "compose-overlay" / "10-local-dev.yaml").read_text(encoding="utf-8"))
     assert "services" in overlay
     assert "designer" in overlay["services"]
     # An overlay may add a sidecar the design never mentioned; that is fine,

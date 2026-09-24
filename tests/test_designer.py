@@ -11,8 +11,8 @@ from orgagents.designer import (
     FileSystemRepository,
     Layout,
     LockConflict,
-    MemoryRepository,
     Member,
+    MemoryRepository,
     PermissionDenied,
     Principal,
     SqlRepository,
@@ -23,7 +23,7 @@ from orgagents.designer import (
     apply_resolutions,
     merge,
 )
-from orgagents.designer.models import CanvasNode, DesignerSettings, LockScope, NodeKind
+from orgagents.designer.models import CanvasNode, DesignerSettings, NodeKind
 from orgagents.store import Store
 
 ANA = Principal("ana", "Ana")

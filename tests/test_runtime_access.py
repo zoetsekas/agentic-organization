@@ -173,7 +173,7 @@ def test_no_bearer_is_401_in_oidc_mode(world):
     for path in ("/api/sessions", f"/api/sessions/{world['session_a']}",
                  "/api/catalogs", "/api/ops/metrics"):
         assert http.get(path, headers=ALICE).status_code == 401, path
-    assert http.post(f"/api/ops/alerts/x/ack").status_code == 401
+    assert http.post("/api/ops/alerts/x/ack").status_code == 401
 
 
 # -- 403: wrong role, and another workspace -----------------------------------

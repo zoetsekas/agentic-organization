@@ -5,16 +5,92 @@ on:
     branches: ["**"]
   pull_request:
 
+# Every install goes through constraints.txt, so CI tests the versions the
+# images ship rather than whatever resolved today (docs/DEVELOPERS.md,
+# "Dependencies"). `make lock` regenerates it.
+env:
+  PIP_CONSTRAINT: constraints.txt
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
 jobs:
-  checks:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints.txt
+      - run: pip install ruff
+      - name: Ruff (lint and import order)
+        run: ruff check --output-format github .
+
+  types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints.txt
+      - run: pip install -e '.[dev,mcp,postgres,client,bus]'
+      - name: Mypy
+        run: mypy
+
+  unit:
+    name: unit (${{ matrix.os }}, ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints.txt
+      - name: Install
+        run: pip install -e ".[dev,mcp]"
+      # Windows runners have Docker, but a Windows-containers daemon: the
+      # PostgreSQL and NATS tests see that and skip, as they do without Docker.
+      # Nothing here sets PYTHONUTF8: the product and the suite must not need it.
+      - name: Tests
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = ubuntu-latest ] && [ "${{ matrix.python }}" = "3.12" ]; then
+            pytest -q -n auto --dist loadfile -m "not e2e" \
+              --cov=orgagents --cov-report=term --cov-report=json:coverage.json
+          else
+            pytest -q -n auto --dist loadfile -m "not e2e"
+          fi
+      - name: Coverage floors
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: python scripts/coverage_floor.py coverage.json
+
+  e2e:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            constraints.txt
       - name: Install
-        run: pip install -e '.[dev]'
+        run: pip install -e '.[dev,mcp,browser]'
 
       # ADR-0001: a dangling record reference is a build failure.
       - name: Validate decision and workstream records
@@ -50,19 +126,18 @@ jobs:
             --target terraform:aws --target terraform:azure \
             --out build
 
-      - name: Tests
-        run: pytest -q
-
       # A browser is the only thing that presses the buttons. Two defects have
       # now shipped through a fully green suite — a view whose loader was keyed
       # by an id that no longer existed, and an agent form writing a spec key
       # ADR-0082 replaced — because every test asserted over JSON or over the
       # bundle as text, and nothing ever clicked Save. These scripts are how
-      # that stops.
+      # that stops. Playwright's version (and so its Chromium) is pinned by
+      # constraints.txt.
       - name: Install a browser
-        run: |
-          pip install playwright
-          python -m playwright install --with-deps chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Browser tests (pytest -m e2e)
+        run: pytest -q -m e2e
 
       - name: Render every view
         run: python3 scripts/screenshots.py
@@ -73,8 +148,9 @@ jobs:
       - name: Drive every view's own controls
         run: python3 scripts/view_check.py
 
-      # The screenshots in the README are evidence, so a change that alters
-      # them should show up in a diff rather than leaving the docs describing
-      # a UI that has moved.
-      - name: Screenshots are current
-        run: git diff --stat docs/images || true
+      # The screenshots in the README are evidence, but a rendering is not
+      # byte-stable across Chromium builds and fonts, so this step reports
+      # what moved and does not fail. Re-run scripts/screenshots.py and commit
+      # when the list is not empty.
+      - name: Report screenshot drift (does not fail)
+        run: git diff --stat docs/images

@@ -27,13 +27,13 @@ from typing import Any
 from ..base import GeneratedFile
 from ..ir import SystemIR
 from ._wiring import (
-    workflow_conformance_rows,
     BACKENDS_SHIM,
     emit_wired_def,
     shim_imports,
     stub_module,
     tool_surface,
     wired_and_stubbed,
+    workflow_conformance_rows,
 )
 
 #: What an ADK `LlmAgent` can actually carry, verified against the ADK API.

@@ -17,8 +17,7 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from ..metamodel import (NON_PALETTE, PROFILE, Draw, RelKind, Shape,
-                         _concrete, specialisations)
+from ..metamodel import NON_PALETTE, PROFILE, Draw, RelKind, Shape, _concrete
 
 
 @dataclass(frozen=True)

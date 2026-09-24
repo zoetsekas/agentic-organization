@@ -16,28 +16,25 @@ from .model import (
     TARGET_NATIVE,
     Availability,
     BoundaryStatement,
+    CoResidency,
     Degradation,
     DetectionContext,
     EnvironmentFacts,
+    ProviderCapabilities,
     ProviderMapping,
     SandboxResolution,
+    Support,
     TenantScoping,
 )
 from .openshell import OpenShellAdapter, OpenShellPolicy
-from .model import (
-    CoResidency,
-    ProviderCapabilities,
-    Support,
-)
 from .providers import (
-    capabilities,
-    resolve_co_residency,
     ContainerProvider,
     MicroVMSbxProvider,
     OpenShellProvider,
     SandboxProvider,
     TargetNativeProvider,
     boundary_statement,
+    capabilities,
     clear_degradations,
     degradations,
     detect_context,
@@ -45,6 +42,7 @@ from .providers import (
     provider_names,
     record_degradation,
     register_provider,
+    resolve_co_residency,
     resolve_provider,
 )
 

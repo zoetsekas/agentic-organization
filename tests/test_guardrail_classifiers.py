@@ -14,8 +14,8 @@ from orgagents.classifiers import (
     PatternClassifier,
 )
 from orgagents.context import (
-    ContextManager,
     ArtifactWorkspace,
+    ContextManager,
     FirstLastSummarizer,
     ModelSummarizer,
     ResolvedContext,
@@ -190,7 +190,7 @@ def test_the_spec_layer_names_no_vendor():
     for path in spec_dir.glob("*.py"):
         if path.name == "binding.py":
             continue  # the binding layer is exactly where vendors belong
-        text = path.read_text().lower()
+        text = path.read_text(encoding="utf-8").lower()
         assert not [w for w in banned if w in text], path.name
 
 

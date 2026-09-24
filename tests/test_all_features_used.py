@@ -19,7 +19,7 @@ ATLAS = ROOT / "examples" / "atlas" / "atlas.bank.system.yaml"
 
 
 def test_every_top_level_block_is_populated():
-    doc = yaml.safe_load(ATLAS.read_text())
+    doc = yaml.safe_load(ATLAS.read_text(encoding="utf-8"))
     blocks = list(SystemSpec.model_fields)
     missing = [b for b in blocks if not doc.get(b)]
     assert not missing, (
@@ -35,11 +35,11 @@ def test_the_coverage_example_is_the_widest_one():
     """
     blocks = set(SystemSpec.model_fields)
     atlas = {b for b in blocks
-             if yaml.safe_load(ATLAS.read_text()).get(b)}
+             if yaml.safe_load(ATLAS.read_text(encoding="utf-8")).get(b)}
     for other in ROOT.glob("examples/*/*.system.yaml"):
         if other.name == "atlas.bank.system.yaml":
             continue
-        doc = yaml.safe_load(other.read_text())
+        doc = yaml.safe_load(other.read_text(encoding="utf-8"))
         theirs = {b for b in blocks if doc.get(b)}
         assert theirs <= atlas, (
             f"{other.name} uses blocks Atlas does not: {sorted(theirs - atlas)}")

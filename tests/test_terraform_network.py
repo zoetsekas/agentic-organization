@@ -96,7 +96,7 @@ def test_a_provider_without_a_network_mapping_says_so(atlas):
     let a reader assume isolation."""
     register_builtin_targets()
     spec = load_spec(ROOT / "examples" / "atlas" / "atlas.bank.system.yaml")
-    binding = load_binding(str(ROOT / "examples" / "atlas" / "atlas.binding.yaml"))
+    load_binding(str(ROOT / "examples" / "atlas" / "atlas.binding.yaml"))
     # AWS is not bound here, but the network file is still emitted per target;
     # compile terraform:aws without a binding to read its network.tf.
     with tempfile.TemporaryDirectory() as tmp:

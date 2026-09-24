@@ -21,12 +21,12 @@ BUNDLE = ROOT / "web"
 
 @pytest.fixture(scope="module")
 def canvas_js() -> str:
-    return (BUNDLE / "canvas.js").read_text()
+    return (BUNDLE / "canvas.js").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def styles() -> str:
-    return (BUNDLE / "styles.css").read_text()
+    return (BUNDLE / "styles.css").read_text(encoding="utf-8")
 
 
 @pytest.fixture()

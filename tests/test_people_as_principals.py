@@ -12,6 +12,8 @@ permission this platform cannot enforce is worse than none.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from orgagents.compiler.ir import build_ir
@@ -19,8 +21,6 @@ from orgagents.mandates import resolve
 from orgagents.spec.loader import load_spec
 from orgagents.spec.model import SystemSpec
 from orgagents.spec.validate import errors, validate_spec
-
-from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 

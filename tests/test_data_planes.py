@@ -23,7 +23,7 @@ def test_protected_requires_shared_group(platform):
     cfo = platform.org.agent("agt_cfo")
     analyst = platform.org.agent("agt_fin_analyst")
     eng = platform.org.agent("agt_platform_eng")
-    platform.planes.write(cfo, "forecast", "q3", {"rev": 1}, 
+    platform.planes.write(cfo, "forecast", "q3", {"rev": 1},
                           visibility=Visibility.PROTECTED, groups=["finance"])
     assert platform.planes.read(analyst, "forecast", "q3").value == {"rev": 1}
     with pytest.raises(AccessDenied):
@@ -33,5 +33,5 @@ def test_protected_requires_shared_group(platform):
 def test_cannot_publish_outside_own_groups(platform):
     eng = platform.org.agent("agt_platform_eng")
     with pytest.raises(AccessDenied):
-        platform.planes.write(eng, "forecast", "q4", {}, 
+        platform.planes.write(eng, "forecast", "q4", {},
                               visibility=Visibility.PROTECTED, groups=["finance"])

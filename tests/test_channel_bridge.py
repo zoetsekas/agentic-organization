@@ -272,7 +272,7 @@ def test_no_product_name_appears_in_the_spec_layer():
     for path in (ROOT / "src" / "orgagents" / "spec").rglob("*"):
         if path.suffix not in (".py", ".yaml", ".yml", ".json") or not path.is_file():
             continue
-        text = path.read_text().lower()
+        text = path.read_text(encoding="utf-8").lower()
         for product in ("mattermost", "openclaw", "rocket.chat", "zulip"):
             if product in text:
                 offenders.append(f"{path.name}: {product}")
@@ -645,7 +645,7 @@ def generated(tmp_path_factory):
 
 
 def _compose(generated) -> dict:
-    return yaml.safe_load((generated / "docker-compose.yaml").read_text())
+    return yaml.safe_load((generated / "docker-compose.yaml").read_text(encoding="utf-8"))
 
 
 def test_the_stack_carries_a_pinned_tenant_scoped_chat_surface(generated):
@@ -682,12 +682,12 @@ def test_no_agent_container_holds_a_chat_credential(generated):
 
 
 def test_the_database_password_is_a_name_not_a_value(generated):
-    env = (generated / ".env.example").read_text()
+    env = (generated / ".env.example").read_text(encoding="utf-8")
     assert re.search(r"^CHANNEL_DB_PASSWORD=$", env, re.M)
 
 
 def test_the_image_is_pinned_to_a_digest_in_the_lock(generated):
-    lock = (ROOT / "docker" / "images.lock").read_text()
+    lock = (ROOT / "docker" / "images.lock").read_text(encoding="utf-8")
     row = [l for l in lock.splitlines()
            if l.startswith("mattermost/mattermost-team-edition:11.11.0")]
     assert row and "sha256:" in row[0] and row[0].split()[-1] == "tenant"
@@ -703,5 +703,5 @@ def test_a_stack_bound_to_somebody_elses_workspace_hosts_no_chat_server(tmp_path
     compile_system(spec, targets=["local"], out_dir=tmp_path, binding=binding,
                    tenant=tenant)
     out = next(p for p in tmp_path.rglob("docker-compose.y*ml"))
-    compose = yaml.safe_load(out.read_text())
+    compose = yaml.safe_load(out.read_text(encoding="utf-8"))
     assert "mattermost" not in compose["services"]

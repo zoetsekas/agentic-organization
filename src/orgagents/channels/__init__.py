@@ -6,16 +6,17 @@ there is no daemon in this environment and every vendor documentation site is
 blocked by its egress proxy.
 """
 from .approvals import (
+    DEFAULT_EXPIRY_MINUTES,
     AlreadyAnswered,
     ApprovalLedger,
     ApprovalRefused,
     CrossTenantCallback,
-    DEFAULT_EXPIRY_MINUTES,
     StaleApproval,
     UnexpectedApprover,
     UnknownApproval,
 )
-from .binding import BoundChannelBridge, BridgeRefused, bind
+from .binding import BoundChannelBridge, BridgeRefused
+from .binding import bind as bind
 from .mattermost import MattermostBridge, MattermostWire
 from .model import (
     ApprovalCallback,

@@ -20,7 +20,6 @@ a broken page.
 """
 import os
 import pathlib
-import subprocess
 import sys
 import tempfile
 import threading
@@ -33,13 +32,15 @@ sys.path.insert(0, str(ROOT / "src"))
 WORK = pathlib.Path(tempfile.mkdtemp(prefix="orgagents-shots-"))
 os.chdir(WORK)
 from orgagents.api import create_app
+
 app = create_app(str(WORK / "designer.db"))
 
 # Seed: a workspace, the worked finance organisation, and a tenant to publish to.
 from fastapi.testclient import TestClient
+
 c = TestClient(app)
 A = {"X-User": "ana", "X-User-Name": "Ana Silva"}
-spec = yaml.safe_load((ROOT / "examples" / "northwind" / "northwind.finance.system.yaml").read_text())
+spec = yaml.safe_load((ROOT / "examples" / "northwind" / "northwind.finance.system.yaml").read_text(encoding="utf-8"))
 
 # The capabilities the last few ADRs added are seeded here rather than in the
 # shipped design, because the screenshots exist to show what the *designer*
@@ -175,7 +176,6 @@ print("SEEDED", ws["id"], sys_["id"], flush=True)
 # ---------------------------------------------------------------- capture
 
 import asyncio
-import json
 
 from playwright.async_api import async_playwright
 

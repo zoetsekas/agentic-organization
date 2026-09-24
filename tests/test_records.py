@@ -58,7 +58,7 @@ def test_validator_catches_a_broken_record(tmp_path):
     (decisions / "ADR-0001-broken.md").write_text(
         "---\nid: ADR-0001\ntitle: Broken\nstatus: Invented\nversion: one\n"
         "date: 2026-01-01\ndeciders: [x]\nrelated: [ADR-9999]\n---\n\n## Context\nnope\n"
-    )
+    , encoding="utf-8")
     errors = records.validate(records.load(tmp_path))
     codes = " ".join(errors)
     assert "status 'Invented'" in codes
@@ -72,17 +72,17 @@ def test_scaffold_allocates_the_next_id(tmp_path, rs):
     for folder in (records.DECISIONS_DIR, records.WORKSTREAMS_DIR):
         (tmp_path / folder).mkdir(parents=True)
         (tmp_path / folder / "_template.md").write_text(
-            (ROOT / folder / "_template.md").read_text()
-        )
+            (ROOT / folder / "_template.md").read_text(encoding="utf-8")
+        , encoding="utf-8")
     path = records.scaffold(rs, "adr", "A brand new decision", tmp_path)
     expected = records.next_id(rs, "adr")
     assert expected in path
-    assert expected in Path(path).read_text()
+    assert expected in Path(path).read_text(encoding="utf-8")
 
 
 def test_indexes_are_regenerable_and_current(rs):
     generated = records.render_decision_index(rs)
-    on_disk = (ROOT / records.DECISIONS_DIR / "index.md").read_text()
+    on_disk = (ROOT / records.DECISIONS_DIR / "index.md").read_text(encoding="utf-8")
     assert generated.strip() == on_disk.strip(), "run `orgagents records index`"
 
 

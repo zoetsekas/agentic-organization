@@ -33,13 +33,13 @@ from typing import Any, Optional
 from ..base import GeneratedFile
 from ..ir import SystemIR
 from ._wiring import (
-    workflow_conformance_rows,
     BACKENDS_SHIM,
     emit_wired_def,
     shim_imports,
     stub_module,
     tool_surface,
     wired_and_stubbed,
+    workflow_conformance_rows,
 )
 
 #: What a deepagents graph on LangGraph Platform can actually carry.
@@ -344,7 +344,7 @@ class LangGraphPlatformTarget:
                 "",
                 f"def {_mod(node_id)}(state: State) -> State:",
                 f'    """{kind}: {detail}."""',
-                f"    raise NotImplementedError(",
+                "    raise NotImplementedError(",
                 f"        {_pystr(f'workflow node {node_id!r} ({kind}) is the host to implement')}",
                 "    )",
                 "",
@@ -416,7 +416,7 @@ class LangGraphPlatformTarget:
         root = ir.root_agent_id if getattr(ir, "root_agent_id", None) else (
             ir.agents[0].id if ir.agents else "")
         if root:
-            graphs["org"] = f"./graphs/__init__.py:root"
+            graphs["org"] = "./graphs/__init__.py:root"
         for agent in ir.agents:
             graphs[agent.id] = f"./graphs/{_mod(agent.id)}.py:{_mod(agent.id)}"
         manifest = {

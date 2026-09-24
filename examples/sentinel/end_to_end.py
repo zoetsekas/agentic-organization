@@ -27,8 +27,8 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from orgagents.compiler.engine import compile_system
 from orgagents.compiler.base import register_builtin_targets
+from orgagents.compiler.engine import compile_system
 from orgagents.spec.loader import load_spec_text_with_migration
 from orgagents.spec.validate import validate_spec
 
@@ -44,7 +44,7 @@ def main() -> dict:
 
     # 1. Load, migrating an older document forward and saying what that cost.
     banner("1", "Load the spec (migrating if the document is older)")
-    spec, changes = load_spec_text_with_migration(SPEC.read_text())
+    spec, changes = load_spec_text_with_migration(SPEC.read_text(encoding="utf-8"))
     print(f"  loaded '{spec.metadata.name}' at spec_version "
           f"{spec.metadata.spec_version}")
     print("  migration:", "; ".join(changes) if changes else "already current")
@@ -120,6 +120,9 @@ def main() -> dict:
             "EDR and the SIEM both flag host WKS-4419 beaconing. Triage it.")
         print(f"  run state: {result.state.value}")
         print(f"  session:   {result.session_id}")
+        # The store holds the database open, and Windows will not delete an
+        # open file: close it before the temporary directory is removed.
+        platform.close()
 
     banner("✓", "End to end: designed, validated, compiled to two targets, and run.")
     return {

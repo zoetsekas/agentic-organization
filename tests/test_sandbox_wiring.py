@@ -25,7 +25,7 @@ def local_stack(tmp_path_factory) -> str:
         targets=["local"], out_dir=out,
         binding=load_binding(str(ROOT / "examples" / "acme" / "acme.binding.yaml")),
     )
-    return next(out.rglob("README.md")).read_text()
+    return next(out.rglob("README.md")).read_text(encoding="utf-8")
 
 
 def test_the_generated_readme_names_the_provider(local_stack):
