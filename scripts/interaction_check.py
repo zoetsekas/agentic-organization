@@ -701,14 +701,18 @@ async def main() -> None:
         # name". Two components sharing an id is not a cosmetic problem — the
         # layout is keyed by id and `findComponent` returns the first match,
         # so the second one is invisible and un-editable.
+        #
+        # A Policy rather than the Data class this used: data classes are
+        # drawn on the Data diagram now (ADR-0111 1.1.0), and this section is
+        # about the Organisation canvas, whose Authority profile has Policy.
         dropped = []
         for _ in range(3):
-            await (await palette_item(page, "Data class")).drag_to(
+            await (await palette_item(page, "Policy")).drag_to(
                 page.locator("#canvas"), target_position={"x": 980, "y": 240})
             await page.wait_for_timeout(500)
         dropped = await page.evaluate("""() => {
           const d = window.designer;
-          const classes = d.spec().organization.data_classes || [];
+          const classes = d.spec().organization.policies || [];
           return { ids: classes.map((c) => c.id),
                    names: classes.map((c) => c.name || c.id) };
         }""")
@@ -721,7 +725,7 @@ async def main() -> None:
 
         clash = await page.evaluate("""() => {
           const d = window.designer;
-          const classes = d.spec().organization.data_classes || [];
+          const classes = d.spec().organization.policies || [];
           if (classes.length < 2) return { refused: null };
           const target = classes[1];
           const before = target.id;
@@ -853,7 +857,8 @@ async def main() -> None:
         canvas_box = await page.locator("#canvas").bounding_box()
         team_box = await page.locator(
             '#canvas-nodes [data-id="treasury"]').bounding_box()
-        await (await palette_item(page, "Data class")).drag_to(
+        # A team holds agents, roles and teams; a Policy is none of those.
+        await (await palette_item(page, "Policy")).drag_to(
             page.locator("#canvas"),
             target_position={
                 "x": team_box["x"] - canvas_box["x"] + team_box["width"] / 2,
