@@ -60,10 +60,16 @@ def test_coalescing_is_opt_in(canvas_js):
 def test_only_the_form_opts_in_and_it_names_the_field(canvas_js):
     """Two fields edited in quick succession stay two steps."""
     opted_in = re.findall(r"markDirty\(([^;]*?), true\)", canvas_js)
-    assert len(opted_in) == 1, f"unexpected coalescing callers: {opted_in}"
-    assert "field.name" in opted_in[0], (
+    # The form, per field; and a run of keyboard nudges of one node
+    # (ADR-0117), which is one move made in steps, as typing is one edit.
+    assert len(opted_in) == 2, f"unexpected coalescing callers: {opted_in}"
+    form = [r for r in opted_in if "field.name" in r]
+    assert form, (
         "the reason must name the field, or typing in one box then another "
         "would collapse into one step")
+    nudge = [r for r in opted_in if r not in form]
+    assert nudge == ["`moved ${node.id}`"], (
+        "a nudge run must name its node, or moving two boxes would be one step")
 
 
 def test_undo_restores_the_model_and_the_picture_together(canvas_js):

@@ -176,7 +176,8 @@ def test_the_lock_and_the_version_are_shown_on_the_org_tab(app_js, index_html):
 
 def test_delete_confirms_by_name_and_quotes_the_api_when_refused(app_js):
     delete = app_js.split("async function deleteOrganisation")[1].split("\n}")[0]
-    assert "window.confirm" in delete and "${record.name}" in delete
+    # The shared dialog (ui.js, ADR-0117), not the browser's confirm().
+    assert "ui.confirmDialog" in delete and "${record.name}" in delete
     # The refusal shown is the API's `detail`, carried on the error, and not a
     # sentence written in the bundle.
     assert '$("#org-error").textContent = err.message' in delete

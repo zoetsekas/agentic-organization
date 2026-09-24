@@ -210,6 +210,10 @@ $("#tabs").addEventListener("click", (e) => {
 
 /* Where "Back" from the Authority review goes: the view it was opened from. */
 let lastDesignView = "org";
+
+/* Views that observe the running platform (or document it) and ignore the
+   workspace and organisation chosen in the context bar. */
+const RUNTIME_VIEWS = new Set(["sessions", "ops", "user-guide"]);
 function viewBeforeReview() { return lastDesignView; }
 
 function showView(name) {
@@ -217,8 +221,18 @@ function showView(name) {
   if (name === "authority" && leaving && leaving !== "authority") {
     lastDesignView = leaving;
   }
-  document.querySelectorAll(".tabs button").forEach((b) =>
-    b.classList.toggle("active", b.dataset.view === name));
+  document.querySelectorAll(".tabs button").forEach((b) => {
+    const on = b.dataset.view === name;
+    b.classList.toggle("active", on);
+    if (on) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  });
+  /* The views that do not read the design context say so, and the bar dims:
+     changing the workspace on Sessions changes nothing there, and a control
+     that looks live and does nothing reads as broken. */
+  document.body.dataset.scope = RUNTIME_VIEWS.has(name) ? "runtime" : "design";
+  const note = $("#context-note");
+  if (note) note.hidden = !RUNTIME_VIEWS.has(name);
   $("#btn-components")?.classList.toggle("active",
     name === "designer" || name === "components");
   // Properties draws on the canvas again once the Components editor closes.
@@ -492,9 +506,10 @@ async function deleteOrganisation() {
   const d = design();
   const record = d.state.record;
   if (!record) return;
-  if (!window.confirm(
-    `Delete the organisation "${record.name}"?\n\n`
-    + "Its spec, layout and revision history go with it. This cannot be undone."))
+  if (!await ui.confirmDialog(
+    "Its spec, layout and revision history go with it. This cannot be undone.",
+    { title: `Delete the organisation "${record.name}"?`,
+      confirmLabel: "Delete organisation", danger: true }))
     return;
   try {
     await d.dapi(`/systems/${d.state.systemId}`, { method: "DELETE" });
@@ -1316,8 +1331,12 @@ function wireAgentEditor() {
   form.addEventListener("submit", (e) => e.preventDefault());
   form.addEventListener("input", applyAgentForm);
   form.addEventListener("change", applyAgentForm);
-  $("#btn-new-agent").addEventListener("click", () => {
-    const id = window.prompt("Id for the new agent:");
+  $("#btn-new-agent").addEventListener("click", async () => {
+    const id = await ui.promptDialog("New agent", {
+      label: "Id", help: "Letters, digits, - and _; it is how everything else refers to it.",
+      validate: (v) => /^[A-Za-z][\w-]*$/.test(v) ? ""
+        : "An id starts with a letter and holds only letters, digits, - and _.",
+      submitLabel: "Add agent" });
     if (!id) return;
     try {
       design().add("agent", id);
@@ -1343,9 +1362,13 @@ function wireAgentEditor() {
   });
   $("#btn-agent-remove").addEventListener("click", () => {
     const agent = currentAgent();
-    if (!agent || !window.confirm(`Remove ${agent.id} from this organisation?`)) return;
+    if (!agent) return;
+    /* No "are you sure": the removal is one undo step, and the toast offers
+       it where the person is looking. A confirmation asked every time is
+       answered without being read. */
     design().remove("agent", agent.id);
-    design().markDirty();
+    design().markDirty(`removed ${agent.id}`);
+    design().offerUndo(`Removed ${agent.id}.`);
     state.agentId = null;
     renderAgentView();
     renderOrg();
@@ -1472,12 +1495,16 @@ async function loadMarketplace() {
      yet. An empty marketplace is the normal state of a fresh installation. */
   $("#catalog").replaceChildren(...(entries.length
     ? entries.map(catalogCard)
-    : [el("p", { class: "muted" },
-          q || kind || groups
-            ? "Nothing here matches those filters."
-            : "Nothing has been published to this marketplace yet. An agent, "
-              + "skill or plugin appears here once somebody publishes it for "
-              + "others to install.")]));
+    : [q || kind || groups
+        ? ui.emptyState({ title: "Nothing here matches those filters.",
+            action: "Clear the filters", onAction: () => {
+              ["#cat-q", "#cat-groups", "#cat-kind"].forEach((sel) => { $(sel).value = ""; });
+              loadMarketplace();
+            } })
+        : ui.emptyState({ title: "Nothing has been published to this marketplace yet.",
+            body: "An agent, skill or plugin appears here once somebody "
+              + "publishes it for others to install.",
+            action: "Browse the platform catalog", href: "#/catalog" })]));
 }
 
 function catalogCard(e) {
@@ -1500,7 +1527,10 @@ function catalogCard(e) {
 async function installEntry(entryId) {
   // A runtime agent id: the marketplace installs into the running system, not
   // into the spec being edited.
-  const agentId = window.prompt("Install into which runtime agent id?");
+  const agentId = await ui.promptDialog("Install", {
+    label: "Runtime agent id",
+    help: "The running agent to install into — not an agent in the design you are editing.",
+    submitLabel: "Install" });
   if (!agentId) return;
   try {
     const r = await api(`/catalog/${entryId}/install`, {
@@ -1508,12 +1538,17 @@ async function installEntry(entryId) {
     });
     setStatus(`installed ${r.installed}`);
     loadMarketplace();
-  } catch (err) { alert(err.message); }
+  } catch (err) { await ui.alertDialog(err.message, { title: "Not installed" }); }
 }
 
 async function rateEntry(entryId) {
-  const stars = Number(window.prompt("Rating 1-5:", "5"));
-  if (!stars) return;
+  /* A whole number from 1 to 5, checked before it is sent: `Number(prompt())`
+     let 3.7 and 12 through to the API, and "five" became NaN and silently
+     nothing. */
+  const stars = await ui.promptDialog("Rate this listing", {
+    label: "Stars", type: "integer", min: 1, max: 5, value: "5",
+    help: "A whole number from 1 (poor) to 5 (excellent).", submitLabel: "Rate" });
+  if (stars === null) return;
   await api(`/catalog/${entryId}/rate?stars=${stars}`, { method: "POST" });
   loadMarketplace();
 }
@@ -1552,7 +1587,18 @@ async function loadCatalogView() {
         : k === "proposed" ? "proposed · not selectable" : k, v, tone[k] || "")),
     stat("Unreviewed", stats.unreviewed.length,
       stats.unreviewed.length ? "warn" : ""));
-  $("#pc-entries").replaceChildren(...entries.map(platformCard));
+  $("#pc-entries").replaceChildren(...(entries.length
+    ? entries.map(platformCard)
+    : [q || kind || status
+        ? ui.emptyState({ title: "Nothing matches those filters.",
+            action: "Clear the filters", onAction: () => {
+              $("#pc-q").value = ""; select.value = ""; $("#pc-status").value = "";
+              loadCatalogView();
+            } })
+        : ui.emptyState({ title: "The catalog is empty.",
+            body: "Entries are the approved parts a design may select: models, "
+              + "tools, environments and the rest. Propose the first one.",
+            action: "Add an entry", onAction: () => openEntryForm(null) })]));
 }
 
 function platformCard(entry) {
@@ -1620,7 +1666,9 @@ async function retireEntry(entryId) {
   try {
     await api(`/catalogs/${entryId}/retire`, { method: "POST" });
   } catch (e) {
-    if (!confirm(`${e.message}\n\nRetire anyway and break them?`)) return;
+    if (!await ui.confirmDialog(`${e.message}\n\nThe designs that use it fail at their next compile.`,
+      { title: "Retire anyway and break them?", confirmLabel: "Retire anyway",
+        danger: true })) return;
     await api(`/catalogs/${entryId}/retire?force=true`, { method: "POST" });
   }
   setStatus("retired");
@@ -1628,9 +1676,10 @@ async function retireEntry(entryId) {
 }
 
 async function sendBackEntry(entryId) {
-  const note = prompt(
-    "Send back for review. The entry stops being selectable immediately, and "
-    + "any design bound to it fails at the next compile. Why?", "");
+  const note = await ui.promptDialog("Send back for review", {
+    message: "The entry stops being selectable immediately, and any design "
+      + "bound to it fails at the next compile.",
+    label: "Why", type: "textarea", required: false, submitLabel: "Send back" });
   if (note === null) return;
   await api(`/catalogs/${entryId}/send_back`, {
     method: "POST", body: JSON.stringify({ note }),
@@ -1640,8 +1689,10 @@ async function sendBackEntry(entryId) {
 }
 
 async function deleteEntry(entryId, name) {
-  if (!confirm(`Delete the draft '${name}'? Only a never-approved, unused `
-    + "entry can be deleted; anything else retires.")) return;
+  if (!await ui.confirmDialog("Only a never-approved, unused entry can be "
+    + "deleted; anything else retires.",
+    { title: `Delete the draft '${name}'?`, confirmLabel: "Delete draft",
+      danger: true })) return;
   try {
     await api(`/catalogs/${entryId}`, { method: "DELETE" });
     setStatus("draft deleted");
@@ -1841,10 +1892,11 @@ async function loadSessions() {
      under a heading tells a reader the page failed, not that no agent has
      run yet. */
   if (!sessions.length) {
-    $("#sessions").replaceChildren(
-      el("p", { class: "muted" },
-         "No runs yet. A session appears here the moment an agent of a "
-         + "published design is asked to do something."));
+    $("#sessions").replaceChildren(ui.emptyState({
+      title: "No runs yet.",
+      body: "A session appears here the moment an agent of a published "
+        + "design is asked to do something.",
+      action: "Publish a design from the canvas", href: "#/canvas" }));
     return;
   }
   $("#sessions").replaceChildren(...sessions.map((s) =>
@@ -1884,11 +1936,13 @@ async function loadOps() {
       el("span", { class: "grow" }, `${a.title} — ${a.detail}`),
       el("button", {
         onclick: async () => { await api(`/ops/alerts/${a.id}/ack`, { method: "POST" }); loadOps(); },
-      }, "Ack"))) : [el("div", { class: "empty" }, "No open alerts.")]));
+      }, "Ack"))) : [ui.emptyState({ title: "No open alerts.",
+        body: "An alert is raised when a session fails or a budget is crossed." })]));
   if (!Object.keys(m.per_agent || {}).length) {
-    $("#peragent").replaceChildren(
-      el("p", { class: "muted" },
-         "Nothing has run. Per-agent usage fills in as sessions complete."));
+    $("#peragent").replaceChildren(ui.emptyState({
+      title: "Nothing has run.",
+      body: "Per-agent usage fills in as sessions complete.",
+      action: "See sessions", href: "#/sessions" }));
   } else
   $("#peragent").replaceChildren(...Object.entries(m.per_agent).map(([id, v]) =>
     el("div", {}, el("span", { class: "grow" }, id),
@@ -1905,6 +1959,21 @@ function stat(k, v, tone = "") {
     el("div", { class: "k" }, k));
 }
 function setStatus(text) { $("#status").textContent = text; }
+
+/* The API could not be reached at all — not refused, not a 500: nothing
+   answered. Said once, with a retry, instead of "connecting…" for ever. */
+function isUnreachable(err) {
+  return err instanceof TypeError || [502, 503, 504].includes(err?.status);
+}
+
+function showOffline(detail) {
+  const box = $("#offline");
+  if (!box) return;
+  $("#offline-detail").textContent = detail
+    || "Nothing on this page can load until it answers.";
+  box.hidden = false;
+  setStatus("offline");
+}
 
 /* -------------------------------------------------------------- boot */
 /* The designer opens with a design context, not with a runtime read: the
@@ -2211,6 +2280,11 @@ function markAllRequired() {
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
+  $("#btn-offline-retry")?.addEventListener("click", () => location.reload());
+  /* Slow is not the same as down, so the first thing said is only that it is
+     taking a while; a fetch that fails outright says more, below. */
+  const slow = setTimeout(() => showOffline(
+    "Still waiting for an answer. It may be starting, or unreachable."), 10000);
   initPanels();
   wireWorkspaces();
   wireImport();
@@ -2231,8 +2305,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     const session = location.hash.match(/^#\/sessions\/(\S+)/)?.[1];
     if (session) { showView("sessions"); loadTrace(session); }
     else showView(route || "org");
+    clearTimeout(slow);
+    $("#offline").hidden = true;
     setStatus("ready");
   } catch (err) {
-    setStatus(`error: ${err.message}`);
+    clearTimeout(slow);
+    if (isUnreachable(err)) showOffline(`${err.message}.`);
+    else setStatus(`error: ${err.message}`);
   }
 });
