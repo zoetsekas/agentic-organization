@@ -10,6 +10,7 @@ from .uml import Relationship as R
 from .uml import RelKind as K
 from .uml import Shape as SH
 from .uml import Stereotype as S
+from .uml import props
 
 STEREOTYPES = [
     S("Action", "action", MC.ACTION, "", "ActivityNode",
@@ -84,6 +85,34 @@ RELATIONSHIPS = [
     R("workflow", "data_class", K.ASSOCIATION, "returns",
       "interface.returns_data_classes", SH.REFS, linkable=False,
       draw=Draw.NONE),
+
+    # -- ADR-0112: the rest of what process elements hold ---------------------
+    R("workflow", "action", K.ASSOCIATION, "interrupts before",
+      "interrupt_before", SH.REFS, linkable=False, draw=Draw.NONE,
+      help="steps a person must release before they run"),
+    R("ActivityGraph", "action", K.ASSOCIATION, "enters at", "entry",
+      SH.REF, target_mult="0..1", linkable=False, draw=Draw.NONE,
+      constraint="{empty = the first step}",
+      help="where the InitialNode leads"),
+    R("trigger", "channel", K.ASSOCIATION, "listens on", "channel", SH.REF,
+      target_mult="0..1", linkable=False, draw=Draw.NONE,
+      constraint="{kind = message}"),
+    R("trigger", "channel", K.ASSOCIATION, "delivers to", "deliver_to",
+      SH.REFS, linkable=False, draw=Draw.NONE),
+    R("FailurePolicy", "channel", K.ASSOCIATION, "notifies", "notify_channel",
+      SH.REF, target_mult="0..1", linkable=False, draw=Draw.NONE),
+    R("channel", "data_class", K.ASSOCIATION, "forbids",
+      "forbid_data_classes", SH.REFS, linkable=False, draw=Draw.NONE),
+    R("EscalationStep", "channel", K.ASSOCIATION, "on", "channel", SH.REF,
+      target_mult="0..1", linkable=False, draw=Draw.NONE),
+    R("person", "channel", K.ASSOCIATION, "reached on", "channel", SH.REF,
+      target_mult="0..1", linkable=False, draw=Draw.NONE),
+    R("HumanCounterpart", "channel", K.ASSOCIATION, "reached on", "channel",
+      SH.REF, target_mult="0..1", linkable=False, draw=Draw.NONE),
+    R("mission", "channel", K.ASSOCIATION, "works on", "channel", SH.REF,
+      target_mult="0..1", linkable=False, draw=Draw.NONE),
+    R("mission", "workflow", K.USAGE, "runs", "workflows", SH.REFS,
+      linkable=False, draw=Draw.NONE),
 ]
 
 ENUMERATIONS = [
@@ -100,6 +129,20 @@ ENUMERATIONS = [
         "WorkflowBody", "WorkflowBody", ("graph", "external"),
         "Where a workflow's insides live: drawn here as an Activity, or "
         "built in an engine the binding names (ADR-0110)."),
+    Enumeration("TriggerKind", "TriggerKind",
+                ("schedule", "event", "webhook", "message", "manual"),
+                "What starts a run (ADR-0020)."),
+    Enumeration("OverlapPolicy", "OverlapPolicy",
+                ("skip", "queue", "cancel_previous", "allow"),
+                "What to do when a run is still going and the next is due."),
+    Enumeration("CatchUpPolicy", "CatchUpPolicy",
+                ("skip_missed", "run_once", "run_all"),
+                "What to do about runs missed while the system was down."),
+    Enumeration("ChannelPurpose", "ChannelPurpose",
+                ("notify", "approve", "handoff", "report", "ask"),
+                "Why an agent contacts a human on a channel (ADR-0021)."),
+    Enumeration("OutOfHours", "", ("queue", "escalate", "notify_anyway"),
+                "What a human-facing channel does outside working hours."),
 ]
 
 DATATYPES = [
@@ -108,6 +151,15 @@ DATATYPES = [
              "engine: what goes in and out, what it calls and which data it "
              "touches. Its references are the workflow's `interface calls`, "
              "`interface reaches`, `receives` and `returns` (ADR-0110)."),
+    DataType("ActivityGraph", "ActivityGraph",
+             "A workflow's steps and the flow between them: the Activity's "
+             "nodes and edges (ADR-0102)."),
+    DataType("Cadence", "Cadence",
+             "When a schedule fires, readable by humans and targets."),
+    DataType("FailurePolicy", "FailurePolicy",
+             "What happens when a triggered run fails (ADR-0020)."),
+    DataType("EscalationStep", "EscalationStep",
+             "Who to try next when nobody answers on a channel, and when."),
 ]
 
 PROPERTIES = [
@@ -118,6 +170,41 @@ PROPERTIES = [
              "composite: the workflow owns its interface"),
     Property("WorkflowInterface", "inputs", "String", "0..*"),
     Property("WorkflowInterface", "outputs", "String", "0..*"),
+    *props("workflow",
+           "id: String", "name: String", "description: String",
+           "inputs: Map -- the input schema"),
+    *props("action",
+           "id: String", "expr: String -- a transform's or branch's "
+           "expression", "args: Map", "output: String -- the state key "
+           "it writes",
+           "cases: Any -- a branch's case → step map",
+           "default: String -- the step a branch takes when no case "
+           "matches, by id"),
+    *props("trigger",
+           "id: String", "description: String", "kind: TriggerKind",
+           "cadence: Cadence [0..1] -- required for a schedule",
+           "event_class: String -- an abstract event, for kind event",
+           "filters: Map", "input: Map", "enabled: Boolean",
+           "overlap: OverlapPolicy", "catch_up: CatchUpPolicy",
+           "max_runtime_seconds: Integer", "requires_approval: Boolean",
+           "failure: FailurePolicy"),
+    *props("Cadence", "expression: String -- cron", "timezone: String"),
+    *props("FailurePolicy",
+           "retries: Integer", "backoff_seconds: Integer",
+           "escalate_after_failures: Integer",
+           "halt_after_consecutive_failures: Integer"),
+    *props("channel",
+           "id: String", "channel_class: ChannelClass",
+           "description: String", "address: String",
+           "human_facing: Boolean", "purposes: ChannelPurpose [0..*]",
+           "working_hours: WorkingHours [0..1]",
+           "response_sla_minutes: Integer [0..1]",
+           "escalation: EscalationStep [0..*]",
+           "out_of_hours: OutOfHours"),
+    *props("EscalationStep",
+           "after_minutes: Integer",
+           "notify: String -- a human contact, an agent id or a team id",
+           "note: String"),
 ]
 
 PROFILE = Profile(

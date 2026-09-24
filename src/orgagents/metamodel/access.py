@@ -1,14 +1,16 @@
 """The Access profile (ADR-0112): what an agent may reach and where it runs —
-capabilities, external endpoints and sandbox environments."""
+capabilities and the limits enforced at their boundary, external endpoints
+and sandbox environments."""
 from __future__ import annotations
 
-from .uml import Draw
+from .uml import DataType, Draw, Enumeration
 from .uml import MetaClass as MC
 from .uml import Profile
 from .uml import Relationship as R
 from .uml import RelKind as K
 from .uml import Shape as SH
 from .uml import Stereotype as S
+from .uml import props
 
 STEREOTYPES = [
     S("Callable", "callable", MC.INTERFACE, "", "",
@@ -50,10 +52,79 @@ RELATIONSHIPS = [
         draw=Draw.NONE) for k in ("capability", "environment")],
     R("capability", "callable", K.REALIZATION, "", "", SH.REF,
       linkable=False, draw=Draw.NONE),
+    R("capability", "decision", K.ASSOCIATION, "exercises", "decision",
+      SH.REF, target_mult="0..1", linkable=False, draw=Draw.NONE,
+      help="the decision class using it takes (ADR-0065)"),
+]
+
+ENUMERATIONS = [
+    Enumeration("NetworkPosture", "NetworkPosture",
+                ("none", "allowlist", "internal", "open"),
+                "How far an environment may reach over the network."),
+    Enumeration("ToolchainClass", "ToolchainClass",
+                ("none", "scripting", "data_analysis", "software_build",
+                 "browser", "document", "model_training", "network_client"),
+                "Categories of tooling an environment may need, not concrete "
+                "images (ADR-0055)."),
+    Enumeration("ResourceTier", "ResourceTier",
+                ("minimal", "small", "medium", "large", "accelerated"),
+                "Abstract size of an execution environment."),
+    Enumeration("Persistence", "Persistence",
+                ("ephemeral", "session", "agent"),
+                "How long an environment's disk outlives a run."),
+    Enumeration("EndpointTrust", "EndpointTrust",
+                ("internal", "partner", "external"),
+                "How far an external agent endpoint is trusted (ADR-0030)."),
+]
+
+DATATYPES = [
+    DataType("CapabilityConstraint", "CapabilityConstraint",
+             "Limits enforced at the capability boundary, never by the "
+             "model; a tool may narrow them, never widen them."),
+]
+
+PROPERTIES = [
+    *props("capability",
+           "id: String", "description: String", "action: Action",
+           "resource_class: String -- the kind of system reached, in words",
+           "constraints: CapabilityConstraint",
+           "autonomy: AutonomyPosture",
+           "secret_ref: String [0..1] -- a reference, never a secret "
+           "(ADR-0015)"),
+    *props("CapabilityConstraint",
+           "max_rows: Integer [0..1]", "masked_fields: String [0..*]",
+           "allowed_operations: String [0..*]",
+           "resource_scope: String [0..*]", "requires_approval: Boolean",
+           "rate_per_minute: Integer [0..1]",
+           "enforcement: ControlEnforcement -- who enforces these limits "
+           "(ADR-0073)"),
+    *props("endpoint",
+           "id: String", "description: String", "trust: EndpointTrust",
+           "provides: String [0..*] -- the operations the external agent "
+           "offers, by its own names",
+           "treat_output_as_data: Boolean", "requires_approval: Boolean",
+           "response_sla_seconds: Integer [0..1]",
+           "secret_ref: String [0..1]"),
+    *props("environment",
+           "id: String", "description: String",
+           "toolchains: ToolchainClass [0..*]", "tier: ResourceTier",
+           "network: NetworkPosture", "egress_allowlist: String [0..*]",
+           "mounts: String [0..*]", "persistence: Persistence",
+           "timeout_seconds: Integer", "secret_refs: String [0..*]"),
+    # A person is a principal for authority, never for access (ADR-0079):
+    # the field exists only so the validator can refuse it, so it may hold
+    # nothing.
+    *props("person", "capabilities: String [0..0] -- refused on sight"),
+    *props("EnvironmentOverride",
+           "timeout_seconds: Integer [0..1]",
+           "network: NetworkPosture [0..1]",
+           "egress_allowlist: String [0..*] -- absent = the class's own",
+           "drop_mounts: String [0..*]"),
 ]
 
 PROFILE = Profile(
-    name="Access", imports=("Core", "Organisation"),
+    name="Access", imports=("Core", "Organisation", "Authority"),
     doc="What an agent may reach, and the sandboxes it runs in.",
     stereotypes=STEREOTYPES, relationships=RELATIONSHIPS,
+    enumerations=ENUMERATIONS, datatypes=DATATYPES, properties=PROPERTIES,
 )

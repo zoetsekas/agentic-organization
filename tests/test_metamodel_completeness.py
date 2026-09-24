@@ -2,11 +2,14 @@
 
 The profiles are authoritative for meaning and `spec/model.py` and
 `spec/binding.py` realise them; this holds the two equal in both directions.
-The gap still to close is `metamodel_gap.py`, an allow-list that may only
-shrink.
+
+The gap was closed profile by profile against an allow-list that could only
+shrink; it is empty now and gone (ADR-0112 M6). A class, enumeration or field
+added to the models without a declaration fails here.
 """
 from __future__ import annotations
 
+import enum
 import typing
 
 import pytest
@@ -15,10 +18,6 @@ from orgagents.metamodel import PROFILES, completeness
 from orgagents.spec import binding as spec_binding
 from orgagents.spec import model as spec_model
 
-from metamodel_gap import GAP
-
-ALLOWED = frozenset().union(*GAP.values())
-
 
 def test_the_walk_reaches_both_models():
     names = {c.__name__ for c in completeness.classes()}
@@ -26,29 +25,12 @@ def test_the_walk_reaches_both_models():
             "Binding", "ServerBinding", "SharingScope"} <= names
 
 
-def test_nothing_outside_the_allow_list_is_undeclared():
-    """A class, enumeration or field added to the models must be declared in
-    a profile in the same change."""
-    new = sorted(set(completeness.gap()) - ALLOWED)
-    assert not new, ("declare these in a profile (ADR-0112):\n  "
-                     + "\n  ".join(new))
-
-
-def test_the_allow_list_only_shrinks():
-    """An entry that is now declared must be removed from the allow-list,
-    so the list is always the true remaining gap."""
-    stale = sorted(ALLOWED - set(completeness.gap()))
-    assert not stale, ("now declared; remove from tests/metamodel_gap.py:\n  "
-                       + "\n  ".join(stale))
-
-
-def test_the_allow_list_names_each_entry_once_under_its_profile():
-    names = [p.name for p in PROFILES]
-    assert set(GAP) <= set(names)
-    seen: set[str] = set()
-    for items in GAP.values():
-        assert not (items & seen)
-        seen |= items
+def test_everything_the_models_hold_is_declared_in_a_profile():
+    """Every class and enumeration reachable from SystemSpec and Binding is
+    declared, and every field is a declared property or relationship end."""
+    gap = completeness.gap()
+    assert not gap, ("declare these in a profile (ADR-0112):\n  "
+                     + "\n  ".join(gap))
 
 
 def test_every_class_is_declared_in_exactly_one_profile():
@@ -64,44 +46,54 @@ def test_every_declaration_is_what_the_models_have():
     assert not wrong, "\n".join(wrong)
 
 
-def test_a_declared_class_is_declared_in_the_profile_the_allow_list_expected():
-    """The allow-list files each class under the profile it belongs to; once
-    declared it must land there."""
-    expected = {item.split(".")[0]: p for p, items in GAP.items()
-                for item in items}
-    decl = completeness.declarations()
-    for cls, profile in expected.items():
-        if cls in decl:
-            assert {d.profile for d in decl[cls]} == {profile}, cls
-
-
-ENUMS = [c for c in completeness.classes() if isinstance(c, type)
-         and issubclass(c, __import__("enum").Enum)]
+ENUMS = [c for c in completeness.classes()
+         if isinstance(c, type) and issubclass(c, enum.Enum)]
 
 
 @pytest.mark.parametrize("enum_cls", ENUMS, ids=lambda c: c.__name__)
-def test_each_declared_enumeration_has_the_python_literals(enum_cls):
+def test_every_enumeration_is_declared_with_the_python_literals(enum_cls):
     declared = [e for p in PROFILES for e in p.enumerations
                 if e.model == enum_cls.__name__]
-    if not declared:
-        assert enum_cls.__name__ in ALLOWED
-        return
-    assert len(declared) == 1
+    assert len(declared) == 1, enum_cls.__name__
     assert declared[0].literals == tuple(m.value for m in enum_cls)
 
 
 def test_a_literal_typed_field_is_typed_by_an_enumeration_with_its_literals():
     """`Literal[...]` fields are anonymous enumerations in Python; in the
     profile they are named ones, with the same literals."""
+    seen = 0
     for p in PROFILES:
         for prop in p.properties:
             cls = completeness._owner_class(prop.owner)
             base = completeness.shape_of(
                 completeness.annotation(cls, prop.name)).base
             if typing.get_origin(base) is typing.Literal:
-                enum = next(e for q in PROFILES for e in q.enumerations
-                            if e.name == prop.type)
-                assert enum.literals == typing.get_args(base), prop
+                seen += 1
+                enum_ = next(e for q in PROFILES for e in q.enumerations
+                             if e.name == prop.type)
+                assert enum_.literals == typing.get_args(base), prop
+    assert seen >= 5
+
+
+def test_the_binding_is_declared_only_in_the_deployment_profile():
+    decl = completeness.declarations()
+    binding_classes = [c for c in completeness.reachable(spec_binding.Binding)
+                       if c.__module__.endswith("binding")]
+    for c in binding_classes:
+        assert {d.profile for d in decl[c.__name__]} == {"Deployment"}, c
+
+
+def test_an_undeclared_field_or_class_is_reported(monkeypatch):
+    """The check has teeth: take a declaration away and it is a gap."""
+    from orgagents.metamodel import authority
+    props = [p for p in authority.PROFILE.properties
+             if (p.owner, p.name) != ("Mandate", "conditions")]
+    monkeypatch.setattr(authority.PROFILE, "properties", props)
+    assert "Mandate.conditions" in completeness.gap()
+    monkeypatch.setattr(authority.PROFILE, "enumerations", [
+        e for e in authority.PROFILE.enumerations if e.name != "Effect"
+        and e.name != "ControlEnforcer"])
+    assert "ControlEnforcer" in completeness.gap()
 
 
 def test_the_models_are_the_ones_the_profile_realises():

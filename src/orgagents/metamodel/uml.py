@@ -74,6 +74,9 @@ class RelKind(str, Enum):
     #: One element provides what another specifies.
     REALIZATION = "realization"
     GENERALIZATION = "generalization"
+    #: A dependency relating two views of one thing, here «derive»: the
+    #: client is computed from the supplier (ADR-0111's `derived_from`).
+    ABSTRACTION = "abstraction"
 
 
 class Shape(str, Enum):
@@ -168,6 +171,10 @@ class Relationship:
     #: A UML constraint on the relationship, in OCL-ish text: `{subsets
     #: members}`, `{ordered}`.
     constraint: str = ""
+    #: For REF_OBJECTS: which objects of the field are this relationship's
+    #: links, as `(attribute, value)` — one field holding several kinds of
+    #: link, like `data_class.relations` keyed by `kind` (ADR-0111).
+    selector: tuple[str, str] = ()
 
     @property
     def label(self) -> str:
@@ -188,6 +195,24 @@ class Property:
     type: str              # a UML primitive, an Enumeration or a DataType
     multiplicity: str = "1"
     doc: str = ""
+
+
+def props(owner: str, *specs: str) -> list[Property]:
+    """Properties of one owner, written `"name: Type [mult] -- doc"`; the
+    multiplicity defaults to `1`. Compact on purpose: a profile module is
+    read by people, and a hundred `Property(...)` calls are not."""
+    out = []
+    for spec in specs:
+        head, _, doc = spec.partition(" -- ")
+        name, _, rest = head.partition(":")
+        rest = rest.strip()
+        mult = "1"
+        if rest.endswith("]"):
+            rest, _, m = rest[:-1].rpartition("[")
+            mult = m.strip()
+        out.append(Property(owner, name.strip(), rest.strip(), mult,
+                            doc.strip()))
+    return out
 
 
 @dataclass(frozen=True)

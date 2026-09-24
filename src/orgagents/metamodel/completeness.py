@@ -286,8 +286,12 @@ def _uml_type_of(base: Any) -> set[str]:
         return {e.name for p in PROFILES for e in p.enumerations
                 if e.model == base.__name__}
     if _is_model(base):
+        # A DataType, or an AssociationClass used as a value (a mission's
+        # sponsor is a HumanCounterpart).
         return {d.name for p in PROFILES for d in p.datatypes
-                if d.model == base.__name__}
+                if d.model == base.__name__} | {
+            r.association_class for p in PROFILES for r in p.relationships
+            if r.association_class == base.__name__}
     if base is typing.Any:
         return {"Any"}
     if isinstance(base, type):
@@ -333,7 +337,8 @@ def mismatches() -> list[str]:
                 out.append(f"{where}: typed {prop.type}, the field is "
                            f"{sh.base!r} ({sorted(allowed) or 'untyped'})")
             lo, hi = _mult(prop.multiplicity)
-            if (hi == "*") != sh.many:
+            # `0..0` on a list: a field that exists only to be refused.
+            if (hi == "*") != sh.many and not (sh.many and hi == "0"):
                 out.append(f"{where}: multiplicity {prop.multiplicity} but "
                            f"the field is {'a list' if sh.many else 'single'}")
             if sh.optional and lo != "0":

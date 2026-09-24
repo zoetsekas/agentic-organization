@@ -3,13 +3,14 @@ sub-agents, people, roles and missions, and how they relate to each other."""
 from __future__ import annotations
 
 from ..spec import model as _spec
-from .uml import Draw
+from .uml import DataType, Draw, Enumeration
 from .uml import MetaClass as MC
 from .uml import Profile
 from .uml import Relationship as R
 from .uml import RelKind as K
 from .uml import Shape as SH
 from .uml import Stereotype as S
+from .uml import props
 
 STEREOTYPES = [
     S("Organization", "organization", MC.COMPONENT, "organization",
@@ -94,6 +95,123 @@ RELATIONSHIPS = [
         draw=Draw.NONE) for k in ("agent", "team", "role")],
     *[R(k, "resource", K.REALIZATION, "", "", SH.REF, linkable=False,
         draw=Draw.NONE) for k in ("agent", "team")],
+
+    # -- ADR-0112: the rest of what an organisation's elements hold -----------
+    R("agent", "agent", K.ASSOCIATION, "peer of", "peers", SH.REFS,
+      linkable=False, draw=Draw.NONE,
+      help="a lateral link; delegation otherwise follows the team tree"),
+    R("mission", "agent", K.ASSOCIATION, "led by", "leader", SH.REF,
+      target_mult="0..1", linkable=False, draw=Draw.NONE),
+    R("mission", "role", K.ASSOCIATION, "plays", "roles", SH.REF_OBJECTS,
+      key="role", association_class="RoleAssignment", linkable=False,
+      draw=Draw.NONE, help="roles the mission lends its members for its "
+                           "duration"),
+    R("person", "team", K.ASSOCIATION, "belongs to", "unit", SH.REF,
+      target_mult="0..1", linkable=False, draw=Draw.NONE,
+      constraint="{empty = the root}",
+      help="the unit whose mandate bounds theirs"),
+]
+
+ENUMERATIONS = [
+    Enumeration("FlowKind", "FlowKind",
+                ("delegate", "consult", "notify", "escalate"),
+                "A declared directional interaction between agents "
+                "(ADR-0024)."),
+    Enumeration("UnitLinkKind", "UnitLinkKind",
+                ("oversees", "escalates_to", "serves", "partners_with"),
+                "How two units are related when one does not contain the "
+                "other (ADR-0081)."),
+    Enumeration("HumanRole", "HumanRole",
+                ("owner", "approver", "reviewer", "escalation", "operator",
+                 "stakeholder"),
+                "Why a person is paired with an agent (ADR-0026)."),
+    Enumeration("SubAgentKind", "SubAgentKind",
+                ("research", "review", "summarize", "extract", "critique",
+                 "plan", "verify", "custom"),
+                "What a tool-shaped sub-agent is for (ADR-0027)."),
+    Enumeration("MissionStatus", "MissionStatus",
+                ("proposed", "active", "completed", "disbanded"),
+                "Where a short-lived team is in its life (ADR-0039)."),
+    Enumeration("RuntimeRequirement", "RuntimeRequirement",
+                ("planning", "subagents", "handoff", "structured_output",
+                 "long_context"),
+                "What the agent loop must support — not which framework "
+                "provides it."),
+    Enumeration("RoleKind", "", ("agent", "team"),
+                "Whether a role is played by an agent or by a whole unit."),
+]
+
+DATATYPES = [
+    DataType("ScalingPolicy", "ScalingPolicy",
+             "How many of an agent run, and how much each takes on "
+             "(ADR-0095)."),
+    DataType("WorkingHours", "WorkingHours",
+             "When the humans on a channel or in a pairing are available."),
+]
+
+PROPERTIES = [
+    *props("team",
+           "id: String", "name: String", "description: String",
+           "groups: String [0..*] -- directory groups",
+           "placement: Boolean -- a placement boundary (ADR-0069)",
+           "shared_instructions: String [0..*] -- instructions every "
+           "member carries (ADR-0038)",
+           "labels: Map"),
+    *props("organization",
+           "operating_principles: String [0..*] -- shared instructions, "
+           "by text (ADR-0038)"),
+    *props("worker", "id: String", "name: String", "instructions: String"),
+    *props("agent",
+           "description: String",
+           "channels: ChannelClass [0..*] -- the surfaces it may use",
+           "shared_service: Boolean",
+           "runtime_requirements: RuntimeRequirement [0..*]",
+           "max_delegation_depth: Integer",
+           "scaling: ScalingPolicy", "planning: Boolean", "labels: Map"),
+    *props("subagent",
+           "kind: SubAgentKind", "purpose: String",
+           "returns: String -- what it hands back, in words",
+           "max_turns: Integer", "max_runtime_seconds: Integer",
+           "parallel_safe: Boolean"),
+    *props("person",
+           "id: String", "name: String", "contact: String",
+           "position: String -- a job title, as prose (ADR-0079)",
+           "notify_on: ChannelClass [0..*]",
+           "working_hours: WorkingHours [0..1]"),
+    *props("role",
+           "id: String", "title: String", "version: String",
+           "kind: RoleKind", "responsibilities: String [0..*]",
+           "constraints: Map"),
+    *props("mission",
+           "id: String", "name: String", "objective: String",
+           "deliverables: String [0..*]", "status: MissionStatus",
+           "sponsor: HumanCounterpart [0..1] -- the person whose authority "
+           "bounds the mission",
+           "starts_on: String [0..1] -- an ISO date",
+           "ends_on: String [0..1] -- an ISO date",
+           "internal_delegation: Boolean",
+           "success_criteria: String [0..*]", "labels: Map"),
+    *props("RoleAssignment",
+           "withhold: String [0..*] -- permission keys of the role not "
+           "granted at this site",
+           "conditions: Map"),
+    *props("HumanCounterpart",
+           "name: String", "contact: String", "role_title: String",
+           "roles: HumanRole [0..*]",
+           "approves: String [0..*] -- capability or action ids",
+           "notify_on: ChannelClass [0..*]",
+           "working_hours: WorkingHours [0..1]"),
+    *props("InteractionFlow",
+           "kind: FlowKind", "description: String",
+           "requires_approval: Boolean"),
+    *props("UnitLink", "kind: UnitLinkKind", "reason: String"),
+    *props("ScalingPolicy",
+           "min_instances: Integer", "max_instances: Integer",
+           "concurrent_sessions_per_instance: Integer"),
+    *props("WorkingHours",
+           "timezone: String", "days: Integer [0..*] -- 0 = Monday",
+           "start_hour: Integer", "end_hour: Integer",
+           "holidays: String [0..*] -- ISO dates"),
 ]
 
 PROFILE = Profile(
@@ -101,4 +219,5 @@ PROFILE = Profile(
     doc="Who the organisation is: its units, agents, people, roles and "
         "missions.",
     stereotypes=STEREOTYPES, relationships=RELATIONSHIPS,
+    enumerations=ENUMERATIONS, datatypes=DATATYPES, properties=PROPERTIES,
 )

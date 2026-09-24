@@ -21,8 +21,14 @@ from orgagents.spec import model as spec_model
 
 
 def _model(kind):
+    """A stereotype's spec class — or, for a relationship owned by a DataType
+    or an association class (a Mandate's decisions, ADR-0112), that class."""
     stereo = PROFILE.stereotype(kind)
-    assert stereo is not None, f"no stereotype for {kind}"
+    if stereo is None:
+        dt = PROFILE.datatype(kind)
+        cls = getattr(spec_model, dt.model if dt else kind, None)
+        assert cls is not None, f"no stereotype, DataType or class {kind}"
+        return cls
     return getattr(spec_model, stereo.model) if stereo.model else None
 
 
@@ -231,6 +237,8 @@ def test_a_workflow_is_an_activity_whose_actions_reference_the_model():
 
 def test_every_declared_enumeration_is_the_spec_enum_literal_for_literal():
     for enum in PROFILE.enumerations:
+        if not enum.model:
+            continue        # a named `Literal[...]`; see test_metamodel_completeness
         py = getattr(spec_model, enum.model)
         assert tuple(m.value for m in py) == enum.literals, enum.name
         for literal, _uml in enum.uml:
@@ -245,7 +253,10 @@ def test_fork_and_join_are_uml_control_nodes_in_the_profile():
 
 def test_every_declared_property_is_a_field_of_its_owner_and_is_typed():
     datatypes = {d.name: getattr(spec_model, d.model) for d in PROFILE.datatypes}
-    types = {e.name for e in PROFILE.enumerations} | set(datatypes) | {"String"}
+    from orgagents.metamodel.completeness import PRIMITIVES
+    types = ({e.name for e in PROFILE.enumerations} | set(datatypes)
+             | set(PRIMITIVES)
+             | {r.association_class for r in PROFILE.relationships})
     for prop in PROFILE.properties:
         owner = datatypes.get(prop.owner) or _model(prop.owner)
         assert prop.name in owner.model_fields, (prop.owner, prop.name)

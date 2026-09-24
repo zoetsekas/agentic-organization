@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
 
 from ..spec import model as spec_model
-from . import PROFILE, Profile, specialisations
+from . import PROFILE, SYSTEM_OWNED, Profile, specialisations
 
 
 @dataclass
@@ -94,7 +94,7 @@ def collect(spec: spec_model.SystemSpec,
     for st in profile.stereotypes:
         if not st.collection or st.kind in ("organization", "team"):
             continue
-        owner = system if st.collection.startswith("lifecycle") else org
+        owner = system if st.collection in SYSTEM_OWNED else org
         for obj in _collection(spec, st.collection):
             out.add(Instance(st.kind, getattr(obj, "id", ""), obj, owner=owner))
 
