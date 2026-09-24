@@ -445,6 +445,11 @@ class DataClass(BaseModel):
     #: How it relates to other classes. `derived_from` carries restrictions
     #: along it, so a derived class cannot quietly drop what it inherited.
     relations: list[DataRelation] = Field(default_factory=list)
+    #: Where this class's schema lives — a URL or a data-catalogue id
+    #: (ADR-0111). A pointer only: the platform never reads, copies or checks
+    #: it, because a copied schema is wrong after its owner's next migration
+    #: (ADR-0099). The Data diagram shows it as a link out.
+    schema_ref: Optional[str] = None
 
 
 class CapabilityConstraint(BaseModel):

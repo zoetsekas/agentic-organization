@@ -144,6 +144,7 @@ package "<<System>> Model" as SystemModel {
     may_appear_in_traces : Boolean
     retention_days : Integer [0..1]
     semantics : DataSemantics
+    schema_ref : String [0..1]
   }
   class ArtifactStore <<ArtifactStore>> {
     id : String

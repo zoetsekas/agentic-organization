@@ -67,6 +67,13 @@ DRAWN_AS = {
 }
 
 
+def _field(r: Any) -> str:
+    """A relationship's field, qualified by its selector where one field
+    holds several relationships (`relations.derived_from`, ADR-0111), so
+    each has a gesture of its own."""
+    return f"{r.field}.{r.selector[1]}" if r.selector else r.field
+
+
 def gestures() -> list[Gesture]:
     out: list[Gesture] = []
     concrete = [r for r in _concrete(PROFILE)
@@ -151,7 +158,7 @@ def gestures() -> list[Gesture]:
                     + (f", choosing its kind ({', '.join(r.choices)})"
                        if r.choices else ""))
             out.append(Gesture(
-                f"draw:{src}-{r.field}-{tgt}",
+                f"draw:{src}-{_field(r)}-{tgt}",
                 does,
                 {"op": "link", "source": {"kind": src, "id": "<source>"},
                  "target": {"kind": tgt, "id": "<target>"},

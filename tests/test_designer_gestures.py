@@ -13,7 +13,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from orgagents.api import create_app
-from orgagents.designer.gestures import catalogue, evaluate, gestures
+from orgagents.designer.gestures import _field, catalogue, evaluate, gestures
 from orgagents.metamodel import NON_PALETTE, PROFILE, RelKind, Shape, _concrete
 from orgagents.metamodel.instances import collect
 from orgagents.metamodel.scenarios import base
@@ -45,7 +45,7 @@ def test_every_drawable_relationship_has_a_gesture():
         elif r.kind is RelKind.DEPLOYMENT:
             assert {f"deploy:{r.source}", f"undeploy:{r.source}"} <= ids
         else:
-            assert f"draw:{r.source}-{r.field}-{r.target}" in ids
+            assert f"draw:{r.source}-{_field(r)}-{r.target}" in ids
 
 
 def test_every_palette_kind_can_be_created():

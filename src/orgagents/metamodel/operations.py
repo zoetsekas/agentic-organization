@@ -230,8 +230,14 @@ def link(spec: spec_model.SystemSpec, source: tuple[str, str],
         elif rel.shape is Shape.REF_OBJECTS:
             cls = getattr(spec_model, rel.association_class)
             values = getattr(holder, name)
-            if not any(getattr(v, rel.key) == tid for v in values):
-                values.append(cls.model_validate({rel.key: tid, **attrs}))
+            # A field holding several relationships (data_class.relations,
+            # ADR-0111): the link is written with its selector — `kind:
+            # derived_from` — and is a duplicate only of the same kind.
+            chosen = dict([rel.selector]) if rel.selector else {}
+            if not any(getattr(v, rel.key) == tid and _selected(rel, v)
+                       for v in values):
+                values.append(cls.model_validate(
+                    {rel.key: tid, **attrs, **chosen}))
     return _transact(spec, change)
 
 
@@ -348,11 +354,22 @@ def _drop(s: spec_model.SystemSpec, rel: Relationship, holder: Any,
             effects.append(f"{source_id} no longer {rel.stereotype} "
                            f"'{target_id}' [{rel.field}]")
     elif rel.shape is Shape.REF_OBJECTS:
-        kept = [v for v in current if getattr(v, rel.key) != target_id]
+        kept = [v for v in current
+                if getattr(v, rel.key) != target_id or not _selected(rel, v)]
         if len(kept) != len(current):
             current[:] = kept
             effects.append(f"{source_id} no longer {rel.stereotype} "
                            f"'{target_id}' [{rel.field}]")
+
+
+def _selected(rel: Relationship, value: Any) -> bool:
+    """Whether one object of a REF_OBJECTS field is a link of `rel`: always,
+    unless the field holds several relationships told apart by a selector."""
+    if not rel.selector:
+        return True
+    attr, want = rel.selector
+    got = getattr(value, attr, None)
+    return getattr(got, "value", got) == want
 
 
 def violations_of(result: Result) -> set[str]:

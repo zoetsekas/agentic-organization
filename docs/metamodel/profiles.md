@@ -10,7 +10,7 @@ The platform's model is a set of UML profiles, one per concern (ADR-0101, ADR-01
 | [Organisation](organisation.md) | Core | 8 | 2 | 7 | 27 | 70 |
 | [Authority](authority.md) | Core, Organisation | 3 | 3 | 3 | 8 | 29 |
 | [Access](access.md) | Core, Organisation, Authority | 5 | 1 | 5 | 15 | 37 |
-| [Data](data.md) | Core, Organisation, Access | 2 | 0 | 3 | 15 | 21 |
+| [Data](data.md) | Core, Organisation, Access | 2 | 0 | 3 | 15 | 22 |
 | [Knowledge](knowledge.md) | Core, Organisation, Data | 5 | 4 | 4 | 21 | 51 |
 | [Process](process.md) | Core, Organisation, Authority, Data | 6 | 5 | 7 | 38 | 47 |
 | [Assurance](assurance.md) | Core, Organisation, Data, Process | 3 | 8 | 10 | 13 | 71 |
