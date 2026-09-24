@@ -84,7 +84,7 @@ def snake(name: str) -> str:
 
 @dataclass(eq=False)
 class Scalar:
-    """A value column: a primitive, an enumeration, a Map/Any (jsonb), or an
+    """A value column: a primitive, an enumeration, a Map/Any (json), or an
     array of primitives or enumeration literals."""
 
     attr: str

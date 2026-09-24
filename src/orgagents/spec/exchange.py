@@ -21,10 +21,9 @@ from __future__ import annotations
 
 import copy
 import json
-import re
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Iterator, Optional, Union
+from typing import Any, Iterator, Optional
 
 import yaml
 from pydantic import BaseModel
@@ -44,8 +43,6 @@ FORMATS = ("yaml", "json")
 SPEC_ROOT = "Core::Model"
 SPEC_ROOT_ALIASES = {"Core::Model", "Core::System"}
 BINDING_ROOT = "Deployment::Binding"
-
-_TYPE = re.compile(r"^[A-Z][A-Za-z]*::[A-Z][A-Za-z0-9]*$")
 
 
 # --------------------------------------------------------------------------
@@ -410,5 +407,3 @@ def typed_json_schema(cls: Optional[type] = None) -> dict[str, Any]:
 def schema_text() -> str:
     return json.dumps(typed_json_schema(), indent=2, sort_keys=True) + "\n"
 
-
-SpecOrBinding = Union["SystemSpec", "Binding"]  # noqa: F821

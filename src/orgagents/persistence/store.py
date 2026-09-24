@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Iterable, Optional, Type, TypeVar
 
 from pydantic import BaseModel
@@ -56,14 +57,19 @@ def migrate(eng: Any) -> list[str]:
 _TABLES: dict[str, Any] = {}
 
 
+@lru_cache(maxsize=1)
+def _structure() -> dict[str, Any]:
+    return structure()
+
+
 def table(q: str):
-    """A lightweight Core table for a qualified name, its jsonb columns
+    """A lightweight Core table for a qualified name, its json columns
     typed so dicts and lists are written as JSON."""
     if q in _TABLES:
         return _TABLES[q]
     import sqlalchemy as sa
     from sqlalchemy.dialects.postgresql import JSON
-    s = structure()["tables"][q]
+    s = _structure()["tables"][q]
     cols = [sa.column(name, JSON(none_as_null=True))
             if c["type"] == "json" else sa.column(name)
             for name, c in s["columns"].items()]
