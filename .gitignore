@@ -223,3 +223,6 @@ __marimo__/
 *.db-shm
 demo_warehouse.db
 build/
+
+# Agent worktrees created by Claude Code
+.claude/worktrees/
