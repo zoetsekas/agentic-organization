@@ -16,7 +16,7 @@ from typing import Any, Iterable, Optional
 
 from ..spec.binding import Binding, TargetBinding, default_binding
 from ..spec.model import SystemSpec
-from ..spec.validate import Finding, validate_spec
+from ..spec.validate import Finding, validate_spec, workflow_binding_findings
 from .base import GeneratedFile, register_builtin_targets
 from .ir import SystemIR, TenantIR, apply_model_approvals, build_ir
 from .tenancy import assert_artifacts_qualified, assert_within_tenant
@@ -101,7 +101,7 @@ def _load_manifest(out_dir: Path) -> dict[str, str]:
     if not path.is_file():
         return {}
     try:
-        return json.loads(path.read_text()).get("files", {})
+        return json.loads(path.read_text(encoding="utf-8")).get("files", {})
     except json.JSONDecodeError:
         return {}
 
@@ -161,9 +161,19 @@ def compile_system(
             raise CompileError(
                 f"unknown target '{target_id}'; available: {', '.join(registry.ids())}"
             )
-        bound: TargetBinding = (
-            binding.for_target(target_id) if binding else None
-        ) or default_binding(target_id)
+        chosen: Optional[TargetBinding] = (
+            binding.for_target(target_id) if binding else None)
+        bound: TargetBinding = chosen or default_binding(target_id)
+        # An external workflow reaches an engine on this target, or the build
+        # stops: its body is nowhere else (ADR-0110).
+        bind_findings = workflow_binding_findings(
+            spec, bound, strict=chosen is not None)
+        target_findings = [*findings, *bind_findings]
+        unbound = [f for f in bind_findings if f.severity == "error"]
+        if unbound:
+            raise CompileError(
+                f"workflow binding failed for target '{target_id}':\n  "
+                + "\n  ".join(str(f) for f in unbound))
         ir = build_ir(spec, target=target_id, binding=bound, tenant=tenant,
                       platform_policy=platform_policy)
         if catalog is not None:
@@ -199,7 +209,7 @@ def compile_system(
         # tree is the first place a collision would show up.
         base = Path(out_dir) / tenant.namespace_prefix if tenant else Path(out_dir)
         target_dir = base / target_id.replace(":", "-")
-        result = CompileResult(target_id, target_dir, ir, files, findings=findings)
+        result = CompileResult(target_id, target_dir, ir, files, findings=target_findings)
         if write:
             _write(result, force=force)
         results.append(result)
@@ -224,16 +234,16 @@ def _write(result: CompileResult, *, force: bool) -> None:
             if gf.merge_additive:
                 # The engineer owns this file; only append defs it is missing,
                 # never rewrite one they may have implemented (ADR-0089).
-                existing = path.read_text()
+                existing = path.read_text(encoding="utf-8")
                 merged, added = _merge_additive(existing, gf.content)
                 manifest[gf.path] = _digest(merged)
                 if added:
-                    path.write_text(merged)
+                    path.write_text(merged, encoding="utf-8", newline="\n")
                     result.merged[gf.path] = added
                 else:
                     result.skipped.append(gf.path)
                 continue
-            current = _digest(path.read_text())
+            current = _digest(path.read_text(encoding="utf-8"))
             was_generated = previous.get(gf.path)
             if was_generated and current != was_generated and not force:
                 raise CompileError(
@@ -245,7 +255,10 @@ def _write(result: CompileResult, *, force: bool) -> None:
                 continue
 
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(gf.content)
+        # UTF-8 and LF whatever the host: generated files carry em dashes and
+        # arrows the Windows default (cp1252) cannot write, and the same design
+        # must compile to the same bytes on every machine.
+        path.write_text(gf.content, encoding="utf-8", newline="\n")
         if gf.executable:
             path.chmod(0o755)
         result.written.append(gf.path)

@@ -66,6 +66,9 @@ class WorkflowBinding(BaseModel):
     mode: str = "in_process"              # in_process | out_of_process
     endpoint: Optional[str] = None        # base URL of a service engine
     flow: str = ""                        # the engine's own id for the flow
+    # Where a person opens the flow in the engine's own builder (ADR-0110).
+    # The designer links out to it; it never embeds the engine's editor.
+    editor_url: Optional[str] = None
     secret_ref: Optional[str] = None      # the engine's credential, never ours
     tenant: str = ""                      # the tenant this engine instance is for
     trust: str = "partner"                # EndpointTrust value

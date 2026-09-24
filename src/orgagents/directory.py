@@ -175,7 +175,7 @@ class StaticDirectory:
     @classmethod
     def from_file(cls, path: str | Path, *, name: str = "") -> "StaticDirectory":
         path = Path(path)
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         if path.suffix in {".yaml", ".yml"}:
             import yaml            # already a hard dependency of the spec loader
 

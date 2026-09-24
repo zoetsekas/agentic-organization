@@ -1,0 +1,3517 @@
+# Every issue the validator can raise: a stable number, what fires it, why it
+# matters and how to fix it. Loaded by `orgagents.spec.issue_codes`; the
+# designer shows it when an issue code is clicked in the Issues tab.
+#
+# Numbers are grouped by validator section (OA-0100 uniqueness, OA-0200
+# mandates, ...). A published number is never reused or moved: a new code
+# takes the next free number in its section. tests/test_issue_codes.py holds
+# this file to the codes the validator actually emits.
+
+- number: 101
+  code: duplicate_id
+  severity:
+  - error
+  section: uniqueness
+  refs: []
+  title: Two components of one kind share an id
+  summary: Two components of the same kind are declared with the same id.
+  explanation: Fires when an id appears twice within one kind (agents, teams, roles, capabilities,
+    decision classes, environments, data classes, workflows, people, separations, policies,
+    skills, plugins, tools, endpoints, knowledge sources, channels, triggers or guardrails).
+    The message names the kind and the id; the finding carries no `where`, because the id
+    itself is ambiguous.
+  why: References are resolved by id within a kind, so a duplicate makes every reference to
+    it ambiguous and one of the two definitions is silently ignored.
+  fix:
+  - Find both declarations of the id named in the message.
+  - Rename one of them, or merge them into a single component.
+  - Update any references that meant the renamed one.
+- number: 102
+  code: id_used_by_two_kinds
+  severity:
+  - warning
+  section: uniqueness
+  refs: []
+  title: Same id names two different kinds
+  summary: One id is used by components of two or more different kinds.
+  explanation: Fires when the same id appears in more than one kind list, for example an agent
+    and a team both called `billing`. It still resolves, because references are looked up
+    per kind, so this is a warning. `where` is the shared id.
+  why: A drawing or diff has one box per id, so the canvas, history and reviews cannot tell
+    the two apart; it is a legibility problem, not a correctness one.
+  fix:
+  - Rename one of the components so each id is unique across kinds (e.g. `billing-team`).
+  - Update references to the renamed component.
+- number: 201
+  code: undeclared_decision
+  severity:
+  - error
+  section: 'authority: mandates'
+  refs:
+  - ADR-0065
+  title: Mandate or separation names an undeclared decision
+  summary: A mandate or a separation rule refers to a decision class the spec does not declare.
+  explanation: Fires when a team, agent, mission or person `mandate.decisions` lists a decision
+    class id missing from the top-level `decisions` list, or when a separation's `decisions`
+    names one. `where` is the team, agent, mission, person or separation that makes the claim.
+  why: Authority is only meaningful over a declared vocabulary; an unknown decision class
+    cannot be resolved, checked for separation of duties or enforced, so the claim reads as
+    authority that governs nothing.
+  fix:
+  - Check the id in `mandate.decisions` (or the separation's `decisions`) for a typo.
+  - Or declare the decision class under the top-level `decisions` list.
+  example: |-
+    decisions:
+      - id: approve_refund
+    agents:
+      - id: refunds
+        mandate:
+          decisions: [approve_refund]
+- number: 202
+  code: root_leader_without_mandate
+  severity:
+  - error
+  section: 'authority: mandates'
+  refs:
+  - ADR-0065
+  - ADR-0071
+  title: Organisation leader has no mandate
+  summary: The agent that leads the organisation declares no mandate, so it inherits every
+    decision.
+  explanation: Fires when `organization.leader` names a member agent whose `mandate` is absent.
+    An agent inherits its unit's mandate, and at the root that is the whole declared decision
+    vocabulary. The root team itself may default to everything; its leader may not. `where`
+    is the leader agent.
+  why: The top principal would silently hold every decision the organisation can take, which
+    is how authority accumulates upward unnoticed. A principal's authority must always be
+    written down.
+  fix:
+  - Add a `mandate` to the leader agent listing the decision classes it actually takes.
+  - 'Or declare `mandate: {decisions: []}` to say it decides nothing.'
+  example: |-
+    agents:
+      - id: ceo-agent
+        mandate:
+          decisions: [set_budget]
+- number: 301
+  code: duplicate_person
+  severity:
+  - error
+  section: people as principals
+  refs:
+  - ADR-0079
+  title: One human declared as several people
+  summary: The same person is declared more than once, by id or by contact.
+  explanation: 'Fires in two cases: the same id appears twice in `people`, or two or more
+    people share the same `contact` (compared case-insensitively). `where` is the duplicated
+    person id, or the alphabetically first of the ids sharing a contact.'
+  why: One human must be one principal. If a person is split across several entries, separation-of-duties
+    and four-eyes checks compare copies and cannot see that one human holds both sides.
+  fix:
+  - Merge the duplicate entries under `people` into one.
+  - Point `humans[].person` references and mandates at the surviving id.
+  - If they really are different people, give each their own `contact`.
+- number: 302
+  code: person_holds_access
+  severity:
+  - error
+  section: people as principals
+  refs:
+  - ADR-0079
+  title: Person declares access permissions
+  summary: A person declares capabilities or permissions, which this platform cannot enforce
+    for humans.
+  explanation: Fires when an entry in `people` sets `capabilities` or `permissions`. People
+    sign in under their employer's IAM, so their access is not mediated here. `where` is the
+    person.
+  why: 'A permission that reads as enforced but is not is worse than none: reviewers would
+    trust a control that nothing applies.'
+  fix:
+  - Remove `capabilities` and `permissions` from the person.
+  - Express what they may decide as a `mandate.decisions` list instead.
+  example: |-
+    people:
+      - id: dana
+        mandate:
+          decisions: [approve_refund]
+- number: 303
+  code: unknown_reference
+  severity:
+  - error
+  section: people as principals
+  refs:
+  - ADR-0079
+  title: Person or pairing refers to something undeclared
+  summary: A person is attached to a unit that does not exist, or an agent is paired with
+    an undeclared person.
+  explanation: Fires when a person's `unit` is not a team in the organisation (where = the
+    person), or when an agent's `humans[].person` names an id not in `people` (where = the
+    agent).
+  why: An unresolved reference means ownership, approval and mandate inheritance for that
+    human silently do not apply.
+  fix:
+  - Fix the typo in the person's `unit` or the agent's `humans[].person`.
+  - Or declare the missing team or add the person under `people`.
+- number: 304
+  code: owner_approves_own_agent
+  severity:
+  - error
+  section: people as principals
+  refs:
+  - ADR-0079
+  - ADR-0072
+  title: Agent owner is also its approver
+  summary: The same person is both owner and approver of one agent.
+  explanation: Fires when, among an agent's `humans`, a principal holding the `approver` role
+    is also one holding the `owner` role. `where` is the agent.
+  why: The approval becomes the accountable person signing off their own agent's work, which
+    defeats the four-eyes principle.
+  fix:
+  - Name a different person with the `approver` role in the agent's `humans`.
+  - Remove the `approver` role from the owner.
+  example: |-
+    humans:
+      - person: dana
+        roles: [owner]
+      - person: lee
+        roles: [approver]
+- number: 305
+  code: separation_without_conflict
+  severity:
+  - warning
+  section: people as principals
+  refs:
+  - ADR-0079
+  - ADR-0070
+  title: Separation rule names fewer than two decisions
+  summary: A separation-of-duties rule lists fewer than two decision classes, so it can never
+    be violated.
+  explanation: Fires for each entry in `separations` whose `decisions` list has zero or one
+    item. `where` is the separation.
+  why: A separation that cannot be broken is not a control; it reads as protection while checking
+    nothing.
+  fix:
+  - Add the conflicting decision classes to the separation's `decisions` (at least two).
+  - Or delete the separation if no conflict is intended.
+  example: |-
+    separations:
+      - id: pay-vs-approve
+        decisions: [create_payment, approve_payment]
+- number: 306
+  code: separation_violated
+  severity:
+  - error
+  section: people as principals
+  refs:
+  - ADR-0079
+  - ADR-0070
+  title: One principal holds both sides of a separation
+  summary: A person or agent effectively holds two or more decisions that a separation rule
+    keeps apart.
+  explanation: Fires when the effective mandate of a person or agent (after inheritance from
+    its unit) contains more than one decision class from the same entry in `separations`.
+    Agents are checked on effective mandates, so a leader inheriting its team's mandate can
+    trip it. `where` is the person or agent.
+  why: Separation of duties exists to stop one principal committing and approving the same
+    act; people are the principal in most real frauds, and an inheriting leader holds everything
+    beneath it.
+  fix:
+  - Split the conflicting decisions between different principals.
+  - Give a team leader its own narrower `mandate.decisions` instead of inheriting the unit's.
+  - Remove one side from the person's `mandate`.
+- number: 401
+  code: unknown_data_relation
+  severity:
+  - error
+  section: data semantics and contracts
+  refs:
+  - ADR-0099
+  title: Data class relates to an undeclared class
+  summary: A data class declares a relation to a data class that does not exist.
+  explanation: Fires when an entry in a data class's `relations` has a `target` that is not
+    a declared data class id. `where` is the data class declaring the relation.
+  why: Relations drive derivation and restriction checks; an unresolved target means those
+    checks silently skip the relationship.
+  fix:
+  - Fix the `relations[].target` id.
+  - Or declare the target under `data_classes`.
+- number: 402
+  code: data_derivation_cycle
+  severity:
+  - error
+  section: data semantics and contracts
+  refs:
+  - ADR-0099
+  title: Data class is derived from itself
+  summary: A data class is derived from itself, directly or through a chain.
+  explanation: Fires when following `derived_from` relations from a data class leads back
+    to that same class. `where` is the data class in the cycle.
+  why: Derivation is how restrictions propagate; a cycle has no source of truth and makes
+    lineage and restriction inheritance meaningless.
+  fix:
+  - Inspect the `derived_from` relations along the chain.
+  - Remove the relation that closes the loop.
+- number: 403
+  code: derived_class_drops_restriction
+  severity:
+  - error
+  section: data semantics and contracts
+  refs:
+  - ADR-0099
+  title: Derived data class loosens its source's restriction
+  summary: A data class derived from a restricted class claims a freedom its source does not
+    have.
+  explanation: 'Fires when a data class has a source anywhere in its `derived_from` chain
+    with `may_leave_region: false` while the derived class says `true`, or likewise for `may_appear_in_traces`.
+    `where` is the derived data class.'
+  why: 'A restriction that a summary can drop is not a restriction: it leaks through the first
+    derived dataset anyone builds.'
+  fix:
+  - Set `may_leave_region` / `may_appear_in_traces` on the derived class to match its most
+    restrictive source.
+  - If the derived data is genuinely anonymised, remove the `derived_from` relation and document
+    why.
+  example: |-
+    data_classes:
+      - id: customer_summary
+        relations: [{kind: derived_from, target: customer_pii}]
+        may_leave_region: false
+        may_appear_in_traces: false
+- number: 404
+  code: unknown_produced_data_class
+  severity:
+  - error
+  section: data semantics and contracts
+  refs:
+  - ADR-0099
+  title: Agent produces an undeclared data class
+  summary: An agent says it produces a data class the spec does not declare.
+  explanation: Fires when an id in an agent's `produces_data` is not in `data_classes`. `where`
+    is the agent.
+  why: Production claims define data contracts; an undeclared class has no restrictions and
+    cannot be matched to consumers.
+  fix:
+  - Fix the id in `produces_data`.
+  - Or declare the class under `data_classes`.
+- number: 405
+  code: unknown_dependency_data_class
+  severity:
+  - error
+  section: data semantics and contracts
+  refs:
+  - ADR-0099
+  title: Agent depends on an undeclared data class
+  summary: An agent declares a data dependency on a class the spec does not declare.
+  explanation: Fires when a `data_dependencies[].data_class` on an agent is not in `data_classes`.
+    `where` is the agent.
+  why: The agent relies on data whose shape, restrictions and producer are unknown, so no
+    contract can be checked.
+  fix:
+  - Fix the `data_class` id in the dependency.
+  - Or declare the class under `data_classes`.
+- number: 406
+  code: unknown_data_producer
+  severity:
+  - error
+  section: data semantics and contracts
+  refs:
+  - ADR-0099
+  title: Data dependency names an unknown producer
+  summary: A data dependency names a producer that is not an agent in this design.
+  explanation: Fires when `data_dependencies[].produced_by` on an agent is not an agent id.
+    `where` is the depending agent.
+  why: The contract points at nobody, so no one is accountable for the data's freshness or
+    shape.
+  fix:
+  - Correct `produced_by` to an existing agent id.
+  - Or remove `produced_by` if the data comes from outside this design.
+- number: 407
+  code: producer_does_not_produce
+  severity:
+  - error
+  section: data semantics and contracts
+  refs:
+  - ADR-0099
+  title: Named producer does not declare the data
+  summary: An agent relies on another agent for a data class that agent does not declare it
+    produces.
+  explanation: Fires when `data_dependencies[].produced_by` names a real agent whose `produces_data`
+    does not include the dependency's `data_class`. `where` is the depending agent.
+  why: 'A contract with one party is not a contract: the producer can change or stop the data
+    without knowing anyone relies on it.'
+  fix:
+  - Add the data class to the producer agent's `produces_data`.
+  - Or correct `produced_by` to the agent that actually produces it.
+  example: |-
+    agents:
+      - id: ledger
+        produces_data: [invoices]
+      - id: collections
+        data_dependencies:
+          - {data_class: invoices, produced_by: ledger, fields: [amount]}
+- number: 408
+  code: externally_produced_data
+  severity:
+  - warning
+  section: data semantics and contracts
+  refs:
+  - ADR-0099
+  title: Data depended on comes from outside the design
+  summary: An agent depends on a data class that nothing in this design produces.
+  explanation: Fires when a data dependency has no `produced_by` and no agent lists the class
+    in `produces_data`. This is normal and informational. `where` is the depending agent.
+  why: The data's freshness and shape are promised by a system outside this platform, and
+    reviewers should know which half of the contract is unchecked here.
+  fix:
+  - Confirm the external source is intended.
+  - If an agent in the design produces it, add the class to that agent's `produces_data`.
+- number: 409
+  code: whole_class_dependency
+  severity:
+  - warning
+  section: data semantics and contracts
+  refs:
+  - ADR-0099
+  title: Dependency on a whole data class
+  summary: An agent depends on all of a data class rather than named fields.
+  explanation: Fires when a `data_dependencies` entry has an empty or missing `fields` list.
+    `where` is the depending agent.
+  why: Any change to any part of the class becomes a change to this agent, and the agent may
+    read more data than it needs.
+  fix:
+  - List the fields the agent uses in `data_dependencies[].fields`.
+  example: |-
+    data_dependencies:
+      - data_class: invoices
+        fields: [amount, due_date]
+- number: 501
+  code: workflow_without_nodes
+  severity:
+  - warning
+  section: workflow graphs
+  refs:
+  - ADR-0096
+  title: Workflow has no nodes
+  summary: A workflow declares no nodes, so invoking it does nothing.
+  explanation: Fires when a workflow's `graph.nodes` is missing, empty, or has no node with
+    an `id`. Other graph checks are skipped for it. `where` is the workflow.
+  why: A workflow that does nothing still looks like a process in the design, so a step people
+    rely on may never happen.
+  fix:
+  - Add nodes (each with an `id`) to `graph.nodes`.
+  - Or remove the workflow.
+- number: 502
+  code: workflow_entry_unknown
+  severity:
+  - error
+  section: workflow graphs
+  refs:
+  - ADR-0096
+  title: Workflow entry is not one of its nodes
+  summary: A workflow's entry point names a node that does not exist.
+  explanation: Fires when `graph.entry` (or, if unset, the first node) is not a node id in
+    `graph.nodes`. Edge and reachability checks are skipped for that workflow. `where` is
+    the workflow.
+  why: The workflow cannot start, which would otherwise only be found at run time.
+  fix:
+  - Set `graph.entry` to an existing node id.
+  - Or add the missing node.
+- number: 503
+  code: workflow_edge_from_unknown
+  severity:
+  - error
+  section: workflow graphs
+  refs:
+  - ADR-0096
+  title: Workflow edge starts at an unknown node
+  summary: A workflow edge starts from a node that is not in the graph.
+  explanation: Fires when an entry in `graph.edges` has a `from` that is not a node id. `where`
+    is the workflow.
+  why: The edge is dropped, so a transition the designer intended silently never happens.
+  fix:
+  - Fix the `from` id in `graph.edges`.
+  - Or add the missing node.
+- number: 504
+  code: workflow_edge_to_unknown
+  severity:
+  - error
+  section: workflow graphs
+  refs:
+  - ADR-0096
+  title: Workflow edge leads to an unknown node
+  summary: A workflow edge points to a node that is not in the graph.
+  explanation: Fires when an edge's `to` is neither a node id nor `END`. `where` is the workflow.
+  why: The step the edge was meant to reach will never run, and nothing at run time says so.
+  fix:
+  - Fix the `to` id, or use `END` to finish the workflow.
+  - Or add the missing node.
+- number: 505
+  code: workflow_branch_target_unknown
+  severity:
+  - error
+  section: workflow graphs
+  refs:
+  - ADR-0096
+  title: Branch leads to an unknown node
+  summary: A branch node routes to a target that is not in the graph.
+  explanation: 'Fires when a node with `kind: branch` has a `cases[].to` or `default` that
+    is neither a node id nor `END`. `where` is the workflow.'
+  why: A case that matches would route nowhere, so that path of the process silently fails.
+  fix:
+  - Fix the `cases[].to` or `default` target.
+  - Use `END` if that path should finish the workflow.
+- number: 506
+  code: workflow_node_unreachable
+  severity:
+  - error
+  section: workflow graphs
+  refs:
+  - ADR-0096
+  title: Workflow node can never run
+  summary: A workflow node cannot be reached from the entry point.
+  explanation: Fires for every node not reachable from the entry by following valid edges
+    and branch targets. `where` is the workflow; the message names the node.
+  why: 'A step that cannot run is not a step: the design claims work (a check, an approval)
+    that never happens.'
+  fix:
+  - Add an edge or branch case leading to the node.
+  - Or remove the node.
+- number: 507
+  code: workflow_external_unbound
+  severity:
+  - error
+  - warning
+  section: workflow graphs
+  refs:
+  - ADR-0110
+  - ADR-0056
+  - ADR-0096
+  title: External workflow is bound to no engine
+  summary: A workflow built in an engine (body external) has no binding naming that engine
+    for the target being compiled.
+  explanation: 'Fires when a workflow declares `body: external` and the target''s binding has
+    no `workflows:` entry for it, or binds it only to the built-in interpreter. It needs the
+    binding, so the compiler raises it per target and the designer raises it when the design
+    was saved with a binding; the spec validator alone cannot. It is an error when the
+    target has a binding that does not bind the workflow, and a warning when the target is
+    compiled on the platform default with no binding at all, where the conformance report
+    names it as not carried. `where` is the workflow.'
+  why: The spec holds only an external workflow's interface. Without an engine that holds
+    its body, calling it would run nothing, and a declared step that silently does not happen
+    is the failure ADR-0096 exists to refuse.
+  fix:
+  - Add a `workflows:` entry to the target's binding with this workflow's id, the `engine`
+    and the engine's own `flow` id.
+  - 'Or, if the step should be drawn here, set `body: graph` and draw its graph.'
+  example: |-
+    # in the target's binding
+    workflows:
+      - workflow: invoice_capture
+        engine: <engine name from the runtime registry>
+        endpoint: http://flows.internal:7860/api/v1/run
+        flow: invoice-capture
+- number: 508
+  code: workflow_external_without_interface
+  severity:
+  - error
+  section: workflow graphs
+  refs:
+  - ADR-0110
+  title: External workflow declares no interface
+  summary: A workflow whose body lives in an engine declares nothing about what it receives,
+    calls or returns.
+  explanation: 'Fires when a workflow has `body: external` and every list of its `interface`
+    (inputs, outputs, tools, endpoints, receives_data_classes, returns_data_classes) is empty.
+    `where` is the workflow.'
+  why: The interface is the only part of an external step the platform can see and govern.
+    Empty, it says the step touches nothing, which is never true and cannot be checked
+    against the owner's capabilities or data classes.
+  fix:
+  - Declare the flow's inputs and outputs, the capabilities and endpoints it calls, and the
+    data classes it receives and returns.
+  example: |-
+    - id: invoice_capture
+      body: external
+      interface:
+        inputs: [purchase_order]
+        outputs: [invoice]
+        receives_data_classes: [financial_records]
+        returns_data_classes: [financial_records]
+- number: 509
+  code: workflow_step_owner_unknown
+  severity:
+  - error
+  section: workflow graphs
+  refs:
+  - ADR-0110
+  title: Workflow step names an unknown owner or approver
+  summary: A step's owner, or a human step's person or role, is not declared in the design.
+  explanation: Fires when a step's `owner` is not an agent, team or person id, or when a
+    `human` step's `person` or `role` is not a declared person or role. `where` is the
+    workflow; the message names the step.
+  why: Who owns a step is what the step is governed by. An owner that does not exist leaves
+    the capability and data class checks nobody to check against, and an approval nobody
+    can give.
+  fix:
+  - Fix the id, or declare the agent, team, person or role it means.
+- number: 510
+  code: workflow_step_owner_lacks_capability
+  severity:
+  - error
+  section: workflow graphs
+  refs:
+  - ADR-0110
+  - ADR-0010
+  title: Step owner lacks what the called interface uses
+  summary: A step calls a workflow whose interface names a capability, tool or endpoint the
+    step's owner does not hold.
+  explanation: Fires for a `workflow` step with an owner (its `owner`, or its agent) when the
+    called workflow's `interface.tools` names a capability or tool the owner does not hold
+    (directly, by role or through its team), or `interface.endpoints` names an endpoint the
+    owner may not call. `where` is the workflow.
+  why: A step built in another tool runs outside the agent's sandbox. Checking its declared
+    interface against its owner is what stops a step doing what its owner could not do by
+    hand.
+  fix:
+  - Give the step to an owner that holds the capability.
+  - Or grant the owner the capability through a role, if its mandate allows it.
+  - Or remove the capability from the interface if the flow does not use it.
+- number: 511
+  code: workflow_step_sends_unheld_data
+  severity:
+  - error
+  section: workflow graphs
+  refs:
+  - ADR-0110
+  - ADR-0030
+  title: Step sends data its owner may not send
+  summary: A step calls a workflow whose interface receives a data class the step's owner
+    holds no capability over.
+  explanation: Fires for a `workflow` step with an owner when a class in the called
+    interface's `receives_data_classes` is not among the data classes of the owner's
+    capabilities. `where` is the workflow.
+  why: Sending data to an external step is egress (ADR-0030). An owner can only send what
+    it holds; anything else is data leaving through a step that had no right to it.
+  fix:
+  - Remove the data class from `receives_data_classes` if the flow does not need it.
+  - Or give the step to an owner whose capabilities cover it.
+- number: 512
+  code: workflow_fork_without_join
+  severity:
+  - error
+  section: workflow graphs
+  refs:
+  - ADR-0110
+  title: Fork whose branches never meet at a join
+  summary: A fork step starts parallel branches and none of them reaches a join.
+  explanation: 'Fires for a node with `kind: fork` when following its edges never reaches a
+    node with `kind: join`. `where` is the workflow; the message names the fork.'
+  why: Parallel work that nothing waits for finishes whenever it finishes. What follows it
+    may run before a branch has done its part, such as paying before goods are received.
+  fix:
+  - Add a `join` step and lead every branch of the fork to it.
+  example: |-
+    nodes:
+      - {id: split, kind: fork}
+      - {id: together, kind: join}
+    edges:
+      - {from: split, to: receive}
+      - {from: split, to: capture}
+      - {from: receive, to: together}
+      - {from: capture, to: together}
+- number: 513
+  code: workflow_join_without_fork
+  severity:
+  - error
+  section: workflow graphs
+  refs:
+  - ADR-0110
+  title: Join that no fork leads to
+  summary: A join step waits for branches that no fork starts.
+  explanation: 'Fires for a node with `kind: join` that no `fork` node reaches. `where` is
+    the workflow; the message names the join.'
+  why: A join waits for every branch a fork began. With no fork it is a mistake or a fork
+    that was deleted, and the parallel work it was meant to wait for is not drawn.
+  fix:
+  - Add the fork that starts the branches, or replace the join with an ordinary edge.
+- number: 514
+  code: workflow_approval_without_approver
+  severity:
+  - warning
+  - error
+  section: workflow graphs
+  refs:
+  - ADR-0110
+  - ADR-0026
+  title: Human step names no person or role
+  summary: A human step pauses the workflow for a person without naming which person or role.
+  explanation: 'Fires for a node with `kind: human` that has no `person`, `role` or `owner`.
+    A warning in development and an error in production. `where` is the workflow.'
+  why: An approval that anyone can give is not an approval. Naming the person or role is what
+    lets the runtime route the pause and lets a review see who decides.
+  fix:
+  - Set `person` to a declared person, or `role` to a declared role.
+  example: |-
+    - id: coo_approval
+      kind: human
+      person: p_coo
+      output: approval
+- number: 601
+  code: scale_ceiling_below_one
+  severity:
+  - error
+  section: scale
+  refs:
+  - ADR-0095
+  title: 'Agent can never run: max instances below one'
+  summary: An agent's maximum instance count is below one, so it can never run.
+  explanation: Fires when `scaling.max_instances` on an agent is less than 1. `where` is the
+    agent.
+  why: An agent that can never run looks deployed but does nothing; stopping an agent should
+    be done by not deploying it.
+  fix:
+  - Set `scaling.max_instances` to 1 or more.
+  - To stop the agent, remove it from the deployment instead.
+  example: |-
+    scaling:
+      min_instances: 0
+      max_instances: 3
+      concurrent_sessions_per_instance: 4
+- number: 602
+  code: scale_floor_negative
+  severity:
+  - error
+  section: scale
+  refs:
+  - ADR-0095
+  title: Minimum instance count is negative
+  summary: An agent's minimum instance count is negative.
+  explanation: Fires when `scaling.min_instances` is below 0. `where` is the agent.
+  why: The capacity bound is impossible and would otherwise only be rejected by the cloud
+    at deploy time.
+  fix:
+  - Set `scaling.min_instances` to 0 or more.
+- number: 603
+  code: scale_floor_above_ceiling
+  severity:
+  - error
+  section: scale
+  refs:
+  - ADR-0095
+  title: Minimum instances exceed maximum
+  summary: An agent keeps more instances warm than it is allowed to run.
+  explanation: Fires when `scaling.min_instances` is greater than `scaling.max_instances`
+    (and the floor is not negative). `where` is the agent.
+  why: The floor cannot be above the ceiling; the design contradicts itself about capacity
+    and would fail at deployment.
+  fix:
+  - Lower `scaling.min_instances` or raise `scaling.max_instances` so min <= max.
+- number: 604
+  code: scale_concurrency_below_one
+  severity:
+  - error
+  section: scale
+  refs:
+  - ADR-0095
+  title: Instance accepts no concurrent sessions
+  summary: An agent's sessions-per-instance is below one, so an instance would accept no work.
+  explanation: Fires when `scaling.concurrent_sessions_per_instance` is less than 1. `where`
+    is the agent.
+  why: Instances would run and cost money while serving nothing.
+  fix:
+  - Set `scaling.concurrent_sessions_per_instance` to 1 or more.
+- number: 701
+  code: successor_is_self
+  severity:
+  - error
+  section: succession
+  refs:
+  - ADR-0094
+  title: Agent is its own successor
+  summary: An agent names itself as its successor.
+  explanation: Fires when an agent's `successor` equals its own id. `where` is the agent.
+  why: Succession exists for when the agent is not running, so naming itself covers nothing.
+  fix:
+  - Set `successor` to a different agent.
+  - Or remove `successor` so the manager stands in.
+- number: 702
+  code: unknown_successor
+  severity:
+  - error
+  section: succession
+  refs:
+  - ADR-0094
+  title: Successor is not a declared agent
+  summary: An agent names a successor that the spec does not declare.
+  explanation: Fires when an agent's `successor` is not an agent id in the organisation. `where`
+    is the agent.
+  why: The failover would be discovered broken during the outage it was meant to cover.
+  fix:
+  - Correct `successor` to an existing agent id.
+  - Or remove it so the manager stands in.
+- number: 703
+  code: successor_breaks_separation
+  severity:
+  - error
+  section: succession
+  refs:
+  - ADR-0094
+  - ADR-0070
+  title: Successor and leader together break a separation
+  summary: An agent and its declared successor, between them, hold both sides of a separation
+    rule.
+  explanation: Fires when separations exist and, for some rule, the agent's effective mandate
+    holds one of the rule's decisions and the successor's holds another, so standing in would
+    combine them. `where` is the agent whose `successor` is set.
+  why: Standing in would put both sides of a control in one place at exactly the moment nobody
+    is watching.
+  fix:
+  - Name a `successor` that holds neither side of the separation.
+  - Or leave `successor` unset so the manager stands in.
+- number: 801
+  code: unknown_policy_condition
+  severity:
+  - error
+  section: policy conditions
+  refs:
+  - ADR-0008
+  title: Policy guards on a key nothing evaluates
+  summary: A policy rule uses a condition key the platform does not evaluate.
+  explanation: Fires when a key in a policy's `conditions` or `unless` is not one of the platform's
+    known condition keys (e.g. `max_delegation_depth`, `requires_approval`, `environments`,
+    `data_classes`). The message lists the valid keys. `where` is the policy.
+  why: 'An unevaluated key is not inert: in `conditions` it mis-applies the rule, and in `unless`
+    it disapplies the whole rule, so a typo can turn a deny into an allow.'
+  fix:
+  - Correct the key to one the message lists.
+  - Remove the key if the condition is not supported.
+  example: |-
+    policies:
+      - id: no-pii-prod
+        effect: deny
+        conditions:
+          data_classes: [customer_pii]
+- number: 901
+  code: single_placement
+  severity:
+  - warning
+  section: placement
+  refs:
+  - ADR-0069
+  title: Every agent shares one placement
+  summary: No team is a placement boundary, so all placed agents share one sandbox.
+  explanation: Fires when only the organisation-level placement exists and more than one agent
+    is placed in it. `where` is the organisation.
+  why: 'All agents share a volume, process namespace and network: the widest arrangement,
+    and the one a design gets by not deciding.'
+  fix:
+  - 'Declare `placement: true` on teams whose agents should be kept apart.'
+  example: |-
+    teams:
+      - id: payments
+        placement: true
+- number: 902
+  code: placement_denies_delegation
+  severity:
+  - warning
+  section: placement
+  refs:
+  - ADR-0069
+  title: Network policy blocks a delegation in the org chart
+  summary: An agent may hand work to another, but the generated network policy between their
+    placements does not allow it.
+  explanation: Fires when the org chart gives one agent a standing reach to another (the message
+    says how) and the placements they live in are not permitted to reach each other. `where`
+    is the delegating agent.
+  why: 'The org chart and deployed rules disagree, and nothing at run time will say so: the
+    handoff will simply fail.'
+  fix:
+  - 'Move the agents into placements that may reach each other, or adjust which teams set
+    `placement: true`.'
+  - Or remove the delegation or reporting line if it should not exist.
+- number: 903
+  code: separated_agents_co_resident
+  severity:
+  - warning
+  section: placement
+  refs:
+  - ADR-0069
+  - ADR-0068
+  title: Separated agents share a sandbox
+  summary: Agents on opposite sides of a separation rule sit in the same placement.
+  explanation: Fires when, within one placement, two or more agents each hold decisions from
+    the same separation rule and they hold different sides. `where` is the placement.
+  why: The separation still holds, but the agents share a volume and process namespace, so
+    the control is weaker than the rule reads.
+  fix:
+  - 'Declare `placement: true` on the unit that should be separate.'
+  - Or move one of the agents into a different team.
+- number: 1001
+  code: both_without_authority
+  severity:
+  - error
+  section: control ownership
+  refs:
+  - ADR-0073
+  title: Dual-enforced control does not say which wins
+  summary: A control enforced by both the platform and an application does not name which
+    is authoritative.
+  explanation: 'Fires when `enforcement.enforced_by: both` and `enforcement.authoritative`
+    is missing, or is itself `both`. Checked on capability constraints, team and agent mandate
+    conditions, and separations. `where` is the capability, team, agent or separation.'
+  why: Two rule sets that can disagree need an answer, not a debate; without one the effective
+    bound is undefined.
+  fix:
+  - Set `enforcement.authoritative` to `platform` or `application`.
+  example: |-
+    enforcement:
+      enforced_by: both
+      authoritative: application
+      enforced_in: erp
+- number: 1002
+  code: application_control_unnamed
+  severity:
+  - warning
+  section: control ownership
+  refs:
+  - ADR-0073
+  title: Application-enforced control names no system
+  summary: A control left to an application does not say which application enforces it.
+  explanation: 'Fires when `enforcement.enforced_by: application` and `enforcement.enforced_in`
+    is empty. `where` is the capability, team, agent or separation.'
+  why: A control nobody can point at is a control nobody will check.
+  fix:
+  - Set `enforcement.enforced_in` to the system that enforces it.
+- number: 1003
+  code: unenforceable_platform_control
+  severity:
+  - error
+  section: control ownership
+  refs:
+  - ADR-0073
+  title: Platform claims a control it cannot evaluate
+  summary: A control is claimed as enforced by this platform, but nothing here evaluates it.
+  explanation: 'Fires when `enforced_by` is `platform` or `both` and a claimed bound is not
+    evaluable here: for capabilities, a set constraint (`requires_approval`, `max_rows`, `masked_fields`,
+    `allowed_operations`, `resource_scope`, `rate_per_minute`) outside the platform-evaluated
+    set; for mandates, a `mandate.conditions` key that is not evaluable. `where` is the capability,
+    team or agent.'
+  why: A bound that reads as enforced and is not is worse than no bound.
+  fix:
+  - Remove the unevaluable constraint or condition.
+  - 'Or declare `enforcement.enforced_by: application` and name the system in `enforced_in`.'
+- number: 1004
+  code: platform_bound_wider_than_application
+  severity:
+  - error
+  section: control ownership
+  refs:
+  - ADR-0073
+  title: Platform bound wider than the application's
+  summary: The platform allows more for a control than the application is recorded as allowing.
+  explanation: Fires when a platform or dual-enforced control has an entry in `enforcement.application_bounds`
+    and the spec's own value for the same bound (a capability constraint or mandate condition)
+    is wider. `where` is the capability, team or agent.
+  why: A platform bound may narrow what the application permits, never widen it; otherwise
+    the design claims permission the system of record would refuse.
+  fix:
+  - Tighten the constraint or `mandate.conditions` value to at most the application bound.
+  - Or correct `application_bounds` if it is out of date.
+- number: 1101
+  code: autonomy_widened
+  severity:
+  - error
+  section: autonomy postures
+  refs:
+  - ADR-0072
+  title: Agent loosens a capability's autonomy
+  summary: An agent declares a more autonomous posture for a capability than the capability
+    allows.
+  explanation: 'Fires when an agent''s `autonomy.<capability>` ranks as more authority than
+    the capability''s own `autonomy` (least to most: advisory, human_decides, supervised,
+    autonomous). `where` is `agent/capability`.'
+  why: An assignment may only ever tighten; loosening lets one agent act with less oversight
+    than the capability was designed for.
+  fix:
+  - Set the agent's `autonomy.<capability>` to the capability's posture or tighter.
+  - Or remove the override.
+- number: 1102
+  code: advisory_mutates
+  severity:
+  - error
+  section: autonomy postures
+  refs:
+  - ADR-0072
+  title: Advisory activity changes a system of record
+  summary: A capability run under an advisory posture performs a mutating action.
+  explanation: Fires when the effective posture (the agent's `autonomy` override, else the
+    capability's `autonomy`) is `advisory` and the capability `action` is anything other than
+    `read` or `query`. `where` is `agent/capability`.
+  why: Advisory means read and model only; a mutating action under that label changes records
+    with no decision class or oversight.
+  fix:
+  - Change the capability `action` to `read` or `query`.
+  - Or give it a `decision` class and a non-advisory `autonomy`.
+- number: 1103
+  code: autonomous_without_decision
+  severity:
+  - error
+  section: autonomy postures
+  refs:
+  - ADR-0072
+  title: Autonomous activity names no decision class
+  summary: A capability runs autonomously but names no decision class.
+  explanation: Fires when the effective posture is `autonomous` and the capability has no
+    `decision`. `where` is `agent/capability`.
+  why: Without a decision class no mandate governs the action, no condition bounds it and
+    nothing can escalate.
+  fix:
+  - Set the capability `decision` to a declared decision class.
+  - Or lower the posture to `supervised` or `human_decides`.
+  example: |-
+    capabilities:
+      - id: issue_refund
+        action: write
+        decision: approve_refund
+        autonomy: autonomous
+- number: 1104
+  code: autonomous_without_mandate
+  severity:
+  - error
+  section: autonomy postures
+  refs:
+  - ADR-0072
+  title: Autonomous agent does not hold the decision
+  summary: An agent runs a capability autonomously but its mandate does not include the capability's
+    decision.
+  explanation: Fires when the effective posture is `autonomous`, the capability names a `decision`,
+    and the agent's effective mandate (including inheritance) does not hold it. `where` is
+    `agent/capability`.
+  why: 'The declared posture is false: every call would escalate, so the design misdescribes
+    how the agent behaves.'
+  fix:
+  - Add the decision to the agent's (or its team's) `mandate.decisions`.
+  - Or lower the posture to `supervised` or `human_decides`.
+- number: 1105
+  code: autonomy_without_evidence
+  severity:
+  - warning
+  section: autonomy postures
+  refs:
+  - ADR-0072
+  - ADR-0060
+  title: Autonomous agent has no evaluation
+  summary: An agent acts autonomously but no evaluation case applies to it.
+  explanation: Fires when the effective posture is `autonomous` and no case in `lifecycle.evaluations`
+    covers the agent, either by listing it in `applies_to` or by having an empty `applies_to`.
+    Raised as a strict-mode finding. `where` is `agent/capability`.
+  why: 'Never-evaluated is not safe-unattended: there is no evidence the agent behaves well
+    enough to act alone.'
+  fix:
+  - Add an evaluation case under `lifecycle.evaluations` whose `applies_to` includes the agent.
+  example: |-
+    lifecycle:
+      evaluations:
+        - id: refund-accuracy
+          applies_to: [refunds]
+- number: 1106
+  code: supervised_without_approval
+  severity:
+  - error
+  section: autonomy postures
+  refs:
+  - ADR-0072
+  title: Supervised activity requires no approval
+  summary: A capability is declared supervised but does not require approval.
+  explanation: Fires when the effective posture is `supervised` and the capability's `constraints.requires_approval`
+    is not set. `where` is `agent/capability`.
+  why: Supervised means a person confirms before it takes effect; without an approval requirement
+    nothing stops for a person.
+  fix:
+  - 'Set `constraints.requires_approval: true` on the capability.'
+  - Or change the posture to reflect what actually happens.
+- number: 1107
+  code: supervised_by_its_own_owner
+  severity:
+  - warning
+  section: autonomy postures
+  refs:
+  - ADR-0072
+  title: Only the owner can confirm a supervised activity
+  summary: A supervised activity has no approver other than the agent's own owner.
+  explanation: Fires when the effective posture is `supervised` and none of the agent's `humans`
+    has the `approver` role without also being an owner. `where` is `agent/capability`.
+  why: The owner confirming their own agent is not a second pair of eyes.
+  fix:
+  - Add a person to the agent's `humans` with the `approver` role who is not an owner.
+  example: |-
+    humans:
+      - person: dana
+        roles: [owner]
+      - person: lee
+        roles: [approver]
+- number: 1108
+  code: human_decides_but_agent_holds
+  severity:
+  - error
+  section: autonomy postures
+  refs:
+  - ADR-0072
+  title: Human decides, but the agent holds the decision
+  summary: A capability is declared as the human's decision, yet the agent holds that decision
+    in its mandate.
+  explanation: Fires when the effective posture is `human_decides` and the agent's effective
+    mandate includes the capability's `decision`. `where` is `agent/capability`.
+  why: Because the agent holds the decision, the call would never reach a person, contradicting
+    the declared posture.
+  fix:
+  - Remove the decision from the agent's `mandate.decisions` (or narrow the inherited mandate).
+  - Give the decision to a person's `mandate` instead.
+  - Or change the posture if the agent really decides.
+- number: 1109
+  code: human_decides_with_no_holder
+  severity:
+  - warning
+  section: autonomy postures
+  refs:
+  - ADR-0072
+  title: Human decision that no agent holds
+  summary: A capability is marked human-decides but no agent anywhere holds its decision class.
+  explanation: Fires when an agent's capability has posture `human_decides`, the agent itself
+    does not hold the capability's `decision`, and no agent in the organization holds that
+    decision class in its effective mandate. `where` is `<agent>/<capability>`.
+  why: The work is handed off to somebody else to decide, but nobody inside the organization
+    can decide it, so it can never complete.
+  fix:
+  - Give the decision class to the agent or team that should decide it, via `mandate.decisions`.
+  - Or change the capability posture if the agent itself should decide (supervised or autonomous).
+  - Or drop `decision` from the capability if no decision is involved.
+  example: |-
+    mandate:
+      decisions: [refund.approve]
+- number: 1110
+  code: mandate_overreach
+  severity:
+  - error
+  section: autonomy postures
+  refs:
+  - ADR-0072
+  - ADR-0071
+  - ADR-0065
+  title: Unit claims authority its line does not hold
+  summary: A team or agent claims decision classes that an ancestor has narrowed away.
+  explanation: 'Authority narrows downward: each unit''s effective mandate is intersected
+    with its ancestors''. This fires for every unit whose declared `mandate.decisions` include
+    classes not held by its line, so the claim is silently dropped. `where` is the unit id;
+    the message lists the overreaching classes.'
+  why: The unit would decide less than its author believes. People reading the spec would
+    act on authority that does not exist at runtime (ADR-0071).
+  fix:
+  - Widen the ancestor team that excludes the decision class, in its `mandate.decisions`.
+  - Or remove the claim from this unit's `mandate.decisions`.
+  - Use Review authority on the Org chart to see the effective mandate per unit.
+- number: 1201
+  code: team_without_leader
+  severity:
+  - error
+  section: organization structure
+  refs:
+  - ADR-0006
+  title: Team has no leader
+  summary: A team does not name a leader.
+  explanation: Fires for any team whose `leader` field is empty. `where` is the team id.
+  why: Every team needs one accountable agent that coordinates it and represents it in the
+    parent team (ADR-0006).
+  fix:
+  - Set `leader` to one of the team's members.
+  example: |-
+    id: billing
+    leader: billing-lead
+    members:
+      - id: billing-lead
+- number: 1202
+  code: leader_not_member
+  severity:
+  - error
+  section: organization structure
+  refs:
+  - ADR-0006
+  title: Team leader is not a member
+  summary: The team names a leader that is not in its own members list.
+  explanation: Fires when a team's `leader` is set but is not the id of any entry in that
+    team's `members`. `where` is the team id.
+  why: A leader outside the team has no home there, so the team is led by an agent it does
+    not contain and the structure is ambiguous.
+  fix:
+  - Add the leader agent to the team's `members`.
+  - Or change `leader` to an existing member.
+- number: 1203
+  code: child_leader_double_listed
+  severity:
+  - error
+  section: organization structure
+  refs:
+  - ADR-0006
+  title: Child team leader also listed in parent
+  summary: A sub-team's leader is also listed as a member of the parent team.
+  explanation: Fires when a child team's `leader` also appears in the parent team's `members`.
+    A child's leader participates in the parent implicitly through leadership (ADR-0006 v1.1.0).
+    `where` is the child team id.
+  why: Listing it twice gives the agent two home teams, breaking the one-home-team rule.
+  fix:
+  - Remove the child leader from the parent team's `members`; keep it only in the child team.
+- number: 1204
+  code: multiple_home_teams
+  severity:
+  - error
+  section: organization structure
+  refs:
+  - ADR-0006
+  title: Agent belongs to more than one team
+  summary: An agent appears in the members list of more than one team.
+  explanation: Fires when the same agent id appears in `members` of two or more teams. `where`
+    is the agent id; the message lists the teams.
+  why: Each agent has exactly one home team, which determines its reporting line and inherited
+    authority; two homes make both ambiguous.
+  fix:
+  - Keep the agent in one team's `members` only.
+  - Express cross-team work with `peers` or a mission instead of double membership.
+- number: 1301
+  code: unknown_role
+  severity:
+  - error
+  section: references
+  refs: []
+  title: Reference to an undeclared role
+  summary: An agent, team or mission is assigned a role that is not declared.
+  explanation: Fires when an entry in `roles` of an agent, team or mission names a role id
+    not found in the spec's `roles`. `where` is the agent, team or mission id.
+  why: An undefined role grants nothing, so the unit silently lacks the capabilities and responsibilities
+    the author intended.
+  fix:
+  - Fix the typo in the `roles[].role` id.
+  - Or declare the role under top-level `roles`.
+- number: 1302
+  code: wrong_role_kind
+  severity:
+  - error
+  section: references
+  refs: []
+  title: Role of the wrong kind assigned
+  summary: An agent was given a team role, or a team an agent role.
+  explanation: Fires when an agent's `roles` names a role whose `kind` is not `agent`, or
+    a team's `roles` names a role whose `kind` is not `team`. `where` is the agent or team
+    id.
+  why: Agent roles and team roles carry different meaning; mixing them assigns responsibilities
+    to the wrong kind of unit.
+  fix:
+  - Assign a role of the matching `kind`.
+  - Or change the role's `kind` if it was declared wrongly.
+- number: 1303
+  code: unknown_capability
+  severity:
+  - error
+  section: references
+  refs: []
+  title: Agent references an undeclared capability
+  summary: An agent lists a capability id that does not exist.
+  explanation: Fires when an id in an agent's `capabilities` is not declared in top-level
+    `capabilities`. `where` is the agent id.
+  why: The agent would be expected to do work that has no definition, data classes or posture,
+    so nothing governs it.
+  fix:
+  - Correct the id in the agent's `capabilities`.
+  - Or declare the capability in top-level `capabilities`.
+- number: 1304
+  code: unknown_workflow
+  severity:
+  - error
+  section: references
+  refs: []
+  title: Agent references an undeclared workflow
+  summary: An agent lists a workflow id that does not exist.
+  explanation: Fires when an id in an agent's `workflows` is not declared in top-level `workflows`.
+    `where` is the agent id.
+  why: The agent claims to take part in a process that is not defined, so it cannot be run
+    or reviewed.
+  fix:
+  - Correct the id in the agent's `workflows`.
+  - Or declare the workflow in top-level `workflows`.
+- number: 1305
+  code: unknown_peer
+  severity:
+  - error
+  section: references
+  refs: []
+  title: Agent references an unknown peer
+  summary: An agent lists a peer that is not an agent in this organization.
+  explanation: Fires when an id in an agent's `peers` is not the id of any agent in the organization.
+    `where` is the agent id.
+  why: A peer link to nobody is a collaboration path that cannot exist.
+  fix:
+  - Correct the id in `peers`, or remove the entry.
+- number: 1306
+  code: unknown_environment
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0069
+  - ADR-0082
+  title: Agent references an undeclared environment
+  summary: An agent declares a sandbox environment that does not exist.
+  explanation: Fires when an entry in an agent's `environments` names an `environment` id
+    not declared in top-level `environments`. `where` is the agent id.
+  why: The agent would run in a sandbox with no definition, so its boundary is unknown.
+  fix:
+  - Correct `environments[].environment`.
+  - Or declare the environment in top-level `environments`.
+- number: 1307
+  code: duplicate_environment
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0069
+  - ADR-0082
+  title: Agent declares an environment twice
+  summary: The same environment appears more than once in an agent's environments.
+  explanation: Fires when an agent's `environments` list contains two entries with the same
+    `environment` id. `where` is the agent id.
+  why: Each entry narrows the environment; two narrowings of one sandbox are two conflicting
+    answers to one question.
+  fix:
+  - Merge the two entries into one `environments` entry.
+- number: 1308
+  code: capability_without_a_sandbox
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0069
+  - ADR-0082
+  title: Capability has nowhere to run
+  summary: A capability's data classes are not allowed in any environment the agent runs in.
+  explanation: Only checked when the agent declares `environments`. For each capability it
+    holds (directly or via roles), the intersection of its data classes' `allowed_environments`
+    (empty means anywhere) is compared with the agent's environments; it fires when nothing
+    is left. `where` is the agent id.
+  why: Which sandbox a call uses is derived, not declared; if the intersection is empty the
+    work has nowhere it may legitimately happen (ADR-0082).
+  fix:
+  - Add an environment to the agent's `environments` that the data classes allow.
+  - Or widen `allowed_environments` on the data class, if appropriate.
+  - Or remove the capability from the agent.
+- number: 1309
+  code: sandbox_without_work
+  severity:
+  - warning
+  section: references
+  refs:
+  - ADR-0069
+  - ADR-0082
+  title: Declared sandbox that nothing uses
+  summary: An agent declares an environment that none of its capabilities can use.
+  explanation: Only checked when the agent declares `environments`. Fires for each declared
+    environment that is not permitted by the data classes of any capability the agent holds.
+    `where` is the agent id.
+  why: A sandbox nothing runs in is a boundary nobody is inside, which usually means a misconfiguration.
+  fix:
+  - Remove the unused entry from `environments`.
+  - Or allow it on the relevant data class `allowed_environments`.
+- number: 1310
+  code: agent_without_human
+  severity:
+  - warning
+  section: references
+  refs:
+  - ADR-0026
+  title: Agent paired with no human
+  summary: An agent has no paired humans at all.
+  explanation: Fires when an agent's `humans` list is empty. It is a warning that becomes
+    an error in strict mode. `where` is the agent id.
+  why: Every agent should have an accountable person to own it, approve its actions and be
+    escalated to (ADR-0026).
+  fix:
+  - Add a `humans` entry with the `owner` role.
+  example: |-
+    humans:
+      - person: ana
+        roles: [owner]
+- number: 1311
+  code: agent_without_owner
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0026
+  title: Agent has humans but no owner
+  summary: An agent is paired with people but none is the accountable owner.
+  explanation: Fires when an agent has at least one entry in `humans` but none has the `owner`
+    role. `where` is the agent id.
+  why: Without an owner nobody is accountable for the agent's behaviour.
+  fix:
+  - Give exactly one `humans` entry the `owner` role.
+- number: 1312
+  code: multiple_owners
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0026
+  title: Agent has more than one owner
+  summary: More than one paired human holds the owner role.
+  explanation: Fires when two or more entries in an agent's `humans` have the `owner` role.
+    `where` is the agent id; the message lists them.
+  why: Accountability shared between several people is accountability held by nobody.
+  fix:
+  - Keep `owner` on exactly one `humans` entry; give the others `approver` or other roles.
+- number: 1313
+  code: duplicate_pairing
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0026
+  - ADR-0079
+  title: Same person paired twice
+  summary: An agent pairs the same person in two humans entries.
+  explanation: Fires when two entries in an agent's `humans` resolve to the same principal
+    (the declared `person`, or the contact when no person is named). `where` is the agent
+    id.
+  why: Duplicate pairings make roles ambiguous; one person should have one pairing listing
+    all their roles.
+  fix:
+  - Merge the entries into one `humans` entry with combined `roles`.
+- number: 1314
+  code: unknown_human_channel
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0026
+  - ADR-0021
+  title: Human routed to an unknown channel
+  summary: A paired human is reached via a channel that is not declared.
+  explanation: Fires when an entry in an agent's `humans` sets `channel` to an id not in top-level
+    `channels`. `where` is the agent id.
+  why: Approvals and escalations sent to a nonexistent channel never reach the person.
+  fix:
+  - Correct `humans[].channel`, or declare the channel under `channels`.
+- number: 1315
+  code: approvals_without_approver
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0026
+  title: Approvals required but no approver
+  summary: An agent gates actions behind approval but pairs no approver.
+  explanation: Fires when an agent's `approval_required_for` is non-empty and none of its
+    `humans` has the `approver` role. `where` is the agent id.
+  why: Gated actions would wait forever for an approval nobody can give.
+  fix:
+  - Add a `humans` entry with the `approver` role.
+  - Or empty `approval_required_for`.
+- number: 1316
+  code: action_without_approver
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0026
+  title: Gated action no approver covers
+  summary: A specific gated action has no paired approver that covers it.
+  explanation: Fires for each action in `approval_required_for` for which the agent has no
+    approver covering it (an approver may be scoped to particular actions). `where` is the
+    agent id.
+  why: That action can never be approved, so it is blocked even if approvers exist for other
+    actions.
+  fix:
+  - Extend an approver's scope to include the action, or add an approver for it.
+  - Or remove the action from `approval_required_for`.
+- number: 1317
+  code: unknown_skill
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0029
+  title: Reference to an undeclared skill
+  summary: An agent or plugin references a skill id that is not declared.
+  explanation: Fires when an id in an agent's `skills`, or in a plugin's `provides_skills`,
+    is not declared in top-level `skills`. `where` is the agent or plugin id.
+  why: An undefined skill gives the agent no instructions and cannot be reviewed.
+  fix:
+  - Correct the skill id.
+  - Or declare the skill under top-level `skills`.
+- number: 1318
+  code: skill_without_capability
+  severity:
+  - warning
+  section: references
+  refs:
+  - ADR-0029
+  title: Skill assumes capabilities the agent lacks
+  summary: An agent holds a skill whose required capabilities it does not have.
+  explanation: Fires when a skill in an agent's `skills` lists `requires_capabilities` not
+    in the agent's effective capabilities (direct plus via roles). `where` is the agent id;
+    the message lists the missing ones.
+  why: The skill's instructions assume abilities the agent cannot exercise, so it will fail
+    or attempt unauthorised work.
+  fix:
+  - Grant the missing capabilities to the agent or one of its roles.
+  - Or remove the skill from the agent.
+- number: 1319
+  code: unknown_plugin
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0029
+  title: Agent references an undeclared plugin
+  summary: An agent installs a plugin id that is not declared.
+  explanation: Fires when an id in an agent's `plugins` is not declared in top-level `plugins`.
+    `where` is the agent id.
+  why: An undefined plugin has unknown contents and requirements.
+  fix:
+  - Correct the id, or declare the plugin under `plugins`.
+- number: 1320
+  code: plugin_without_capability
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0029
+  title: Plugin requires capabilities the agent lacks
+  summary: An agent installs a plugin that requires capabilities it does not hold.
+  explanation: Fires when a plugin in an agent's `plugins` lists `requires_capabilities` missing
+    from the agent's effective capabilities. `where` is the agent id.
+  why: A plugin bundles tools that act; installing it without the underlying capabilities
+    would grant access by the back door.
+  fix:
+  - Grant the missing capabilities to the agent or a role.
+  - Or remove the plugin.
+- number: 1321
+  code: unknown_tool
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0029
+  title: Reference to an undeclared tool
+  summary: An agent or plugin references a tool id that is not declared.
+  explanation: Fires when an id in an agent's `tools`, or a plugin's `provides_tools`, is
+    not in top-level `tools`. `where` is the agent or plugin id.
+  why: An undefined tool has no known wrapped target, so its access cannot be checked.
+  fix:
+  - Correct the tool id, or declare it under `tools`.
+- number: 1322
+  code: tool_without_capability
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0029
+  title: Tool wraps a capability the agent lacks
+  summary: An agent holds a tool that wraps a capability it does not hold.
+  explanation: 'Fires when a tool in the agent''s `tools` has `wraps_kind: capability` and
+    its `wraps` is not in the agent''s effective capabilities. `where` is the agent id.'
+  why: A tool must not be a way to exercise a capability the agent was never given.
+  fix:
+  - Grant the wrapped capability to the agent or a role.
+  - Or remove the tool.
+- number: 1323
+  code: tool_without_endpoint
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0029
+  - ADR-0030
+  title: Tool wraps an endpoint the agent cannot reach
+  summary: An agent holds a tool wrapping an endpoint not in its endpoints.
+  explanation: 'Fires when a tool has `wraps_kind: endpoint` and its `wraps` is not in the
+    agent''s `endpoints`. `where` is the agent id.'
+  why: The tool would reach an external system the agent is not allowed to call.
+  fix:
+  - Add the endpoint to the agent's `endpoints`.
+  - Or remove the tool.
+- number: 1324
+  code: tool_without_workflow
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0029
+  title: Tool wraps a workflow the agent cannot invoke
+  summary: An agent holds a tool wrapping a workflow not in its workflows.
+  explanation: 'Fires when a tool has `wraps_kind: workflow` and its `wraps` is not in the
+    agent''s `workflows`. `where` is the agent id.'
+  why: The tool would start a process the agent is not part of.
+  fix:
+  - Add the workflow to the agent's `workflows`.
+  - Or remove the tool.
+- number: 1325
+  code: tool_without_subagent
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0029
+  - ADR-0027
+  title: Tool wraps a sub-agent that is not defined
+  summary: An agent holds a tool wrapping a sub-agent it does not define.
+  explanation: 'Fires when a tool has `wraps_kind: subagent` and its `wraps` is not the id
+    of one of the agent''s own `subagents`. `where` is the agent id.'
+  why: The tool would call a sub-agent that does not exist for this agent.
+  fix:
+  - Define the sub-agent under the agent's `subagents`.
+  - Or correct the tool's `wraps`, or remove the tool.
+- number: 1326
+  code: duplicate_subagent
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0027
+  title: Sub-agent defined twice
+  summary: An agent defines two sub-agents with the same id.
+  explanation: Fires when two entries in an agent's `subagents` share an `id`. `where` is
+    the agent id.
+  why: Tools and calls refer to sub-agents by id, so duplicates are ambiguous.
+  fix:
+  - Rename or merge one of the `subagents` entries.
+- number: 1327
+  code: subagent_widens_access
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0027
+  title: Sub-agent requests capabilities its parent lacks
+  summary: A sub-agent asks for capabilities its parent agent does not hold.
+  explanation: Fires when a sub-agent's `capabilities` include ids not in the parent's effective
+    capabilities. `where` is the parent agent id.
+  why: Sub-agents may only narrow their parent's access (ADR-0027); otherwise they are a privilege
+    escalation.
+  fix:
+  - Remove the extra ids from the sub-agent's `capabilities`.
+  - Or grant them to the parent, if it should have them.
+- number: 1328
+  code: subagent_widens_tools
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0027
+  title: Sub-agent requests tools its parent lacks
+  summary: A sub-agent asks for tools its parent agent does not hold.
+  explanation: Fires when a sub-agent's `tools` include ids not in the parent's `tools`. `where`
+    is the parent agent id.
+  why: Sub-agents narrow only; extra tools would let them act beyond the caller.
+  fix:
+  - Remove the extra tools from the sub-agent, or add them to the parent's `tools`.
+- number: 1329
+  code: subagent_widens_knowledge
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0027
+  - ADR-0023
+  title: Sub-agent requests knowledge its parent lacks
+  summary: A sub-agent asks for knowledge sources its parent does not have.
+  explanation: Fires when a sub-agent's `knowledge` include ids not in the parent's `knowledge`.
+    `where` is the parent agent id.
+  why: Knowledge sources carry data classes; widening them leaks data the caller was never
+    given.
+  fix:
+  - Remove the extra sources from the sub-agent's `knowledge`, or add them to the parent.
+- number: 1330
+  code: subagent_changes_environment
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0027
+  - ADR-0082
+  title: Sub-agent runs outside its parent's sandboxes
+  summary: A sub-agent requests a sandbox its parent does not run in.
+  explanation: Only checked when the parent declares `environments`. Fires when a sub-agent's
+    `environments` include ids the parent does not declare. `where` is the parent agent id.
+  why: A sub-agent that could choose its own sandbox would reach a boundary the caller was
+    never given.
+  fix:
+  - Restrict the sub-agent's `environments` to the parent's.
+  - Or add the environment to the parent.
+- number: 1331
+  code: subagent_exceeds_run_budget
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0027
+  title: Sub-agent runtime exceeds the system budget
+  summary: A sub-agent allows more runtime than the system-wide run budget.
+  explanation: Fires when a sub-agent's `max_runtime_seconds` is greater than `resilience.max_run_seconds`.
+    `where` is the parent agent id.
+  why: A sub-agent must fit inside the run that calls it; otherwise it outlives the budget
+    meant to bound it.
+  fix:
+  - Lower the sub-agent's `max_runtime_seconds`.
+  - Or raise `resilience.max_run_seconds` deliberately.
+- number: 1332
+  code: subagent_without_return
+  severity:
+  - warning
+  section: references
+  refs:
+  - ADR-0027
+  title: Sub-agent does not say what it returns
+  summary: A sub-agent has no declared return value.
+  explanation: Fires when a sub-agent's `returns` is empty. `where` is the parent agent id.
+  why: Sub-agents are used as tools; a tool with an undefined result is hard to use well and
+    to check.
+  fix:
+  - Describe the result in the sub-agent's `returns`, and optionally set an `output_contract`.
+- number: 1333
+  code: unknown_endpoint
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0030
+  title: Agent references an undeclared endpoint
+  summary: An agent lists an endpoint id that is not declared.
+  explanation: Fires when an id in an agent's `endpoints` is not in top-level `endpoints`.
+    `where` is the agent id.
+  why: An undefined external endpoint has unknown trust and data rules, so calls to it cannot
+    be governed.
+  fix:
+  - Correct the id, or declare the endpoint under `endpoints`.
+- number: 1334
+  code: unknown_data_class
+  severity:
+  - error
+  section: references
+  refs: []
+  title: Reference to an undeclared data class
+  summary: Something names a data class that is not declared.
+  explanation: 'Fires wherever a data class id is not in top-level `data_classes`: an endpoint''s
+    `send_data_classes`, a capability''s `data_classes`, an environment''s `mounts`, a guardrail,
+    artifact store, memory namespace, channel `forbid_data_classes` or knowledge source. `where`
+    is the id of the referencing item.'
+  why: Data classes carry the sharing scope and placement rules; an unknown one cannot be
+    protected.
+  fix:
+  - Correct the data class id.
+  - Or declare it under `data_classes` with a scope.
+- number: 1335
+  code: endpoint_exfiltration
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0030
+  title: Non-internal endpoint may receive non-public data
+  summary: An endpoint outside the organization may be sent non-public data.
+  explanation: Fires when an endpoint whose `trust` is not `internal` lists in `send_data_classes`
+    a data class whose `scope` is not `public`. Checked for each endpoint an agent lists;
+    `where` is the endpoint id.
+  why: Sending protected or private data to a partner or external system is data exfiltration.
+  fix:
+  - Remove the non-public class from the endpoint's `send_data_classes`.
+  - Or reclassify the endpoint as `internal` only if it truly is.
+- number: 1336
+  code: endpoint_trusts_output
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0030
+  title: Untrusted endpoint output not treated as data
+  summary: A non-internal endpoint's answers are not marked as data.
+  explanation: Fires when an endpoint whose `trust` is not `internal` has `treat_output_as_data`
+    false. `where` is the endpoint id.
+  why: Replies from outside systems can carry prompt injection; they must be read as data,
+    never as instructions.
+  fix:
+  - 'Set `treat_output_as_data: true` on the endpoint.'
+  example: |-
+    endpoints:
+      - id: weather-api
+        trust: external
+        treat_output_as_data: true
+- number: 1337
+  code: external_endpoint_ungated
+  severity:
+  - warning
+  section: references
+  refs:
+  - ADR-0030
+  title: External endpoint callable without approval
+  summary: An agent may call an external endpoint with no approval gate.
+  explanation: Fires when an agent lists an endpoint whose `trust` is `external` and `requires_approval`
+    is false. Warning; error in strict mode. `where` is the agent id.
+  why: Calls to fully external systems are where data leaves and side effects happen; a human
+    check is the default safeguard.
+  fix:
+  - 'Set `requires_approval: true` on the endpoint.'
+  - Or accept the risk knowingly and leave it as a warning.
+- number: 1338
+  code: unknown_guardrail
+  severity:
+  - error
+  section: references
+  refs: []
+  title: Agent references an undeclared guardrail
+  summary: An agent lists a guardrail id that is not declared.
+  explanation: Fires when an id in an agent's `guardrails` is not in top-level `guardrails`.
+    `where` is the agent id.
+  why: A missing guardrail means a protection the author relied on does not exist.
+  fix:
+  - Correct the id, or declare the guardrail under `guardrails`.
+- number: 1339
+  code: unknown_artifact_store
+  severity:
+  - error
+  section: references
+  refs: []
+  title: Reference to an undeclared artifact store
+  summary: An agent or context setting names an artifact store that does not exist.
+  explanation: Fires when an agent's `artifact_store`, an agent's `context.offload_to`, or
+    the system `context.offload_to` names a store not in `artifact_stores`. `where` is the
+    agent id (none for the system context).
+  why: Work products or offloaded context would be written to nowhere, and the store's access
+    rules cannot apply.
+  fix:
+  - Correct the store id, or declare it under `artifact_stores`.
+- number: 1340
+  code: unknown_output_contract
+  severity:
+  - error
+  section: references
+  refs: []
+  title: Reference to an undeclared output contract
+  summary: An agent or sub-agent names an output contract that does not exist.
+  explanation: Fires when an agent's or one of its sub-agents' `output_contract` is not in
+    top-level `output_contracts`. `where` is the agent id.
+  why: Outputs cannot be validated against a contract that is not defined.
+  fix:
+  - Correct the id, or declare the contract under `output_contracts`.
+- number: 1341
+  code: unknown_memory_namespace
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0028
+  title: Agent uses an undeclared memory namespace
+  summary: An agent's memory names a namespace that is not declared.
+  explanation: Fires when an id in an agent's `memory.namespaces` is not a declared memory
+    namespace. `where` is the agent id.
+  why: Memory namespaces carry scope and data classes; an undeclared one has no access control
+    (ADR-0028).
+  fix:
+  - Correct the id, or declare the namespace.
+- number: 1342
+  code: placement_violation
+  severity:
+  - error
+  section: references
+  refs:
+  - ADR-0069
+  title: Data class mounted where it is not allowed
+  summary: An environment mounts a data class that forbids that environment.
+  explanation: Fires when an environment's `mounts` includes a data class whose non-empty
+    `allowed_environments` does not list that environment. `where` is the environment id.
+  why: Placement rules keep sensitive data inside approved sandboxes; mounting it elsewhere
+    breaks that boundary.
+  fix:
+  - Remove the data class from the environment's `mounts`.
+  - Or add the environment to the data class `allowed_environments` if it is approved.
+- number: 1343
+  code: egress_on_isolated_env
+  severity:
+  - error
+  section: references
+  refs: []
+  title: Isolated environment declares egress
+  summary: An environment with no network access also lists hosts it may reach.
+  explanation: Fires when an environment's `network` posture is `none` but its `egress_allowlist`
+    is non-empty. The two settings contradict each other. "where" is the environment id.
+  why: A contradictory network posture leaves it unclear whether the sandbox is really isolated,
+    and a later binding may honour the allowlist and open a hole.
+  fix:
+  - Decide whether the environment needs network access.
+  - If it must stay isolated, empty `egress_allowlist`.
+  - If it needs specific hosts, set `network` to a restricted posture and keep the allowlist.
+  example: |-
+    environments:
+      - id: sandbox
+        network: none
+        egress_allowlist: []
+- number: 1344
+  code: protected_without_groups
+  severity:
+  - error
+  section: references
+  refs: []
+  title: Protected data class names no groups
+  summary: A data class is scoped as protected but says nobody who may share it.
+  explanation: 'Fires when a data class has `scope: protected` and its `groups` list is empty.
+    Protected sharing is defined by the groups it names, so with none the scope means nothing.
+    "where" is the data class id.'
+  why: A protected scope without groups is either unusable or silently treated as open, and
+    both hide who can actually see the data.
+  fix:
+  - Add the groups allowed to share the data to `groups`.
+  - Or change `scope` to one that does not need groups (for example private).
+  example: |-
+    data_classes:
+      - id: payroll
+        scope: protected
+        groups: [finance]
+- number: 1401
+  code: wildcard_resource
+  severity:
+  - warning
+  section: least privilege
+  refs:
+  - ADR-0008
+  title: Role grants a permission on every resource
+  summary: A role permission uses `*` as its resource, covering every resource of that kind.
+  explanation: Fires for each permission in `role.permissions` whose `resource` is exactly
+    `*` (the default when no resource is given). The message names the action and resource
+    kind granted. "where" is the role id. In a production-stage spec this warning is raised
+    as an error.
+  why: Least privilege (ADR-0008) needs permissions scoped to named resources. A wildcard
+    grants resources that do not exist yet as well as those that do.
+  fix:
+  - 'Replace `resource: "*"` with the specific resource id or a narrower glob.'
+  - Split the permission into several scoped ones if the role really needs several resources.
+  example: |-
+    roles:
+      - id: analyst
+        permissions:
+          - action: read
+            resource_kind: dataset
+            resource: sales_*
+- number: 1402
+  code: capability_without_responsibility
+  severity:
+  - warning
+  section: least privilege
+  refs:
+  - ADR-0008
+  title: Role grants a capability nothing explains
+  summary: A role holds a capability that none of its written responsibilities mentions.
+  explanation: For each capability in `role.capabilities`, the validator looks for a word
+    in `role.responsibilities` that shares a stem (first six letters, tokens of four or more
+    letters) with the capability id, its resource class or its action. When none matches,
+    this fires. "where" is the role id.
+  why: A permission nobody has explained is a permission nobody will notice is surplus. The
+    check is deliberately loose; it is about justification, not wording (ADR-0008).
+  fix:
+  - Add a responsibility to `role.responsibilities` that describes what the capability is
+    for.
+  - Or remove the capability from `role.capabilities` if the role does not need it.
+  example: |-
+    roles:
+      - id: billing
+        capabilities: [issue_refund]
+        responsibilities:
+          - Issue refunds for disputed invoices
+- number: 1403
+  code: withhold_unknown_permission
+  severity:
+  - warning
+  section: least privilege
+  refs:
+  - ADR-0008
+  title: Agent withholds a permission its role lacks
+  summary: A role assignment withholds a permission that the role does not grant in the first
+    place.
+  explanation: Fires when an agent's role assignment lists a key in `withhold` that is not
+    among the role's permission keys (`action:resource_kind:resource`). Only agents that are
+    members of a team are checked. "where" is the agent id.
+  why: A withhold that matches nothing usually means a typo or a role that has changed, so
+    the narrowing the designer intended is not happening.
+  fix:
+  - Check the key format `action:resource_kind:resource` against `role.permissions`.
+  - Correct the key in `roles[].withhold` or remove it if the role no longer grants it.
+  example: |-
+    members:
+      - id: clerk
+        roles:
+          - role: finance
+            withhold: ["write:ledger:*"]
+- number: 1404
+  code: possible_escalation
+  severity:
+  - warning
+  section: least privilege
+  refs:
+  - ADR-0008
+  title: Agent holds admin rights its team does not
+  summary: An agent's own roles give it administrative permissions that its team does not
+    grant.
+  explanation: Collects the agent's permissions from its role assignments (after `withhold`)
+    and keeps those with the `administer` action. If any of these is not in the permissions
+    its team grants (including inherited ones), this fires. "where" is the agent id. In a
+    production-stage spec this warning is raised as an error.
+  why: Inheritance should narrow authority, never widen it (ADR-0008). An agent that administers
+    more than its team can reach past the team's own controls.
+  fix:
+  - Remove the administer permission from the agent's role, or withhold it with `withhold`.
+  - If the team genuinely needs it, grant it on the team's `roles` instead.
+- number: 1501
+  code: unknown_trigger_agent
+  severity:
+  - error
+  section: triggers
+  refs:
+  - ADR-0020
+  title: Trigger runs an agent that does not exist
+  summary: A trigger's `agent` does not match any agent in the organisation.
+  explanation: Fires when `trigger.agent` is not the id of any agent in the spec (including
+    an empty value). "where" is the trigger id.
+  why: A triggered run needs an agent whose capabilities and identity define its permissions
+    (ADR-0020). With no agent, the trigger can never run safely.
+  fix:
+  - Set `agent` to the id of an existing agent.
+  - Or delete the trigger if the agent was removed.
+- number: 1502
+  code: unknown_trigger_workflow
+  severity:
+  - error
+  section: triggers
+  refs:
+  - ADR-0020
+  title: Trigger references an unknown workflow
+  summary: A trigger names a workflow that is not defined in the spec.
+  explanation: Fires when `trigger.workflow` is set and no workflow in `workflows` has that
+    id. "where" is the trigger id.
+  why: The trigger would fail at run time, or run something other than what the designer intended.
+  fix:
+  - Correct `workflow` to an existing workflow id.
+  - Or clear `workflow` to let the agent choose its own work.
+- number: 1503
+  code: schedule_without_cadence
+  severity:
+  - error
+  section: triggers
+  refs:
+  - ADR-0020
+  title: Scheduled trigger has no cadence
+  summary: A trigger of kind schedule does not say when it runs.
+  explanation: Fires when `trigger.kind` is `schedule` and `cadence` is missing. "where" is
+    the trigger id.
+  why: A schedule with no cadence never fires, or fires at a default nobody chose.
+  fix:
+  - Add a `cadence` with an `expression` (a cron line, `every N hours`, or an alias such as
+    `daily`) and optionally a `timezone`.
+  - Or change `kind` if the trigger is event- or message-driven.
+  example: |-
+    triggers:
+      - id: nightly_report
+        kind: schedule
+        cadence:
+          expression: "0 2 * * *"
+          timezone: Europe/London
+- number: 1504
+  code: invalid_cadence
+  severity:
+  - error
+  section: triggers
+  refs:
+  - ADR-0020
+  title: Trigger cadence cannot be parsed
+  summary: A scheduled trigger's cadence expression or timezone is not valid.
+  explanation: 'Fires when `parse_cadence` rejects `trigger.cadence`: an unknown timezone,
+    an interval below 1, or an expression that is neither an alias, an `every N minutes|hours|days|weeks`
+    interval, nor a valid five-field cron line. The message carries the parser''s reason.
+    "where" is the trigger id.'
+  why: An unparseable cadence means the trigger will not run when anyone expects it to.
+  fix:
+  - Fix `cadence.expression`, for example `every 2 hours` or `30 6 * * 1-5`.
+  - Use an IANA timezone name in `cadence.timezone`.
+- number: 1505
+  code: event_without_class
+  severity:
+  - error
+  section: triggers
+  refs:
+  - ADR-0020
+  title: Event trigger names no event class
+  summary: A trigger of kind event does not say which event starts it.
+  explanation: Fires when `trigger.kind` is `event` and `event_class` is empty. "where" is
+    the trigger id.
+  why: Without an event class the trigger cannot be bound to any real event source, so it
+    never runs or matches everything.
+  fix:
+  - Set `event_class` to the abstract event that should start the run.
+  - Add `filters` if only some events of that class should count.
+  example: |-
+    triggers:
+      - id: on_invoice
+        kind: event
+        event_class: invoice.received
+- number: 1506
+  code: unknown_trigger_channel
+  severity:
+  - error
+  section: triggers
+  refs:
+  - ADR-0020
+  title: Message trigger listens on an unknown channel
+  summary: A message-driven trigger listens on a channel that is not defined.
+  explanation: Fires when `trigger.kind` is `message` and `trigger.channel` is missing or
+    not the id of a channel in `channels`. "where" is the trigger id.
+  why: A trigger with nowhere to listen never starts, and a misspelt channel id can hide that.
+  fix:
+  - Set `channel` to an existing channel id.
+  - Or add the channel to `channels`.
+- number: 1507
+  code: unknown_delivery_channel
+  severity:
+  - error
+  section: triggers
+  refs:
+  - ADR-0020
+  title: Trigger delivers to an unknown channel
+  summary: A trigger's `deliver_to` lists a channel that is not defined.
+  explanation: Fires once for each id in `trigger.deliver_to` that is not a channel in `channels`.
+    "where" is the trigger id.
+  why: Results sent to a channel that does not exist are lost, and nobody sees what the unattended
+    run did.
+  fix:
+  - Correct each id in `deliver_to` to an existing channel.
+  - Or add the missing channel to `channels`.
+- number: 1508
+  code: unknown_failure_channel
+  severity:
+  - error
+  section: triggers
+  refs:
+  - ADR-0020
+  title: Trigger failure notice goes to an unknown channel
+  summary: A trigger's failure policy notifies a channel that is not defined.
+  explanation: Fires when `trigger.failure.notify_channel` is set and is not the id of a channel
+    in `channels`. "where" is the trigger id.
+  why: Failures of unattended runs must reach someone; a broken channel id means they fail
+    silently.
+  fix:
+  - Set `failure.notify_channel` to an existing channel id.
+  - Or add that channel to `channels`.
+- number: 1509
+  code: trigger_exceeds_run_budget
+  severity:
+  - error
+  section: triggers
+  refs:
+  - ADR-0020
+  title: Trigger allows longer runs than resilience permits
+  summary: A trigger's maximum runtime is longer than the organisation-wide cap on a run.
+  explanation: Fires when `trigger.max_runtime_seconds` (default 900) is greater than `resilience.max_run_seconds`
+    (default 3600). The message gives both values. "where" is the trigger id.
+  why: A trigger cannot grant itself more time than the system-wide limit; the declared runtime
+    would be cut off and misleads anyone reading the spec.
+  fix:
+  - Lower `max_runtime_seconds` on the trigger.
+  - Or raise `resilience.max_run_seconds` if longer runs are genuinely acceptable.
+- number: 1510
+  code: trigger_workflow_not_granted
+  severity:
+  - error
+  section: triggers
+  refs:
+  - ADR-0020
+  title: Trigger runs a workflow its agent may not use
+  summary: A trigger asks an agent to run a workflow the agent is not allowed to invoke.
+  explanation: Fires when the trigger's agent exists, `trigger.workflow` is set, and that
+    workflow is not in the agent's `workflows` list. "where" is the trigger id.
+  why: A triggered run carries exactly the agent's own permissions (ADR-0020). A trigger must
+    not become a way around them.
+  fix:
+  - Add the workflow to the agent's `workflows` if it should be allowed.
+  - Or point the trigger at an agent that already holds it, or at a different workflow.
+- number: 1511
+  code: silent_trigger
+  severity:
+  - warning
+  section: triggers
+  refs:
+  - ADR-0020
+  title: Trigger reports to nobody
+  summary: A trigger neither delivers its results nor notifies anyone on failure.
+  explanation: Fires when `trigger.deliver_to` is empty and `trigger.failure.notify_channel`
+    is not set. "where" is the trigger id. In a production-stage spec this warning is raised
+    as an error.
+  why: Unattended work that nobody hears about, whether it succeeds or fails, cannot be overseen.
+  fix:
+  - Add at least one channel to `deliver_to`.
+  - And/or set `failure.notify_channel`.
+  example: |-
+    triggers:
+      - id: nightly_report
+        deliver_to: [ops_updates]
+        failure:
+          notify_channel: ops_alerts
+- number: 1601
+  code: unknown_channel_member
+  severity:
+  - error
+  section: channels
+  refs:
+  - ADR-0021
+  title: Channel lists an unknown member
+  summary: A channel's `members` contains an id that is neither an agent nor a team.
+  explanation: Fires once per entry in `channel.members` that is not an agent id or team id
+    in the organisation. "where" is the channel id.
+  why: A channel member that does not exist is usually a typo or a removed unit, so the people
+    or agents meant to be on the channel are not.
+  fix:
+  - Correct the id in `members` to an existing agent or team.
+  - Or remove it.
+- number: 1602
+  code: unknown_escalation_channel
+  severity:
+  - error
+  section: channels
+  refs:
+  - ADR-0021
+  title: Escalation step uses an unknown channel
+  summary: A channel escalation step sends to a channel that is not defined.
+  explanation: Fires for each step in `channel.escalation` whose `channel` is set and is not
+    the id of a channel in `channels`. A step with no channel uses the originating channel
+    and is not flagged. "where" is the channel id.
+  why: An escalation that cannot be delivered means an unanswered request never reaches the
+    next person (ADR-0021).
+  fix:
+  - Correct `escalation[].channel` to an existing channel.
+  - Or clear it to escalate on the same channel.
+- number: 1603
+  code: escalation_out_of_order
+  severity:
+  - error
+  section: channels
+  refs:
+  - ADR-0021
+  title: Escalation steps not in time order
+  summary: A channel's escalation steps are not listed in increasing `after_minutes`.
+  explanation: Fires when the `after_minutes` values of `channel.escalation`, read in order,
+    are not sorted ascending (equal values are allowed). "where" is the channel id.
+  why: Escalation is a ladder over time. Out-of-order steps make it ambiguous who is tried
+    next and when.
+  fix:
+  - Reorder `escalation` so `after_minutes` increases step by step.
+  - Check the minute values are what you intended.
+  example: |-
+    escalation:
+      - after_minutes: 15
+        notify: on_call
+      - after_minutes: 60
+        notify: ops_lead
+- number: 1604
+  code: channel_without_purpose
+  severity:
+  - warning
+  section: channels
+  refs:
+  - ADR-0021
+  title: Human-facing channel states no purpose
+  summary: A channel that people use does not say what it is for.
+  explanation: Fires when `channel.human_facing` is true and `purposes` is empty. "where"
+    is the channel id.
+  why: Human-facing channels carry a contract (ADR-0021); without a stated purpose, people
+    cannot tell whether to expect notices, requests or approvals there.
+  fix:
+  - Add one or more values to `purposes` (for example `notify`).
+  - 'Or set `human_facing: false` if only agents use the channel.'
+- number: 1605
+  code: sla_without_escalation
+  severity:
+  - warning
+  section: channels
+  refs:
+  - ADR-0021
+  title: Channel promises a reply time but escalates to nobody
+  summary: A human-facing channel has a response SLA but no escalation steps.
+  explanation: Fires when `channel.human_facing` is true, `response_sla_minutes` is set, and
+    `escalation` is empty. "where" is the channel id. In a production-stage spec this warning
+    is raised as an error.
+  why: 'An SLA with no escalation is a promise with nothing behind it: when a reply does not
+    come, nobody else is tried.'
+  fix:
+  - Add at least one step to `escalation` with `after_minutes` and `notify`.
+  - Or remove `response_sla_minutes` if no reply time is promised.
+- number: 1606
+  code: sla_unreachable_out_of_hours
+  severity:
+  - warning
+  section: channels
+  refs:
+  - ADR-0021
+  title: Sub-hour SLA on a channel that queues out of hours
+  summary: A notify channel promises a reply in under an hour but only has people in office
+    hours.
+  explanation: 'Fires when a channel has `working_hours`, `out_of_hours: queue`, a `response_sla_minutes`
+    below 60, and `notify` among its `purposes`. "where" is the channel id.'
+  why: Messages queued overnight cannot be answered within minutes, so the SLA is broken by
+    design whenever something happens out of hours.
+  fix:
+  - Set `out_of_hours` to `escalate` or `notify_anyway`.
+  - Or raise `response_sla_minutes` to something achievable, or drop `working_hours` if the
+    channel is staffed around the clock.
+- number: 1701
+  code: unknown_flow_endpoint
+  severity:
+  - error
+  section: interaction flows
+  refs:
+  - ADR-0024
+  title: Interaction flow endpoint does not exist
+  summary: An interaction flow's source or target is not an agent or team.
+  explanation: Fires for each end of an entry in `interaction_flows` whose `source` or `target`
+    is not an agent id or team id. The message names which end. This finding carries no "where";
+    the message shows the flow as source->target.
+  why: Flows declare who may consult or instruct whom (ADR-0024). A flow to nobody grants
+    or documents nothing and usually hides a typo.
+  fix:
+  - Correct `source` or `target` to an existing agent or team id.
+  - Or remove the flow.
+- number: 1702
+  code: self_flow
+  severity:
+  - error
+  section: interaction flows
+  refs:
+  - ADR-0024
+  title: Interaction flow from a unit to itself
+  summary: An interaction flow has the same source and target.
+  explanation: Fires when an entry in `interaction_flows` has `source` equal to `target`.
+    The finding has no "where"; the message names the unit.
+  why: Flows describe relationships between two parties; a self-loop says nothing and is almost
+    always a mistake.
+  fix:
+  - Change `target` (or `source`) to the other party.
+  - Or remove the flow.
+- number: 1801
+  code: unknown_unit_link_endpoint
+  severity:
+  - error
+  section: 'unit links: association, not containment'
+  refs:
+  - ADR-0081
+  title: Unit link endpoint is not a team
+  summary: A unit link's source or target is not a team in the organisation.
+  explanation: Fires for each end of an entry in `unit_links` whose `source` or `target` is
+    not a team id (agents are not valid here). "where" is `source->target`. Other checks on
+    that link are skipped.
+  why: Unit links are associations between units (ADR-0081); a link to something that does
+    not exist cannot be checked for independence or direction.
+  fix:
+  - Correct `source` or `target` to an existing team id.
+  - Or remove the link.
+- number: 1802
+  code: self_unit_link
+  severity:
+  - error
+  section: 'unit links: association, not containment'
+  refs:
+  - ADR-0081
+  title: Unit linked to itself
+  summary: A unit link has the same team as source and target.
+  explanation: Fires when an entry in `unit_links` has `source` equal to `target`. "where"
+    is `source->target`; no further checks run on that link.
+  why: Both containment and association are relationships between two units; a self-link carries
+    no meaning.
+  fix:
+  - Set `target` to the other unit.
+  - Or remove the link.
+- number: 1803
+  code: duplicate_unit_link
+  severity:
+  - error
+  section: 'unit links: association, not containment'
+  refs:
+  - ADR-0081
+  title: Unit link declared twice
+  summary: The same relationship between two units is declared more than once.
+  explanation: Fires when a second link has the same `source`, `target` and `kind` as an earlier
+    one, or when a `partners_with` link is declared in both directions (A to B and B to A),
+    since partnership is symmetric. "where" is `source->target` of the repeat.
+  why: Saying a fact twice does not make it two facts; duplicates make the model harder to
+    read and to change consistently (ADR-0081).
+  fix:
+  - Delete the repeated entry from `unit_links`.
+  - For `partners_with`, keep only one direction.
+- number: 1804
+  code: oversight_without_independence
+  severity:
+  - error
+  section: 'unit links: association, not containment'
+  refs:
+  - ADR-0081
+  title: Overseer sits inside what it oversees
+  summary: A unit claims to oversee another unit that contains it.
+  explanation: Fires for an `oversees` link when `source` is the `target` team or anywhere
+    inside the target's subtree of `teams`. "where" is `source->target`.
+  why: Oversight is only a control if it is independent. An overseer contained by what it
+    oversees reports to it (ADR-0081).
+  fix:
+  - Move the overseeing team out of the target's subtree (for example under a separate risk
+    or audit unit).
+  - Or change the link `kind` if this is not really oversight.
+- number: 1805
+  code: oversight_shares_a_leader
+  severity:
+  - error
+  section: 'unit links: association, not containment'
+  refs:
+  - ADR-0081
+  title: Overseer and overseen share a leader
+  summary: Both sides of an oversight link are led by the same agent.
+  explanation: Fires for an `oversees` link when both teams have a `leader` set and it is
+    the same agent. "where" is `source->target`.
+  why: If one person leads both the overseer and the overseen, the oversight reports to what
+    it is overseeing and is not independent.
+  fix:
+  - Give the overseeing team a different `leader`.
+  - Or restructure so the two units are not led by one agent.
+- number: 1806
+  code: escalation_runs_downward
+  severity:
+  - error
+  section: 'unit links: association, not containment'
+  refs:
+  - ADR-0081
+  title: Escalation lands inside the escalating unit
+  summary: A unit escalates to a team that sits within its own subtree.
+  explanation: Fires for an `escalates_to` link when `target` is inside the source team's
+    subtree (children at any depth). "where" is `source->target`.
+  why: An escalation should go outward or upward. One that lands in your own subtree has not
+    left the problem (ADR-0081).
+  fix:
+  - Point `target` at a parent, peer or independent unit.
+  - Or remove the link if no escalation is intended.
+- number: 1807
+  code: unit_link_without_a_reason
+  severity:
+  - warning
+  section: 'unit links: association, not containment'
+  refs:
+  - ADR-0081
+  title: Unit link gives no reason
+  summary: A unit link does not explain why the relationship exists.
+  explanation: Fires for any entry in `unit_links` whose `reason` is empty. "where" is `source->target`.
+  why: An association nobody can explain is decoration, which the model is meant to refuse
+    (ADR-0081).
+  fix:
+  - Add a short `reason` saying what the relationship is for.
+  example: |-
+    unit_links:
+      - source: risk
+        target: trading
+        kind: oversees
+        reason: Second-line review of trading limits
+- number: 1901
+  code: unknown_knowledge
+  severity:
+  - error
+  section: knowledge
+  refs:
+  - ADR-0023
+  title: Agent references an unknown knowledge source
+  summary: An agent lists a knowledge source that is not defined.
+  explanation: Fires for each id in an agent's `knowledge` list that is not the id of a source
+    in `knowledge`. "where" is the agent id.
+  why: Grounding an agent on material that does not exist leaves it answering without the
+    sources the designer expected (ADR-0023).
+  fix:
+  - Correct the id in the agent's `knowledge`.
+  - Or add the source to the top-level `knowledge` list.
+- number: 2001
+  code: budget_without_limit
+  severity:
+  - error
+  section: budgets, lifecycle, compliance
+  refs:
+  - ADR-0022
+  title: Budget has no positive limit
+  summary: A budget's spend ceiling is zero or negative.
+  explanation: Fires when `budget.limit_usd` is 0 or less (0 is the default). "where" is the
+    budget id.
+  why: A budget exists to cap spend and act on breach (ADR-0022); without a positive limit
+    it either blocks everything or caps nothing.
+  fix:
+  - Set `limit_usd` to a positive amount for the `period`.
+  example: |-
+    budgets:
+      - id: research_monthly
+        scope_kind: team
+        scope: research
+        limit_usd: 500
+- number: 2002
+  code: unknown_budget_scope
+  severity:
+  - error
+  section: budgets, lifecycle, compliance
+  refs:
+  - ADR-0022
+  title: Budget scopes an unknown team or agent
+  summary: A team- or agent-scoped budget names a unit that does not exist.
+  explanation: Fires when `scope_kind` is `team` and `scope` is not a team id, or `scope_kind`
+    is `agent` and `scope` is not an agent id. System-scoped budgets are not checked. "where"
+    is the budget id.
+  why: A budget attached to nothing caps nothing, so the spend it was meant to control is
+    unbounded.
+  fix:
+  - Correct `scope` to an existing team or agent id.
+  - Or check `scope_kind` matches the kind of id in `scope`.
+- number: 2003
+  code: unknown_budget_channel
+  severity:
+  - error
+  section: budgets, lifecycle, compliance
+  refs:
+  - ADR-0022
+  title: Budget notifies an unknown channel
+  summary: A budget's breach notification goes to a channel that is not defined.
+  explanation: Fires when `budget.notify_channel` is set and is not the id of a channel in
+    `channels`. "where" is the budget id.
+  why: A breach nobody hears about defeats the point of the budget.
+  fix:
+  - Set `notify_channel` to an existing channel.
+  - Or add the channel to `channels`.
+- number: 2004
+  code: agent_without_evaluation
+  severity:
+  - warning
+  section: budgets, lifecycle, compliance
+  refs:
+  - ADR-0022
+  title: Agent has no evaluation case
+  summary: Evaluation cases are defined, but none applies to this agent.
+  explanation: Fires only when `lifecycle.evaluations` is non-empty, for each agent not listed
+    in any case's `applies_to` and when no case has an empty `applies_to` (which would cover
+    all agents). "where" is the agent id. In a production-stage spec this warning is raised
+    as an error.
+  why: Promotion depends on evaluation (ADR-0022); an agent with no case can be promoted without
+    anything having been checked.
+  fix:
+  - Add the agent id to the `applies_to` of a relevant evaluation case.
+  - Or add a case in `lifecycle.evaluations` targeting it (or with empty `applies_to` to cover
+    everyone).
+- number: 2005
+  code: production_without_gate
+  severity:
+  - error
+  section: budgets, lifecycle, compliance
+  refs:
+  - ADR-0022
+  title: Production with no promotion gate
+  summary: The system is at the production stage but defines no gate into production.
+  explanation: 'Fires when `lifecycle.stage` is `production` and no entry in `lifecycle.gates`
+    has `to_stage: production`. The finding has no "where"; it concerns the whole spec.'
+  why: A production system should say what had to hold before it got there (ADR-0022); otherwise
+    nothing records how it was approved.
+  fix:
+  - 'Add a gate to `lifecycle.gates` with `to_stage: production`, its `requires`, `min_pass_rate`
+    and `approvers`.'
+  example: |-
+    lifecycle:
+      stage: production
+      gates:
+        - to_stage: production
+          min_pass_rate: 1.0
+          approvers: [cto]
+- number: 2006
+  code: residency_undeclared
+  severity:
+  - warning
+  section: budgets, lifecycle, compliance
+  refs:
+  - ADR-0022
+  title: Region-bound data with no residency declared
+  summary: A data class may not leave its region, but the spec declares no data residency.
+  explanation: 'Fires for each data class with `may_leave_region: false` when `compliance.data_residency`
+    is empty. "where" is the data class id. In a production-stage spec this warning is raised
+    as an error.'
+  why: Without a declared residency there is no region to keep the data in, so placement cannot
+    be checked or enforced.
+  fix:
+  - Set `compliance.data_residency` to the permitted region(s).
+  - 'Or set `may_leave_region: true` if the restriction does not apply.'
+- number: 2007
+  code: trace_leak
+  severity:
+  - error
+  section: budgets, lifecycle, compliance
+  refs:
+  - ADR-0022
+  title: Trace-restricted data is not redacted
+  summary: A data class may not appear in traces, but observability does not redact it.
+  explanation: 'Fires for each data class with `may_appear_in_traces: false` whose id is not
+    in `observability.redact_data_classes`. "where" is the data class id.'
+  why: Traces are widely read and retained; data that must not appear there will leak unless
+    the observability contract redacts it.
+  fix:
+  - Add the data class id to `observability.redact_data_classes`.
+  example: |-
+    observability:
+      redact_data_classes: [customer_pii]
+- number: 2101
+  code: duplicate_mission
+  severity:
+  - error
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission defined twice
+  summary: Two missions share the same id.
+  explanation: Fires for the second and later missions in `missions` whose `id` was already
+    used. "where" is the mission id.
+  why: Duplicate ids make references to the mission ambiguous and one definition silently
+    shadows the other.
+  fix:
+  - Rename one mission's `id`, or merge the two definitions.
+- number: 2102
+  code: mission_without_leader
+  severity:
+  - error
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission has no leader
+  summary: A mission does not name a leader.
+  explanation: Fires when `mission.leader` is empty. "where" is the mission id.
+  why: A mission is a short-lived team (ADR-0039), and every team has someone accountable
+    for it.
+  fix:
+  - Set `leader` to one of the mission's `members`.
+- number: 2103
+  code: mission_leader_not_member
+  severity:
+  - error
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission leader is not a member
+  summary: A mission's leader is not in its member list.
+  explanation: Fires when `mission.leader` is set but not listed in `mission.members`. "where"
+    is the mission id.
+  why: A leader outside the team leads nobody within it and confuses who is on the mission.
+  fix:
+  - Add the leader to `members`.
+  - Or choose a `leader` from the existing members.
+  example: |-
+    missions:
+      - id: launch_q4
+        leader: pm_agent
+        members: [pm_agent, writer]
+- number: 2104
+  code: mission_member_not_in_org
+  severity:
+  - error
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission member is not an agent in the organisation
+  summary: A mission includes members who are not agents in the standing organisation.
+  explanation: Fires when any id in `mission.members` is not an agent id in the organisation;
+    the message lists them. Team ids do not count. "where" is the mission id.
+  why: A mission draws its people from the standing organisation (ADR-0039), so its members
+    keep their existing permissions and accountability.
+  fix:
+  - Correct the ids in `members` to existing agents.
+  - Or add the agents to a team first.
+- number: 2105
+  code: mission_duplicate_member
+  severity:
+  - error
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission lists a member twice
+  summary: The same agent appears more than once in a mission's members.
+  explanation: Fires when `mission.members` contains a repeated id. "where" is the mission
+    id.
+  why: Repeats are usually typos and make member counts and reviews misleading.
+  fix:
+  - Remove the repeated id from `members`.
+- number: 2106
+  code: mission_without_objective
+  severity:
+  - error
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission states no objective
+  summary: A mission does not say what it is meant to achieve.
+  explanation: Fires when `mission.objective` is empty. "where" is the mission id.
+  why: A short-lived team exists to achieve something; without an objective there is nothing
+    to judge it by (ADR-0039).
+  fix:
+  - Write a one-sentence `objective`.
+- number: 2107
+  code: mission_without_deliverables
+  severity:
+  - warning
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission names no deliverables
+  summary: A mission lists nothing it will deliver.
+  explanation: Fires when `mission.deliverables` is empty. "where" is the mission id. In a
+    production-stage spec this warning is raised as an error.
+  why: Without deliverables nothing says when the mission is done.
+  fix:
+  - Add the concrete outputs to `deliverables`.
+  example: |-
+    missions:
+      - id: launch_q4
+        objective: Ship the Q4 release notes
+        deliverables: [release_notes, faq]
+- number: 2108
+  code: mission_without_end
+  severity:
+  - error
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission has no end date
+  summary: A mission does not say when it ends.
+  explanation: Fires when `mission.ends_on` is empty. "where" is the mission id.
+  why: A mission that never ends is a reorganisation and belongs in the org chart, not in
+    missions (ADR-0039).
+  fix:
+  - Set `ends_on` to an ISO date after `starts_on`.
+  - Or, if the team is permanent, model it as a team under `teams`.
+- number: 2109
+  code: mission_ends_before_it_starts
+  severity:
+  - error
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission ends on or before it starts
+  summary: The mission's end date is not after its start date.
+  explanation: Fires when a mission has both `starts_on` and `ends_on`, both parse as ISO
+    dates, and `ends_on` is the same day as or earlier than `starts_on`. The "where" is the
+    mission id.
+  why: A mission with no positive duration can never be active, so the temporary team and
+    any access it scopes are meaningless or were entered in error.
+  fix:
+  - Open the mission and check `starts_on` and `ends_on`.
+  - Set `ends_on` to a date strictly after `starts_on`.
+  example: |-
+    missions:
+      - id: q3-launch
+        starts_on: 2026-07-01
+        ends_on: 2026-09-30
+- number: 2110
+  code: mission_too_long
+  severity:
+  - warning
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission runs longer than about two quarters
+  summary: The mission lasts more than 180 days.
+  explanation: Fires when a mission's `starts_on` and `ends_on` both parse and the span between
+    them is more than 180 days (and the end is after the start). The "where" is the mission
+    id.
+  why: Missions are meant to be short-lived teams; one that runs for more than two quarters
+    is really a standing team and should be governed as part of the org chart.
+  fix:
+  - Shorten the mission by moving `ends_on` within 180 days of `starts_on`.
+  - Or, if the work is ongoing, model it as a team in the organisation and retire the mission.
+- number: 2111
+  code: mission_bad_dates
+  severity:
+  - error
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission dates are not valid ISO dates
+  summary: The mission's start or end date could not be parsed.
+  explanation: Fires when a mission has both `starts_on` and `ends_on` and either cannot be
+    parsed as an ISO date (YYYY-MM-DD). The "where" is the mission id.
+  why: Without parseable dates the validator cannot check the mission's length, and the runtime
+    cannot tell when to stop honouring it.
+  fix:
+  - Rewrite `starts_on` and `ends_on` in ISO format, e.g. `2026-07-01`.
+  example: |-
+    missions:
+      - id: q3-launch
+        starts_on: 2026-07-01
+        ends_on: 2026-09-30
+- number: 2112
+  code: mission_past_its_end_date
+  severity:
+  - warning
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission is past its end date but still open
+  summary: The mission's end date has passed but its status is still proposed or active.
+  explanation: Fires when a mission's `status` is `proposed` or `active` and its `ends_on`
+    is earlier than today. The "where" is the mission id.
+  why: The runtime stops honouring an expired mission regardless, so the record is misleading
+    about who is working together and with what access.
+  fix:
+  - Close the mission record, e.g. by running `orgagents missions sweep`.
+  - Or, if the work genuinely continues, extend `ends_on`.
+- number: 2113
+  code: unknown_mission_channel
+  severity:
+  - error
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission uses a channel that does not exist
+  summary: The mission's `channel` names no declared channel.
+  explanation: Fires when a mission sets `channel` to an id that is not in the spec's `channels`
+    list. The "where" is the mission id.
+  why: Mission members would have no working place to coordinate or escalate, and the reference
+    will fail at runtime.
+  fix:
+  - Declare the channel under `channels`, or
+  - change the mission's `channel` to an existing channel id.
+- number: 2114
+  code: unknown_mission_workflow
+  severity:
+  - error
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission references an unknown workflow
+  summary: One of the mission's `workflows` is not declared.
+  explanation: Fires for each id in a mission's `workflows` list that does not match the id
+    of any entry in the spec's `workflows`. The "where" is the mission id.
+  why: The mission claims to run work that does not exist, so its deliverables cannot be produced
+    as designed.
+  fix:
+  - Correct the id in the mission's `workflows`, or
+  - declare the workflow under `workflows`.
+- number: 2115
+  code: mission_would_widen_access
+  severity:
+  - warning
+  section: missions
+  refs:
+  - ADR-0039
+  title: Mission role asks for more than a member holds
+  summary: A role assigned by the mission carries permissions some member does not already
+    hold.
+  explanation: For each role in a mission's `roles`, the validator compares the role's permissions
+    with what each mission member already holds through their own `roles` and their home team's
+    `roles`. Any permission the member lacks fires this warning (showing up to three); those
+    permissions are dropped, not granted. The "where" is the mission id.
+  why: A mission may narrow what its members can do but never widen it; otherwise a temporary
+    team would be a back door around the organisation's access design.
+  fix:
+  - Pick a narrower role for the mission in `roles`, or
+  - grant the permission properly through the member's own or team role if it is really needed.
+- number: 2201
+  code: model_policy_empty
+  severity:
+  - error
+  section: model policy
+  refs:
+  - ADR-0040
+  title: Model policy permits no model
+  summary: A model policy names neither model classes nor allowed models.
+  explanation: Fires for the system `model_policy` and for any agent `model_policy` when both
+    `classes` and `allow` are empty. The "where" is `system` or the agent id.
+  why: An empty policy means the agent (or the whole system) could not use any model at all.
+  fix:
+  - Add at least one entry to `model_policy.classes` or to `model_policy.allow`.
+  example: |-
+    model_policy:
+      classes: [frontier]
+- number: 2202
+  code: model_policy_redundant
+  severity:
+  - warning
+  section: model policy
+  refs:
+  - ADR-0040
+  title: Model policy names both models and classes
+  summary: A model policy lists explicit models and classes; the explicit list wins.
+  explanation: Fires when a model policy (system or agent) has both `allow` and `classes`
+    non-empty. The explicit `allow` list takes precedence, so `classes` has no effect. The
+    "where" is `system` or the agent id.
+  why: A reader may believe the classes widen or constrain the choice when they are ignored,
+    which makes the policy misleading.
+  fix:
+  - Remove `classes` if you mean the explicit list, or
+  - remove `allow` if you mean any model in the classes.
+- number: 2203
+  code: model_policy_contradiction
+  severity:
+  - error
+  section: model policy
+  refs:
+  - ADR-0040
+  title: Model policy allows and denies the same model
+  summary: The same model appears in both `allow` and `deny`.
+  explanation: Fires when a model policy's `allow` and `deny` lists overlap; the message names
+    the overlapping models. The "where" is `system` or the agent id.
+  why: A contradictory policy leaves it unclear whether the model may be used, which undermines
+    model governance.
+  fix:
+  - Remove each listed model from either `allow` or `deny`.
+- number: 2204
+  code: model_regions_outside_residency
+  severity:
+  - warning
+  section: model policy
+  refs:
+  - ADR-0040
+  title: Model regions fall outside data residency
+  summary: The model policy requires regions none of which are in the declared data residency.
+  explanation: Fires when a model policy sets `require_regions`, `compliance.data_residency`
+    is declared, and the two lists share no region. The "where" is `system` or the agent id.
+    This is a strict-mode warning.
+  why: Data sent to a model would be processed outside the regions the organisation has committed
+    to keep it in.
+  fix:
+  - Change `model_policy.require_regions` to include a region from `compliance.data_residency`,
+    or
+  - update `compliance.data_residency` if the commitment has changed.
+- number: 2301
+  code: guardrail_without_checks
+  severity:
+  - error
+  section: guardrails, workspaces, contracts
+  refs:
+  - ADR-0035
+  - ADR-0036
+  - ADR-0037
+  title: Guardrail declares no checks
+  summary: A guardrail has an empty `checks` list.
+  explanation: Fires for each guardrail whose `checks` is empty. The "where" is the guardrail
+    id.
+  why: A guardrail with no checks inspects nothing, while giving the impression that inputs
+    or outputs are protected.
+  fix:
+  - Add at least one check to the guardrail's `checks`, or remove the guardrail.
+- number: 2302
+  code: unknown_guardrail_channel
+  severity:
+  - error
+  section: guardrails, workspaces, contracts
+  refs:
+  - ADR-0035
+  title: Guardrail escalates to an unknown channel
+  summary: The guardrail's `escalate_channel` names no declared channel.
+  explanation: Fires when a guardrail sets `escalate_channel` to an id not in the spec's `channels`.
+    The "where" is the guardrail id.
+  why: Violations would be escalated nowhere, so humans would never hear about them.
+  fix:
+  - Declare the channel under `channels`, or
+  - set `escalate_channel` to an existing channel id.
+- number: 2303
+  code: escalation_without_channel
+  severity:
+  - error
+  section: guardrails, workspaces, contracts
+  refs:
+  - ADR-0035
+  title: Guardrail escalates but names no channel
+  summary: The guardrail's `on_violation` is `escalate` but no `escalate_channel` is set.
+  explanation: 'Fires when a guardrail has `on_violation: escalate` and an empty `escalate_channel`.
+    The "where" is the guardrail id.'
+  why: An escalation with no destination silently goes nowhere, so a violation is neither
+    blocked nor seen.
+  fix:
+  - Set `escalate_channel` to a declared channel, or
+  - change `on_violation` to a different action such as blocking.
+  example: |-
+    guardrails:
+      - id: pii-out
+        on_violation: escalate
+        escalate_channel: risk-desk
+- number: 2304
+  code: no_guardrails
+  severity:
+  - warning
+  section: guardrails, workspaces, contracts
+  refs:
+  - ADR-0035
+  title: No guardrails are declared
+  summary: The design has no guardrails at all.
+  explanation: Fires once when the spec's `guardrails` list is empty. There is no specific
+    "where". This is a strict-mode warning.
+  why: Permissions control what agents may reach, but without guardrails nothing checks what
+    content passes in or out.
+  fix:
+  - Declare at least one guardrail under `guardrails`, covering both `input` and `output`.
+- number: 2305
+  code: guardrail_gap
+  severity:
+  - warning
+  section: guardrails, workspaces, contracts
+  refs:
+  - ADR-0035
+  title: No guardrail covers input or output
+  summary: No guardrail applies to `input`, or none applies to `output`.
+  explanation: When guardrails exist, the validator collects every `applies_to` value across
+    them; if `input` or `output` is missing, it fires once for each missing kind. The message
+    names the kind. This is a strict-mode warning.
+  why: 'One direction of traffic goes unchecked: unfiltered input invites injection, unfiltered
+    output invites leaks.'
+  fix:
+  - Add the missing kind to an existing guardrail's `applies_to`, or add a guardrail for it.
+  example: |-
+    guardrails:
+      - id: screen
+        applies_to: [input, output]
+- number: 2306
+  code: artifact_store_without_groups
+  severity:
+  - error
+  section: guardrails, workspaces, contracts
+  refs:
+  - ADR-0035
+  - ADR-0036
+  title: Protected artifact store names no groups
+  summary: An artifact store is protected but no groups may use it.
+  explanation: 'Fires when an artifact store has `scope: protected` and an empty `groups`
+    list. The "where" is the store id.'
+  why: A protected store with no groups is unusable, or tempts someone to loosen its scope
+    to make it work.
+  fix:
+  - List the groups that may use the store under `groups`, or
+  - change `scope` if the store is not meant to be protected.
+- number: 2307
+  code: summarize_never_fires
+  severity:
+  - error
+  section: guardrails, workspaces, contracts
+  refs:
+  - ADR-0035
+  title: Context summarisation would never run
+  summary: '`summarize_after_tokens` is not below `max_context_tokens`.'
+  explanation: Fires when `context.summarize_after_tokens` is greater than or equal to `context.max_context_tokens`.
+    There is no specific "where"; it concerns the system `context` block.
+  why: The context window fills before compaction can trigger, so agents would hit the limit
+    and lose or truncate context instead.
+  fix:
+  - Lower `context.summarize_after_tokens` below `context.max_context_tokens`.
+  example: |-
+    context:
+      max_context_tokens: 200000
+      summarize_after_tokens: 150000
+- number: 2308
+  code: contract_without_schema
+  severity:
+  - error
+  section: guardrails, workspaces, contracts
+  refs:
+  - ADR-0035
+  - ADR-0037
+  title: Output contract has no schema
+  summary: An output contract declares no schema.
+  explanation: Fires for each entry in `output_contracts` whose `schema` is empty. The "where"
+    is the contract id.
+  why: A contract with no schema checks nothing, so malformed output would pass as if validated.
+  fix:
+  - Give the contract a `schema` describing the required output shape.
+- number: 2401
+  code: memory_namespace_without_groups
+  severity:
+  - error
+  section: memory contract
+  refs:
+  - ADR-0028
+  title: Protected memory namespace names no groups
+  summary: A memory namespace is protected but no groups may use it.
+  explanation: 'Fires when a namespace in `memory.namespaces` has `scope: protected` and an
+    empty `groups` list. The "where" is the namespace id.'
+  why: The namespace is unusable as written, or will be loosened to make it work, weakening
+    who may read remembered data.
+  fix:
+  - List the permitted groups under the namespace's `groups`, or change its `scope`.
+- number: 2402
+  code: memory_retains_sensitive_class
+  severity:
+  - error
+  section: memory contract
+  refs:
+  - ADR-0028
+  title: Memory keeps a sensitive data class unredacted
+  summary: A memory namespace holds a data class that may not be retained unredacted.
+  explanation: Fires when a namespace lists a data class in `data_classes` whose `may_appear_in_traces`
+    is false and that class is not in `memory.long_term.redact_data_classes`. The "where"
+    is the namespace id.
+  why: Anything too sensitive for traces is too sensitive for durable memory; retaining it
+    unredacted creates a lasting store of sensitive data.
+  fix:
+  - Add the data class to `memory.long_term.redact_data_classes`, or
+  - remove it from the namespace's `data_classes`.
+- number: 2403
+  code: memory_residency_undeclared
+  severity:
+  - warning
+  section: memory contract
+  refs:
+  - ADR-0028
+  title: Region-restricted data in memory without residency
+  summary: A memory namespace holds region-restricted data but no residency is declared.
+  explanation: Fires when a namespace holds a data class whose `may_leave_region` is false
+    while `compliance.data_residency` is empty. The "where" is the namespace id. This is a
+    strict-mode warning.
+  why: Without a declared residency nobody can confirm the remembered data stays in the region
+    it must stay in.
+  fix:
+  - Declare the permitted regions under `compliance.data_residency`.
+  example: |-
+    compliance:
+      data_residency: [eu-west]
+- number: 2404
+  code: long_term_without_namespace
+  severity:
+  - warning
+  section: memory contract
+  refs:
+  - ADR-0028
+  title: Long-term memory enabled with no namespace
+  summary: Long-term memory is on but there is nowhere to put anything.
+  explanation: Fires when `memory.long_term.enabled` is true and `memory.namespaces` is empty.
+    There is no specific "where".
+  why: Nothing can be promoted into long-term memory, so the setting is either a mistake or
+    a sign the memory design is unfinished.
+  fix:
+  - Declare at least one namespace under `memory.namespaces`, or
+  - set `memory.long_term.enabled` to false.
+- number: 2405
+  code: session_memory_is_long_term
+  severity:
+  - warning
+  section: memory contract
+  refs:
+  - ADR-0028
+  title: Session memory kept for more than seven days
+  summary: Session memory retention exceeds seven days.
+  explanation: Fires when `memory.session.retention_days` is set and greater than 7. There
+    is no specific "where".
+  why: Session memory retained that long is effectively long-term memory, but it escapes the
+    namespace, redaction and residency controls long-term memory is governed by.
+  fix:
+  - Reduce `memory.session.retention_days` to 7 or less.
+  - Move anything that must persist into a governed `memory.namespaces` entry.
+- number: 2501
+  code: tool_wraps_unknown
+  severity:
+  - error
+  section: system-level skill/plugin/tool references
+  refs: []
+  title: Tool wraps an unknown capability or endpoint
+  summary: A tool's `wraps` names a capability or endpoint that does not exist.
+  explanation: 'Fires when a tool has `wraps_kind: capability` and `wraps` is not a declared
+    capability, or `wraps_kind: endpoint` and `wraps` is not a declared endpoint. The "where"
+    is the tool id.'
+  why: The tool would call nothing real, and the capability or endpoint governance it is supposed
+    to inherit does not apply.
+  fix:
+  - Correct the tool's `wraps` to an existing capability or endpoint id, or
+  - declare the missing capability or endpoint, and check `wraps_kind` matches.
+- number: 2601
+  code: unused_capability
+  severity:
+  - warning
+  section: capability coverage
+  refs: []
+  title: Capability is declared but unused
+  summary: No agent, role, sub-agent, tool or endpoint uses this capability.
+  explanation: Fires for each capability not referenced by any agent's `capabilities`, any
+    role's `capabilities`, any sub-agent's `capabilities`, any tool that wraps it, or any
+    endpoint's `provides`. The "where" is the capability id.
+  why: Unused declarations clutter the design and may hide a capability that was meant to
+    be granted or removed.
+  fix:
+  - Grant the capability to the agent or role that needs it, or
+  - delete it from `capabilities`.
+- number: 2701
+  code: environment_widened
+  severity:
+  - error
+  section: the model's own constraints
+  refs:
+  - ADR-0102
+  - ADR-0103
+  - ADR-0009
+  title: Agent widens its environment's limits
+  summary: An agent's environment override is looser than the environment class allows.
+  explanation: 'Fires when an agent''s environment override asks for a longer `timeout_seconds`
+    than the environment, a `network` posture more open than the environment''s (order: none,
+    allowlist, internal, open), or an `egress_allowlist` entry the environment does not allow
+    (or any egress on an isolated `network: none` environment). The "where" is the agent id.'
+  why: An override may only make an environment stricter; widening it would let one agent
+    escape the sandboxing the environment class guarantees.
+  fix:
+  - Remove or reduce the offending `timeout_seconds`, `network` or `egress_allowlist` in the
+    agent's `environments` entry, or
+  - use (or define) an environment class that permits what the agent needs.
+- number: 2702
+  code: model_ids_are_unique
+  severity:
+  - error
+  section: the model's own constraints
+  refs:
+  - ADR-0102
+  - ADR-0103
+  title: Two components of one kind share an id
+  summary: Two instances of the same kind have the same id.
+  explanation: 'From the metamodel constraint `ids_are_unique`: fires for every second instance
+    of a kind with an id already seen (workflow steps are compared only within their own workflow).
+    Because agents are one kind, this also catches an agent placed in two teams. The "where"
+    is `kind:id`.'
+  why: References by id become ambiguous, so permissions, flows and links could attach to
+    the wrong component.
+  fix:
+  - Rename one of the duplicates to a unique id.
+  - If an agent appears in two teams, keep it in exactly one.
+- number: 2703
+  code: model_references_resolve
+  severity:
+  - error
+  section: the model's own constraints
+  refs:
+  - ADR-0102
+  - ADR-0103
+  title: A reference names nothing of the right kind
+  summary: A field refers to an id that is not an instance of the kind the relationship expects.
+  explanation: 'From the metamodel constraint `references_resolve`: for every relationship
+    in the profile, each referenced id must name an existing instance of the target kind (abstract
+    ends accept any realising kind; `*` and capability operations are allowed where the relationship
+    says so). The "where" is the referring instance (`kind:id`) or the record field.'
+  why: A dangling or mistyped reference means a permission, flow or link points at nothing,
+    so the design does not say what it appears to.
+  fix:
+  - Correct the referenced id in the named field, or
+  - declare the missing component of the expected kind.
+- number: 2704
+  code: model_multiplicities_hold
+  severity:
+  - error
+  section: the model's own constraints
+  refs:
+  - ADR-0102
+  - ADR-0103
+  title: A relationship has too few or too many ends
+  summary: A field holds a number of references outside its allowed multiplicity.
+  explanation: 'From the metamodel constraint `multiplicities_hold`: for each relationship
+    with a bounded multiplicity, fires when an instance holds fewer or more references than
+    allowed; the message names the field and the required multiplicity. The "where" is `kind:id`.
+    This is a completeness constraint: drafts may have it, a published design may not.'
+  why: A required link that is missing (such as an owner) or too many links where one is meant
+    leaves the design incomplete or ambiguous.
+  fix:
+  - Fill in or trim the named field until its count matches the stated multiplicity.
+- number: 2705
+  code: model_separations_hold
+  severity:
+  - error
+  section: the model's own constraints
+  refs:
+  - ADR-0102
+  - ADR-0103
+  - ADR-0070
+  title: Agent holds decisions a separation keeps apart
+  summary: One agent's mandate includes two or more decisions a separation rule says must
+    be held by different agents.
+  explanation: 'From the metamodel constraint `separations_hold`: for each rule in `separations`,
+    fires for any agent whose `mandate.decisions` contains more than one of the rule''s `decisions`.
+    The "where" is the agent.'
+  why: Separation of duties stops one actor from both making and approving (or otherwise combining)
+    sensitive decisions.
+  fix:
+  - Move all but one of the named decisions out of the agent's `mandate.decisions` to another
+    agent.
+- number: 2706
+  code: model_subagent_within_parent
+  severity:
+  - error
+  section: the model's own constraints
+  refs:
+  - ADR-0102
+  - ADR-0103
+  - ADR-0027
+  - ADR-0082
+  title: Sub-agent exceeds its parent
+  summary: A sub-agent has capabilities or environments its parent agent does not.
+  explanation: 'From the metamodel constraint `subagent_within_parent`: fires when a sub-agent''s
+    `capabilities` include one outside its parent''s effective capabilities, or its `environments`
+    include one the parent does not run in. The "where" is the sub-agent.'
+  why: A sub-agent must be narrower than its owner; otherwise delegation becomes a way to
+    exceed an agent's granted authority.
+  fix:
+  - Remove the extra capability or environment from the sub-agent, or
+  - grant it to the parent properly first.
+- number: 2707
+  code: model_leader_is_member
+  severity:
+  - error
+  section: the model's own constraints
+  refs:
+  - ADR-0102
+  - ADR-0103
+  - ADR-0006
+  title: Team leader is not a team member
+  summary: A team's `leader` is not one of its members.
+  explanation: 'From the metamodel constraint `leader_is_member`: fires when a team sets `leader`
+    to an id not among the team''s `members`. The "where" is the team.'
+  why: A leader outside the team leads nothing it contains, and accountability for the team
+    becomes unclear.
+  fix:
+  - Add the leader to the team's `members`, or
+  - set `leader` to an existing member.
+- number: 2708
+  code: model_no_self_successor
+  severity:
+  - error
+  section: the model's own constraints
+  refs:
+  - ADR-0102
+  - ADR-0103
+  - ADR-0094
+  title: Agent is its own successor
+  summary: An agent's `successor` is itself.
+  explanation: 'From the metamodel constraint `no_self_successor`: fires when an agent''s
+    `successor` equals its own id. The "where" is the agent.'
+  why: A successor stands in when the agent is retired or unavailable; naming itself leaves
+    no real stand-in.
+  fix:
+  - Set `successor` to a different agent, or clear it.
+- number: 2709
+  code: model_root_places
+  severity:
+  - error
+  section: the model's own constraints
+  refs:
+  - ADR-0102
+  - ADR-0103
+  - ADR-0069
+  title: Organisation does not declare placement
+  summary: The organisation must be a placement boundary.
+  explanation: 'From the metamodel constraint `root_places`: fires when `organization.placement`
+    is not true. The "where" is the organisation.'
+  why: The organisation is always the outermost placement boundary; without it, where agents
+    are placed is undefined.
+  fix:
+  - 'Set `organization.placement: true`.'
+  example: |-
+    organization:
+      placement: true
+- number: 2710
+  code: model_unit_links_respect_containment
+  severity:
+  - error
+  section: the model's own constraints
+  refs:
+  - ADR-0102
+  - ADR-0103
+  - ADR-0081
+  title: Unit link contradicts containment
+  summary: A link between units points at itself or contradicts the team hierarchy.
+  explanation: 'From the metamodel constraint `unit_links_respect_containment`: fires for
+    a unit link whose source equals its target, an `oversees` link whose source sits inside
+    the overseen unit''s subtree, or an `escalates_to` link whose target sits inside the escalating
+    unit''s own subtree. The "where" is `unit_link:source->target`.'
+  why: Oversight from inside the overseen unit is not independent, and escalating into your
+    own subtree reaches no one above you.
+  fix:
+  - Point the link at a unit outside the relevant subtree, or remove it.
+- number: 2711
+  code: model_flows_join_two_agents
+  severity:
+  - error
+  section: the model's own constraints
+  refs:
+  - ADR-0102
+  - ADR-0103
+  - ADR-0024
+  title: Interaction flow joins an agent to itself
+  summary: A flow's source and target are the same agent.
+  explanation: 'From the metamodel constraint `flows_join_two_agents`: fires for any entry
+    in `interaction_flows` whose `source` equals its `target`. The "where" is `flow:source->target`.'
+  why: A flow describes communication between two agents; a self-flow is meaningless and usually
+    a mis-set end.
+  fix:
+  - Set the flow's `source` or `target` to the other agent, or remove the flow.
+- number: 2712
+  code: model_control_flow_ends
+  severity:
+  - error
+  section: the model's own constraints
+  refs:
+  - ADR-0102
+  - ADR-0103
+  - ADR-0096
+  title: Workflow edge or entry names no step
+  summary: A workflow's entry or an edge end is not one of its steps.
+  explanation: 'From the metamodel constraint `control_flow_ends`: fires when a workflow''s
+    `graph.entry` is not a step id, or an edge''s source or target is neither a step of the
+    same workflow nor `END`. The "where" is the workflow.'
+  why: 'A broken edge means the workflow cannot run as drawn: a step is unreachable or control
+    flows to nothing.'
+  fix:
+  - Correct the edge's `source`/`target` or `graph.entry` to an existing step id (or `END`).
+- number: 2713
+  code: model_actions_name_what_they_call
+  severity:
+  - error
+  section: the model's own constraints
+  refs:
+  - ADR-0102
+  - ADR-0103
+  title: Workflow step does not say what it calls
+  summary: A tool, agent or workflow step names no tool, agent or workflow.
+  explanation: 'From the metamodel constraint `actions_name_what_they_call`: fires for a step
+    of kind `tool`, `agent` or `workflow` whose corresponding field (`tool`, `agent` or `workflow`)
+    is empty. The "where" is `action:workflow.step`. This is a completeness constraint.'
+  why: A step that calls nothing cannot execute, and nobody can tell what authority it uses.
+  fix:
+  - Fill in the step's `tool`, `agent` or `workflow` field to match its kind.
+- number: 2801
+  code: departed_owner
+  severity:
+  - warning
+  section: people who have left
+  refs:
+  - ADR-0047
+  - ADR-0026
+  title: Owner has left the organisation
+  summary: An agent's owner (or a mission sponsor) is reported departed by the people directory.
+  explanation: Fires when a configured directory confirms that a human paired as owner or
+    sponsor has departed. It is a warning in general but an error when `metadata.environment`
+    is `production`. The "where" is the agent or mission paired with them. A directory that
+    knows nothing produces no finding.
+  why: Every agent needs an accountable human; a departed owner leaves nobody answerable for
+    it.
+  fix:
+  - Assign a current person as owner of the agent (or sponsor of the mission).
+  - Check the directory if you believe the person has not left.
+- number: 2802
+  code: departed_human
+  severity:
+  - warning
+  section: people who have left
+  refs:
+  - ADR-0047
+  title: Paired human has left the organisation
+  summary: A reviewer, stakeholder or other paired human is reported departed.
+  explanation: Fires when the directory confirms that a human paired in a non-owner role has
+    departed. Always a warning. The "where" is the component they are paired with.
+  why: An absent reviewer or stakeholder is stale rather than unsafe, but reviews and escalations
+    routed to them will go unanswered.
+  fix:
+  - Replace the departed person with a current one in that pairing, or remove the pairing.
+- number: 2803
+  code: human_unknown_to_directory
+  severity:
+  - warning
+  section: people who have left
+  refs:
+  - ADR-0047
+  title: Paired human is not in the directory
+  summary: The directory has no record of a paired person.
+  explanation: Fires when a paired human's contact is not found in the configured directory.
+    It is always a warning, even for owners and in production. The "where" is the component
+    they are paired with.
+  why: Most likely a contractor or alias the directory lacks, but it could also be a typo
+    or someone who has left, so accountability cannot be confirmed.
+  fix:
+  - Check the contact for typos.
+  - If correct, confirm the person with whoever maintains the directory.
+- number: 2901
+  code: platform_policy_requires
+  severity:
+  - error
+  section: platform policy
+  refs: []
+  title: Platform policy requires a block this design lacks
+  summary: The platform policy says this design must declare something it does not.
+  explanation: Fires for each block named in the platform policy's `require_declared` that
+    is empty in the design. Requirable blocks are `separations`, `guardrails`, `decisions`,
+    `evaluations` (lifecycle), `output_contracts` and `observability_alerts`. The "where"
+    is the block name.
+  why: The platform operator has made these governance elements mandatory for every design
+    deployed on it.
+  fix:
+  - Declare at least one entry in the named block.
+- number: 2902
+  code: platform_policy_forbids_autonomy
+  severity:
+  - error
+  section: platform policy
+  refs: []
+  title: Platform forbids autonomy over this decision
+  summary: An agent would act unattended over a decision class the platform policy forbids.
+  explanation: Fires when an agent holds a capability (directly or through its own or inherited
+    team roles) whose effective posture is `autonomous` (the agent's `autonomy` override,
+    otherwise the capability's) and the capability's `decision` is in the policy's `forbid_autonomy_over`.
+    The "where" is `agent/capability`.
+  why: The platform operator requires a human in the loop for these decisions, whatever an
+    individual design wants.
+  fix:
+  - Lower the posture for that capability in the agent's `autonomy` (or on the capability)
+    to one with human involvement, or
+  - remove the capability from the agent.
+- number: 2903
+  code: platform_policy_autonomy_ceiling
+  severity:
+  - error
+  section: platform policy
+  refs: []
+  title: Autonomy exceeds the platform ceiling
+  summary: An agent's posture over a capability is more autonomous than the platform allows
+    anywhere.
+  explanation: Fires when the platform policy sets `max_autonomy` and an agent's effective
+    posture for a capability it holds (directly or via roles) ranks as more autonomous than
+    that ceiling. The "where" is `agent/capability`.
+  why: The platform caps how much unattended action any design may give an agent.
+  fix:
+  - Lower the agent's `autonomy` setting for that capability (or the capability's default
+    `autonomy`) to at most the ceiling.
+- number: 3001
+  code: unreadable
+  severity:
+  - error
+  section: loading the design
+  refs: []
+  title: The design could not be read
+  summary: The design is not valid YAML or not the right shape to load.
+  explanation: Fires in the designer when loading the stored spec raises an error other than
+    a schema validation error, e.g. invalid YAML or a structure the loader cannot handle.
+    The message gives the exception type and text; there is no "where".
+  why: Nothing else can be checked until the design loads, so every other finding is hidden
+    behind this one.
+  fix:
+  - Read the exception message for the cause.
+  - Fix the YAML syntax or structure (indentation, lists vs mappings), then revalidate.
+- number: 3099
+  code: schema_error
+  severity:
+  - error
+  section: loading the design
+  refs: []
+  title: Design does not match the schema
+  summary: A field in the design is missing, unexpected or of the wrong type.
+  explanation: Fires when the design parses as YAML but fails schema validation. Each validation
+    error becomes its own finding; the code is the validator's error type (e.g. `missing`,
+    `extra_forbidden`, `string_type`) and the "where" is the dotted path to the offending
+    field.
+  why: A design that does not match the schema cannot be loaded, so none of the governance
+    checks can run on it.
+  fix:
+  - Go to the field named in "where".
+  - Add the missing field, remove the unknown one, or correct the value's type as the message
+    says.
+  - Check for misspelled field names, which show as `extra_forbidden`.

@@ -69,6 +69,8 @@ class MetaClass(str, Enum):
     ACTION = "Action"
     #: An edge of an Activity: control passes from one node to the next.
     CONTROL_FLOW = "ControlFlow"
+    #: A closed set of literals typing a property (ADR-0112).
+    ENUMERATION = "Enumeration"
 
 
 class RelKind(str, Enum):
@@ -194,11 +196,57 @@ class Relationship:
         return self.source if self.owner == "source" else self.target
 
 
+@dataclass(frozen=True)
+class Property:
+    """A UML Property holding a value, not a reference: an attribute of a
+    stereotype or of a DataType, with its type and multiplicity (ADR-0112).
+    A field that holds another element's id is a Relationship instead."""
+
+    owner: str             # a stereotype's kind, or a DataType's name
+    name: str              # the spec field
+    type: str              # a UML primitive, an Enumeration or a DataType
+    multiplicity: str = "1"
+    doc: str = ""
+
+
+@dataclass(frozen=True)
+class Enumeration:
+    """A UML Enumeration: a closed vocabulary with its literals, declared in
+    the profile so a property typed by it is typed in the model and not only
+    in Python (ADR-0112). `model` names the spec enum it must equal."""
+
+    name: str
+    model: str
+    literals: tuple[str, ...]
+    doc: str = ""
+    #: What a literal is in UML, where it is one of UML's own concepts: a
+    #: `fork` step is a ForkNode.
+    uml: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class DataType:
+    """A UML DataType: a value with no identity of its own, owned by the
+    element it describes (ADR-0112). Its value properties are `Property`
+    declarations; its references are relationships from its owner through
+    a dotted field (`interface.tools`)."""
+
+    name: str
+    model: str
+    doc: str = ""
+
+
 @dataclass
 class Profile:
     name: str
     stereotypes: list[Stereotype] = field(default_factory=list)
     relationships: list[Relationship] = field(default_factory=list)
+    enumerations: list[Enumeration] = field(default_factory=list)
+    datatypes: list[DataType] = field(default_factory=list)
+    properties: list[Property] = field(default_factory=list)
+
+    def enumeration(self, name: str) -> Optional[Enumeration]:
+        return next((e for e in self.enumerations if e.name == name), None)
 
     def stereotype(self, kind: str) -> Optional[Stereotype]:
         return next((s for s in self.stereotypes if s.kind == kind), None)
@@ -242,6 +290,9 @@ STEREOTYPES = [
       "A step of a workflow (ADR-0102)."),
     S("ControlFlow", "control_flow", MC.CONTROL_FLOW, "", "ControlFlow",
       "An edge between two steps of a workflow."),
+    S("StepOwner", "step_owner", MC.INTERFACE, "", "",
+      "Whoever may own a workflow step: an agent, a team or a person "
+      "(ADR-0110).", abstract=True),
     S("Skill", "skill", MC.ARTIFACT, "skills", "SkillSpec"),
     S("Plugin", "plugin", MC.COMPONENT, "plugins", "PluginSpec"),
     S("Tool", "tool", MC.INTERFACE, "tools", "ToolSpec"),
@@ -278,7 +329,7 @@ STEREOTYPES = [
 #: Stereotypes that are not palette kinds.
 NON_PALETTE = {"system", "organization", "worker", "principal", "resource",
                "callable", "wrappable",
-               "action", "control_flow"}
+               "action", "control_flow", "step_owner"}
 
 R = Relationship
 K = RelKind
@@ -453,6 +504,33 @@ RELATIONSHIPS = [
     R("action", "workflow", K.ASSOCIATION, "invokes", "workflow", SH.REF,
       target_mult="0..1", linkable=False, draw=Draw.NONE,
       constraint="{kind = workflow}"),
+
+    # -- the governed workflow and its seam to an engine (ADR-0110) ----------
+    *[R(k, "step_owner", K.REALIZATION, "", "", SH.REF, linkable=False,
+        draw=Draw.NONE) for k in ("agent", "team", "person")],
+    R("action", "step_owner", K.ASSOCIATION, "owned by", "owner", SH.REF,
+      target_mult="0..1", linkable=False, draw=Draw.NONE,
+      constraint="{an agent step defaults to its agent}",
+      help="who does the step: an agent, a team or a person"),
+    R("action", "person", K.ASSOCIATION, "approved by", "person", SH.REF,
+      target_mult="0..1", linkable=False, draw=Draw.NONE,
+      constraint="{kind = human}"),
+    R("action", "role", K.ASSOCIATION, "approved by role", "role", SH.REF,
+      target_mult="0..1", linkable=False, draw=Draw.NONE,
+      constraint="{kind = human}"),
+    R("workflow", "callable", K.USAGE, "interface calls", "interface.tools",
+      SH.REFS, linkable=False, draw=Draw.NONE,
+      constraint="{'c__op' = operation op of c}",
+      help="what an external body calls; the calling step's owner must hold it"),
+    R("workflow", "endpoint", K.USAGE, "interface reaches",
+      "interface.endpoints", SH.REFS, linkable=False, draw=Draw.NONE),
+    R("workflow", "data_class", K.ASSOCIATION, "receives",
+      "interface.receives_data_classes", SH.REFS, linkable=False,
+      draw=Draw.NONE,
+      help="data sent to the body; the calling step's owner must hold it"),
+    R("workflow", "data_class", K.ASSOCIATION, "returns",
+      "interface.returns_data_classes", SH.REFS, linkable=False,
+      draw=Draw.NONE),
 ]
 
 # -- ownership: the System owns one Organization, which owns its elements --
@@ -470,8 +548,47 @@ RELATIONSHIPS += [
     if st.collection and st.kind not in ("system",)
 ]
 
+# -- values: enumerations, datatypes and properties (ADR-0112) --------------
+# Declared for what ADR-0110 added to the process model. The rest of the
+# spec's enumerations and value types are ADR-0112's migration, not this one.
+
+ENUMERATIONS = [
+    Enumeration(
+        "ActivityNodeKind", "ActivityNodeKind",
+        ("tool", "agent", "workflow", "transform", "branch", "human",
+         "fork", "join"),
+        "What a workflow step is: which UML ActivityNode it stands for.",
+        uml=(("tool", "CallOperationAction"), ("agent", "CallBehaviorAction"),
+             ("workflow", "CallBehaviorAction"), ("transform", "OpaqueAction"),
+             ("branch", "DecisionNode"), ("human", "AcceptEventAction"),
+             ("fork", "ForkNode"), ("join", "JoinNode"))),
+    Enumeration(
+        "WorkflowBody", "WorkflowBody", ("graph", "external"),
+        "Where a workflow's insides live: drawn here as an Activity, or "
+        "built in an engine the binding names (ADR-0110)."),
+]
+
+DATATYPES = [
+    DataType("WorkflowInterface", "WorkflowInterface",
+             "The seam between a governed workflow and a body built in an "
+             "engine: what goes in and out, what it calls and which data it "
+             "touches. Its references are the workflow's `interface calls`, "
+             "`interface reaches`, `receives` and `returns` (ADR-0110)."),
+]
+
+PROPERTIES = [
+    Property("action", "kind", "ActivityNodeKind", "1"),
+    Property("workflow", "body", "WorkflowBody", "1",
+             "graph unless the body is built in an engine"),
+    Property("workflow", "interface", "WorkflowInterface", "1",
+             "composite: the workflow owns its interface"),
+    Property("WorkflowInterface", "inputs", "String", "0..*"),
+    Property("WorkflowInterface", "outputs", "String", "0..*"),
+]
+
 PROFILE = Profile(name="OrgAgents", stereotypes=STEREOTYPES,
-                  relationships=RELATIONSHIPS)
+                  relationships=RELATIONSHIPS, enumerations=ENUMERATIONS,
+                  datatypes=DATATYPES, properties=PROPERTIES)
 
 
 # --------------------------------------------------------------------------
@@ -567,6 +684,17 @@ def describe(profile: Profile = PROFILE) -> dict[str, Any]:
              "association_class": r.association_class,
              "constraint": r.constraint}
             for r in profile.relationships
+        ],
+        "enumerations": [
+            {"name": e.name, "literals": list(e.literals), "doc": e.doc,
+             **({"uml": dict(e.uml)} if e.uml else {})}
+            for e in profile.enumerations
+        ],
+        "datatypes": [{"name": d.name, "doc": d.doc} for d in profile.datatypes],
+        "properties": [
+            {"owner": p.owner, "name": p.name, "type": p.type,
+             "multiplicity": p.multiplicity}
+            for p in profile.properties
         ],
     }
 

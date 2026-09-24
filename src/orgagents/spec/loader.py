@@ -46,7 +46,7 @@ def load_spec_text_with_migration(text: str) -> tuple[SystemSpec, list[str]]:
 
 
 def load_spec_with_migration(path: str | Path) -> tuple[SystemSpec, list[str]]:
-    return load_spec_text_with_migration(Path(path).read_text())
+    return load_spec_text_with_migration(Path(path).read_text(encoding="utf-8"))
 
 
 def load_spec_text(text: str) -> SystemSpec:
@@ -54,11 +54,11 @@ def load_spec_text(text: str) -> SystemSpec:
 
 
 def load_spec(path: str | Path) -> SystemSpec:
-    return load_spec_text(Path(path).read_text())
+    return load_spec_text(Path(path).read_text(encoding="utf-8"))
 
 
 def load_binding(path: str | Path) -> Binding:
-    data = yaml.safe_load(Path(path).read_text()) or {}
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     return Binding.model_validate(data)
 
 

@@ -130,7 +130,7 @@ class RecordSet:
 
 
 def parse(path: Path, kind: Kind) -> Record:
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     m = FRONT_MATTER_RE.match(text)
     if not m:
         raise ValueError(f"{path}: missing YAML front matter")
@@ -277,7 +277,7 @@ def write_indexes(rs: RecordSet, root: str | Path = ".") -> list[Path]:
         if not directory.is_dir():
             continue
         path = directory / "index.md"
-        path.write_text(render(rs) + "\n")
+        path.write_text(render(rs) + "\n", encoding="utf-8", newline="\n")
         written.append(path)
     return written
 
@@ -323,7 +323,7 @@ def scaffold(rs: RecordSet, kind: str, title: str, root: str | Path = ".") -> st
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
     path = folder / f"{record_id}-{slug}.md"
     today = __import__("datetime").date.today().isoformat()
-    template = (folder / "_template.md").read_text()
+    template = (folder / "_template.md").read_text(encoding="utf-8")
     placeholder = "ADR-nnnn" if kind == "adr" else "WS-nnn"
     body = (
         template.replace(placeholder, record_id)
@@ -331,5 +331,5 @@ def scaffold(rs: RecordSet, kind: str, title: str, root: str | Path = ".") -> st
         .replace("One-line statement of the decision", title)
         .replace("One-line statement of the work", title)
     )
-    path.write_text(body)
+    path.write_text(body, encoding="utf-8", newline="\n")
     return path.as_posix()

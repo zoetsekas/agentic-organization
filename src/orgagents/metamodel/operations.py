@@ -95,6 +95,15 @@ def _new(kind: str, id_: str, attrs: dict[str, Any]) -> Any:
     return cls.model_validate({**ident, **attrs})
 
 
+def _leaf(holder: Any, dotted: str) -> tuple[Any, str]:
+    """The object that holds a relationship's last field, and that field's
+    name: `interface.tools` is `tools` on the workflow's interface."""
+    *path, last = dotted.split(".")
+    for step in path:
+        holder = getattr(holder, step)
+    return holder, last
+
+
 # -- the transaction ---------------------------------------------------------
 
 def _transact(spec: spec_model.SystemSpec,
@@ -153,6 +162,12 @@ def create(spec: spec_model.SystemSpec, of: str, id_: str, *,
             for step in path:
                 target = getattr(target, step)
             getattr(target, last).append(obj)
+            # A graph dumps only what was written (ADR-0102), so the list a
+            # step was appended to must count as written, or the first step of
+            # an empty workflow would vanish on the next dump.
+            fields_set = getattr(target, "model_fields_set", None)
+            if isinstance(fields_set, set):
+                fields_set.add(last)
             return
         raise OperationError(f"no {kind} can be created in '{owner}'")
     ref = (f"action:{owner}.{id_}" if kind == "action" else f"{kind}:{id_}")
@@ -205,16 +220,16 @@ def link(spec: spec_model.SystemSpec, source: tuple[str, str],
             getattr(s.organization, rel.field).append(
                 cls.model_validate({"source": sid, "target": tid, **attrs}))
             return
-        holder = src.obj
+        holder, name = _leaf(src.obj, rel.field)
         if rel.shape is Shape.REF:
-            setattr(holder, rel.field, tid)
+            setattr(holder, name, tid)
         elif rel.shape is Shape.REFS:
-            values = getattr(holder, rel.field)
+            values = getattr(holder, name)
             if tid not in values:
                 values.append(tid)
         elif rel.shape is Shape.REF_OBJECTS:
             cls = getattr(spec_model, rel.association_class)
-            values = getattr(holder, rel.field)
+            values = getattr(holder, name)
             if not any(getattr(v, rel.key) == tid for v in values):
                 values.append(cls.model_validate({rel.key: tid, **attrs}))
     return _transact(spec, change)
@@ -318,13 +333,13 @@ def _drop(s: spec_model.SystemSpec, rel: Relationship, holder: Any,
                                "destroyed")
         records[:] = kept
         return
-    current = getattr(holder, rel.field)
+    holder, name = _leaf(holder, rel.field)
+    current = getattr(holder, name)
     if rel.shape is Shape.REF:
         if current == target_id:
             if keep_mandatory and not rel.target_mult.startswith("0"):
                 return      # multiplicities_hold will name it and refuse
-            setattr(holder, rel.field,
-                    type(holder).model_fields[rel.field].default)
+            setattr(holder, name, type(holder).model_fields[name].default)
             effects.append(f"{source_id} no longer {rel.stereotype} "
                            f"'{target_id}'")
     elif rel.shape is Shape.REFS:

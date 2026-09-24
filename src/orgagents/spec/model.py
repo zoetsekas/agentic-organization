@@ -1576,6 +1576,8 @@ class ActivityNodeKind(str, Enum):
     TRANSFORM = "transform"  # OpaqueAction: an expression over the state
     BRANCH = "branch"        # DecisionNode
     HUMAN = "human"          # AcceptEventAction: waits for a person
+    FORK = "fork"            # ForkNode: every way out runs (ADR-0110)
+    JOIN = "join"            # JoinNode: waits for every branch a fork began
 
 
 class _AsWritten(BaseModel):
@@ -1614,6 +1616,14 @@ class ActivityNode(_AsWritten):
     output: str = ""
     cases: Any = None
     default: str = ""
+    #: Who does the step (ADR-0110): an agent, a team or a person id. An
+    #: `agent` step is owned by its agent unless this says otherwise; a
+    #: `workflow` step's owner is who the called interface is checked
+    #: against.
+    owner: str = ""
+    #: For a `human` step: the person, or the role, who approves.
+    person: str = ""
+    role: str = ""
 
 
 class ControlFlow(_AsWritten):
@@ -1639,14 +1649,45 @@ class ActivityGraph(_AsWritten):
         return bool(self.model_fields_set or self.__pydantic_extra__)
 
 
+class WorkflowBody(str, Enum):
+    """Where a workflow's insides live (ADR-0110)."""
+
+    GRAPH = "graph"        # drawn here, as an ActivityGraph
+    EXTERNAL = "external"  # built in an engine the binding names
+
+
+class WorkflowInterface(BaseModel):
+    """The seam between a governed workflow and a step built elsewhere
+    (ADR-0110): what goes in and out, what it calls, which data it touches.
+    The validator checks it as if it were the step."""
+
+    inputs: list[str] = Field(default_factory=list)
+    outputs: list[str] = Field(default_factory=list)
+    #: Capabilities or declared tools the body calls.
+    tools: list[str] = Field(default_factory=list)
+    #: External endpoints the body calls.
+    endpoints: list[str] = Field(default_factory=list)
+    receives_data_classes: list[str] = Field(default_factory=list)
+    returns_data_classes: list[str] = Field(default_factory=list)
+
+    def is_empty(self) -> bool:
+        return not any((self.inputs, self.outputs, self.tools, self.endpoints,
+                        self.receives_data_classes, self.returns_data_classes))
+
+
 class WorkflowSpec(BaseModel):
     """A declarative process graph (see `orgagents.workflows`): a UML
     Activity whose nodes are actions calling tools, agents and other
-    workflows (ADR-0102)."""
+    workflows (ADR-0102).
+
+    `body: external` says the insides are built in an engine the binding
+    names; the spec then holds only its `interface` (ADR-0110)."""
 
     id: str
     name: str = ""
     description: str = ""
+    body: WorkflowBody = WorkflowBody.GRAPH
+    interface: WorkflowInterface = Field(default_factory=WorkflowInterface)
     graph: ActivityGraph = Field(default_factory=ActivityGraph)
     interrupt_before: list[str] = Field(default_factory=list)
     inputs: dict[str, Any] = Field(default_factory=dict)

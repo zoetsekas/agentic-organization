@@ -78,7 +78,7 @@ def test_a_node_with_two_ways_out_is_refused_not_silently_pruned():
     ])))
     assert result.error is not None
     assert "'a' declares 2 outgoing edges" in result.error
-    assert "parallel steps are not supported" in result.error
+    assert "'fork'" in result.error and "'join'" in result.error
     assert result.path == [], "nothing should have run"
 
 

@@ -222,5 +222,53 @@ def test_a_policy_is_about_principals_and_governs_resources():
 def test_a_workflow_is_an_activity_whose_actions_reference_the_model():
     from orgagents.spec.model import ActivityNodeKind
     fields = {r.field for r in PROFILE.relationships if r.source == "action"}
-    assert fields == {"tool", "agent", "workflow"}
+    # What a step calls, and who owns or approves it (ADR-0110).
+    assert fields == {"tool", "agent", "workflow", "owner", "person", "role"}
     assert {k.value for k in ActivityNodeKind} >= {"tool", "agent", "workflow"}
+
+
+# -- ADR-0110's additions are in the profile (ADR-0112) -----------------------
+
+def test_every_declared_enumeration_is_the_spec_enum_literal_for_literal():
+    for enum in PROFILE.enumerations:
+        py = getattr(spec_model, enum.model)
+        assert tuple(m.value for m in py) == enum.literals, enum.name
+        for literal, _uml in enum.uml:
+            assert literal in enum.literals
+
+
+def test_fork_and_join_are_uml_control_nodes_in_the_profile():
+    kinds = PROFILE.enumeration("ActivityNodeKind")
+    assert dict(kinds.uml)["fork"] == "ForkNode"
+    assert dict(kinds.uml)["join"] == "JoinNode"
+
+
+def test_every_declared_property_is_a_field_of_its_owner_and_is_typed():
+    datatypes = {d.name: getattr(spec_model, d.model) for d in PROFILE.datatypes}
+    types = {e.name for e in PROFILE.enumerations} | set(datatypes) | {"String"}
+    for prop in PROFILE.properties:
+        owner = datatypes.get(prop.owner) or _model(prop.owner)
+        assert prop.name in owner.model_fields, (prop.owner, prop.name)
+        assert prop.type in types, prop
+
+
+def test_every_field_adr_0110_added_is_declared():
+    """The workflow's body and interface, and a step's owner and approver,
+    are each a declared property or relationship end (ADR-0112)."""
+    declared = {(p.owner, p.name) for p in PROFILE.properties}
+    declared |= {(r.owner_kind(), r.field) for r in PROFILE.relationships}
+    for owner, name in [("workflow", "body"), ("workflow", "interface"),
+                        ("action", "kind"), ("action", "owner"),
+                        ("action", "person"), ("action", "role"),
+                        ("workflow", "interface.tools"),
+                        ("workflow", "interface.endpoints"),
+                        ("workflow", "interface.receives_data_classes"),
+                        ("workflow", "interface.returns_data_classes"),
+                        ("WorkflowInterface", "inputs"),
+                        ("WorkflowInterface", "outputs")]:
+        assert (owner, name) in declared, (owner, name)
+    interface = spec_model.WorkflowInterface.model_fields
+    covered = {n for o, n in declared if o == "WorkflowInterface"} | {
+        n.split(".", 1)[1] for o, n in declared
+        if o == "workflow" and n.startswith("interface.")}
+    assert set(interface) == covered
