@@ -1178,7 +1178,14 @@ async def main() -> None:
         await delform.locator("input[name=confirm]").fill("Renamed workspace")
         await delform.locator("input[name=cascade]").check()
         await delform.locator("button[type=submit]").click()
-        await page.wait_for_timeout(1500)
+        # As with the import: wait for the list to change, up to a bound,
+        # rather than a fixed 1.5 s a loaded runner sometimes overran.
+        try:
+            await page.wait_for_function("""() => ![...document.querySelectorAll(
+              "#ws-select option")].some((o) => o.textContent === "Renamed workspace")""",
+                                         timeout=15000)
+        except Exception:                                   # noqa: BLE001
+            pass                                            # the check says so
         names = await page.evaluate("""() => [...document.querySelectorAll(
           "#ws-select option")].map((o) => o.textContent)""")
         check("the workspace is deleted", "Renamed workspace" not in names,
