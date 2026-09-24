@@ -1,0 +1,29 @@
+{
+  "_about": "AYC's storefront, seeded. Salon furniture and equipment sold to salons, barbers and spas.",
+  "products": [
+    {"sku": "AYC-CH-001", "title": "Aurora Hydraulic Styling Chair, black", "price": 489.00, "status": "active", "vendor": "Maletti Line"},
+    {"sku": "AYC-CH-014", "title": "Luxe Barber Chair, chrome and oxblood", "price": 1195.00, "status": "active", "vendor": "Takara Works"},
+    {"sku": "AYC-BW-220", "title": "Serenity Shampoo Backwash Unit, tilting bowl", "price": 1349.00, "status": "active", "vendor": "Maletti Line"},
+    {"sku": "AYC-PD-310", "title": "Lagoon Pedicure Spa Chair, pipeless jet", "price": 2890.00, "status": "active", "vendor": "Pacific Spa Supply"},
+    {"sku": "AYC-ST-402", "title": "Linea Double-Sided Styling Station with mirror", "price": 765.00, "status": "active", "vendor": "Nordwood Fixtures"},
+    {"sku": "AYC-RD-510", "title": "Halo Reception Desk, 180 cm, white gloss", "price": 1420.00, "status": "active", "vendor": "Nordwood Fixtures"},
+    {"sku": "AYC-TR-605", "title": "Five-Drawer Salon Trolley, black", "price": 89.00, "status": "active", "vendor": "Pacific Spa Supply"},
+    {"sku": "AYC-HD-710", "title": "Orbit Hood Dryer on castors", "price": 399.00, "status": "active", "vendor": "Takara Works"},
+    {"sku": "AYC-TB-820", "title": "Contour Electric Treatment Bed, three motors", "price": 1890.00, "status": "draft", "vendor": "Pacific Spa Supply"}
+  ],
+  "orders": [
+    {"id": "SO-50231", "customer": "Blush & Bloom Salon, Austin TX", "customer_id": "C-1001", "total": 2668.00, "status": "paid",
+     "lines": [{"sku": "AYC-CH-001", "quantity": 4}, {"sku": "AYC-TR-605", "quantity": 8}]},
+    {"id": "SO-50232", "customer": "Sharp Lines Barbershop, Denver CO", "customer_id": "C-1002", "total": 1195.00, "status": "delivered",
+     "note": "one barber chair, arrived with a cracked footrest",
+     "lines": [{"sku": "AYC-CH-014", "quantity": 1}]},
+    {"id": "SO-50233", "customer": "Still Water Day Spa, Portland OR", "customer_id": "C-1003", "total": 5780.00, "status": "paid",
+     "lines": [{"sku": "AYC-PD-310", "quantity": 2}]},
+    {"id": "SO-50234", "customer": "Studio Nine Hair, Miami FL", "customer_id": "C-1004", "total": 3186.00, "status": "paid",
+     "lines": [{"sku": "AYC-BW-220", "quantity": 2}, {"sku": "AYC-TR-605", "quantity": 1}, {"sku": "AYC-HD-710", "quantity": 1}]}
+  ],
+  "refunds": [],
+  "promotions": [
+    {"code": "SPRING10", "percent_off": 10, "skus": ["AYC-TR-605"], "ends_on": "2026-05-31", "created_by": "seed", "at": "2026-03-01T00:00:00Z"}
+  ]
+}

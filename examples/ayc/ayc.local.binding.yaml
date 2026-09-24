@@ -1,0 +1,124 @@
+# AYC's binding for the workstation: the same design, met with Docker Desktop.
+#
+# `ayc.binding.yaml` puts AYC on Google Cloud. This file puts the *same* spec —
+# the same agents, teams, placements, mandates and separations — on one
+# machine, with nothing real on the other end (ADR-0109):
+#
+#   * **The agents run on LangChain deep agents** — the same runtime the
+#     `langgraph` and `terraform:gcp` targets use — in one container each.
+#   * **The model is a stub.** `provider: stub` is a deterministic LangChain
+#     chat model that makes no call and needs no key (`orgagents.runtime.
+#     stub_model`). It replaces the model and nothing else: the deep agents
+#     loop, the tool node, the harness, the mandate check, the approval gate
+#     and the separations are the ones a real model would drive. It makes the
+#     tool calls a message spells out (`call <tool> {json}`, one per line) and
+#     answers in canned words; swap the provider for a real one and nothing
+#     else in this file changes.
+#   * **The backing systems are mocks.** Shopify, Fishbowl, the accounting
+#     system, the CMS and the deploy pipeline are small MCP servers in
+#     `examples/ayc/mocks/`, one container each, seeded with a salon-furnishings
+#     distributor's catalogue, stock, suppliers and ledger. Nothing real is
+#     touched.
+#
+# The servers catalog keeps the shape of the cloud binding on purpose (ADR-0085):
+# the two sides of every separation still sit on different servers, so a
+# barrier decided in the spec survives into the wiring (ADR-0071). Locally that
+# is a network: each server sits on a network of its own that only the agents
+# holding a capability bound to it join, so a buyer's container cannot reach
+# the accounting system at all — not "is refused by it", cannot route to it.
+#
+# One deliberate difference from the cloud binding: Fishbowl is reached as an
+# MCP server, not as a MySQL database. A mock of Fishbowl's *API* exercises the
+# same capabilities; a mock of its schema would test a relational grant nobody
+# is designing here. Each capability names the one tool it may call (`tools`),
+# so a server hosting both sides of a separation still hands an agent only its
+# own side — and Fishbowl's capabilities carry *different credentials*, so the
+# cycle count and the dock are two hands to Fishbowl itself, which is where the
+# spec says `inventory_and_fulfillment` is enforced. The credential values are
+# generated per checkout (`make ayc-env`) and never committed.
+#
+#   make ayc-generate   # compile into examples/ayc/generated/local
+#   make ayc-up         # build and start it (project `ayc-local`)
+#   make ayc-e2e        # run the purchase-to-pay scenario against it
+#   make ayc-down
+targets:
+  - target: local
+    runtime:
+      adapter: langchain_deepagents
+    model:
+      # No provider is called. Named so the compiled IR says so, rather than
+      # carrying a vendor default nobody chose.
+      provider: stub
+      model: canned
+      subagent_model: canned
+      temperature: 0
+    infrastructure:
+      provider: local
+      region: local
+    servers:
+      - {id: shopify, kind: mcp, description: "Shopify storefront (mock: products, orders, refunds)",
+         transport: http, url: "http://mcp-shopify:8080/mcp"}
+      - {id: fishbowl, kind: mcp, description: "Fishbowl inventory, purchasing and warehouse (mock)",
+         transport: http, url: "http://mcp-fishbowl:8080/mcp"}
+      - {id: accounting, kind: mcp, description: "Accounting system (mock: payables and receivables)",
+         transport: http, url: "http://mcp-accounting:8080/mcp"}
+      - {id: cms, kind: mcp, description: "Marketing content management system (mock)",
+         transport: http, url: "http://mcp-cms:8080/mcp"}
+      - {id: deploy_pipeline, kind: mcp, description: "Production deployment pipeline (mock)",
+         transport: http, url: "http://mcp-deploy_pipeline:8080/mcp"}
+    capabilities:
+      - {capability: product_publishing, server: shopify, options: {tools: [product_publishing]}}
+      - {capability: price_update, server: shopify, options: {tools: [price_update]}}
+      - {capability: order_query, server: shopify, options: {tools: [order_query]}}
+      - {capability: refund_processing, server: shopify, options: {tools: [refund_processing]}}
+      - {capability: promotion_run, server: shopify, options: {tools: [promotion_run]}}
+      - {capability: stock_check, server: fishbowl, dsn_secret_ref: FISHBOWL_READ_TOKEN,
+         options: {tools: [stock_check]}}
+      - {capability: purchase_ordering, server: fishbowl, dsn_secret_ref: FISHBOWL_PURCHASING_TOKEN,
+         options: {tools: [purchase_ordering]}}
+      - {capability: goods_receiving, server: fishbowl, dsn_secret_ref: FISHBOWL_PURCHASING_TOKEN,
+         options: {tools: [goods_receiving]}}
+      - {capability: inventory_adjustment, server: fishbowl, dsn_secret_ref: FISHBOWL_AUDIT_TOKEN,
+         options: {tools: [inventory_adjustment]}}
+      - {capability: order_fulfillment, server: fishbowl, dsn_secret_ref: FISHBOWL_DOCK_TOKEN,
+         options: {tools: [order_fulfillment]}}
+      - {capability: invoice_payment, server: accounting, options: {tools: [invoice_payment]}}
+      - {capability: receivable_management, server: accounting, options: {tools: [receivable_management]}}
+      - {capability: content_publishing, server: cms, options: {tools: [content_publishing]}}
+      - {capability: software_deploy, server: deploy_pipeline, options: {tools: [software_deploy]}}
+    environments:
+      - {environment: storefront_ops, image: "python:3.11-slim", cpu: "1", memory: 1Gi}
+      - {environment: warehouse_ops, image: "python:3.11-slim", cpu: "1", memory: 1Gi}
+      - {environment: finance_ops, image: "python:3.11-slim", cpu: "0.5", memory: 512Mi}
+      - {environment: studio, image: "python:3.11-slim", cpu: "0.5", memory: 512Mi}
+      - {environment: build, image: "python:3.11-slim", cpu: "1", memory: 1Gi}
+    # The desks are the platform's own inbox on a workstation: no chat
+    # workspace is reached, and no bot token exists to leak.
+    channels:
+      - {channel: ops_desk, provider: internal, address: ops-desk}
+      - {channel: growth_desk, provider: internal, address: growth-desk}
+    knowledge:
+      - {knowledge: product_specs, provider: document_store, location: "file:///app/knowledge/specs", index: specs-v1}
+    memory:
+      session_store: in_process
+      long_term_store: relational
+      index: ayc-memory
+    scheduler:
+      provider: internal
+      queue: ayc-triggers
+      max_concurrency: 2
+    secrets_backend: environment
+    # Invoice capture is built in the tenant's flow engine (ADR-0110). The
+    # local target runs one per tenant on the egress network (ADR-0056);
+    # on a workstation the overlay swaps it for a mock that answers the run
+    # API, reachable as flows.internal, the host finance_ops allowlists.
+    workflows:
+      - workflow: invoice_capture
+        engine: langflow
+        mode: out_of_process
+        endpoint: http://flows.internal:7860/api/v1/run
+        flow: invoice-capture
+        editor_url: http://localhost:17860/flow/invoice-capture
+        secret_ref: LANGFLOW_SECRET_KEY
+        send_data_classes: [financial_records]
+    observability_sink: otel_collector

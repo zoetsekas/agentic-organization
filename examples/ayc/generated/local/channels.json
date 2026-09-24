@@ -1,0 +1,47 @@
+[
+  {
+    "id": "ops_desk",
+    "channel_class": "team_chat",
+    "description": "Where stock and fulfillment alerts land for humans.",
+    "human_facing": true,
+    "purposes": [
+      "notify"
+    ],
+    "address": "ops-desk",
+    "provider": "internal",
+    "workspace": "",
+    "bot_identity_ref": null,
+    "members": [
+      "coo_agent",
+      "warehouse_agent"
+    ],
+    "response_sla_minutes": null,
+    "out_of_hours": "queue",
+    "working_hours": null,
+    "escalation": [],
+    "forbid_data_classes": []
+  },
+  {
+    "id": "growth_desk",
+    "channel_class": "team_chat",
+    "description": "Where listing and promotion questions go for a human.",
+    "human_facing": true,
+    "purposes": [
+      "ask",
+      "notify"
+    ],
+    "address": "growth-desk",
+    "provider": "internal",
+    "workspace": "",
+    "bot_identity_ref": null,
+    "members": [
+      "cgo_agent",
+      "ecommerce_agent"
+    ],
+    "response_sla_minutes": null,
+    "out_of_hours": "queue",
+    "working_hours": null,
+    "escalation": [],
+    "forbid_data_classes": []
+  }
+]

@@ -89,6 +89,10 @@ organization:
           roles: [division_lead]
           mandate:
             decisions: [receive_goods, deploy_change]
+          # The COO runs purchase-to-pay end to end and does none of its steps
+          # by hand: each is owned by the hand the separations say it belongs
+          # to (ADR-0110).
+          workflows: [purchase_to_pay]
           humans:
             - person: p_coo
               roles: [owner]
@@ -206,6 +210,9 @@ organization:
               roles: [payables_clerk]
               mandate:
                 decisions: [pay_invoice]
+              # Invoice capture is built in the flow engine the binding names;
+              # payables owns the step that calls it (ADR-0110).
+              workflows: [invoice_capture]
               # Payables runs in batches, so nothing is kept warm (ADR-0095).
               # What zero costs is real and the generated MAPPING.md says it
               # per agent: an instance that goes away takes any asynchronous
@@ -812,7 +819,9 @@ organization:
       toolchains: [data_analysis]
       tier: minimal
       network: allowlist
-      egress_allowlist: ["accounting.internal"]
+      # flows.internal is the tenant's flow engine, where invoice capture is
+      # built (ADR-0110). Reaching it is egress, and so it is listed.
+      egress_allowlist: ["accounting.internal", "flows.internal"]
       mounts: [financial_records]
       persistence: ephemeral
     - id: studio
@@ -1045,6 +1054,82 @@ organization:
           # the bound it hit.
           - from: order
             to: survey
+
+    # Purchase-to-pay as a governed workflow (ADR-0110). This is the level
+    # the designer draws: who does each step, where a person approves, what
+    # runs in parallel. The separations hold in the drawing: the buyer raises
+    # and receives, the COO approves, payables captures the invoice and pays,
+    # so the hand that raises the order never pays it.
+    - id: purchase_to_pay
+      name: purchase-to-pay
+      description: >-
+        Raise a purchase order, have the COO approve it, then receive the goods
+        and capture the supplier's invoice in parallel, and pay only on a
+        three-way match of order, receipt and invoice.
+      graph:
+        entry: raise_po
+        nodes:
+          - id: raise_po
+            kind: agent
+            agent: buyer_agent
+            args:
+              task: "Raise a purchase order for the SKUs asked for"
+            output: purchase_order
+          - id: coo_approval
+            kind: human
+            person: p_coo
+            output: approval
+          - id: in_parallel
+            kind: fork
+          - id: receive_goods
+            kind: agent
+            agent: buyer_agent
+            args:
+              task: "Receive the goods against the approved purchase order"
+              purchase_order: "{{ purchase_order }}"
+            output: receipt
+          # What happens inside invoice capture is built in the flow engine the
+          # binding names; the spec holds only its interface, and the step's
+          # owner is who that interface is checked against.
+          - id: capture_invoice
+            kind: workflow
+            workflow: invoice_capture
+            owner: ap_agent
+            args:
+              purchase_order: "{{ purchase_order }}"
+            output: invoice
+          - id: both_done
+            kind: join
+          - id: match_and_pay
+            kind: agent
+            agent: ap_agent
+            args:
+              task: "Three-way match order, receipt and invoice, then pay"
+              purchase_order: "{{ purchase_order }}"
+              receipt: "{{ receipt }}"
+              invoice: "{{ invoice }}"
+            output: payment
+        edges:
+          - {from: raise_po, to: coo_approval}
+          - {from: coo_approval, to: in_parallel}
+          - {from: in_parallel, to: receive_goods}
+          - {from: in_parallel, to: capture_invoice}
+          - {from: receive_goods, to: both_done}
+          - {from: capture_invoice, to: both_done}
+          - {from: both_done, to: match_and_pay}
+          - {from: match_and_pay, to: END}
+
+    - id: invoice_capture
+      name: invoice-capture
+      description: >-
+        Read the supplier's invoice and return its lines, total and the order
+        it quotes. Built in the tenant's flow engine, not here.
+      body: external
+      interface:
+        inputs: [purchase_order]
+        outputs: [invoice]
+        receives_data_classes: [financial_records]
+        returns_data_classes: [financial_records]
 
   triggers:
     - id: nightly_stock_reconcile

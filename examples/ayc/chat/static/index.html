@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AYC chat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="chat.css">
+</head>
+<body>
+  <header class="bar">
+    <span class="brand">AYC</span>
+    <span class="crumb">chat with an agent</span>
+    <span class="bar-note mono" id="system-note">stub model · mock systems · nothing real is touched</span>
+    <!-- Who you are is a sign-in, not a field you type (ADR-0114). A local
+         demo identity provider: passcodes are in the stack's .env and printed
+         by `local_stack.py up`. -->
+    <form id="signin" class="as">
+      <select id="person" class="ctl" aria-label="Person"></select>
+      <input id="passcode" class="ctl mono" type="password" placeholder="passcode"
+             autocomplete="current-password" aria-label="Passcode">
+      <button class="btn small" type="submit">Sign in</button>
+    </form>
+    <span id="whoami" class="as" hidden>
+      <span>signed in as <strong id="me-name"></strong></span>
+      <button id="signout" class="btn small" type="button">Sign out</button>
+    </span>
+  </header>
+
+  <main class="shell">
+    <nav class="roster" aria-label="Agents">
+      <div class="roster-head">Agents</div>
+      <div id="roster"></div>
+      <div class="roster-head">Mock systems</div>
+      <div id="systems" class="systems"></div>
+    </nav>
+
+    <section class="chat" aria-live="polite">
+      <div id="identity" class="identity">
+        <p class="empty">Pick an agent on the left to talk to it.</p>
+      </div>
+      <div id="log" class="log"></div>
+      <form id="composer" class="composer" hidden>
+        <div id="quick" class="quick" aria-label="Insert a tool call"></div>
+        <div class="compose-row">
+          <textarea id="message" class="ctl" rows="3"
+            placeholder="Write to the agent. With the stub model, ask for a tool call on its own line:  call fishbowl__stock_check {&quot;sku&quot;: &quot;AYC-CH-001&quot;}"></textarea>
+          <button class="btn primary" type="submit" id="send">Send</button>
+        </div>
+      </form>
+    </section>
+  </main>
+  <script src="chat.js"></script>
+</body>
+</html>

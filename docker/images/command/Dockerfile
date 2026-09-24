@@ -27,7 +27,7 @@ RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip setuptools wheel \
  && /opt/venv/bin/pip install \
       "pydantic>=2.6" "fastapi>=0.110" "uvicorn>=0.29" \
-      "python-multipart>=0.0.9" "pyyaml>=6.0"
+      "python-multipart>=0.0.9" "pyyaml>=6.0" "cryptography>=42,<47"
 
 FROM base AS runtime
 # A non-root user with no login shell: this process serves assets and reads

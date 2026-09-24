@@ -1,0 +1,36 @@
+{
+  "id": "invoice-capture",
+  "name": "Invoice capture",
+  "description": "Reads a supplier invoice (PDF or email) and returns its order number, supplier and amount.",
+  "inputs": [
+    "purchase_order"
+  ],
+  "outputs": [
+    "invoice"
+  ],
+  "nodes": [
+    {
+      "id": "ChatInput",
+      "type": "input"
+    },
+    {
+      "id": "InvoiceParser",
+      "type": "parser"
+    },
+    {
+      "id": "ChatOutput",
+      "type": "output"
+    }
+  ],
+  "edges": [
+    {
+      "source": "ChatInput",
+      "target": "InvoiceParser"
+    },
+    {
+      "source": "InvoiceParser",
+      "target": "ChatOutput"
+    }
+  ],
+  "_about": "The invoice-capture flow as the engine holds it (ADR-0110). Authored in the engine, not in the spec; mounted read-only. The workstation mock answers its run API from examples/ayc/mocks/seed/langflow.json."
+}

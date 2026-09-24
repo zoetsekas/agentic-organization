@@ -1,0 +1,10 @@
+# Keep build context small and free of anything secret.
+.git
+.venv
+__pycache__
+*.pyc
+*.db
+.env
+build/
+overlays/
+*.log

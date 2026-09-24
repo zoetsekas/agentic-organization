@@ -1,0 +1,48 @@
+{
+  "_about": "AYC's flow engine (mock): the invoice-capture flow and the supplier invoices it reads.",
+  "flows": {
+    "invoice-capture": {
+      "id": "invoice-capture",
+      "name": "Invoice capture",
+      "description": "Reads a supplier invoice (PDF or email) and returns its order number, supplier and amount.",
+      "inputs": [
+        "purchase_order"
+      ],
+      "outputs": [
+        "invoice"
+      ],
+      "nodes": [
+        {
+          "id": "ChatInput",
+          "type": "input"
+        },
+        {
+          "id": "InvoiceParser",
+          "type": "parser"
+        },
+        {
+          "id": "ChatOutput",
+          "type": "output"
+        }
+      ],
+      "edges": [
+        {
+          "source": "ChatInput",
+          "target": "InvoiceParser"
+        },
+        {
+          "source": "InvoiceParser",
+          "target": "ChatOutput"
+        }
+      ]
+    }
+  },
+  "invoices": [
+    {
+      "id": "SINV-7802",
+      "po_number": "PO-1040",
+      "supplier_id": "SUP-MAL",
+      "amount": 2440.0
+    }
+  ]
+}

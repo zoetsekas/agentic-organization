@@ -1,0 +1,17 @@
+{
+  "_about": "AYC's ledger: supplier invoices (payables) and salon accounts (receivables), seeded.",
+  "payables": [
+    {"id": "SINV-7781", "supplier_id": "SUP-NOR", "po_number": "PO-1031", "amount": 1650.00, "received": true, "po_raised_by": "buyer_agent", "status": "paid", "paid_by": "ap_agent", "at": "2026-08-20T09:00:00Z"},
+    {"id": "SINV-7790", "supplier_id": "SUP-PAC", "po_number": "", "amount": 980.00, "received": false, "po_raised_by": "", "status": "open", "note": "arrived with no purchase order reference", "at": "2026-09-10T11:30:00Z"}
+  ],
+  "payments": [
+    {"id": "PAY-1", "invoice_id": "SINV-7781", "supplier_id": "SUP-NOR", "amount": 1650.00, "by": "ap_agent", "at": "2026-08-28T10:00:00Z"}
+  ],
+  "counters": {"pay": 1},
+  "receivables": [
+    {"customer_id": "C-1001", "customer": "Blush & Bloom Salon", "balance": 0.00, "terms": "prepaid"},
+    {"customer_id": "C-1002", "customer": "Sharp Lines Barbershop", "balance": 0.00, "terms": "prepaid"},
+    {"customer_id": "C-1003", "customer": "Still Water Day Spa", "balance": 5780.00, "terms": "net 30"},
+    {"customer_id": "C-1005", "customer": "Crown & Clipper Academy", "balance": 12450.00, "terms": "net 60"}
+  ]
+}

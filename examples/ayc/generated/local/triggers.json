@@ -1,0 +1,34 @@
+[
+  {
+    "id": "nightly_stock_reconcile",
+    "description": "Reconcile Shopify listings to Fishbowl stock overnight.",
+    "kind": "schedule",
+    "agent_id": "ecommerce_agent",
+    "workflow": "listing_readiness",
+    "schedule": "cron `0 2 * * *` (America/Los_Angeles) \u2192 listing_readiness",
+    "cron": "0 2 * * *",
+    "timezone": "America/Los_Angeles",
+    "interval_seconds": null,
+    "event_class": "",
+    "channel": null,
+    "filters": {},
+    "input": {
+      "scope": "all_listings"
+    },
+    "enabled": true,
+    "overlap": "skip",
+    "catch_up": "skip_missed",
+    "max_runtime_seconds": 900,
+    "requires_approval": false,
+    "deliver_to": [
+      "ops_desk"
+    ],
+    "notify_on_failure": null,
+    "retries": 2,
+    "next_runs": [
+      "2026-09-24T09:00:00+00:00",
+      "2026-09-25T09:00:00+00:00",
+      "2026-09-26T09:00:00+00:00"
+    ]
+  }
+]

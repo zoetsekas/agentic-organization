@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "orgagents-designer": {
+      "command": ".venv/Scripts/orgagents",
+      "args": ["mcp", "designer"],
+      "env": {
+        "ORGAGENTS_USER": "alice",
+        "ORGAGENTS_API_URL": "http://127.0.0.1:8000"
+      }
+    },
+    "orgagents-runtime": {
+      "command": ".venv/Scripts/orgagents",
+      "args": ["mcp", "runtime"],
+      "env": {
+        "ORGAGENTS_USER": "alice",
+        "ORGAGENTS_API_URL": "http://127.0.0.1:8000"
+      }
+    }
+  }
+}

@@ -33,6 +33,8 @@ postgres:16-alpine                                   sha256:3c5c8892d184f738f4fe
 traefik:v3                                           sha256:1c32e7c368204fd72812152ebdd2ac0425993df6fd982317deb02e48f2d5423c  fabric
 # quay.io is blocked by this environment's egress proxy; the tag was never checked.
 quay.io/keycloak/keycloak:26                         UNRESOLVED  fabric
+# Forward auth for the fabric (ADR-0114). Resolved 2026-09-23 via `docker buildx imagetools inspect`.
+quay.io/oauth2-proxy/oauth2-proxy:v7.6.0             sha256:dcb6ff8dd21bf3058f6a22c6fa385fa5b897a9cd3914c88a2cc2bb0a85f8065d  fabric
 hashicorp/vault:1.17                                 sha256:74a4ab138ab5d64725e89cd9a9c73f7040c7fe49e98b71697b275ca9a69919df  fabric
 otel/opentelemetry-collector-contrib:0.110.0         sha256:0ed3688bbb02dabc0429ef648ebe3e9c53aca5e7c5a6b1a4a61b9f583b823e36  fabric
 prom/prometheus:v2.54.1                              sha256:f6639335d34a77d9d9db382b92eeb7fc00934be8eae81dbc03b31cfe90411a94  fabric

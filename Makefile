@@ -98,6 +98,32 @@ down: ## Stop everything this repository starts
 alpha: check config build up smoke ## Everything, in order
 	@echo "alpha loop complete"
 
+# -- AYC on this workstation (ADR-0109) --------------------------------------
+# The AYC example, compiled for the local target with a stub model and mock
+# systems, under its own Compose project (`ayc-local`) and its own ports, so it
+# runs beside the designer. The same steps run without make:
+#   python examples/ayc/local_stack.py up | e2e | ps | down
+
+.PHONY: ayc-generate
+ayc-generate: ## Compile AYC for the local target into examples/ayc/generated/local
+	$(PY) examples/ayc/local_stack.py generate
+
+.PHONY: ayc-up
+ayc-up: ## Build and start AYC locally (chat on :18080)
+	$(PY) examples/ayc/local_stack.py up
+
+.PHONY: ayc-e2e
+ayc-e2e: ## Run AYC's purchase-to-pay scenario against the running stack
+	$(PY) examples/ayc/end_to_end_local.py
+
+.PHONY: ayc-ps
+ayc-ps: ## Show AYC's containers
+	$(PY) examples/ayc/local_stack.py ps
+
+.PHONY: ayc-down
+ayc-down: ## Stop AYC (its volumes are kept; `local_stack.py down --volumes` drops them)
+	$(PY) examples/ayc/local_stack.py down
+
 .PHONY: images
 images: ## Resolve the image lock against the registry
 	./docker/resolve-images.sh

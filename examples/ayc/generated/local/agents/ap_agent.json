@@ -1,0 +1,358 @@
+{
+  "agent": {
+    "id": "ap_agent",
+    "name": "accounts-payable",
+    "description": "Pays supplier invoices against a matched order.",
+    "instructions": "Pay only against a three-way match \u2014 order, receipt and invoice. If any leg is missing, hold and ask; you do not raise the order you pay, so a payment with no order is a stop, not a judgement call.",
+    "team_id": "finance",
+    "team_path": [
+      "AYC",
+      "Operations",
+      "Finance"
+    ],
+    "placements": [
+      "finance--finance_ops"
+    ],
+    "reaches": [
+      "finance--finance_ops"
+    ],
+    "leader_of": "finance",
+    "reports_to": "coo_agent",
+    "escalates_to": "coo_agent",
+    "delegates_to": [
+      "ar_agent"
+    ],
+    "shared_service": false,
+    "mandate": {
+      "decisions": [
+        "pay_invoice"
+      ],
+      "conditions": [],
+      "line": [
+        "ayc",
+        "operations",
+        "finance",
+        "ap_agent"
+      ]
+    },
+    "humans": [
+      {
+        "person": "p_ap",
+        "name": "Beverly",
+        "contact": "beverly@ayc.example",
+        "role_title": "Accounts Payable",
+        "roles": [
+          "owner"
+        ],
+        "approves": [],
+        "notify_on": [
+          "mail"
+        ],
+        "channel": null,
+        "working_hours": null
+      },
+      {
+        "person": "p_coo",
+        "name": "Clark",
+        "contact": "clark@ayc.example",
+        "role_title": "Chief Operating Officer",
+        "roles": [
+          "approver"
+        ],
+        "approves": [],
+        "notify_on": [
+          "mail"
+        ],
+        "channel": null,
+        "working_hours": null
+      }
+    ],
+    "responsibilities": [
+      {
+        "text": "Pay supplier invoices against a matched purchase order.",
+        "source_role": "payables_clerk"
+      }
+    ],
+    "role_ids": [
+      "payables_clerk"
+    ],
+    "permissions": [
+      {
+        "action": "read",
+        "resource_kind": "data_class",
+        "resource": "public_knowledge",
+        "conditions": {}
+      },
+      {
+        "action": "write",
+        "resource_kind": "capability",
+        "resource": "invoice_payment",
+        "conditions": {}
+      }
+    ],
+    "capabilities": [
+      {
+        "id": "invoice_payment",
+        "description": "Pay a supplier invoice.",
+        "action": "write",
+        "resource_class": "accounting",
+        "data_classes": [
+          "financial_records"
+        ],
+        "constraints": {
+          "max_rows": null,
+          "masked_fields": [],
+          "allowed_operations": [],
+          "resource_scope": [],
+          "requires_approval": true,
+          "rate_per_minute": null,
+          "enforcement": {
+            "enforced_by": "platform",
+            "enforced_in": "",
+            "authoritative": null,
+            "application_bounds": {}
+          }
+        },
+        "decision": "pay_invoice",
+        "autonomy": "supervised",
+        "secret_ref": null
+      }
+    ],
+    "data_access": [
+      {
+        "data_class": "financial_records",
+        "scope": "protected",
+        "groups": [
+          "finance"
+        ],
+        "read": false,
+        "write": true
+      }
+    ],
+    "environments": [
+      {
+        "id": "finance_ops",
+        "description": "Payables and receivables against the ledger.",
+        "toolchains": [
+          "data_analysis"
+        ],
+        "tier": "minimal",
+        "network": "allowlist",
+        "egress_allowlist": [
+          "accounting.internal",
+          "flows.internal"
+        ],
+        "mounts": [
+          "financial_records"
+        ],
+        "persistence": "ephemeral",
+        "timeout_seconds": 300,
+        "secret_refs": []
+      }
+    ],
+    "workflows": [
+      "invoice_capture"
+    ],
+    "channels": [
+      "direct",
+      "async_bus"
+    ],
+    "groups": [
+      "all_hands",
+      "finance",
+      "operations"
+    ],
+    "identity": {
+      "id": "id-ap_agent",
+      "agent_id": "ap_agent",
+      "display_name": "accounts-payable workload identity",
+      "permissions": [
+        "read:data_class:public_knowledge",
+        "write:capability:invoice_payment"
+      ],
+      "secret_refs": []
+    },
+    "max_delegation_depth": 3,
+    "successor_agent_id": "",
+    "scaling": {
+      "min_instances": 0,
+      "max_instances": 2,
+      "concurrent_sessions_per_instance": 1
+    },
+    "data_dependencies": [],
+    "produces_data": [],
+    "planning": false,
+    "requires_approval_for": [
+      "invoice_payment"
+    ],
+    "runtime_adapter": "langchain_deepagents",
+    "model": {
+      "provider": "stub",
+      "model": "canned",
+      "subagent_model": "canned",
+      "temperature": 0.0,
+      "max_tokens": 8192
+    },
+    "model_policy": {
+      "classes": [
+        "balanced"
+      ],
+      "allow": [],
+      "deny": [],
+      "max_cost_per_million_tokens": null,
+      "min_context_tokens": null,
+      "require_no_training_on_data": true,
+      "require_regions": [
+        "us-central1"
+      ],
+      "subagent_classes": [],
+      "allow_fallback": true
+    },
+    "model_approval": null,
+    "missions": [],
+    "mission_delegates_to": [],
+    "standing_delegates_to": [
+      "ar_agent"
+    ],
+    "mission_grants": [],
+    "knowledge": [],
+    "guardrails": [
+      {
+        "id": "no_pii_outbound",
+        "description": "Customer identity data never leaves on an outbound message.",
+        "applies_to": [
+          "output",
+          "tool_output"
+        ],
+        "checks": [
+          "data_class"
+        ],
+        "on_violation": "block",
+        "data_classes": [
+          "customer_pii"
+        ],
+        "patterns": [],
+        "allowed_urls": [],
+        "max_length": null,
+        "escalate_channel": null,
+        "enabled": true,
+        "classifier": null
+      },
+      {
+        "id": "no_cost_price_outbound",
+        "description": "Supplier cost prices do not leak into customer-facing content.",
+        "applies_to": [
+          "output",
+          "tool_output"
+        ],
+        "checks": [
+          "data_class"
+        ],
+        "on_violation": "block",
+        "data_classes": [
+          "supplier_data"
+        ],
+        "patterns": [],
+        "allowed_urls": [],
+        "max_length": null,
+        "escalate_channel": null,
+        "enabled": true,
+        "classifier": null
+      },
+      {
+        "id": "no_credentials_out",
+        "description": "Nothing credential-shaped leaves an agent, ever.",
+        "applies_to": [
+          "output",
+          "tool_output"
+        ],
+        "checks": [
+          "secrets"
+        ],
+        "on_violation": "block",
+        "data_classes": [],
+        "patterns": [],
+        "allowed_urls": [],
+        "max_length": null,
+        "escalate_channel": null,
+        "enabled": true,
+        "classifier": null
+      },
+      {
+        "id": "screen_inbound_messages",
+        "description": "Customer messages, supplier emails and marketplace notices are somebody else's writing. Screen them.",
+        "applies_to": [
+          "input",
+          "tool_output"
+        ],
+        "checks": [
+          "prompt_injection"
+        ],
+        "on_violation": "escalate",
+        "data_classes": [],
+        "patterns": [],
+        "allowed_urls": [],
+        "max_length": null,
+        "escalate_channel": "growth_desk",
+        "enabled": true,
+        "classifier": null
+      }
+    ],
+    "artifact_store": null,
+    "context": {
+      "max_context_tokens": 150000,
+      "summarize_after_tokens": 110000,
+      "keep_last_turns": 6,
+      "offload_tool_output_bytes": 24000,
+      "offload_to": "commerce_scratch",
+      "retain_summaries": true,
+      "summarizer": null
+    },
+    "output_contract": null,
+    "shared_instructions": [
+      {
+        "source": "organization",
+        "text": "The stock number in Fishbowl and the listing on Shopify tell one story; keep them the same one."
+      },
+      {
+        "source": "organization",
+        "text": "A control you route around is a control you do not have."
+      }
+    ],
+    "skills": [],
+    "plugins": [],
+    "tools": [],
+    "subagents": [],
+    "endpoints": [],
+    "memory": {
+      "session_enabled": true,
+      "session_max_items": 500,
+      "session_retention_minutes": null,
+      "session_recall": "on_demand",
+      "long_term_enabled": true,
+      "long_term_retention_days": 365,
+      "long_term_max_items": 500,
+      "recall": "on_demand",
+      "may_promote": true,
+      "promotion_requires_approval": true,
+      "namespaces": [],
+      "redact_data_classes": [
+        "customer_pii"
+      ],
+      "readable_data_classes": [
+        "financial_records"
+      ]
+    },
+    "triggers": [],
+    "human_channels": [],
+    "approval_channel": null,
+    "consults": [],
+    "notifies": [],
+    "escalation_flows": [],
+    "budget_usd": 6000.0,
+    "budget_period": "monthly",
+    "on_budget_breach": "throttle",
+    "lifecycle_stage": "development"
+  },
+  "system_prompt": "You are accounts-payable.\nPays supplier invoices against a matched order.\n\n## Your instructions\nPay only against a three-way match \u2014 order, receipt and invoice. If any leg is missing, hold and ask; you do not raise the order you pay, so a payment with no order is a stop, not a judgement call.\n\n## Accountability\n- Pay supplier invoices against a matched purchase order.  _(role: payables_clerk)_\n\n## Organization\n- Team: AYC / Operations / Finance\n- Leader of: finance\n- Reports to: coo_agent\n- May delegate to: ar_agent\n- Escalates to: coo_agent\n\n## The people you answer to\n- Beverly (Accounts Payable) \u2014 owner, beverly@ayc.example\n- Clark (Chief Operating Officer) \u2014 approver, clark@ayc.example\n- Always seek approval before: invoice_payment\n\n## Shared operating principles\n- The stock number in Fishbowl and the listing on Shopify tell one story; keep them the same one.  _(from organization)_\n- A control you route around is a control you do not have.  _(from organization)_\n\n## Boundaries enforced on you\n- no_pii_outbound: data_class \u2192 block\n- no_cost_price_outbound: data_class \u2192 block\n- no_credentials_out: secrets \u2192 block\n- screen_inbound_messages: prompt_injection \u2192 escalate\n  These are enforced outside you. Do not attempt to work around one; say what you needed instead.\n\n## Operating rules\n- Prefer delegating to a team member whose role covers the task.\n- Use an encoded workflow for any process that must be auditable.\n- Prefer a sub-agent for a bounded task you can describe as a tool.\n- You may not widen your own access; ask your leader instead."
+}

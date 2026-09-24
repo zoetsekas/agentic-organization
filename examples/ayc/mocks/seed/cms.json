@@ -1,0 +1,8 @@
+{
+  "_about": "AYC's marketing site content, seeded.",
+  "pages": [
+    {"slug": "home", "title": "Salon furniture that works as hard as you do", "status": "published", "published_by": "seed"},
+    {"slug": "shipping", "title": "Freight and white-glove delivery", "status": "published", "published_by": "seed"},
+    {"slug": "guides/choosing-a-backwash", "title": "Choosing a backwash unit", "status": "draft", "published_by": ""}
+  ]
+}

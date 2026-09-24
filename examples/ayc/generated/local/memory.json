@@ -1,0 +1,40 @@
+{
+  "session": {
+    "tier": "session",
+    "enabled": true,
+    "data_classes": [],
+    "retention_days": null,
+    "max_items": 500,
+    "recall": "on_demand",
+    "promotion_allowed": false,
+    "promotion_requires_approval": false,
+    "redact_data_classes": []
+  },
+  "long_term": {
+    "tier": "session",
+    "enabled": true,
+    "data_classes": [],
+    "retention_days": 365,
+    "max_items": 500,
+    "recall": "on_demand",
+    "promotion_allowed": true,
+    "promotion_requires_approval": true,
+    "redact_data_classes": [
+      "customer_pii"
+    ]
+  },
+  "namespaces": [
+    {
+      "id": "merchandising_lessons",
+      "description": "What listings and promotions worked, de-identified.",
+      "scope": "protected",
+      "groups": [
+        "commerce"
+      ],
+      "data_classes": [
+        "public_knowledge"
+      ],
+      "retention_days": 365
+    }
+  ]
+}

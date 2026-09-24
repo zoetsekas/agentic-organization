@@ -15,16 +15,30 @@ services:
       dockerfile: Dockerfile
     image: orgagents-designer:local
     container_name: orgagents-designer
+    # This machine only (ADR-0114). The designer below runs in `none` auth
+    # mode — single-user local — which believes whatever X-User it is sent,
+    # so it must not be reachable from anywhere but here. To share it, put it
+    # behind a proxy and use `oidc`, or `trusted_proxy` with
+    # ORGAGENTS_PROXY_SECRET; see docs/DOCKER.md.
     ports:
-      - "${ORGAGENTS_PORT:-8000}:8000"
+      - "127.0.0.1:${ORGAGENTS_PORT:-8000}:8000"
     environment:
       ORGAGENTS_DB: /data/designer.db
+      ORGAGENTS_DESIGNER_AUTH: none
       ORGAGENTS_BASE_URL: ${ORGAGENTS_BASE_URL:-http://localhost:8000}
       # Session URLs are handed out to humans, so the base URL has to be the
       # one they can actually reach — not the container's own address.
       ORGAGENTS_SEED: ${ORGAGENTS_SEED:-0}
     volumes:
       - designer-data:/data
+    # The image's filesystem cannot be changed at run time; /data is the one
+    # place state lives, /tmp is scratch. No capabilities, no privilege
+    # escalation, a bounded process count (ADR-0114).
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status==200 else 1)"]
@@ -47,6 +61,11 @@ services:
       ORGAGENTS_DB: /data/designer.db
     volumes:
       - designer-data:/data
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
     depends_on:
       designer:
         condition: service_healthy

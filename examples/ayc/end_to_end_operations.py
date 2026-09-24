@@ -56,7 +56,9 @@ def main() -> dict:
     spec = load_spec(SPEC)
     ir = build_ir(spec)
 
-    with tempfile.TemporaryDirectory() as tmp:
+    # The store keeps its SQLite file open; on Windows that stops the
+    # directory being removed, which is not a reason to fail the run.
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         platform = Platform(str(pathlib.Path(tmp) / "ayc.db"),
                             configure_logs=False)
         load_system(platform, ir)
@@ -222,4 +224,10 @@ def main() -> dict:
 
 
 if __name__ == "__main__":
+    # Box-drawing on a Windows console without PYTHONUTF8=1.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     main()

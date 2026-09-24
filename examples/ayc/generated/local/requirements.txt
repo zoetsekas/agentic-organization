@@ -1,0 +1,2 @@
+# Generated from the compiled system. Pin versions before you ship.
+orgagents[langgraph]

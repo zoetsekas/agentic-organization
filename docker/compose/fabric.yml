@@ -31,6 +31,17 @@ services:
       # trusted_proxy is only trustworthy because Traefik is the sole ingress
       # here and strips client-supplied identity headers (ADR-0047).
       ORGAGENTS_DESIGNER_AUTH: ${ORGAGENTS_FABRIC_AUTH:-trusted_proxy}
+      # ...and only because the request provably came through Traefik: it sets
+      # this header on every request it forwards, and the fabric refuses to
+      # start trusted_proxy mode without it (ADR-0114).
+      ORGAGENTS_PROXY_SECRET: ${ORGAGENTS_PROXY_SECRET:?set ORGAGENTS_PROXY_SECRET}
+      # Identity is read ONLY from the headers the forward-auth service
+      # (oauth2-proxy, below) returns; Traefik strips them from every client
+      # request first, so they can only come from the authentication. X-User
+      # and friends are not read at all in this mode (ADR-0114).
+      ORGAGENTS_PROXY_USER_HEADER: X-Auth-Request-User
+      ORGAGENTS_PROXY_NAME_HEADER: X-Auth-Request-Preferred-Username
+      ORGAGENTS_PROXY_EMAIL_HEADER: X-Auth-Request-Email
     volumes:
       - fabric-data:/data
     depends_on:
@@ -38,7 +49,13 @@ services:
     networks: [fabric]
     labels:
       traefik.enable: "true"
-      traefik.http.routers.fabric.rule: "PathPrefix(`/api/`) || PathPrefix(`/healthz`)"
+      # /api/ goes through forward-auth; /healthz does not (a probe has no
+      # session). The entrypoint's strip-identity runs before either.
+      traefik.http.routers.fabric.rule: "PathPrefix(`/api/`)"
+      traefik.http.routers.fabric.middlewares: "authn@docker"
+      traefik.http.routers.fabric.service: fabric
+      traefik.http.routers.fabric-health.rule: "Path(`/healthz`)"
+      traefik.http.routers.fabric-health.service: fabric
       traefik.http.services.fabric.loadbalancer.server.port: "8000"
     restart: unless-stopped
     healthcheck:
@@ -69,6 +86,7 @@ services:
     labels:
       traefik.enable: "true"
       traefik.http.routers.command.rule: "PathPrefix(`/command/`) || PathPrefix(`/ui/`)"
+      traefik.http.routers.command.middlewares: "authn@docker"
       traefik.http.services.command.loadbalancer.server.port: "8000"
     restart: unless-stopped
     healthcheck:
@@ -118,9 +136,58 @@ services:
     networks: [fabric]
     labels:
       traefik.enable: "true"
+      # Every identity header any component reads, removed from the client's
+      # request ("" deletes a header in Traefik). This runs on the entrypoint,
+      # so before any router's forward-auth: the only identity that reaches
+      # the fabric is what authn copies from oauth2-proxy's response.
+      # tests/test_fabric_proxy.py holds this list to designer/auth.py.
+      traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-User: ""
+      traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-User-Name: ""
+      traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-User-Email: ""
+      traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-Auth-Request-User: ""
+      traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-Auth-Request-Email: ""
+      traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-Auth-Request-Preferred-Username: ""
+      traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-Auth-Request-Groups: ""
       traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-Forwarded-User: ""
       traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-Forwarded-Email: ""
       traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-Forwarded-Groups: ""
+      traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-Forwarded-Preferred-Username: ""
+      traefik.http.middlewares.strip-identity.headers.customrequestheaders.X-Orgagents-Proxy-Secret: "${ORGAGENTS_PROXY_SECRET:?set ORGAGENTS_PROXY_SECRET}"
+      # Forward auth: oauth2-proxy answers 2xx with the signed-in person's
+      # identity, or 401. Only these response headers are copied onto the
+      # forwarded request, overwriting anything of the same name.
+      traefik.http.middlewares.authn.forwardauth.address: "http://oauth2-proxy:4180/oauth2/auth"
+      traefik.http.middlewares.authn.forwardauth.trustForwardHeader: "false"
+      traefik.http.middlewares.authn.forwardauth.authResponseHeaders: "X-Auth-Request-User,X-Auth-Request-Email,X-Auth-Request-Preferred-Username,X-Auth-Request-Groups"
+    restart: unless-stopped
+
+  # The forward-auth service: an OIDC session against Keycloak (below), whose
+  # /oauth2/auth answers Traefik with X-Auth-Request-* for the signed-in person.
+  # Needs a realm and a confidential client in Keycloak (see docs/DOCKER.md).
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.6.0
+    container_name: orgagents-oauth2-proxy
+    command:
+      - --http-address=0.0.0.0:4180
+      - --provider=keycloak-oidc
+      - --oidc-issuer-url=${OAUTH2_PROXY_OIDC_ISSUER:-http://keycloak:8080/realms/orgagents}
+      - --client-id=${OAUTH2_PROXY_CLIENT_ID:-orgagents}
+      - --redirect-url=${ORGAGENTS_FABRIC_BASE_URL:-http://localhost}/oauth2/callback
+      - --email-domain=*
+      - --reverse-proxy=true
+      - --set-xauthrequest=true
+      - --skip-provider-button=true
+      - --cookie-secure=${OAUTH2_PROXY_COOKIE_SECURE:-false}
+    environment:
+      OAUTH2_PROXY_CLIENT_SECRET: ${OAUTH2_PROXY_CLIENT_SECRET:?set OAUTH2_PROXY_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET:?set OAUTH2_PROXY_COOKIE_SECRET}
+    depends_on:
+      - keycloak
+    networks: [fabric]
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.oauth2.rule: "PathPrefix(`/oauth2/`)"
+      traefik.http.services.oauth2.loadbalancer.server.port: "4180"
     restart: unless-stopped
 
   # An OIDC issuer to develop against. Not the company's IdP, and start-dev

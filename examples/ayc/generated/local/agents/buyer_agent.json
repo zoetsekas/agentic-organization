@@ -1,0 +1,439 @@
+{
+  "agent": {
+    "id": "buyer_agent",
+    "name": "buyer",
+    "description": "Raises purchase orders and receives goods in Fishbowl.",
+    "instructions": "Raise a purchase order against demand and the stock in Fishbowl, not against a hunch. You receive goods against the order; you do not pay the invoice \u2014 that is Finance, so a fake supplier cannot be both ordered from and paid by you.",
+    "team_id": "purchasing",
+    "team_path": [
+      "AYC",
+      "Operations",
+      "Purchasing"
+    ],
+    "placements": [
+      "purchasing--warehouse_ops"
+    ],
+    "reaches": [
+      "finance--finance_ops",
+      "purchasing--warehouse_ops"
+    ],
+    "leader_of": "purchasing",
+    "reports_to": "coo_agent",
+    "escalates_to": "coo_agent",
+    "delegates_to": [],
+    "shared_service": false,
+    "mandate": {
+      "decisions": [
+        "raise_po",
+        "receive_goods"
+      ],
+      "conditions": [],
+      "line": [
+        "ayc",
+        "operations",
+        "purchasing",
+        "buyer_agent"
+      ]
+    },
+    "humans": [
+      {
+        "person": "p_buyer",
+        "name": "Katy",
+        "contact": "katy@ayc.example",
+        "role_title": "Buyer",
+        "roles": [
+          "owner"
+        ],
+        "approves": [],
+        "notify_on": [
+          "mail"
+        ],
+        "channel": null,
+        "working_hours": null
+      },
+      {
+        "person": "p_coo",
+        "name": "Clark",
+        "contact": "clark@ayc.example",
+        "role_title": "Chief Operating Officer",
+        "roles": [
+          "approver"
+        ],
+        "approves": [],
+        "notify_on": [
+          "mail"
+        ],
+        "channel": null,
+        "working_hours": null
+      }
+    ],
+    "responsibilities": [
+      {
+        "text": "Raise purchase orders and receive goods against them in Fishbowl.",
+        "source_role": "buyer"
+      }
+    ],
+    "role_ids": [
+      "buyer"
+    ],
+    "permissions": [
+      {
+        "action": "read",
+        "resource_kind": "data_class",
+        "resource": "public_knowledge",
+        "conditions": {}
+      },
+      {
+        "action": "write",
+        "resource_kind": "capability",
+        "resource": "purchase_ordering",
+        "conditions": {}
+      },
+      {
+        "action": "write",
+        "resource_kind": "capability",
+        "resource": "goods_receiving",
+        "conditions": {}
+      },
+      {
+        "action": "query",
+        "resource_kind": "capability",
+        "resource": "stock_check",
+        "conditions": {}
+      }
+    ],
+    "capabilities": [
+      {
+        "id": "goods_receiving",
+        "description": "Receive goods against a purchase order.",
+        "action": "write",
+        "resource_class": "fishbowl",
+        "data_classes": [
+          "inventory_data",
+          "supplier_data"
+        ],
+        "constraints": {
+          "max_rows": null,
+          "masked_fields": [],
+          "allowed_operations": [],
+          "resource_scope": [],
+          "requires_approval": true,
+          "rate_per_minute": null,
+          "enforcement": {
+            "enforced_by": "platform",
+            "enforced_in": "",
+            "authoritative": null,
+            "application_bounds": {}
+          }
+        },
+        "decision": "receive_goods",
+        "autonomy": "supervised",
+        "secret_ref": null
+      },
+      {
+        "id": "purchase_ordering",
+        "description": "Raise a purchase order to a supplier in Fishbowl.",
+        "action": "write",
+        "resource_class": "fishbowl",
+        "data_classes": [
+          "supplier_data",
+          "inventory_data"
+        ],
+        "constraints": {
+          "max_rows": null,
+          "masked_fields": [],
+          "allowed_operations": [],
+          "resource_scope": [],
+          "requires_approval": true,
+          "rate_per_minute": null,
+          "enforcement": {
+            "enforced_by": "platform",
+            "enforced_in": "",
+            "authoritative": null,
+            "application_bounds": {}
+          }
+        },
+        "decision": "raise_po",
+        "autonomy": "supervised",
+        "secret_ref": null
+      },
+      {
+        "id": "stock_check",
+        "description": "Check stock levels in Fishbowl for a product.",
+        "action": "query",
+        "resource_class": "fishbowl",
+        "data_classes": [
+          "inventory_data"
+        ],
+        "constraints": {
+          "max_rows": 500,
+          "masked_fields": [],
+          "allowed_operations": [
+            "select"
+          ],
+          "resource_scope": [],
+          "requires_approval": false,
+          "rate_per_minute": null,
+          "enforcement": {
+            "enforced_by": "platform",
+            "enforced_in": "",
+            "authoritative": null,
+            "application_bounds": {}
+          }
+        },
+        "decision": null,
+        "autonomy": "advisory",
+        "secret_ref": null
+      }
+    ],
+    "data_access": [
+      {
+        "data_class": "inventory_data",
+        "scope": "protected",
+        "groups": [
+          "operations"
+        ],
+        "read": true,
+        "write": true
+      },
+      {
+        "data_class": "supplier_data",
+        "scope": "protected",
+        "groups": [
+          "operations"
+        ],
+        "read": false,
+        "write": true
+      }
+    ],
+    "environments": [
+      {
+        "id": "warehouse_ops",
+        "description": "Fishbowl inventory, purchasing and fulfillment.",
+        "toolchains": [
+          "data_analysis"
+        ],
+        "tier": "medium",
+        "network": "allowlist",
+        "egress_allowlist": [
+          "fishbowl.internal"
+        ],
+        "mounts": [
+          "inventory_data",
+          "order_data",
+          "supplier_data"
+        ],
+        "persistence": "ephemeral",
+        "timeout_seconds": 300,
+        "secret_refs": []
+      }
+    ],
+    "workflows": [
+      "restock_review"
+    ],
+    "channels": [
+      "direct",
+      "async_bus"
+    ],
+    "groups": [
+      "all_hands",
+      "operations"
+    ],
+    "identity": {
+      "id": "id-buyer_agent",
+      "agent_id": "buyer_agent",
+      "display_name": "buyer workload identity",
+      "permissions": [
+        "read:data_class:public_knowledge",
+        "write:capability:purchase_ordering",
+        "write:capability:goods_receiving",
+        "query:capability:stock_check"
+      ],
+      "secret_refs": []
+    },
+    "max_delegation_depth": 3,
+    "successor_agent_id": "",
+    "scaling": {
+      "min_instances": 0,
+      "max_instances": 3,
+      "concurrent_sessions_per_instance": 1
+    },
+    "data_dependencies": [],
+    "produces_data": [],
+    "planning": false,
+    "requires_approval_for": [
+      "goods_receiving",
+      "purchase_ordering"
+    ],
+    "runtime_adapter": "langchain_deepagents",
+    "model": {
+      "provider": "stub",
+      "model": "canned",
+      "subagent_model": "canned",
+      "temperature": 0.0,
+      "max_tokens": 8192
+    },
+    "model_policy": {
+      "classes": [
+        "balanced"
+      ],
+      "allow": [],
+      "deny": [],
+      "max_cost_per_million_tokens": null,
+      "min_context_tokens": null,
+      "require_no_training_on_data": true,
+      "require_regions": [
+        "us-central1"
+      ],
+      "subagent_classes": [],
+      "allow_fallback": true
+    },
+    "model_approval": null,
+    "missions": [],
+    "mission_delegates_to": [],
+    "standing_delegates_to": [],
+    "mission_grants": [],
+    "knowledge": [],
+    "guardrails": [
+      {
+        "id": "no_pii_outbound",
+        "description": "Customer identity data never leaves on an outbound message.",
+        "applies_to": [
+          "output",
+          "tool_output"
+        ],
+        "checks": [
+          "data_class"
+        ],
+        "on_violation": "block",
+        "data_classes": [
+          "customer_pii"
+        ],
+        "patterns": [],
+        "allowed_urls": [],
+        "max_length": null,
+        "escalate_channel": null,
+        "enabled": true,
+        "classifier": null
+      },
+      {
+        "id": "no_cost_price_outbound",
+        "description": "Supplier cost prices do not leak into customer-facing content.",
+        "applies_to": [
+          "output",
+          "tool_output"
+        ],
+        "checks": [
+          "data_class"
+        ],
+        "on_violation": "block",
+        "data_classes": [
+          "supplier_data"
+        ],
+        "patterns": [],
+        "allowed_urls": [],
+        "max_length": null,
+        "escalate_channel": null,
+        "enabled": true,
+        "classifier": null
+      },
+      {
+        "id": "no_credentials_out",
+        "description": "Nothing credential-shaped leaves an agent, ever.",
+        "applies_to": [
+          "output",
+          "tool_output"
+        ],
+        "checks": [
+          "secrets"
+        ],
+        "on_violation": "block",
+        "data_classes": [],
+        "patterns": [],
+        "allowed_urls": [],
+        "max_length": null,
+        "escalate_channel": null,
+        "enabled": true,
+        "classifier": null
+      },
+      {
+        "id": "screen_inbound_messages",
+        "description": "Customer messages, supplier emails and marketplace notices are somebody else's writing. Screen them.",
+        "applies_to": [
+          "input",
+          "tool_output"
+        ],
+        "checks": [
+          "prompt_injection"
+        ],
+        "on_violation": "escalate",
+        "data_classes": [],
+        "patterns": [],
+        "allowed_urls": [],
+        "max_length": null,
+        "escalate_channel": "growth_desk",
+        "enabled": true,
+        "classifier": null
+      }
+    ],
+    "artifact_store": null,
+    "context": {
+      "max_context_tokens": 150000,
+      "summarize_after_tokens": 110000,
+      "keep_last_turns": 6,
+      "offload_tool_output_bytes": 24000,
+      "offload_to": "commerce_scratch",
+      "retain_summaries": true,
+      "summarizer": null
+    },
+    "output_contract": null,
+    "shared_instructions": [
+      {
+        "source": "organization",
+        "text": "The stock number in Fishbowl and the listing on Shopify tell one story; keep them the same one."
+      },
+      {
+        "source": "organization",
+        "text": "A control you route around is a control you do not have."
+      }
+    ],
+    "skills": [],
+    "plugins": [],
+    "tools": [],
+    "subagents": [],
+    "endpoints": [],
+    "memory": {
+      "session_enabled": true,
+      "session_max_items": 500,
+      "session_retention_minutes": null,
+      "session_recall": "on_demand",
+      "long_term_enabled": true,
+      "long_term_retention_days": 365,
+      "long_term_max_items": 500,
+      "recall": "on_demand",
+      "may_promote": true,
+      "promotion_requires_approval": true,
+      "namespaces": [],
+      "redact_data_classes": [
+        "customer_pii"
+      ],
+      "readable_data_classes": [
+        "inventory_data",
+        "supplier_data"
+      ]
+    },
+    "triggers": [],
+    "human_channels": [],
+    "approval_channel": null,
+    "consults": [],
+    "notifies": [
+      "ap_agent"
+    ],
+    "escalation_flows": [],
+    "budget_usd": 6000.0,
+    "budget_period": "monthly",
+    "on_budget_breach": "throttle",
+    "lifecycle_stage": "development"
+  },
+  "system_prompt": "You are buyer.\nRaises purchase orders and receives goods in Fishbowl.\n\n## Your instructions\nRaise a purchase order against demand and the stock in Fishbowl, not against a hunch. You receive goods against the order; you do not pay the invoice \u2014 that is Finance, so a fake supplier cannot be both ordered from and paid by you.\n\n## Accountability\n- Raise purchase orders and receive goods against them in Fishbowl.  _(role: buyer)_\n\n## Organization\n- Team: AYC / Operations / Purchasing\n- Leader of: purchasing\n- Reports to: coo_agent\n- May delegate to: no one\n- Escalates to: coo_agent\n\n## The people you answer to\n- Katy (Buyer) \u2014 owner, katy@ayc.example\n- Clark (Chief Operating Officer) \u2014 approver, clark@ayc.example\n- Always seek approval before: goods_receiving, purchase_ordering\n\n## Shared operating principles\n- The stock number in Fishbowl and the listing on Shopify tell one story; keep them the same one.  _(from organization)_\n- A control you route around is a control you do not have.  _(from organization)_\n\n## Boundaries enforced on you\n- no_pii_outbound: data_class \u2192 block\n- no_cost_price_outbound: data_class \u2192 block\n- no_credentials_out: secrets \u2192 block\n- screen_inbound_messages: prompt_injection \u2192 escalate\n  These are enforced outside you. Do not attempt to work around one; say what you needed instead.\n\n## Operating rules\n- Prefer delegating to a team member whose role covers the task.\n- Use an encoded workflow for any process that must be auditable.\n- Prefer a sub-agent for a bounded task you can describe as a tool.\n- You may not widen your own access; ask your leader instead."
+}

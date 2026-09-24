@@ -12,6 +12,12 @@ targets:
     model:
       provider: anthropic
       model: claude-sonnet-5
+    # AYC's invoice capture is built in a flow engine (ADR-0110): a target
+    # that runs the design says which engine holds its body.
+    workflows:
+      - {workflow: invoice_capture, engine: langflow, mode: out_of_process,
+         endpoint: "https://flows.internal/api/v1/run", flow: invoice-capture,
+         secret_ref: LANGFLOW_API_KEY, send_data_classes: [financial_records]}
 
   # A third-party Python target, discovered through an entry point (ADR-0091).
   # Its id is the plugin's, not ours; binding it needs no change here.
@@ -24,3 +30,9 @@ targets:
     infrastructure:
       provider: local
       region: dc1
+    # AYC's invoice capture is built in a flow engine (ADR-0110): a target
+    # that runs the design says which engine holds its body.
+    workflows:
+      - {workflow: invoice_capture, engine: langflow, mode: out_of_process,
+         endpoint: "https://flows.internal/api/v1/run", flow: invoice-capture,
+         secret_ref: LANGFLOW_API_KEY, send_data_classes: [financial_records]}

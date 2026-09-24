@@ -1,0 +1,39 @@
+{
+  "_about": "AYC's Fishbowl: parts, suppliers, purchase orders and the warehouse's sales orders, seeded. Each credential names the tools it may call; the credential values come from the environment and are never in this file.",
+  "credentials": {
+    "FISHBOWL_READ_TOKEN": ["stock_check"],
+    "FISHBOWL_PURCHASING_TOKEN": ["purchase_ordering", "goods_receiving"],
+    "FISHBOWL_AUDIT_TOKEN": ["inventory_adjustment"],
+    "FISHBOWL_DOCK_TOKEN": ["order_fulfillment"]
+  },
+  "suppliers": [
+    {"id": "SUP-MAL", "name": "Maletti Line (Italy)", "terms": "net 45", "currency": "USD"},
+    {"id": "SUP-TAK", "name": "Takara Works (Japan)", "terms": "net 30", "currency": "USD"},
+    {"id": "SUP-PAC", "name": "Pacific Spa Supply (Guangdong)", "terms": "net 30", "currency": "USD"},
+    {"id": "SUP-NOR", "name": "Nordwood Fixtures (Michigan)", "terms": "net 15", "currency": "USD"}
+  ],
+  "parts": [
+    {"sku": "AYC-CH-001", "description": "Aurora Hydraulic Styling Chair, black", "supplier_id": "SUP-MAL", "unit_cost": 212.00, "on_hand": 6, "allocated": 4, "on_order": 0, "reorder_point": 10, "location": "A-01-03"},
+    {"sku": "AYC-CH-014", "description": "Luxe Barber Chair, chrome and oxblood", "supplier_id": "SUP-TAK", "unit_cost": 540.00, "on_hand": 9, "allocated": 1, "on_order": 0, "reorder_point": 4, "location": "A-02-01"},
+    {"sku": "AYC-BW-220", "description": "Serenity Shampoo Backwash Unit", "supplier_id": "SUP-MAL", "unit_cost": 610.00, "on_hand": 5, "allocated": 2, "on_order": 4, "reorder_point": 4, "location": "B-01-02"},
+    {"sku": "AYC-PD-310", "description": "Lagoon Pedicure Spa Chair", "supplier_id": "SUP-PAC", "unit_cost": 1310.00, "on_hand": 3, "allocated": 2, "on_order": 0, "reorder_point": 2, "location": "C-04-01"},
+    {"sku": "AYC-ST-402", "description": "Linea Double-Sided Styling Station", "supplier_id": "SUP-NOR", "unit_cost": 330.00, "on_hand": 11, "allocated": 0, "on_order": 0, "reorder_point": 5, "location": "D-02-05"},
+    {"sku": "AYC-RD-510", "description": "Halo Reception Desk, 180 cm", "supplier_id": "SUP-NOR", "unit_cost": 655.00, "on_hand": 2, "allocated": 0, "on_order": 0, "reorder_point": 2, "location": "D-05-01"},
+    {"sku": "AYC-TR-605", "description": "Five-Drawer Salon Trolley", "supplier_id": "SUP-PAC", "unit_cost": 31.50, "on_hand": 64, "allocated": 9, "on_order": 0, "reorder_point": 40, "location": "E-01-01"},
+    {"sku": "AYC-HD-710", "description": "Orbit Hood Dryer", "supplier_id": "SUP-TAK", "unit_cost": 158.00, "on_hand": 7, "allocated": 1, "on_order": 0, "reorder_point": 6, "location": "E-03-02"},
+    {"sku": "AYC-TB-820", "description": "Contour Electric Treatment Bed", "supplier_id": "SUP-PAC", "unit_cost": 780.00, "on_hand": 0, "allocated": 0, "on_order": 0, "reorder_point": 2, "location": "C-06-01"}
+  ],
+  "purchase_orders": [
+    {"po_number": "PO-1040", "supplier_id": "SUP-MAL", "supplier": "Maletti Line (Italy)", "sku": "AYC-BW-220", "quantity": 4, "unit_cost": 610.00, "amount": 2440.00, "status": "issued", "raised_by": "buyer_agent", "received": 0, "at": "2026-09-02T14:10:00Z"}
+  ],
+  "counters": {"po": 1040},
+  "sales_orders": [
+    {"id": "SO-50231", "customer": "Blush & Bloom Salon, Austin TX", "status": "ready",
+     "lines": [{"sku": "AYC-CH-001", "quantity": 4}, {"sku": "AYC-TR-605", "quantity": 8}]},
+    {"id": "SO-50233", "customer": "Still Water Day Spa, Portland OR", "status": "ready",
+     "lines": [{"sku": "AYC-PD-310", "quantity": 2}]},
+    {"id": "SO-50234", "customer": "Studio Nine Hair, Miami FL", "status": "ready",
+     "lines": [{"sku": "AYC-BW-220", "quantity": 2}, {"sku": "AYC-TR-605", "quantity": 1}, {"sku": "AYC-HD-710", "quantity": 1}]}
+  ],
+  "adjustments": []
+}

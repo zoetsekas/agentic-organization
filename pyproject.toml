@@ -9,6 +9,8 @@ dependencies = [
   "uvicorn>=0.29",
   "python-multipart>=0.0.9",
   "pyyaml>=6.0",
+  # Ed25519 approval tokens (ADR-0114): the issuer signs, workers verify.
+  "cryptography>=42,<47",
 ]
 
 [project.optional-dependencies]
@@ -19,6 +21,13 @@ langgraph = ["langgraph>=1.0", "langchain-core>=1.0", "deepagents>=0.7",
 # `Agent.as_tool` is how a sub-agent returns to its caller (ADR-0027).
 openai = ["openai-agents>=0.2"]
 anthropic = ["anthropic>=0.40"]
+# The typed API client, `orgagents.client` (ADR-0115).
+client = ["httpx>=0.27,<1"]
+# `orgagents mcp designer|runtime` (ADR-0115). The floor is a 1.x with
+# streamable HTTP and the HTTP request on a tool's context (bearer identity);
+# tested on 1.30. Capped below 2 because a major version may change the FastMCP server API
+# these are written against; raising the cap is a tested change, not a bump.
+mcp = ["mcp>=1.10,<2", "httpx>=0.27,<1"]
 dev = ["pytest>=8.0", "httpx>=0.27", "jsonschema>=4.20"]
 
 [project.scripts]
@@ -46,6 +55,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"orgagents.spec" = ["issue_catalog.yaml"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
