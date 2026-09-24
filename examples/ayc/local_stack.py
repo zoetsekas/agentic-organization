@@ -83,8 +83,11 @@ ENV_NAMES = ["STATE_PASSWORD", "ARTIFACTS_USER", "ARTIFACTS_PASSWORD",
 #: sign.
 SIGNING_KEY = "ORGAGENTS_APPROVAL_SIGNING_KEY"
 PUBLIC_KEYS = "ORGAGENTS_APPROVAL_PUBLIC_KEYS"
-#: What earlier versions wrote and a worker must no longer be able to read.
-RETIRED = ("ORGAGENTS_APPROVAL_SECRET", "ORGAGENTS_APPROVAL_KEY_")
+#: What earlier versions wrote and a worker must no longer be able to read:
+#: ADR-0114 v1.0's HMAC secrets, and ADR-0118 v1.0's broker passwords
+#: (replaced by NKeys, whose public halves are all the broker holds).
+RETIRED = ("ORGAGENTS_APPROVAL_SECRET", "ORGAGENTS_APPROVAL_KEY_",
+           "ORGAGENTS_BUS_PASSWORD_", "ORGAGENTS_BUS_ADMIN_PASSWORD")
 
 
 def _suffix(ident: str) -> str:
@@ -139,10 +142,46 @@ def per_stack_names(ir: dict) -> list[str]:
     """Names that depend on the design (ADR-0114): a service token per worker
     and a sign-in passcode per person the chat may sign in."""
     return ([f"ORGAGENTS_WORKER_TOKEN_{_suffix(a['id'])}" for a in ir["agents"]]
-            # Each agent's broker password, and the bus operator's (ADR-0118).
-            + [f"ORGAGENTS_BUS_PASSWORD_{_suffix(a['id'])}" for a in ir["agents"]]
-            + ["ORGAGENTS_BUS_ADMIN_PASSWORD"]
             + [f"CHAT_PASSCODE_{_suffix(p['id'])}" for p in ir.get("people", [])])
+
+
+def _nkey_module():
+    """orgagents.security.nkey, loaded by path: this script runs from the
+    repo's venv without importing the platform package."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_orgagents_nkey", ROOT / "src" / "orgagents" / "security" / "nkey.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def ensure_bus_nkeys(have: dict[str, str], ir: dict) -> list[str]:
+    """An NKey per agent and one for the bus operator (ADR-0118 v1.1): the
+    seed (`ORGAGENTS_BUS_SEED_<AGENT>`) is given to that agent's worker only,
+    the public key (`ORGAGENTS_BUS_NKEY_<AGENT>`) to the broker, and the list
+    of every agent's public key (`ORGAGENTS_BUS_PUBLIC_KEYS`) to every worker
+    to verify signed hops with. Returns the names it added."""
+    nk = _nkey_module()
+    added: list[str] = []
+    for ident, seed_name, pub_name in (
+            [("orgagents_bus_admin", "ORGAGENTS_BUS_ADMIN_SEED", "ORGAGENTS_BUS_ADMIN_NKEY")]
+            + [(a["id"], f"ORGAGENTS_BUS_SEED_{_suffix(a['id'])}",
+                f"ORGAGENTS_BUS_NKEY_{_suffix(a['id'])}") for a in ir["agents"]]):
+        if not have.get(seed_name):
+            have[seed_name], _ = nk.create_user()
+            added.append(seed_name)
+        public = nk.public_of(have[seed_name])
+        if have.get(pub_name) != public:
+            have[pub_name] = public
+            added.append(pub_name)
+    listing = ",".join(a["id"] + ":" + have["ORGAGENTS_BUS_NKEY_" + _suffix(a["id"])]
+                       for a in ir["agents"])
+    if have.get("ORGAGENTS_BUS_PUBLIC_KEYS") != listing:
+        have["ORGAGENTS_BUS_PUBLIC_KEYS"] = listing
+        added.append("ORGAGENTS_BUS_PUBLIC_KEYS")
+    return added
 
 
 def run(*args: str, cwd: Path = ROOT, check: bool = True, **kw) -> subprocess.CompletedProcess:
@@ -179,6 +218,7 @@ def cmd_env(_: argparse.Namespace) -> None:
     if not have.get(SIGNING_KEY):
         have[SIGNING_KEY], have[PUBLIC_KEYS] = new_keypair()
         added += [SIGNING_KEY, PUBLIC_KEYS]
+    added += ensure_bus_nkeys(have, ir)
     if added or retired or not existed:
         write_env(have)
     print(f"{path.relative_to(ROOT)}: {len(have)} values ({len(added)} new"

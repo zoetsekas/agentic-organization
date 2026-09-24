@@ -20,11 +20,14 @@ subject is vouched for by the connection that published it. A body that
 claims to be from somebody else is refused as a spoof.
 
 **Separation of duties survives delegation** (ADR-0070). Every hop carries the
-chain of principals it was commissioned by. A delegation that names the
-decision it asks for is refused -- by the sender and by the receiver -- when
-anyone in the chain holds a decision separated from it; and when the receiver
-runs the work, any tool constituting such a decision is refused, so "the
-buyer asks the COO to have payables pay" is refused however it is phrased.
+chain of principals it was commissioned by -- on the NATS bus as a hash chain
+of hops each signed by the agent that sent it (ADR-0118 v1.1, `HopKeys`), so
+the principals a receiver judges by are proven, not claimed. A delegation that
+names a separated decision -- in `inputs.decision` or written in its task text
+or inputs -- is refused, by the sender and by the receiver, when anyone in the
+chain holds a decision separated from it; and when the receiver runs the work,
+any tool constituting such a decision is refused, so "the buyer asks the COO
+to have payables pay" is refused however it is phrased.
 
 **Tracing.** Every hop carries the trace id of the run that started it (the
 first session's id), the chain and the depth; each side records what it did in
@@ -36,6 +39,7 @@ without a broker; `NatsTransport` is the real one, over `nats-py`.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import time
@@ -168,6 +172,161 @@ class HopContext:
     depth: int = 0
     session_id: str = ""
     handle: str = ""                                  # the handle it answers
+    hops: list[dict[str, Any]] = field(default_factory=list)   # signed, verified
+
+
+# -- signed hops (ADR-0118 v1.1) -----------------------------------------------
+#
+# The broker vouches for the immediate sender only (the subject). What stood
+# behind it -- who commissioned the sender -- was the sender's word. Now every
+# hop is a record signed by the agent that sent it, with its NKey seed (an
+# Ed25519 key only that agent's worker holds):
+#
+#   {v, kind, task, trace_id, from, to, depth, prev, digest, decisions, iat, exp}
+#
+# `prev` is the SHA-256 of the previous signed hop, so the chain is a hash
+# chain from its origin: nobody along it can drop, reorder or replace an
+# earlier hop without the signature of the agent that made it. `digest` binds
+# the hop to the text and inputs it carried. A receiver verifies every hop
+# against the public keys it was given, and takes the principals from the
+# verified chain -- never from a list in the body.
+#
+# What it cannot stop: an agent may always start a fresh chain as itself. A
+# compromised agent can drop what came before *it* only by claiming to act on
+# its own account, and separation is then judged against its own holdings.
+
+HOP_VERSION = 1
+#: Clock skew tolerated between two workers' `iat` and `now`.
+HOP_SKEW_S = 60.0
+
+
+class HopError(Exception):
+    """A hop chain does not prove what it claims; the reason is safe to log."""
+
+
+def _canon(value: Any) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
+
+
+def hop_hash(hop: dict[str, Any]) -> str:
+    return hashlib.sha256(_canon(hop)).hexdigest()
+
+
+def body_digest(kind: str, text: str, inputs: Optional[dict[str, Any]]) -> str:
+    return hashlib.sha256(
+        _canon({"kind": kind, "text": text or "", "inputs": inputs or {}})).hexdigest()
+
+
+def parse_bus_public_keys(spec: str) -> dict[str, str]:
+    """`agent:U...,agent:U...` -> {agent: public NKey}."""
+    out: dict[str, str] = {}
+    for part in (spec or "").split(","):
+        agent, sep, key = part.strip().rpartition(":")
+        if sep and agent and key:
+            out[agent] = key
+    return out
+
+
+@dataclass
+class HopKeys:
+    """This agent's hop-signing seed and every agent's public NKey."""
+
+    seed: str
+    public_keys: dict[str, str]
+
+    def sign(self, claims: dict[str, Any]) -> dict[str, Any]:
+        import base64
+
+        from ..security import nkey
+        sig = nkey.sign(self.seed, _canon(claims))
+        return {"claims": claims, "sig": base64.urlsafe_b64encode(sig).decode().rstrip("=")}
+
+    def verify_chain(self, hops: list[dict[str, Any]], *, me: str, sender: str,
+                     body: dict[str, Any], now: Optional[float] = None) -> list[str]:
+        """The principals of a verified chain, origin first, ending with
+        `me`; or HopError."""
+        import base64
+
+        from ..security import nkey
+        now = _now() if now is None else now
+        if not isinstance(hops, list) or not hops:
+            raise HopError("the delegation carries no signed hops")
+        prev_hash, prev = "", None
+        for i, hop in enumerate(hops):
+            if not isinstance(hop, dict) or not isinstance(hop.get("claims"), dict):
+                raise HopError(f"hop {i + 1} is malformed")
+            c = hop["claims"]
+            signer = str(c.get("from") or "")
+            key = self.public_keys.get(signer)
+            if not key:
+                raise HopError(f"hop {i + 1} is signed as '{signer}', whose key "
+                               f"{me} does not hold")
+            try:
+                sig = base64.urlsafe_b64decode(str(hop.get("sig", "")) + "=" * (
+                    -len(str(hop.get("sig", ""))) % 4))
+            except (ValueError, TypeError):
+                sig = b""
+            if not nkey.verify(key, _canon(c), sig):
+                raise HopError(f"hop {i + 1} ({signer} -> {c.get('to')}) is not "
+                               f"signed by {signer}")
+            if c.get("v") != HOP_VERSION:
+                raise HopError(f"hop {i + 1} has an unknown version")
+            if c.get("prev", "") != prev_hash:
+                raise HopError(f"hop {i + 1} does not follow the hop before it "
+                               "(the chain was altered)")
+            if prev is not None:
+                if signer != prev["to"]:
+                    raise HopError(f"hop {i + 1} is from {signer}, but hop {i} "
+                                   f"went to {prev['to']}")
+                if float(c.get("iat", 0)) > float(prev.get("exp", 0)):
+                    raise HopError(f"hop {i + 1} was made after hop {i} expired")
+                if c.get("trace_id") != prev.get("trace_id"):
+                    raise HopError(f"hop {i + 1} changes the trace")
+            prev_hash, prev = hop_hash(hop), c
+        last = prev or {}
+        if last.get("from") != sender or last.get("to") != me:
+            raise HopError(f"the last hop is {last.get('from')} -> {last.get('to')}, "
+                           f"not {sender} -> {me}")
+        if float(last.get("exp", 0)) < now:
+            raise HopError("the last hop has expired")
+        if float(last.get("iat", 0)) > now + HOP_SKEW_S:
+            raise HopError("the last hop is dated in the future")
+        if last.get("task") != body.get("id") or last.get("kind") != body.get("kind") \
+                or last.get("trace_id") != body.get("trace_id") \
+                or int(last.get("depth", -1)) != int(body.get("depth") or 0):
+            raise HopError("the signed hop is for a different message")
+        if last.get("digest") != body_digest(str(body.get("kind") or ""),
+                                              str(body.get("text") or ""),
+                                              body.get("inputs") or {}):
+            raise HopError("the text or inputs were changed after they were signed")
+        return [str(hops[0]["claims"]["from"])] + [str(h["claims"]["to"]) for h in hops]
+
+
+def named_decisions(policy: "LinkPolicy", text: str, inputs: Optional[dict[str, Any]]
+                    ) -> list[str]:
+    """Separated decisions a task names: `inputs.decision`, and any separated
+    decision id written in its text or inputs (`pay_invoice`, or `pay
+    invoice`). A decision taken without a tool is otherwise invisible to the
+    bus; naming it is the one trace it leaves (ADR-0118 v1.1)."""
+    import re
+
+    inputs = inputs or {}
+    found: list[str] = []
+    explicit = str(inputs.get("decision") or "")
+    if explicit:
+        found.append(explicit)
+    haystack = (text or "") + "\n" + json.dumps(
+        {k: v for k, v in inputs.items() if k != "decision"}, default=str)
+    separated = {d for r in policy.config.get("separations", [])
+                 for d in r.get("decisions", [])}
+    for d in sorted(separated):
+        spelled = [re.escape(d)]
+        if "_" in d:
+            spelled.append(re.escape(d).replace("_", r"[\s\-]+"))
+        if any(re.search(rf"(?<![A-Za-z0-9]){s}(?![A-Za-z0-9])", haystack, re.I)
+               for s in spelled) and d not in found:
+            found.append(d)
+    return found
 
 
 class Transport(Protocol):
@@ -185,11 +344,16 @@ class AgentMessenger:
                  run_task: Optional[Callable[[HopContext, str, str, str, dict], dict]] = None,
                  audit: Optional[Callable[[str, dict], None]] = None,
                  handle_deadline_s: float = DEFAULT_HANDLE_DEADLINE_S,
-                 max_workers: int = 4) -> None:
+                 max_workers: int = 4, hop_keys: Optional[HopKeys] = None) -> None:
         self.policy = policy
         self.transport = transport
         self.run_task = run_task
         self._audit = audit
+        # With keys, every hop sent is signed and every hop received must
+        # verify (the generated stack; ADR-0118 v1.1). Without, the chain is
+        # the sender's word: the in-process bus and older tests only.
+        self.hop_keys = hop_keys
+        self._seen_tasks: dict[str, float] = {}
         self.handle_deadline_s = handle_deadline_s
         self.handles: dict[str, dict[str, Any]] = {}
         self.events: list[dict[str, Any]] = []
@@ -247,16 +411,33 @@ class AgentMessenger:
         if not chain or chain[-1] != self.me:
             chain.append(self.me)
         decision = str((inputs or {}).get("decision") or "")
-        conflict = self.policy.separation_conflict(chain, decision)
-        if conflict:
-            return self._refuse("bus_refused_local", ctx, to, kind, conflict,
-                                decision=decision)
+        # A delegation is judged by every separated decision it names, in
+        # `inputs.decision` or in its text and inputs (ADR-0118 v1.1).
+        decisions = named_decisions(self.policy, text, inputs) if kind == DELEGATE \
+            else ([decision] if decision else [])
+        for d in decisions:
+            conflict = self.policy.separation_conflict(chain, d)
+            if conflict:
+                return self._refuse("bus_refused_local", ctx, to, kind, conflict,
+                                    decision=d)
         body = {
             "id": uuid.uuid4().hex, "kind": kind, "from": self.me, "to": to,
             "text": text, "inputs": inputs or {}, "handle": handle,
             "decision": decision, "trace_id": ctx.trace_id, "chain": chain,
             "depth": depth, "parent_session": ctx.session_id, "sent_at": _now(),
         }
+        if self.hop_keys is not None:
+            prev = ctx.hops[-1] if ctx.hops else None
+            now = _now()
+            hop = self.hop_keys.sign({
+                "v": HOP_VERSION, "kind": kind, "task": body["id"],
+                "trace_id": ctx.trace_id, "from": self.me, "to": to, "depth": depth,
+                "prev": hop_hash(prev) if prev else "",
+                "digest": body_digest(kind, text, inputs or {}),
+                "decisions": decisions, "iat": now,
+                "exp": now + self.handle_deadline_s,
+            })
+            body["hops"] = list(ctx.hops) + [hop]
         try:
             self._publish(self.policy.inbox(to, self.me), body)
         except BusRefused as e:
@@ -403,9 +584,39 @@ class AgentMessenger:
             reason = "" if ok else why
         if not reason and kind == DELEGATE and depth > self.policy.max_depth + 1:
             reason = f"delegation depth {depth} is past any bound this design sets"
+        hops: list[dict[str, Any]] = []
+        if not reason and self.hop_keys is not None:
+            # The principals are the verified chain's, not the body's list.
+            try:
+                hops = list(body.get("hops") or [])
+                chain = self.hop_keys.verify_chain(hops, me=self.me, sender=sender,
+                                                   body=body)[:-1]
+                task = str(hops[-1]["claims"]["task"])
+                with self._cond:
+                    now = _now()
+                    for t, exp in list(self._seen_tasks.items()):
+                        if exp < now:
+                            del self._seen_tasks[t]
+                    if task in self._seen_tasks:
+                        raise HopError(f"hop for task {task} was already delivered "
+                                       "(a replay)")
+                    self._seen_tasks[task] = float(hops[-1]["claims"]["exp"])
+            except HopError as e:
+                reason = f"signed chain refused: {e}"
+            except (KeyError, TypeError, ValueError) as e:
+                reason = f"signed chain refused: malformed ({type(e).__name__})"
         if not reason:
-            reason = self.policy.separation_conflict(
-                chain, str(body.get("decision") or "")) or ""
+            inputs = body.get("inputs") if isinstance(body.get("inputs"), dict) else {}
+            if kind == DELEGATE:
+                named = named_decisions(self.policy, str(body.get("text") or ""),
+                                        {**inputs, **({"decision": body["decision"]}
+                                                      if body.get("decision") else {})})
+            else:
+                named = [str(body.get("decision"))] if body.get("decision") else []
+            for d in named:
+                reason = self.policy.separation_conflict(chain, d) or ""
+                if reason:
+                    break
         if reason:
             entry = self.record("bus_refused_inbound", trace_id=trace_id, frm=sender,
                                 kind=kind, handle=handle, reason=reason, chain=chain)
@@ -415,7 +626,7 @@ class AgentMessenger:
                                      "trace_id": trace_id})
             return entry
         ctx = HopContext(trace_id=trace_id, chain=chain + [self.me], depth=depth,
-                         handle=handle)
+                         handle=handle, hops=hops)
         entry = self.record("bus_received", trace_id=trace_id, frm=sender, kind=kind,
                             handle=handle, depth=depth, chain=chain,
                             text=str(body.get("text") or "")[:200])
@@ -506,11 +717,13 @@ class NatsTransport:
     """`nats-py` on a loop of its own, so the synchronous agent loop and the
     FastAPI worker can publish, and a pull consumer can feed the inbox."""
 
-    def __init__(self, url: str, *, user: str, password: str, inbox_prefix: str,
+    def __init__(self, url: str, *, user: str, seed: str, inbox_prefix: str,
                  stream: str = "", consumer: str = "",
                  on_delivery: Optional[Callable[[str, bytes, dict[str, str]], Any]] = None,
                  connect_timeout: float = 5.0, publish_timeout: float = 5.0) -> None:
-        self.url, self.user, self.password = url, user, password
+        # `user` names the connection; the identity is the NKey `seed`
+        # (ADR-0118 v1.1): the broker holds only its public key.
+        self.url, self.user, self.seed = url, user, seed
         self.inbox_prefix = inbox_prefix
         self.stream, self.consumer = stream, consumer
         self.on_delivery = on_delivery
@@ -562,11 +775,13 @@ class NatsTransport:
 
         import nats
 
+        from ..security.nkey import install_nkeys_shim
+        install_nkeys_shim()
         delay = 0.5
         while not self._stop:
             try:
                 self._nc = await nats.connect(
-                    self.url, user=self.user, password=self.password,
+                    self.url, nkeys_seed_str=self.seed,
                     inbox_prefix=self.inbox_prefix, name=self.user,
                     connect_timeout=self.connect_timeout, error_cb=self._error,
                     max_reconnect_attempts=-1)
@@ -637,9 +852,30 @@ def connect_from_env(policy: LinkPolicy, env: dict[str, str],
     return NatsTransport(
         env.get("ORGAGENTS_BUS_URL", "nats://nats:4222"),
         user=env.get("ORGAGENTS_BUS_USER") or cfg["user"],
-        password=env.get("ORGAGENTS_BUS_PASSWORD", ""),
+        seed=env.get("ORGAGENTS_BUS_NKEY_SEED", ""),
         inbox_prefix=cfg["inbox_prefix"], stream=cfg["stream"],
         consumer=cfg["consumer"], on_delivery=on_delivery).start()
+
+
+def hop_keys_from_env(agent_id: str, env: dict[str, str]) -> HopKeys:
+    """This worker's seed and every agent's public NKey. A worker on the NATS
+    bus without them refuses to start: an unsigned chain is the sender's word
+    (ADR-0118 v1.1)."""
+    from ..security import nkey
+
+    seed = env.get("ORGAGENTS_BUS_NKEY_SEED", "")
+    keys = parse_bus_public_keys(env.get("ORGAGENTS_BUS_PUBLIC_KEYS", ""))
+    if not seed or not keys:
+        raise SystemExit(f"worker {agent_id}: ORGAGENTS_BUS_NKEY_SEED and "
+                         "ORGAGENTS_BUS_PUBLIC_KEYS must be set on the NATS bus")
+    try:
+        mine = nkey.public_of(seed)
+    except nkey.NKeyError as e:
+        raise SystemExit(f"worker {agent_id}: ORGAGENTS_BUS_NKEY_SEED is not a seed: {e}")
+    if keys.get(agent_id) != mine:
+        raise SystemExit(f"worker {agent_id}: its seed is not the key the stack lists "
+                         "for it in ORGAGENTS_BUS_PUBLIC_KEYS")
+    return HopKeys(seed=seed, public_keys=keys)
 
 
 def with_context(ctx: HopContext, **changes: Any) -> HopContext:
@@ -661,22 +897,26 @@ def bus_plan(ir: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def bus_init(ir: dict[str, Any], *, url: str, user: str, password: str,
+def bus_init(ir: dict[str, Any], *, url: str, user: str, seed: str,
              attempts: int = 30) -> int:
     """Create (or reconcile) the tenant's stream and a durable pull consumer
-    per agent, as the bus operator. Idempotent; run by `bus-init`."""
+    per agent, as the bus operator (its NKey `seed`). Idempotent; run by
+    `bus-init`."""
     import asyncio
 
     import nats
     from nats.js.api import AckPolicy, ConsumerConfig, RetentionPolicy, StorageType, StreamConfig
 
+    from ..security.nkey import install_nkeys_shim
+
+    install_nkeys_shim()
     plan = bus_plan(ir)
 
     async def main() -> int:
         nc = None
         for i in range(max(1, attempts)):
             try:
-                nc = await nats.connect(url, user=user or None, password=password or None,
+                nc = await nats.connect(url, nkeys_seed_str=seed or None, name=user or None,
                                         inbox_prefix=f"_INBOX_{user}" if user else "_INBOX",
                                         connect_timeout=3, max_reconnect_attempts=0)
                 break

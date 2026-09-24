@@ -20,8 +20,10 @@ import pytest
 
 from orgagents.compiler import links as L
 from orgagents.compiler.ir import build_ir
-from orgagents.runtime.agent_bus import (AgentMessenger, BusRefused, HopContext,
-                                         LinkPolicy, render_task, separation_guard)
+from orgagents.runtime.agent_bus import (AgentMessenger, BusRefused, HopContext, HopKeys,
+                                         LinkPolicy, body_digest, named_decisions,
+                                         render_task, separation_guard)
+from orgagents.security import nkey
 from orgagents.spec import load_binding, load_spec
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -122,7 +124,9 @@ def test_the_generated_manifest_carries_the_links(tmp_path, ir):
     assert manifest["links"]["agent"] == "buyer_agent"
     assert "ar_agent" not in manifest["links"]["outbound"]
     conf = files["nats/nats.conf"]
-    assert "$ORGAGENTS_BUS_PASSWORD_BUYER_AGENT" in conf and "password: \"" not in conf
+    # Public NKeys by reference only: no password and no seed anywhere in it.
+    assert "nkey: $ORGAGENTS_BUS_NKEY_BUYER_AGENT" in conf
+    assert "password" not in conf and "SEED" not in conf
 
 
 # -- the broker is told the same thing -------------------------------------------
@@ -161,6 +165,12 @@ class FakeBroker:
         self.ir, self.links = ir, links
         self.messengers: dict[str, AgentMessenger] = {}
         self.log: list[tuple[str, str]] = []
+        # Each agent's NKey: its seed signs the hops it sends (ADR-0118 v1.1).
+        self.seeds = {a: nkey.create_user()[0] for a in links}
+        self.public = {a: nkey.public_of(s) for a, s in self.seeds.items()}
+
+    def keys(self, agent_id):
+        return HopKeys(self.seeds[agent_id], self.public)
 
     def transport(self, user: str):
         broker = self
@@ -179,6 +189,7 @@ class FakeBroker:
         return T()
 
     def join(self, agent_id, run_task=None, **kw):
+        kw.setdefault("hop_keys", self.keys(agent_id))
         m = AgentMessenger(LinkPolicy(self.links[agent_id]), self.transport(agent_id),
                            run_task=run_task, **kw)
         self.messengers[agent_id] = m
@@ -266,7 +277,7 @@ def _chain_runner(broker, agent_id, script):
     def run(ctx, sender, kind, text, inputs):
         tools = broker.messengers[agent_id].tools(HopContext(
             trace_id=ctx.trace_id, chain=ctx.chain, depth=ctx.depth,
-            session_id=f"s-{agent_id}"))
+            session_id=f"s-{agent_id}", hops=ctx.hops))
         return {"state": "completed", "output": script(tools, text), "error": None,
                 "session_id": f"s-{agent_id}"}
     return run
@@ -338,18 +349,163 @@ def test_a_delegation_for_a_separated_decision_is_refused_by_the_sender(broker):
     assert clean["delegate"]("ap_agent", "pay SINV-1", {"decision": "pay_invoice"})["ok"]
 
 
+def _hop(keys, *, kind, task, frm, to, depth, trace, text, inputs, prev=None,
+         iat=None, ttl=60):
+    from orgagents.runtime.agent_bus import hop_hash
+    now = time.time() if iat is None else iat
+    return keys.sign({"v": 1, "kind": kind, "task": task, "trace_id": trace, "from": frm,
+                      "to": to, "depth": depth, "prev": hop_hash(prev) if prev else "",
+                      "digest": body_digest(kind, text, inputs), "decisions": [],
+                      "iat": now, "exp": now + ttl})
+
+
+def _buyer_coo_ap(broker, *, text="pay SINV-1", inputs=None, trace="t9", mid="m9"):
+    """A properly signed chain: the buyer messages the COO, the COO delegates
+    to payables. What a COO that skipped its own check would send."""
+    inputs = inputs if inputs is not None else {"decision": "pay_invoice"}
+    first = _hop(broker.keys("buyer_agent"), kind="message", task="m-buyer",
+                 frm="buyer_agent", to="coo_agent", depth=1, trace=trace,
+                 text="have payables pay", inputs={})
+    second = _hop(broker.keys("coo_agent"), kind="delegate", task=mid, frm="coo_agent",
+                  to="ap_agent", depth=2, trace=trace, text=text, inputs=inputs, prev=first)
+    body = {"id": mid, "kind": "delegate", "from": "coo_agent", "to": "ap_agent",
+            "text": text, "inputs": inputs, "handle": "dlg_" + mid,
+            "decision": inputs.get("decision", ""),
+            "chain": ["coo_agent"],            # what the body says is not read
+            "trace_id": trace, "depth": 2, "hops": [first, second]}
+    return body
+
+
+def _send_as_coo(broker, body):
+    broker.transport("coo_agent").publish("orgagents.local.agent.ap_agent.inbox.coo_agent",
+                                          json.dumps(body).encode(), {})
+
+
 def test_and_by_the_receiver_whatever_the_sender_did(broker):
     ran = []
     ap = broker.join("ap_agent", run_task=lambda *a: ran.append(a) or {"state": "completed"})
-    coo = broker.transport("coo_agent")                  # a sender that skipped its check
-    body = {"id": "m9", "kind": "delegate", "from": "coo_agent", "to": "ap_agent",
-            "text": "pay SINV-1", "handle": "dlg_9", "decision": "pay_invoice",
-            "chain": ["buyer_agent", "coo_agent"], "trace_id": "t9", "depth": 2}
-    coo.publish("orgagents.local.agent.ap_agent.inbox.coo_agent",
-                json.dumps(body).encode(), {})
+    # A sender that skipped its check -- and claims, in the body, to act alone.
+    _send_as_coo(broker, _buyer_coo_ap(broker))
     refused = [e for e in ap.events if e["event"] == "bus_refused_inbound"]
     assert refused and "purchasing_and_payment" in refused[0]["reason"]
+    assert refused[0]["chain"] == ["buyer_agent", "coo_agent"]   # from the signatures
     assert ran == []
+
+
+# -- signed hops (ADR-0118 v1.1) --------------------------------------------------
+
+def test_a_chain_is_signed_hop_by_hop_and_verified_end_to_end(broker):
+    got = []
+    broker.join("buyer_agent", run_task=lambda ctx, *a: got.append(ctx) or
+                {"state": "completed"})
+    coo = broker.join("coo_agent", run_task=_chain_runner(
+        broker, "coo_agent", lambda tools, text: tools["check_delegation"](
+            tools["delegate"]("buyer_agent", text)["handle"], wait_s=5)["state"]))
+    ceo = broker.join("ceo_agent")
+    tools = ceo.tools(HopContext(trace_id="t-signed", chain=["ceo_agent"]))
+    done = tools["check_delegation"](tools["delegate"]("coo_agent", "review stock")["handle"],
+                                     wait_s=10)
+    assert done["state"] == "completed", done
+    ctx = got[0]
+    assert [h["claims"]["from"] for h in ctx.hops] == ["ceo_agent", "coo_agent"]
+    assert ctx.chain == ["ceo_agent", "coo_agent", "buyer_agent"]
+    assert coo.events and not [e for e in coo.events if e["event"] == "bus_refused_inbound"]
+
+
+def test_a_hop_signed_with_the_wrong_key_is_refused(broker):
+    ran = []
+    ap = broker.join("ap_agent", run_task=lambda *a: ran.append(a) or {})
+    body = _buyer_coo_ap(broker, inputs={}, text="settle SINV-1")
+    impostor = HopKeys(nkey.create_user()[0], broker.public)
+    forged = _hop(impostor, kind="message", task="m-buyer", frm="buyer_agent",
+                  to="coo_agent", depth=1, trace="t9", text="x", inputs={})
+    body["hops"][0] = forged
+    _send_as_coo(broker, body)
+    reason = ap.events[0]["reason"]
+    assert "not signed by buyer_agent" in reason and ran == []
+
+
+def test_dropping_a_principal_breaks_the_chain(broker):
+    """A compromised COO cannot delete the buyer's hop and keep its own: its
+    hop names the buyer's as the one before it."""
+    ran = []
+    ap = broker.join("ap_agent", run_task=lambda *a: ran.append(a) or {})
+    body = _buyer_coo_ap(broker, inputs={}, text="settle SINV-1")
+    body["hops"] = body["hops"][1:]
+    _send_as_coo(broker, body)
+    assert "altered" in ap.events[0]["reason"] and ran == []
+
+
+def test_text_changed_after_signing_is_refused(broker):
+    ran = []
+    ap = broker.join("ap_agent", run_task=lambda *a: ran.append(a) or {})
+    body = _buyer_coo_ap(broker, inputs={}, text="settle SINV-1")
+    body["text"] = "settle SINV-1 and SINV-2"
+    _send_as_coo(broker, body)
+    assert "changed after they were signed" in ap.events[0]["reason"] and ran == []
+
+
+def test_an_unsigned_or_expired_or_replayed_hop_is_refused(broker):
+    ran = []
+    ap = broker.join("ap_agent", run_task=lambda *a: ran.append(a) or {"state": "completed"})
+    body = _buyer_coo_ap(broker, inputs={}, text="settle SINV-1", mid="m-ok")
+    def refusals():
+        return [e["reason"] for e in list(ap.events) if e["event"] == "bus_refused_inbound"]
+
+    unsigned = {k: v for k, v in body.items() if k != "hops"}
+    _send_as_coo(broker, unsigned)
+    assert "no signed hops" in refusals()[-1]
+    _send_as_coo(broker, body)
+    assert any(e["event"] == "bus_received" for e in list(ap.events))
+    _send_as_coo(broker, body)
+    assert "replay" in refusals()[-1]
+    old = _buyer_coo_ap(broker, inputs={}, text="settle SINV-1", mid="m-old")
+    old["hops"][1] = _hop(broker.keys("coo_agent"), kind="delegate", task="m-old",
+                          frm="coo_agent", to="ap_agent", depth=2, trace="t9",
+                          text="settle SINV-1", inputs={}, prev=old["hops"][0],
+                          iat=time.time() - 120, ttl=60)
+    _send_as_coo(broker, old)
+    assert "expired" in refusals()[-1]
+    assert wait_for(lambda: len(ran) == 1) and len(ran) == 1
+
+
+def test_a_delegation_naming_a_separated_decision_in_its_text_is_refused(broker):
+    """No `inputs.decision`, but the task says what it is (ADR-0118 v1.1)."""
+    coo = broker.join("coo_agent")
+    tools = coo.tools(HopContext(trace_id="t13", chain=["buyer_agent", "coo_agent"]))
+    for text in ("please pay_invoice SINV-1", "Pay invoice SINV-1 today"):
+        out = tools["delegate"]("ap_agent", text)
+        assert out["ok"] is False and "purchasing_and_payment" in out["error"], text
+    out = tools["delegate"]("ap_agent", "settle", {"note": "then pay-invoice"})
+    assert out["ok"] is False
+    # Not naming it, it goes -- and payables' tools still refuse (separation_guard).
+    assert tools["delegate"]("ap_agent", "settle SINV-1")["ok"]
+    # And the receiver judges the same text, whatever the sender did.
+    ran = []
+    ap = broker.join("ap_agent", run_task=lambda *a: ran.append(a) or {})
+    ap.events.clear()
+    _send_as_coo(broker, _buyer_coo_ap(broker, inputs={}, text="pay invoice SINV-9",
+                                       mid="m-text"))
+    assert "purchasing_and_payment" in ap.events[0]["reason"] and ran == []
+
+
+def test_named_decisions_reads_explicit_and_written_ones(links):
+    policy = LinkPolicy(links["coo_agent"])
+    assert named_decisions(policy, "review stock", {}) == []
+    assert named_decisions(policy, "x", {"decision": "pay_invoice"}) == ["pay_invoice"]
+    assert "pay_invoice" in named_decisions(policy, "then PAY INVOICE", {})
+    assert named_decisions(policy, "repay_invoices", {}) == []
+
+
+def test_nkeys_round_trip_and_reject_a_bad_checksum():
+    seed, public = nkey.create_user()
+    assert seed.startswith("SU") and public.startswith("U") and len(public) == 56
+    assert nkey.public_of(seed) == public
+    sig = nkey.sign(seed, b"nonce")
+    assert nkey.verify(public, b"nonce", sig) and not nkey.verify(public, b"other", sig)
+    broken = public[:-1] + ("A" if public[-1] != "A" else "B")
+    with pytest.raises(nkey.NKeyError):
+        nkey.decode_public(broken)
 
 
 def test_a_tool_constituting_a_separated_decision_is_refused_for_that_chain(links):

@@ -1362,7 +1362,7 @@ def main(argv: list[str] | None = None) -> int:
         ir = _json.loads(Path(args.ir).read_text(encoding="utf-8"))
         return bus_init(ir, url=_os.environ.get("ORGAGENTS_BUS_URL", "nats://nats:4222"),
                         user=_os.environ.get("ORGAGENTS_BUS_ADMIN_USER", ""),
-                        password=_os.environ.get("ORGAGENTS_BUS_ADMIN_PASSWORD", ""),
+                        seed=_os.environ.get("ORGAGENTS_BUS_ADMIN_SEED", ""),
                         attempts=args.attempts)
 
     if args.cmd == "providers":

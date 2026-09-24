@@ -51,12 +51,28 @@ MESSAGE = "message"
 
 #: Env names (ADR-0015: names in the design, values in the environment).
 BUS_ADMIN_USER = "orgagents_bus_admin"
-BUS_ADMIN_PASSWORD_REF = "ORGAGENTS_BUS_ADMIN_PASSWORD"
+#: Each broker identity is an NKey (ADR-0118 v1.1): the broker is given the
+#: *public* key (`..._NKEY_...`), the one client that is that identity the
+#: seed (`..._SEED_...`). No password exists for anyone to read off the broker.
+BUS_ADMIN_NKEY_REF = "ORGAGENTS_BUS_ADMIN_NKEY"
+BUS_ADMIN_SEED_REF = "ORGAGENTS_BUS_ADMIN_SEED"
+#: Every agent's public NKey, `agent:U...,agent:U...`: what a worker verifies
+#: signed delegation hops with. Public; given to every worker.
+BUS_PUBLIC_KEYS_REF = "ORGAGENTS_BUS_PUBLIC_KEYS"
 
 
-def bus_password_ref(agent_id: str) -> str:
-    return "ORGAGENTS_BUS_PASSWORD_" + "".join(
-        c if c.isalnum() else "_" for c in agent_id).upper()
+def _suffix(agent_id: str) -> str:
+    return "".join(c if c.isalnum() else "_" for c in agent_id).upper()
+
+
+def bus_nkey_ref(agent_id: str) -> str:
+    """The variable holding an agent's public NKey (the broker's side)."""
+    return "ORGAGENTS_BUS_NKEY_" + _suffix(agent_id)
+
+
+def bus_seed_ref(agent_id: str) -> str:
+    """The variable holding an agent's NKey seed (that agent's worker only)."""
+    return "ORGAGENTS_BUS_SEED_" + _suffix(agent_id)
 
 
 def bus_user(agent_id: str) -> str:
@@ -220,15 +236,17 @@ def _quote(s: str) -> str:
 
 def nats_config(ir: Any, *, server_name: str = "bus") -> str:
     """The broker's configuration: JetStream, and one user per agent with the
-    permissions above. Passwords are `$VAR` references resolved from the
-    broker container's environment; no value is ever written here."""
+    permissions above. Each user is an NKey: a `$VAR` reference to its
+    *public* key, resolved from the broker container's environment. The
+    broker can recognise every agent and impersonate none (ADR-0118 v1.1);
+    no value is ever written here."""
     links = agent_links(ir)
     subjects = subjects_for(ir)
     admin_inbox = _quote("_INBOX_" + BUS_ADMIN_USER + ".>")
     entries = [
         "    # Creates the stream and the per-agent consumers (bus-init): an\n"
         "    # operator identity, never an agent's.\n"
-        f"    {{ user: {_quote(BUS_ADMIN_USER)}, password: ${BUS_ADMIN_PASSWORD_REF},\n"
+        f"    {{ nkey: ${BUS_ADMIN_NKEY_REF},\n"
         f"      permissions: {{ publish: {{ allow: [{_quote('$JS.API.>')}, "
         f"{_quote(subjects.agents_wildcard)}] }},\n"
         f"                     subscribe: {{ allow: [{admin_inbox}] }} }} }}"
@@ -239,7 +257,7 @@ def nats_config(ir: Any, *, server_name: str = "bus") -> str:
         sub = ", ".join(_quote(x) for x in perms["subscribe"])
         entries.append(
             f"    # {a.id} reaches: {', '.join(links[a.id]['outbound']) or 'nobody'}\n"
-            f"    {{ user: {_quote(bus_user(a.id))}, password: ${bus_password_ref(a.id)},\n"
+            f"    {{ nkey: ${bus_nkey_ref(a.id)},\n"
             f"      permissions: {{ publish: {{ allow: [{pub}] }},\n"
             f"                     subscribe: {{ allow: [{sub}] }} }} }}")
     lines = [

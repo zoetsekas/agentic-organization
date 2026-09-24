@@ -22,7 +22,8 @@ from ...bus import SubjectNamespace
 from ...runtime.engines import InvocationMode, UnknownEngine, engine
 from ..base import GeneratedFile
 from ..ir import SystemIR
-from ..links import (BUS_ADMIN_PASSWORD_REF, BUS_ADMIN_USER, agent_links, bus_password_ref,
+from ..links import (BUS_ADMIN_NKEY_REF, BUS_ADMIN_SEED_REF, BUS_ADMIN_USER,
+                     BUS_PUBLIC_KEYS_REF, agent_links, bus_nkey_ref, bus_seed_ref,
                      bus_user, nats_config)
 from ..registry import registry_report
 
@@ -136,6 +137,16 @@ CONTAINER_HARDENING: dict[str, Any] = {
     "security_opt": ["no-new-privileges:true"],
     "pids_limit": 256,
 }
+
+#: The stack's own infrastructure -- state, bus, artifacts, telemetry, the
+#: in-stack designer -- gets the same (ADR-0114 v1.2). None of these images
+#: needs a capability back: each listens above 1024, and Postgres runs as its
+#: image's own user so its entrypoint never chowns or switches user. NATS and
+#: SeaweedFS stay uid 0 inside (a fresh named volume is root's) but hold no
+#: capability, so root there owns its volume and nothing else.
+INFRA_HARDENING: dict[str, Any] = dict(CONTAINER_HARDENING)
+#: `postgres` in postgres:16-alpine.
+STATE_USER = "70:70"
 
 #: Host ports are published on the loopback address only (ADR-0114). A local
 #: stack is for the person at this machine; publishing on every interface put
@@ -634,7 +645,11 @@ WORKDIR /workspace
                 "ORGAGENTS_BUS_URL": "nats://nats:4222",
                 "ORGAGENTS_BUS_SUBJECT_PREFIX": self._subjects(ir).prefix,
                 "ORGAGENTS_BUS_USER": bus_user(agent.id),
-                "ORGAGENTS_BUS_PASSWORD": f"${{{bus_password_ref(agent.id)}}}",
+                # Its own NKey seed and nobody else's: its broker identity and
+                # the key it signs delegation hops with. Every agent's public
+                # key, to verify the hops it receives (ADR-0118 v1.1).
+                "ORGAGENTS_BUS_NKEY_SEED": f"${{{bus_seed_ref(agent.id)}}}",
+                "ORGAGENTS_BUS_PUBLIC_KEYS": f"${{{BUS_PUBLIC_KEYS_REF}}}",
                 # This worker's own service token (no agent is given
                 # another's, so reaching a neighbour's port is not being able
                 # to make it act), and the issuer's *public* keys it verifies
@@ -810,27 +825,41 @@ WORKDIR /workspace
     def _compose(self, ir: SystemIR) -> str:
         subjects = self._subjects(ir)
         services: dict[str, Any] = {
+            # Hardened like the agents (ADR-0114 v1.2): it runs as the image's
+            # own `postgres` user (70), so it needs no capability at all -- the
+            # entrypoint's chown/gosu step, which does, is skipped when it is
+            # not root. Its data is the volume, its socket and scratch tmpfs.
             "state": {
                 "image": STATE_IMAGE,
+                "user": STATE_USER,
                 "environment": {
                     "POSTGRES_PASSWORD": "${STATE_PASSWORD}",
                     "POSTGRES_DB": "orgagents",
                 },
                 "networks": [ir.qualified("control")],
                 "volumes": [f'{ir.qualified("state-data")}:/var/lib/postgresql/data'],
+                **INFRA_HARDENING,
+                "tmpfs": ["/tmp", "/var/run/postgresql"],
                 # Each infrastructure service says when it is ready, so
                 # `up --wait` means ready and not merely started (ADR-0109).
+                # Over TCP, so initdb's temporary socket-only server does not
+                # count as ready.
                 "healthcheck": {
-                    "test": ["CMD-SHELL", "pg_isready -U postgres -d orgagents"],
+                    "test": ["CMD-SHELL",
+                             "pg_isready -h 127.0.0.1 -U postgres -d orgagents"],
                     "interval": "10s", "timeout": "3s", "retries": 5,
+                    "start_period": "30s",
                 },
             },
             # Agents export to it over `control`; its OTLP port is not
             # published, so nothing off this stack can write spans into it
-            # (ADR-0114).
+            # (ADR-0114). The image runs as a non-root user (10001) and
+            # writes nothing to its filesystem.
             "telemetry": {
                 "image": OTEL_COLLECTOR_IMAGE,
                 "networks": [ir.qualified("control")],
+                **INFRA_HARDENING,
+                "tmpfs": ["/tmp"],
             },
             # The artifact workspace large tool output is offloaded to
             # (ADR-0036). This tenant's own instance on this tenant's own
@@ -847,6 +876,12 @@ WORKDIR /workspace
                 },
                 "networks": [ir.qualified("control")],
                 "volumes": [f'{ir.qualified("artifacts-data")}:/data'],
+                # Root inside the image (it owns /data) but with no
+                # capabilities: it listens above 1024 and chowns nothing, so
+                # root here is uid 0 with no power over anything but its own
+                # volume (ADR-0114 v1.2).
+                **INFRA_HARDENING,
+                "tmpfs": ["/tmp"],
                 "healthcheck": {
                     "test": ["CMD", "wget", "-qO-", "http://127.0.0.1:9333/cluster/status"],
                     "interval": "10s", "timeout": "3s", "retries": 5,
@@ -860,14 +895,21 @@ WORKDIR /workspace
                 "image": BUS_IMAGE,
                 # JetStream, the monitoring port (health check only, never
                 # published) and one user per agent whose subject permissions
-                # are the design's edges (ADR-0118). The broker holds every
-                # agent's password; each agent holds only its own.
+                # are the design's edges (ADR-0118). Each user is an NKey: the
+                # broker holds only public keys, so reading its environment
+                # or config gives no one an agent's bus identity; each agent
+                # holds only its own seed (ADR-0118 v1.1).
                 "command": ["-c", "/etc/nats/nats.conf"],
                 "environment": {
-                    BUS_ADMIN_PASSWORD_REF: f"${{{BUS_ADMIN_PASSWORD_REF}}}",
-                    **{bus_password_ref(a.id): f"${{{bus_password_ref(a.id)}}}"
+                    BUS_ADMIN_NKEY_REF: f"${{{BUS_ADMIN_NKEY_REF}}}",
+                    **{bus_nkey_ref(a.id): f"${{{bus_nkey_ref(a.id)}}}"
                        for a in ir.agents},
                 },
+                # Root inside the image (a fresh volume at /data is root's)
+                # with no capabilities: it binds above 1024 and changes no
+                # ownership (ADR-0114 v1.2).
+                **INFRA_HARDENING,
+                "tmpfs": ["/tmp"],
                 "healthcheck": {
                     "test": ["CMD", "wget", "-qO-", "http://127.0.0.1:8222/healthz"],
                     "interval": "10s", "timeout": "3s", "retries": 5,
@@ -884,7 +926,7 @@ WORKDIR /workspace
                 },
             },
             # Creates the tenant's stream and one durable consumer per
-            # agent, then exits. It holds the bus operator's password, which
+            # agent, then exits. It holds the bus operator's NKey seed, which
             # no agent does; agents can pull from their own consumer and
             # nothing else (ADR-0118).
             "bus-init": {
@@ -894,7 +936,7 @@ WORKDIR /workspace
                 "environment": {
                     "ORGAGENTS_BUS_URL": "nats://nats:4222",
                     "ORGAGENTS_BUS_ADMIN_USER": BUS_ADMIN_USER,
-                    BUS_ADMIN_PASSWORD_REF: f"${{{BUS_ADMIN_PASSWORD_REF}}}",
+                    BUS_ADMIN_SEED_REF: f"${{{BUS_ADMIN_SEED_REF}}}",
                 },
                 "networks": [ir.qualified("control")],
                 "depends_on": {"nats": {"condition": "service_healthy"}},
@@ -906,13 +948,20 @@ WORKDIR /workspace
             "designer": {
                 "build": {"context": ".", "dockerfile": "Dockerfile"},
                 "image": f"{ir.name}/platform:{ir.spec_version}",
-                "command": ["orgagents", "serve", "--host", "0.0.0.0"],
+                # Its database on a volume of its own, so the image's
+                # filesystem can be read-only (ADR-0114 v1.2).
+                "command": ["orgagents", "--db", f"{WORKER_STATE_DIR}/designer.db",
+                            "serve", "--host", "0.0.0.0"],
                 # Single-user local, said out loud, and reachable from this
                 # machine only (ADR-0114).
                 "environment": {"ORGAGENTS_DESIGNER_AUTH": "none"},
                 "ports": [f"{PUBLISH_HOST}:8000:8000"],
                 "networks": [ir.qualified("control"), ir.qualified("ingress")],
                 "depends_on": ["state"],
+                "volumes": [f'{ir.qualified("designer-data")}:{WORKER_STATE_DIR}'],
+                # The platform image's own user (10001), no capabilities.
+                **INFRA_HARDENING,
+                "tmpfs": ["/tmp"],
             },
         }
         for agent in ir.agents:
@@ -1012,6 +1061,7 @@ WORKDIR /workspace
                     ir.qualified("state-data"): {},
                     ir.qualified("artifacts-data"): {},
                     ir.qualified("bus-data"): {},
+                    ir.qualified("designer-data"): {},
                     **{ir.qualified(f"agent-state-{a.id}"): {} for a in ir.agents},
                     **{
                         ir.qualified(f"{wb.engine}-data"): {}
@@ -1223,11 +1273,15 @@ validate:      ## re-validate the source spec
         # One service token per worker, and the approval issuer's public
         # keys for all of them (ADR-0114). The matching private key goes to
         # the issuer only, never into a worker's environment.
-        # The bus (ADR-0118): the operator user that creates the stream, and
-        # one broker password per agent.
-        lines += ["# Bus operator (bus-init only) and one broker password per agent (ADR-0118).",
-                  f"{BUS_ADMIN_PASSWORD_REF}="]
-        lines += [f"{bus_password_ref(a.id)}=" for a in ir.agents]
+        # The bus (ADR-0118 v1.1): an NKey per identity -- the public key for
+        # the broker, the seed for the one client that is that identity.
+        lines += ["# Bus NKeys (ADR-0118): public keys (U...) go to the broker, each seed",
+                  "# (SU...) only to its own agent (or bus-init for the operator).",
+                  f"{BUS_ADMIN_NKEY_REF}=", f"{BUS_ADMIN_SEED_REF}=",
+                  "# agent:U...,agent:U... -- every agent's public key, for signed hops.",
+                  f"{BUS_PUBLIC_KEYS_REF}="]
+        for a in ir.agents:
+            lines += [f"{bus_nkey_ref(a.id)}=", f"{bus_seed_ref(a.id)}="]
         lines += ["# Approval issuer's public keys, kid:base64url[,kid:...] (ADR-0114).",
                   f"{APPROVAL_PUBLIC_KEYS_REF}=",
                   "# Per worker (ADR-0114): its service token."]

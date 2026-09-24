@@ -371,6 +371,62 @@ def test_agents_and_sandboxes_are_hardened(stack):
                compose["services"]["sandbox-finance--finance_ops"]["tmpfs"])
 
 
+def test_the_stacks_own_services_are_hardened_too(stack):
+    """ADR-0114 v1.2: state, bus, artifacts, telemetry and the in-stack
+    designer -- read-only, no capabilities (none added back), no privilege
+    escalation, a process bound, writable paths on tmpfs or volumes."""
+    compose, _ = stack
+    services = compose["services"]
+    for name in ("state", "nats", "artifacts", "telemetry", "designer", "bus-init"):
+        _hardened(services[name])
+        assert "cap_add" not in services[name], name
+    assert services["state"]["user"] == "70:70"
+    assert "/var/run/postgresql" in services["state"]["tmpfs"]
+    assert any(v.endswith(":/var/lib/postgresql/data") for v in services["state"]["volumes"])
+    assert any(v.endswith(":/data") for v in services["nats"]["volumes"])
+    assert any(v.endswith(":/data") for v in services["artifacts"]["volumes"])
+    designer = services["designer"]
+    assert any(v.endswith(":/var/lib/orgagents") for v in designer["volumes"])
+    assert "/var/lib/orgagents/designer.db" in designer["command"]
+
+
+def test_the_broker_holds_only_public_nkeys_and_each_worker_only_its_seed(stack):
+    compose, env = stack
+    services = compose["services"]
+    broker = json.dumps(services["nats"]["environment"])
+    assert "SEED" not in broker and "PASSWORD" not in broker
+    assert "ORGAGENTS_BUS_NKEY_BUYER_AGENT" in broker
+    assert "ORGAGENTS_BUS_ADMIN_SEED" in json.dumps(services["bus-init"]["environment"])
+    for name, service in services.items():
+        if not name.startswith("agent-"):
+            continue
+        suffix = name[len("agent-"):].upper()
+        e = service["environment"]
+        assert e["ORGAGENTS_BUS_NKEY_SEED"] == f"${{ORGAGENTS_BUS_SEED_{suffix}}}"
+        assert e["ORGAGENTS_BUS_PUBLIC_KEYS"] == "${ORGAGENTS_BUS_PUBLIC_KEYS}"
+        seeds = [v for v in e.values() if "ORGAGENTS_BUS_SEED_" in str(v)
+                 or "ADMIN_SEED" in str(v)]
+        assert seeds == [f"${{ORGAGENTS_BUS_SEED_{suffix}}}"], name
+        assert "BUS_PASSWORD" not in json.dumps(e)
+    assert "ORGAGENTS_BUS_SEED_BUYER_AGENT=" in env and "BUS_PASSWORD" not in env
+
+
+def test_local_stack_generates_nkeys_and_retires_bus_passwords(tmp_path):
+    from orgagents.security import nkey
+
+    stack_mod = _load("ayc_local_stack", AYC / "local_stack.py")
+    ir = {"agents": [{"id": "buyer_agent"}, {"id": "ap_agent"}]}
+    have = {"ORGAGENTS_BUS_PASSWORD_BUYER_AGENT": "old", "ORGAGENTS_BUS_ADMIN_PASSWORD": "x"}
+    added = stack_mod.ensure_bus_nkeys(have, ir)
+    seed = have["ORGAGENTS_BUS_SEED_BUYER_AGENT"]
+    assert nkey.public_of(seed) == have["ORGAGENTS_BUS_NKEY_BUYER_AGENT"]
+    assert have["ORGAGENTS_BUS_PUBLIC_KEYS"].startswith("buyer_agent:U")
+    assert "ORGAGENTS_BUS_ADMIN_SEED" in added
+    assert stack_mod.ensure_bus_nkeys(have, ir) == []          # stable once made
+    assert all(k.startswith(stack_mod.RETIRED) for k in
+               ("ORGAGENTS_BUS_PASSWORD_BUYER_AGENT", "ORGAGENTS_BUS_ADMIN_PASSWORD"))
+
+
 def test_each_worker_gets_its_own_token_and_only_public_keys(stack):
     compose, env = stack
     for name, service in compose["services"].items():
