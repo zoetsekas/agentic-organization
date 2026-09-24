@@ -2,7 +2,7 @@
 id: ADR-0112
 title: Everything the platform models is in a UML profile, and there is one profile per concern
 status: Accepted
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-23
 updated: 2026-09-23
 deciders: [Platform Architecture]
@@ -205,7 +205,7 @@ profile reference exists for all nine profiles; and the designer shows a
 Deployment diagram for the AYC binding.
 
 ## Implementation notes (M1–M6)
-M1–M6 are built; M7 (the designer) is not. Where the implementation had to
+M1–M7 are built. M7 landed with ADR-0111 1.1.0: each diagram kind declares its profiles, the palette is grouped by profile and filtered to them, and a read-only Deployment diagram draws the binding (editing the binding in the designer is later work). Where the implementation had to
 decide something the text above left open, or deviated from it:
 
 - **Imports.** *Access* imports *Authority* as well as Core and Organisation:
@@ -256,7 +256,7 @@ decide something the text above left open, or deviated from it:
 - **Grouping by profile** is exposed, not drawn: `GET
   /api/designer/metamodel` names each element's profile and lists the
   profiles; `GET /api/designer/palette` adds `profiles: {kind: profile}`. The
-  palette UI and a Deployment diagram aspect are M7.
+  palette UI and the Deployment diagram are drawn from these (M7).
 
 ## Changelog
 
@@ -264,3 +264,4 @@ decide something the text above left open, or deviated from it:
 |---|---|---|
 | 1.1.0 | 2026-09-23 | Decision 8: the UML profile is authoritative for meaning, `model.py` is its Python realisation held equal by the completeness test in both directions, and `docs/metamodel` is generated from the profile (amends ADR-0101). A relationship belongs to the profile that declares it and must see both ends. Milestones with entry and exit criteria. Implementation notes for M1–M6. |
 | 1.0.0 | 2026-09-23 | Accepted. |
+| 1.2.0 | 2026-09-24 | M7 built: palette grouped by profile, diagram kinds declare their profiles, read-only Deployment diagram (see ADR-0111 1.1.0). |
