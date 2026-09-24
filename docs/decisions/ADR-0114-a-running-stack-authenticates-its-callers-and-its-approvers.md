@@ -2,9 +2,9 @@
 id: ADR-0114
 title: A running stack authenticates its callers and its approvers, publishes on loopback, and hardens its containers
 status: Accepted
-version: 1.1.0
+version: 1.2.0
 date: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 deciders: [Platform]
 consulted: [Security]
 informed: [Designer, Targets]
@@ -87,13 +87,44 @@ design enforces and what the deployment let anyone do:
    `/workspace` for sandboxes), `cap_drop: [ALL]`, `no-new-privileges`, a pids
    bound (in `deploy.resources.limits.pids` for agents, since Compose refuses
    both). The designer compose, the AYC mocks and chat get the same.
+   **The stack's own services too** (v1.2): the local target gives `state`
+   (Postgres), `nats`, `artifacts` (SeaweedFS), `telemetry`, `bus-init` and the
+   in-stack `designer` the same four settings, with **no capability added
+   back** — none needs one, since every one listens above 1024 and none
+   changes ownership or user:
+
+   | Service | User | Writable |
+   |---|---|---|
+   | `state` | `70:70`, the image's `postgres` (so its entrypoint skips chown/gosu) | its volume; tmpfs `/tmp`, `/var/run/postgresql` |
+   | `nats` | root, no capabilities (a fresh named volume at `/data` is root's) | its volume `/data`; tmpfs `/tmp`; config mounted read-only |
+   | `artifacts` | root, no capabilities (same reason) | its volume `/data`; tmpfs `/tmp` |
+   | `telemetry` | the image's 10001 | tmpfs `/tmp` |
+   | `designer`, `bus-init` | the platform image's `agent` (10001) | the designer's database on a `designer-data` volume at `/var/lib/orgagents` (`--db`); tmpfs `/tmp` |
+
+   Root without capabilities cannot override file permissions, bind a low
+   port, change ownership or load anything into the kernel; it owns its own
+   volume and nothing else.
+7. **No default database password** (v1.2). The repository's
+   `docker-compose.yml` reads the designer's Postgres password from a Compose
+   secret (`.secrets/orgagents_postgres_password`, git-ignored, excluded from
+   the build context) that `scripts/designer_secrets.py init` (`make
+   secrets`) writes — `$ORGAGENTS_POSTGRES_PASSWORD` if set, random
+   otherwise — and Compose refuses to start without it. Postgres reads it as
+   `POSTGRES_PASSWORD_FILE`; the designer's entrypoint exports it as
+   `PGPASSWORD`, so the URL carries none. **Existing deployments** (a
+   `designer-postgres` volume initialised with the old default `orgagents`):
+   `init` writes that old password so the database keeps working, warns, and
+   `designer_secrets.py rotate --apply` changes it in the running database
+   (`ALTER ROLE` over the local socket), writes the file (keeping
+   `.previous`) and recreates the designer. `docs/DOCKER.md` has the steps.
 
 ## Scope
 Binds the worker (`orgagents worker`), the local target, the designer's auth
 mode, the repo and fabric compose files, and the AYC example. Does not cover
-the cloud targets (their ingress and IAM are theirs), the infrastructure images
-(Postgres, NATS, SeaweedFS need their own users and writable paths), or the
-generated in-stack designer's filesystem.
+the cloud targets (their ingress and IAM are theirs). Since v1.2 it covers the
+local target's infrastructure services and in-stack designer, and the repo
+compose's database password. Agent-to-agent bus identity and delegation chains
+are ADR-0118's (NKeys and signed hops, v1.1).
 
 ## Implementation
 - `orgagents.security.service_auth`: Ed25519 token issue/verify (keys by
@@ -117,6 +148,12 @@ generated in-stack designer's filesystem.
   retires v1.0's HMAC secret and derived keys, and `rotate-approval-key`
   rotates (workers keep trusting the previous key); the chat signs in and
   issues; `end_to_end_local.py` signs in and checks the doors (step 11).
+- v1.2: `compiler/targets/local.py` `INFRA_HARDENING` and `STATE_USER` on
+  `state`, `nats`, `artifacts`, `telemetry`, `bus-init` and `designer` (its
+  `--db` on the `designer-data` volume). `docker-compose.yml` secrets,
+  `docker/entrypoint.sh` (`ORGAGENTS_DATABASE_PASSWORD_FILE` → `PGPASSWORD`),
+  `scripts/designer_secrets.py` (`init`, `rotate [--apply]`, `status`),
+  `make secrets` / `rotate-db-password`, `.gitignore` / `.dockerignore`.
 
 ## Timeline
 Lands with ADR-0109's local stack, before it is shown to anyone else.
@@ -142,6 +179,19 @@ Lands with ADR-0109's local stack, before it is shown to anyone else.
   does. `control`'s `internal: true` holds on both.
 - The chat's approval format is a copy of the platform's (the chat image
   does not carry the platform); a test holds them together.
+- NATS and SeaweedFS still run as uid 0 inside their containers (v1.2): a
+  fresh named volume mounted at a path the image does not create is root's,
+  and making it someone else's needs a chown — a capability or an init step.
+  With no capabilities, root there owns its volume and nothing else; a
+  non-root user would need a pre-created, pre-owned volume per stack.
+- The designer's database password is a file on the host
+  (`.secrets/`, mode 0644 inside a 0700 directory, because Compose's
+  non-Swarm file secrets are bind mounts that keep the host file's
+  permissions and the container users are not the host user). Anyone who can
+  read the checkout can read it; it is local-only, like `.env`.
+- A deployment upgraded with `init` keeps the old default password until
+  someone runs `rotate`; `init` and `status` say so, but do not force it,
+  because rotating restarts the designer.
 
 ## Alternatives considered
 - **Keep the approver field, check a shared password** — still a name plus a
@@ -169,10 +219,20 @@ stack. `tests/test_fabric_proxy.py`: a client `X-User` delivered with the
 proxy secret is not believed; fabric.yml strips every identity header
 `designer/auth.py` reads, on the entrypoint, before the forward-auth router,
 and copies back exactly the header the fabric reads.
+v1.2: `tests/test_service_auth.py` holds the stack's own services hardened
+with no capability added back (Postgres as 70:70, its socket on tmpfs, the
+designer's database on a volume); `tests/test_docker_assets.py` holds the
+repo compose free of any default password (no `:-orgagents`, no password in
+the URL, both services on the secret, the entrypoint reading it, `.secrets/`
+ignored) and `designer_secrets.py init` keeping an existing database's
+password, generating one for a fresh install and never overwriting. The
+generated stack is brought up with every service healthy and the AYC
+end-to-end scenarios pass against it.
 
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-24 | The local target's infrastructure (Postgres as its own user, NATS, SeaweedFS, telemetry, bus-init) and in-stack designer are read-only, capability-free, no-new-privileges and pids-bounded, writable paths on tmpfs or volumes. The repo compose's Postgres password is a generated Compose secret with no default; `designer_secrets.py` keeps an existing deployment's password and rotates it. |
 | 1.1.0 | 2026-09-23 | Approvals signed with Ed25519: issuer holds the private key, workers only public keys by `kid` (rotation), `aud` claim; used nonces persisted on a per-agent state volume. Trusted-proxy identity headers configurable; fabric strips all identity headers and takes identity only from oauth2-proxy forward auth. |
 | 1.0.0 | 2026-09-23 | Accepted. |
