@@ -2,9 +2,9 @@
 id: ADR-0111
 title: Data classes relate to each other in UML, and the conceptual data model has a diagram of its own
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 deciders: [Platform Architecture]
 consulted: [Designer, Data Governance, Security]
 informed: [All engineering]
@@ -136,8 +136,77 @@ constraint; that the Data diagram renders every data class and relation of the
 AYC example; and that a restriction inherited along `derived_from` is shown
 on the derived class.
 
+## Implementation notes (1.1.0)
+
+Built with ADR-0112 M7 (the designer by profile). Where the build had to
+decide something the text above left open, or deviated from it:
+
+- **Direction of `derived_from`.** The table's reading ("the target is
+  computed from the source") is reversed from the spec and the profile: the
+  class that *declares* `derived_from: X` is computed from `X`. The diagram
+  follows the spec, as UML's «derive» does: the dashed arrow runs from the
+  derived class to its base, the open head at the base.
+- **Relations are linkable.** The four `R(...)` declarations were
+  `linkable=False, draw=NONE`; they are now drawn edges any canvas can make.
+  Because one field holds all four, the link rule carries its `selector`
+  (`["kind", "derived_from"]`), the canvas asks for a link by its stereotype
+  (`derive`, `part of`, …), and `operations.link` writes the selecting
+  `kind`; unlinking one kind leaves the others. Gesture ids qualify the field
+  (`draw:data_class-relations.derived_from-data_class`). The pre-split
+  link-rule snapshot test now compares everything *except* these four and
+  asserts they are the only additions.
+- **A diagram per aspect.** `DiagramKind` gains `data` and `deployment`.
+  Both draw the whole design, so a design has one of each: the diagram
+  bar's *+ data* / *+ deployment* opens it, and pressing it again adds what
+  the model has gained since without moving anything.
+- **What the Data diagram holds.** Every data class, and every agent that
+  produces or relies on one. Capabilities that *reach* a class, knowledge
+  that *contains* one and memory that *stores* one are not drawn here — they
+  are access, not the data model, and remain on the organisation diagram.
+- **Restrictions drawn.** A class shows, under an attribute compartment,
+  each restriction it inherits transitively along «derive» ("⇠ kept out of
+  traces from customer_pii"): red when the class itself says otherwise (the
+  validator's `derived_class_drops_restriction`), and amber, as advisory
+  only, when a source is classified more tightly than the class — the
+  validator has no rule on scope, so the diagram informs and does not
+  judge.
+- **Layout.** A new server-side `derivation` algorithm (the Data diagram's
+  default): longest-path columns left to right over base → derived, part →
+  whole, producer → data and data → reliant agent; one barycentre sweep
+  each way orders each column; a cycle is named in the notes, not ranked.
+  The Deployment diagram got its own `deployment` layout too (a column per
+  server or engine, what runs on it stacked and indented beneath): `tree`
+  put AYC's fourteen capabilities on one row.
+- **`schema_ref`** is `Optional[str]` on `DataClass`, declared in the Data
+  profile as `String [0..1]`, offered in Properties, and drawn as
+  *schema ↗* (a link out for an `http(s)` URL, the catalogue id otherwise).
+- **Palette by profile (ADR-0112 M7).** Each aspect declares its profiles —
+  Organisation: Organisation, Authority, Access; Process: Process; Data:
+  Data; Deployment: Deployment — and the palette shows only those profiles'
+  stereotypes, grouped under «profile» headings. Two deviations: the Core
+  profile's *Note* is offered on every editable canvas (annotation belongs
+  to no aspect), and the stereotypes of profiles no aspect draws yet
+  (Knowledge, Assurance, and the Process profile's workflows, triggers and
+  channels, which a process canvas cannot place) sit under a closed *Other
+  profiles* group on the organisation diagram, so nothing the designer
+  could place before became unplaceable.
+- **Deployment diagram, read-only.** Drawn from the binding the design was
+  loaded with (only examples ship one, per ADR-0110): the target as a
+  «deployment spec», servers as «node»s, environments and engines as
+  «executionEnvironment»s, bound capabilities, workflows, channels and
+  knowledge as «artifact»s, with «deploy» dashed arrows and composition
+  diamonds at the target. Nothing on it can be deleted, renamed or linked;
+  Properties shows the binding record. With no binding the canvas says so.
+- **AYC.** `customer_account` added (customer_pii and order_data are
+  `part_of` it, with a `schema_ref`); `order_data` references
+  `inventory_data`; `sales_report` added, derived from `order_data` and
+  `customer_pii` — so it inherits "kept out of traces" and is redacted in
+  compliance and observability; `ar_agent` produces it and
+  `marketing_agent` relies on it (fields, a week's freshness, degrade).
+
 ## Changelog
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-24 | Built (with ADR-0112 M7). Implementation notes: `derived_from` direction as the spec has it; relations linkable via a selector; `data` and `deployment` diagram kinds; `derivation` and `deployment` layouts; inherited restrictions drawn, scope as advisory; `schema_ref`; palette by profile with *Other profiles* and Core; AYC related. |
 | 1.0.0 | 2026-09-23 | Accepted. |
