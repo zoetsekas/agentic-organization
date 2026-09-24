@@ -121,6 +121,14 @@ class DiagramKind(str, Enum):
     #: and the edges are the workflow's own — read from the spec, never stored
     #: here.
     PROCESS = "process"
+    #: The conceptual data model as a UML class diagram (ADR-0111): data
+    #: classes, their relations, and the agents that produce and rely on
+    #: them. Edges derived from the spec, like every other diagram's.
+    DATA = "data"
+    #: The binding drawn as UML deployment (ADR-0112 M7): targets, servers,
+    #: what is deployed on them. Derived from the binding the design was
+    #: saved with; the spec names no server, so it has nothing to add.
+    DEPLOYMENT = "deployment"
 
 
 class Diagram(BaseModel):

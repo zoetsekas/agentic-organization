@@ -353,12 +353,158 @@ def lanes(nodes: Iterable[LayoutNode], edges: Iterable[LayoutEdge]) -> LayoutRes
                         lanes=bands)
 
 
-ALGORITHMS = {"tree": tree, "layered": layered, "grid": grid, "lanes": lanes}
+# --------------------------------------------------------------------------
+# derivation — the Data diagram, lineage left to right (ADR-0111)
+# --------------------------------------------------------------------------
+
+#: Between columns: wider than `layered`, because a «derive» arrow and an
+#: association-class label (fields, freshness) sit between them.
+DERIVE_GAP_X = 120
+
+
+def derivation(nodes: Iterable[LayoutNode], edges: Iterable[LayoutEdge]
+               ) -> LayoutResult:
+    """Columns by longest path along the edges, left to right; each column
+    stacked top to bottom.
+
+    The canvas sends an edge from what comes first to what follows: a base
+    class to the class derived from it, a part to its whole, a producer to
+    what it produces and a class to the agent relying on it. So lineage reads
+    left to right, producers sit left of their data and consumers right of
+    it. A cycle cannot be a derivation, and is not trusted not to occur in
+    typed data: its back edge is left out of the ranking and named.
+
+    Within a column, nodes are ordered by the mean row of what leads into
+    them (one barycentre sweep), which keeps most arrows level and costs
+    nothing to assert: the order is still a function of the graph.
+    """
+    items = _ordered(nodes)
+    ids = [n.id for n in items]
+    edges = list(edges)
+    rank, back = _ranks(ids, edges)
+    position = {i: n for n, i in enumerate(ids)}
+    preds: dict[str, list[str]] = {i: [] for i in ids}
+    for e in edges:
+        if e.source in preds and e.target in preds \
+                and (e.source, e.target) not in back:
+            preds[e.target].append(e.source)
+
+    succs: dict[str, list[str]] = {i: [] for i in ids}
+    for target, sources in preds.items():
+        for source in sources:
+            succs[source].append(target)
+
+    columns: dict[int, list[str]] = {}
+    for node_id in ids:
+        columns.setdefault(rank[node_id], []).append(node_id)
+    row: dict[str, float] = {}
+
+    def sweep(order: list[int], near: dict[str, list[str]]) -> None:
+        for col in order:
+            def weight(node_id: str) -> tuple[float, int]:
+                ins = [row[p] for p in near[node_id] if p in row]
+                return (sum(ins) / len(ins) if ins else float("inf"),
+                        position[node_id])
+            columns[col] = sorted(columns[col], key=weight)
+            for index, node_id in enumerate(columns[col]):
+                row[node_id] = float(index)
+
+    # Declaration order first, then one sweep each way: rightwards by what
+    # leads in, leftwards by what follows — so a producer sits level with
+    # what it produces, and a class nothing relates to sinks to the bottom.
+    for col in sorted(columns):
+        for index, node_id in enumerate(columns[col]):
+            row[node_id] = float(index)
+    sweep(sorted(columns)[1:], preds)
+    sweep(sorted(columns, reverse=True)[1:], succs)
+    positions: dict[str, dict[str, float]] = {}
+    for col in sorted(columns):
+        for index, node_id in enumerate(columns[col]):
+            positions[node_id] = {
+                "x": col * (NODE_W + DERIVE_GAP_X),
+                "y": index * (NODE_H + GAP_Y),
+            }
+    notes = [f"'{s}' → '{t}' closes a cycle and was not ranked"
+             for s, t in sorted(back)]
+    return LayoutResult(positions=positions, algorithm="derivation",
+                        notes=notes)
+
+
+# --------------------------------------------------------------------------
+# deployment — the binding, a node over what is deployed on it (ADR-0112 M7)
+# --------------------------------------------------------------------------
+
+#: How far a deployed artifact sits right of the node it is deployed on: the
+#: room its «deploy» arrow and label need between the node's edge and it.
+DEPLOY_INDENT = 70
+#: Leaves of a root (an environment, a channel) are packed this many to a
+#: column, so a target binding twenty of them is not twenty columns wide.
+DEPLOY_LEAVES_PER_COLUMN = 4
+
+
+def deployment(nodes: Iterable[LayoutNode], edges: Iterable[LayoutEdge] = ()
+               ) -> LayoutResult:
+    """Roots across the top; under each, one column per child that has
+    children of its own (a server, an engine), with those children stacked
+    down the column and indented; the children that have none (an
+    environment, a channel) packed into columns beside them.
+
+    `tree` puts every artifact of a target on one row, which for AYC's
+    fourteen capabilities is a picture five screens wide. A deployment
+    diagram is read node by node — what runs on this server — and a column
+    per node is that reading.
+    """
+    items = _ordered(nodes)
+    by_id = {n.id: n for n in items}
+    children: dict[Optional[str], list[str]] = {}
+    for node in items:
+        parent = node.parent if node.parent in by_id else None
+        children.setdefault(parent, []).append(node.id)
+
+    col_w = NODE_W + DEPLOY_INDENT + GAP_X
+    row_h = NODE_H + GAP_Y
+    positions: dict[str, dict[str, float]] = {}
+    notes: list[str] = []
+    cursor = 0.0
+    for root in children.get(None, []):
+        start = cursor
+        hosts = [c for c in children.get(root, []) if children.get(c)]
+        leaves = [c for c in children.get(root, []) if not children.get(c)]
+        for host in hosts:
+            positions[host] = {"x": cursor, "y": row_h}
+            for index, leaf in enumerate(children[host]):
+                positions[leaf] = {"x": cursor + DEPLOY_INDENT,
+                                   "y": (index + 2) * row_h}
+                if children.get(leaf):
+                    notes.append(f"'{leaf}' is nested deeper than a deployment "
+                                 "draws; its own children are not placed under it")
+            cursor += col_w
+        for index, leaf in enumerate(leaves):
+            column, slot = divmod(index, DEPLOY_LEAVES_PER_COLUMN)
+            positions[leaf] = {"x": cursor + column * col_w,
+                               "y": (slot + 1) * row_h}
+        if leaves:
+            cursor += (-(-len(leaves) // DEPLOY_LEAVES_PER_COLUMN)) * col_w
+        end = max(cursor - GAP_X - DEPLOY_INDENT, start + NODE_W)
+        positions[root] = {"x": start + (end - start - NODE_W) / 2, "y": 0.0}
+        cursor = max(cursor, start + col_w)
+    for node in items:
+        if node.id not in positions:
+            positions[node.id] = {"x": cursor, "y": 0.0}
+            cursor += col_w
+            notes.append(f"'{node.id}' is not under a root; placed at the top")
+    return LayoutResult(positions=positions, algorithm="deployment", notes=notes)
+
+
+ALGORITHMS = {"tree": tree, "layered": layered, "grid": grid, "lanes": lanes,
+              "derivation": derivation, "deployment": deployment}
 
 #: What each diagram kind gets when nobody says. A process is a flow and an
 #: organisation is a hierarchy, and defaulting either to the other produces a
-#: picture that argues with the model.
-DEFAULT_ALGORITHM = {"organisation": "tree", "process": "lanes"}
+#: picture that argues with the model. Data is lineage (ADR-0111); a
+#: deployment is containment — target, server, what is deployed on it.
+DEFAULT_ALGORITHM = {"organisation": "tree", "process": "lanes",
+                     "data": "derivation", "deployment": "deployment"}
 
 
 def arrange(nodes: Iterable[LayoutNode], edges: Iterable[LayoutEdge] = (),

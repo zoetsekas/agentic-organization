@@ -2802,7 +2802,9 @@
         "concurrent_sessions_per_instance": 1
       },
       "data_dependencies": [],
-      "produces_data": [],
+      "produces_data": [
+        "sales_report"
+      ],
       "planning": false,
       "requires_approval_for": [
         "receivable_management"
@@ -4826,7 +4828,21 @@
         "max_instances": 3,
         "concurrent_sessions_per_instance": 1
       },
-      "data_dependencies": [],
+      "data_dependencies": [
+        {
+          "data_class": "sales_report",
+          "fields": [
+            "sku",
+            "region",
+            "units",
+            "revenue"
+          ],
+          "max_age_seconds": 604800,
+          "on_stale": "degrade",
+          "produced_by": "ar_agent",
+          "description": "Which products sell where, to aim a promotion."
+        }
+      ],
       "produces_data": [],
       "planning": false,
       "requires_approval_for": [
@@ -5281,7 +5297,8 @@
       ],
       "data_classes": [
         "order_data",
-        "product_content"
+        "product_content",
+        "sales_report"
       ]
     },
     {
@@ -5297,7 +5314,8 @@
       ],
       "data_classes": [
         "order_data",
-        "product_content"
+        "product_content",
+        "sales_report"
       ]
     },
     {
@@ -5313,7 +5331,8 @@
       ],
       "data_classes": [
         "order_data",
-        "product_content"
+        "product_content",
+        "sales_report"
       ]
     },
     {
@@ -5333,6 +5352,7 @@
         "financial_records",
         "inventory_data",
         "order_data",
+        "sales_report",
         "supplier_data"
       ]
     },
@@ -5384,7 +5404,8 @@
       ],
       "data_classes": [
         "order_data",
-        "product_content"
+        "product_content",
+        "sales_report"
       ]
     },
     {
@@ -5477,7 +5498,8 @@
       "may_appear_in_traces": true,
       "retention_days": null,
       "semantics": "unspecified",
-      "relations": []
+      "relations": [],
+      "schema_ref": null
     },
     {
       "id": "customer_pii",
@@ -5493,7 +5515,31 @@
       "may_appear_in_traces": false,
       "retention_days": null,
       "semantics": "subject",
-      "relations": []
+      "relations": [
+        {
+          "kind": "part_of",
+          "target": "customer_account",
+          "description": ""
+        }
+      ],
+      "schema_ref": null
+    },
+    {
+      "id": "customer_account",
+      "description": "A customer's account as the storefront holds it \u2014 identity, order history and store credit.",
+      "scope": "private",
+      "groups": [
+        "commerce"
+      ],
+      "allowed_environments": [
+        "storefront_ops"
+      ],
+      "may_leave_region": true,
+      "may_appear_in_traces": false,
+      "retention_days": null,
+      "semantics": "subject",
+      "relations": [],
+      "schema_ref": "https://shopify.dev/docs/api/admin-graphql/latest/objects/Customer"
     },
     {
       "id": "order_data",
@@ -5516,8 +5562,49 @@
           "kind": "identifies",
           "target": "customer_pii",
           "description": ""
+        },
+        {
+          "kind": "part_of",
+          "target": "customer_account",
+          "description": ""
+        },
+        {
+          "kind": "references",
+          "target": "inventory_data",
+          "description": ""
         }
-      ]
+      ],
+      "schema_ref": null
+    },
+    {
+      "id": "sales_report",
+      "description": "Sales by product and customer region, for pricing and promotions.",
+      "scope": "protected",
+      "groups": [
+        "commerce",
+        "finance"
+      ],
+      "allowed_environments": [
+        "finance_ops",
+        "studio"
+      ],
+      "may_leave_region": true,
+      "may_appear_in_traces": false,
+      "retention_days": null,
+      "semantics": "aggregate",
+      "relations": [
+        {
+          "kind": "derived_from",
+          "target": "order_data",
+          "description": ""
+        },
+        {
+          "kind": "derived_from",
+          "target": "customer_pii",
+          "description": ""
+        }
+      ],
+      "schema_ref": null
     },
     {
       "id": "inventory_data",
@@ -5533,7 +5620,8 @@
       "may_appear_in_traces": true,
       "retention_days": null,
       "semantics": "reference",
-      "relations": []
+      "relations": [],
+      "schema_ref": null
     },
     {
       "id": "supplier_data",
@@ -5549,7 +5637,8 @@
       "may_appear_in_traces": true,
       "retention_days": null,
       "semantics": "unspecified",
-      "relations": []
+      "relations": [],
+      "schema_ref": null
     },
     {
       "id": "financial_records",
@@ -5565,7 +5654,8 @@
       "may_appear_in_traces": true,
       "retention_days": null,
       "semantics": "unspecified",
-      "relations": []
+      "relations": [],
+      "schema_ref": null
     },
     {
       "id": "product_content",
@@ -5583,7 +5673,8 @@
       "may_appear_in_traces": true,
       "retention_days": null,
       "semantics": "unspecified",
-      "relations": []
+      "relations": [],
+      "schema_ref": null
     }
   ],
   "environments": [
@@ -6379,7 +6470,9 @@
     "retention_days": 365,
     "sample_rate": 1.0,
     "redact_data_classes": [
-      "customer_pii"
+      "customer_pii",
+      "customer_account",
+      "sales_report"
     ],
     "alerts": []
   },
@@ -7625,7 +7718,9 @@
     ],
     "audit_retention_days": 730,
     "redact_data_classes": [
-      "customer_pii"
+      "customer_pii",
+      "customer_account",
+      "sales_report"
     ],
     "require_approval_for": [
       "write",

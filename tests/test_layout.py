@@ -158,7 +158,8 @@ def test_an_empty_diagram_lays_out_to_nothing():
 # -- the properties every algorithm owes ------------------------------------
 
 
-@pytest.mark.parametrize("name", ["tree", "layered", "grid", "lanes"])
+@pytest.mark.parametrize("name", ["tree", "layered", "grid", "lanes", "derivation",
+                                  "deployment"])
 def test_every_layout_is_deterministic(name, org_nodes):
     """A diagram that moved every time somebody opened it would be unusable."""
     edges = [LayoutEdge("ceo", "cfo"), LayoutEdge("cfo", "ap")]
@@ -167,7 +168,8 @@ def test_every_layout_is_deterministic(name, org_nodes):
     assert first.positions == second.positions
 
 
-@pytest.mark.parametrize("name", ["tree", "layered", "grid", "lanes"])
+@pytest.mark.parametrize("name", ["tree", "layered", "grid", "lanes", "derivation",
+                                  "deployment"])
 def test_every_layout_places_every_node(name, org_nodes):
     result = arrange(org_nodes, [], algorithm=name)
     assert set(result.positions) == {n.id for n in org_nodes}
@@ -178,6 +180,8 @@ def test_the_default_follows_what_the_diagram_is():
     either to the other produces a picture that argues with the model."""
     assert arrange([LayoutNode("a")], kind="organisation").algorithm == "tree"
     assert arrange([LayoutNode("a")], kind="process").algorithm == "lanes"
+    assert arrange([LayoutNode("a")], kind="data").algorithm == "derivation"
+    assert arrange([LayoutNode("a")], kind="deployment").algorithm == "deployment"
 
 
 def test_an_unknown_algorithm_names_the_ones_that_exist():
@@ -282,3 +286,123 @@ def test_lanes_never_overlap_two_steps():
     for i, a in enumerate(boxes):
         for b in boxes[i + 1:]:
             assert abs(a["x"] - b["x"]) >= NODE_W or abs(a["y"] - b["y"]) >= NODE_H
+
+
+# -- derivation: the Data diagram, lineage left to right (ADR-0111) ----------
+
+
+@pytest.fixture
+def lineage():
+    """AYC's shape: a producer, two bases, a class derived from both, a part
+    and its whole, a reliant agent, and a class nothing relates to."""
+    nodes = [LayoutNode(i) for i in (
+        "public_knowledge", "customer_pii", "customer_account", "order_data",
+        "sales_report", "ar_agent", "marketing_agent")]
+    edges = [
+        LayoutEdge("order_data", "sales_report"),       # base, derived
+        LayoutEdge("customer_pii", "sales_report"),
+        LayoutEdge("order_data", "customer_account"),   # part, whole
+        LayoutEdge("customer_pii", "customer_account"),
+        LayoutEdge("ar_agent", "sales_report"),         # producer, data
+        LayoutEdge("sales_report", "marketing_agent"),  # data, reliant
+    ]
+    return nodes, edges
+
+
+def test_derivation_reads_left_to_right(lineage):
+    nodes, edges = lineage
+    p = arrange(nodes, edges, kind="data").positions
+    for e in edges:
+        assert p[e.source]["x"] < p[e.target]["x"], (e.source, e.target)
+
+
+def test_derivation_overlaps_nothing(lineage):
+    nodes, edges = lineage
+    assert _overlaps(arrange(nodes, edges, algorithm="derivation").positions) == []
+
+
+def test_a_producer_sits_level_with_what_it_produces(lineage):
+    """The leftward sweep: the agent that produces the report is not left at
+    the bottom of the first column under every unrelated class."""
+    nodes, edges = lineage
+    p = arrange(nodes, edges, algorithm="derivation").positions
+    assert p["ar_agent"]["y"] <= p["public_knowledge"]["y"]
+
+
+def test_a_class_nothing_relates_to_sinks_to_the_bottom(lineage):
+    nodes, edges = lineage
+    p = arrange(nodes, edges, algorithm="derivation").positions
+    first = [i for i, at in p.items() if at["x"] == 0]
+    assert max(first, key=lambda i: p[i]["y"]) == "public_knowledge"
+
+
+def test_a_derivation_cycle_is_named_not_ranked():
+    nodes = [LayoutNode("a"), LayoutNode("b")]
+    result = arrange(nodes, [LayoutEdge("a", "b"), LayoutEdge("b", "a")],
+                     algorithm="derivation")
+    assert result.notes and "cycle" in result.notes[0]
+    assert _overlaps(result.positions) == []
+
+
+# -- deployment: the binding, a node over what runs on it (ADR-0112 M7) ------
+
+
+@pytest.fixture
+def binding():
+    return [
+        LayoutNode("target:local"),
+        LayoutNode("server:shopify", parent="target:local"),
+        LayoutNode("product_publishing", parent="server:shopify"),
+        LayoutNode("order_query", parent="server:shopify"),
+        LayoutNode("refund_processing", parent="server:shopify"),
+        LayoutNode("server:fishbowl", parent="target:local"),
+        LayoutNode("stock_check", parent="server:fishbowl"),
+        LayoutNode("engine:langflow", parent="target:local"),
+        LayoutNode("invoice_capture", parent="engine:langflow"),
+        *[LayoutNode(f"env_{i}", parent="target:local") for i in range(6)],
+    ]
+
+
+def test_deployment_stacks_what_runs_on_a_server_under_it(binding):
+    p = arrange(binding, kind="deployment").positions
+    column = [p[i] for i in ("product_publishing", "order_query",
+                             "refund_processing")]
+    assert len({at["x"] for at in column}) == 1
+    assert column[0]["x"] > p["server:shopify"]["x"]          # indented
+    assert all(at["y"] > p["server:shopify"]["y"] for at in column)
+    assert [at["y"] for at in column] == sorted(at["y"] for at in column)
+
+
+def test_deployment_puts_the_target_above_everything(binding):
+    p = arrange(binding, kind="deployment").positions
+    assert all(at["y"] > p["target:local"]["y"]
+               for i, at in p.items() if i != "target:local")
+
+
+def test_deployment_packs_leaves_into_columns(binding):
+    """Six environments are two columns, not six: fourteen capabilities on
+    one row was the picture `tree` drew for AYC, five screens wide."""
+    p = arrange(binding, kind="deployment").positions
+    assert len({p[f"env_{i}"]["x"] for i in range(6)}) == 2
+    assert _overlaps(p) == []
+
+
+def test_the_layout_route_lays_out_a_data_diagram_by_default(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from orgagents.api import create_app
+    client = TestClient(create_app(str(tmp_path / "d.db")))
+    body = client.post("/api/designer/layout", headers={"X-User": "ana"}, json={
+        "kind": "data",
+        "nodes": [{"id": "base"}, {"id": "derived"}],
+        "edges": [{"source": "base", "target": "derived"}],
+    }).json()
+    assert body["algorithm"] == "derivation"
+    assert body["positions"]["base"]["x"] < body["positions"]["derived"]["x"]
+
+
+def test_data_and_deployment_diagrams_are_kinds_a_layout_may_save():
+    from orgagents.designer.models import Diagram, DiagramKind
+
+    assert Diagram.model_validate({"kind": "data"}).kind is DiagramKind.DATA
+    assert Diagram.model_validate({"kind": "deployment"}).kind is DiagramKind.DEPLOYMENT

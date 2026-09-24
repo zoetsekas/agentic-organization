@@ -30,14 +30,29 @@ def _by_pair(rows):
     return dict(out)
 
 
-def test_link_rules_are_the_rules_captured_before_the_split():
+def _before_m7():
+    """The link table less what ADR-0111 v1.1.0 added after the split: the
+    four data-class relations became linkable (each told apart by its
+    `selector`), and every rule gained the `selector` key."""
     now = json.loads(json.dumps(link_rules()))
-    assert _canon(now) == _canon(SNAPSHOT["link_rules"])
+    return [{k: v for k, v in r.items() if k != "selector"}
+            for r in now if not r.get("selector")]
+
+
+def test_link_rules_are_the_rules_captured_before_the_split():
+    assert _canon(_before_m7()) == _canon(SNAPSHOT["link_rules"])
 
 
 def test_the_first_rule_for_each_pair_of_kinds_is_unchanged():
-    now = json.loads(json.dumps(link_rules()))
-    assert _by_pair(now) == _by_pair(SNAPSHOT["link_rules"])
+    assert _by_pair(_before_m7()) == _by_pair(SNAPSHOT["link_rules"])
+
+
+def test_the_only_rules_added_since_are_the_data_class_relations():
+    added = [r for r in link_rules() if r.get("selector")]
+    assert sorted(r["selector"][1] for r in added) == \
+        ["derived_from", "identifies", "part_of", "references"]
+    assert {(r["source"], r["target"], r["field"]) for r in added} == \
+        {("data_class", "data_class", "relations")}
 
 
 def test_every_stereotype_and_relationship_before_the_split_is_still_declared():

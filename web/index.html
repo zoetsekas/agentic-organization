@@ -300,12 +300,27 @@
              aria-label="Relationships shown on the canvas"></div>
         <!-- What each kind of box means. Shape and texture carry the
              difference, colour repeats it, so it reads without colour too. -->
-        <div class="canvas-legend" aria-label="Legend">
-          <span class="lg lg-team"><i></i>Team</span>
-          <span class="lg lg-agent"><i></i>Agent</span>
-          <span class="lg lg-subagent"><i></i>Sub-agent</span>
-          <span class="lg lg-env"><i></i>Environment (where agents run)</span>
-          <span class="lg lg-held"><i></i>Skill · plugin · tool</span>
+        <!-- One row per aspect; the canvas sets data-aspect to the open
+             diagram's, and only that row shows (ADR-0111, ADR-0112 M7). -->
+        <div class="canvas-legend" aria-label="Legend" data-aspect="organisation">
+          <span class="lg lg-team" data-aspects="organisation"><i></i>Team</span>
+          <span class="lg lg-agent" data-aspects="organisation"><i></i>Agent</span>
+          <span class="lg lg-subagent" data-aspects="organisation"><i></i>Sub-agent</span>
+          <span class="lg lg-env" data-aspects="organisation"><i></i>Environment (where agents run)</span>
+          <span class="lg lg-held" data-aspects="organisation"><i></i>Skill · plugin · tool</span>
+          <span class="lg lg-dc" data-aspects="data"><i></i>Data class (stripe: private · protected · public)</span>
+          <span class="lg lg-agent" data-aspects="data"><i></i>Agent (produces / relies on)</span>
+          <span class="lg lg-derive" data-aspects="data"><i></i>«derive» — restrictions flow along it</span>
+          <span class="lg lg-part" data-aspects="data"><i></i>part of (diamond at the whole)</span>
+          <span class="lg lg-assoc" data-aspects="data"><i></i>association</span>
+          <span class="lg lg-aclass" data-aspects="data"><i></i>«DataDependency»: fields · freshness</span>
+          <span class="lg lg-inherit" data-aspects="data"><i></i>⇠ inherited restriction, from its source</span>
+          <span class="lg lg-node" data-aspects="deployment"><i></i>«node» server · «deployment spec» target</span>
+          <span class="lg lg-exec" data-aspects="deployment"><i></i>«executionEnvironment» engine · environment</span>
+          <span class="lg lg-artifact" data-aspects="deployment"><i></i>«artifact» capability · workflow</span>
+          <span class="lg lg-derive" data-aspects="deployment"><i></i>«deploy» — deployed on</span>
+          <span class="lg lg-part" data-aspects="deployment"><i></i>declares (diamond at the target)</span>
+          <span class="lg lg-steps" data-aspects="process">Steps in lanes by owner; ● start · ◉ end · ↺ loop back</span>
         </div>
         <!-- A keyboard reaches every node (WCAG 2.1.1, ADR-0117). The surface
              is an application region because its keys are its own — arrows
@@ -472,6 +487,17 @@
             </marker>
             <marker id="gd-arrow-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M0,0 L10,5 L0,10 z" class="gd-head-acc"/>
+            </marker>
+            <!-- UML ends for the Data and Deployment figures: an open
+                 arrowhead («derive», «deploy») and a filled diamond (a whole). -->
+            <marker id="gd-open" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="9" markerHeight="9" orient="auto">
+              <path d="M1,1 L11,6 L1,11" class="gd-open-head"/>
+            </marker>
+            <marker id="gd-diamond" viewBox="0 0 20 10" refX="19" refY="5" markerWidth="16" markerHeight="8" orient="auto">
+              <path d="M1,5 L10,1 L19,5 L10,9 z" class="gd-head"/>
+            </marker>
+            <marker id="gd-diamond-start" viewBox="0 0 20 10" refX="19" refY="5" markerWidth="16" markerHeight="8" orient="auto-start-reverse">
+              <path d="M1,5 L10,1 L19,5 L10,9 z" class="gd-head"/>
             </marker>
           </defs>
         </svg>
@@ -849,6 +875,166 @@
           allowlist, data classes and credentials are checked on every call, and
           the reply is treated as data. If the design has no saved binding the
           canvas cannot know the engine, and says so on the step.</aside>
+        </section>
+
+        <section class="g-sec">
+        <h2 id="g-data">The Data diagram</h2>
+        <aside class="g-callout g-note g-side"><strong>Pointers, not schemas</strong>
+          A data class says what data <em>is</em> and how it is protected. Its
+          tables and columns belong to the system that holds it: a class can
+          carry a <span class="g-chip">schema_ref</span> to them, shown as
+          <span class="g-btn">schema ↗</span>, and nothing here reads it.</aside>
+        <p class="g-lede">The <em>Data</em> diagram is the conceptual data model
+          as a UML class diagram: every data class, how the classes relate, and
+          the agents that produce and rely on them. Open it with
+          <span class="g-btn">+ data</span> above the canvas; pressing it again
+          adds what the model has gained since.</p>
+        <figure class="g-fig">
+          <svg class="gd" viewBox="0 0 1080 300" role="img" aria-labelledby="gd-data-t">
+            <title id="gd-data-t">AYC's data model: accounts-receivable produces the sales report, which is derived from order data and customer PII and so is kept out of traces; order data is part of the customer account; the marketer relies on the sales report within a week</title>
+            <rect x="20" y="40" width="190" height="60" rx="6" class="gd-box gd-agent"/>
+            <text x="115" y="66" class="gd-t">accounts-receivable</text><text x="115" y="86" class="gd-s">agent</text>
+            <rect x="20" y="170" width="190" height="60" rx="4" class="gd-box gd-dc gd-dc-protected"/>
+            <text x="115" y="192" class="gd-s">«event»</text><text x="115" y="212" class="gd-t">order_data</text>
+            <rect x="330" y="150" width="210" height="60" rx="4" class="gd-box gd-dc gd-dc-private"/>
+            <text x="435" y="172" class="gd-s">«subject»</text><text x="435" y="192" class="gd-t">customer_pii</text>
+            <rect x="330" y="30" width="230" height="92" rx="4" class="gd-box gd-dc gd-dc-protected"/>
+            <text x="445" y="52" class="gd-s">«aggregate»</text><text x="445" y="72" class="gd-t">sales_report</text>
+            <line x1="330" y1="84" x2="560" y2="84" class="gd-line"/>
+            <text x="342" y="104" class="gd-s gd-l gd-inherit">⇠ kept out of traces, from customer_pii</text>
+            <rect x="330" y="232" width="210" height="56" rx="4" class="gd-box gd-dc gd-dc-private"/>
+            <text x="435" y="254" class="gd-s">«subject»</text><text x="435" y="274" class="gd-t">customer_account</text>
+            <rect x="760" y="40" width="190" height="60" rx="6" class="gd-box gd-agent"/>
+            <text x="855" y="66" class="gd-t">marketer</text><text x="855" y="86" class="gd-s">agent</text>
+            <path d="M210,70 L328,70" class="gd-line"/>
+            <text x="268" y="62" class="gd-s">produces</text>
+            <path d="M330,100 C270,110 250,190 212,196" class="gd-line gd-dash" marker-end="url(#gd-open)"/>
+            <text x="252" y="140" class="gd-s">«derive»</text>
+            <path d="M435,122 L435,148" class="gd-line gd-dash" marker-end="url(#gd-open)"/>
+            <text x="472" y="140" class="gd-s">«derive»</text>
+            <path d="M210,214 C270,230 280,258 328,260" class="gd-line" marker-end="url(#gd-diamond)"/>
+            <text x="252" y="258" class="gd-s">part of</text>
+            <path d="M560,70 L758,70" class="gd-line"/>
+            <path d="M660,70 L660,130" class="gd-line gd-dash"/>
+            <rect x="590" y="130" width="150" height="60" rx="3" class="gd-box gd-dim"/>
+            <text x="665" y="148" class="gd-s">«DataDependency»</text>
+            <text x="665" y="165" class="gd-s">sku, region, units</text>
+            <text x="665" y="181" class="gd-s">≤ 7 d · on stale degrade</text>
+            <text x="700" y="62" class="gd-s">relies on</text>
+          </svg>
+          <figcaption>From AYC. The sales report is built from orders and from
+            who placed them, so it inherits customer_pii's "kept out of traces"
+            — the diagram says so on the report and names where it came from.
+            The marketer's reliance on it is drawn as the association class it
+            is: which fields, how fresh, and what happens when it is not.</figcaption>
+        </figure>
+        <table class="g-table g-wide">
+          <thead><tr><th>On the Data diagram</th><th>It means</th></tr></thead>
+          <tbody>
+            <tr><td>Left stripe</td><td>The class's classification: clay
+              <code>private</code>, amber <code>protected</code>, moss
+              <code>public</code> — the stripe an agent's box uses for the
+              widest data it reaches.</td></tr>
+            <tr><td><span class="g-chip">«event»</span> over the name</td>
+              <td>Its semantics: subject, event, reference, derived or
+              aggregate.</td></tr>
+            <tr><td>Dashed arrow <span class="g-chip">«derive»</span></td>
+              <td>The class is computed from the one the arrow points at.
+              Restrictions travel along it: a class derived from data that may
+              not leave its region, or may not appear in traces, may not say
+              that it may.</td></tr>
+            <tr><td><span class="g-chip">⇠ kept out of traces from …</span></td>
+              <td>A restriction the class inherits along «derive», and the class
+              it came from. Drawn red when the class says otherwise — the
+              validator refuses that — and amber when a source is classified
+              more tightly than the class.</td></tr>
+            <tr><td>Filled diamond</td><td><code>part_of</code>: the diamond is
+              at the whole.</td></tr>
+            <tr><td>Plain line</td><td><code>identifies</code> and
+              <code>references</code>, and an agent that <em>produces</em> a
+              class.</td></tr>
+            <tr><td>Box hung off a line</td><td>A <em>relies on</em>
+              (<code>DataDependency</code>): the fields used, the freshness
+              window and what to do when the data is older.</td></tr>
+          </tbody>
+        </table>
+        <ol class="g-steps">
+          <li>Drag a <span class="g-chip">Data class</span> from the palette —
+            on this diagram the palette holds the <em>Data</em> profile only.</li>
+          <li>Draw a relation: select a class, press <kbd>L</kbd> (or right-click
+            → <em>Link from here</em>), arrow to the other class and press
+            <kbd>Enter</kbd>, then choose <em>derive</em>, <em>part of</em>,
+            <em>identifies</em> or <em>references</em>. The model writes it into
+            the class's <code>relations</code>, or refuses and says why.</li>
+          <li>Press <span class="g-btn">derivation</span> to lay the diagram out
+            again: bases before what is derived from them, producers before
+            their data, data before who relies on it.</li>
+        </ol>
+        </section>
+
+        <section class="g-sec">
+        <h2 id="g-deployment">The Deployment diagram</h2>
+        <p class="g-lede">The <em>Deployment</em> diagram draws a design's
+          <strong>binding</strong> — how it is realised on a target — as UML
+          deployment: the target, the servers it declares as nodes, each
+          capability deployed on the server that provides it, the environments
+          and flow engines as execution environments, and the workflows an engine
+          runs. Open it with <span class="g-btn">+ deployment</span>.</p>
+        <figure class="g-fig">
+          <svg class="gd" viewBox="0 0 1080 270" role="img" aria-labelledby="gd-dep-t">
+            <title id="gd-dep-t">AYC on the workstation: the local target declares the Shopify and Fishbowl servers and the Langflow engine; product publishing and order query are deployed on Shopify, stock check on Fishbowl, invoice capture runs in Langflow</title>
+            <rect x="420" y="18" width="220" height="54" rx="4" class="gd-box gd-acc gd-node"/>
+            <text x="530" y="40" class="gd-s">«deployment spec»</text><text x="530" y="60" class="gd-t">local</text>
+            <rect x="40" y="120" width="220" height="50" rx="4" class="gd-box gd-node"/>
+            <text x="150" y="140" class="gd-s">«node»</text><text x="150" y="159" class="gd-t">shopify</text>
+            <rect x="420" y="120" width="220" height="50" rx="4" class="gd-box gd-node"/>
+            <text x="530" y="140" class="gd-s">«node»</text><text x="530" y="159" class="gd-t">fishbowl</text>
+            <rect x="800" y="120" width="220" height="50" rx="6" class="gd-box gd-dim"/>
+            <text x="910" y="140" class="gd-s">«executionEnvironment»</text><text x="910" y="159" class="gd-t">langflow</text>
+            <rect x="110" y="196" width="180" height="30" class="gd-box gd-art"/>
+            <text x="200" y="216" class="gd-s">«artifact» product_publishing</text>
+            <rect x="110" y="232" width="180" height="30" class="gd-box gd-art"/>
+            <text x="200" y="252" class="gd-s">«artifact» order_query</text>
+            <rect x="490" y="196" width="180" height="30" class="gd-box gd-art"/>
+            <text x="580" y="216" class="gd-s">«artifact» stock_check</text>
+            <rect x="870" y="196" width="180" height="30" class="gd-box gd-art"/>
+            <text x="960" y="216" class="gd-s">«artifact» invoice_capture</text>
+            <path d="M470,72 C470,100 150,90 150,118" class="gd-line" marker-start="url(#gd-diamond-start)"/>
+            <path d="M530,72 L530,118" class="gd-line" marker-start="url(#gd-diamond-start)"/>
+            <path d="M590,72 C590,100 910,90 910,118" class="gd-line" marker-start="url(#gd-diamond-start)"/>
+            <g class="gd-line gd-dash">
+              <path d="M110,211 L56,211 L56,172" marker-end="url(#gd-open)"/>
+              <path d="M110,247 L56,247 L56,211"/>
+              <path d="M490,211 L436,211 L436,172" marker-end="url(#gd-open)"/>
+              <path d="M870,211 L816,211 L816,172" marker-end="url(#gd-open)"/>
+            </g>
+            <text x="68" y="206" class="gd-s gd-l">«deploy»</text>
+            <text x="448" y="206" class="gd-s gd-l">«deploy»</text>
+            <text x="828" y="206" class="gd-s gd-l">«deploy»</text>
+          </svg>
+          <figcaption>AYC's workstation binding, abridged. The two sides of a
+            separation sit on different servers, so the barrier decided in the
+            spec survives into the wiring.</figcaption>
+        </figure>
+        <ul>
+          <li><strong>Read-only.</strong> The binding is a document of its own
+            (<code>ayc.local.binding.yaml</code>); the diagram draws it and
+            does not edit it. Selecting a box shows its binding record in
+            <em>Properties</em>; a bound capability also shows its own form, read-only.</li>
+          <li><strong>No binding, nothing to draw.</strong> A design carries a
+            binding only when it was loaded from an example that ships one. A
+            design created in the designer has none, and the diagram says so
+            instead of guessing a server: the spec never names one.</li>
+          <li>Press <span class="g-btn">deployment</span> to lay it out again: a
+            column per server or engine, what is deployed on it stacked beneath.</li>
+        </ul>
+        <aside class="g-callout g-note"><strong>Each diagram has its
+          profiles</strong> The palette shows only the stereotypes of the
+          profiles the open diagram draws, grouped by profile: Organisation,
+          Authority and Access on the organisation diagram; Process steps on a
+          process; Data on the Data diagram. Profiles no diagram draws yet
+          (Knowledge, Assurance, the Process profile's workflows and triggers)
+          sit under <em>Other profiles</em> on the organisation diagram.</aside>
         </section>
 
         <section class="g-sec">

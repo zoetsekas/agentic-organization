@@ -2776,6 +2776,10 @@ PALETTE: dict[str, Any] = {
                               "restrictions along it, so a class derived from "
                               "data that may not leave its region may not say "
                               "that it may"},
+                     {"name": "schema_ref", "type": "string",
+                      "help": "where this class's schema lives — a URL or a "
+                              "data-catalogue id. A pointer only: the platform "
+                              "never reads, copies or checks it (ADR-0111)"},
                  ]},
                 {"kind": "environment", "label": "Environment", "icon": "▦",
                  "fields": [

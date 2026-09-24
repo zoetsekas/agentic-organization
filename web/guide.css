@@ -160,3 +160,13 @@
 }
 /* a UML fork/join bar (Workflows: two levels) */
 .guide-body .gd-bar { fill: var(--ink-muted); stroke: none; }
+/* The Data and Deployment figures (ADR-0111, ADR-0112 M7): a data class's
+   classification stripe, an inherited restriction, a UML node's depth, an
+   artifact's folded corner, and the open UML arrowhead. */
+.guide-body .gd-dc { fill: color-mix(in srgb, var(--kind-data-class) 8%, var(--raised)); }
+.guide-body .gd-dc-private { stroke: var(--clay); stroke-width: 1.2; }
+.guide-body .gd-dc-protected { stroke: var(--amber); stroke-width: 1.2; }
+.guide-body .gd-inherit { fill: var(--accent-bright); }
+.guide-body .gd-node { filter: drop-shadow(5px -5px 0 var(--line-strong)); }
+.guide-body .gd-art { fill: var(--raised-2); stroke: var(--line-strong); }
+.guide-body .gd-open-head { fill: none; stroke: var(--ink-dim); stroke-width: 1.4; }

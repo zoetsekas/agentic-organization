@@ -178,6 +178,11 @@ def link_rules(profile: Profile = PROFILE) -> list[dict[str, Any]]:
             "field": r.field,
             "owner": r.owner,
             "key": r.key,
+            # One field holding several relationships (ADR-0111): which of
+            # its objects are this rule's links, as [attribute, value]. The
+            # canvas draws and filters by it, and names the link by its
+            # stereotype because the field alone is ambiguous.
+            "selector": list(r.selector) if r.selector else None,
             "draw": r.draw.value,
             "multiplicity": [r.source_mult, r.target_mult],
             # An association can be drawn from either end; ownership and

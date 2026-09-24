@@ -25,11 +25,15 @@ STEREOTYPES = [
 def _relation(kind: K, stereotype: str, literal: str, help_: str,
               constraint: str = "") -> R:
     """One of ADR-0111's data-class relations: the objects of
-    `data_class.relations` whose `kind` is `literal`."""
+    `data_class.relations` whose `kind` is `literal`.
+
+    Drawn and linkable (ADR-0111 v1.1.0): the Data diagram draws each with
+    its UML notation, and drawing one on the canvas creates it through the
+    model operation, which writes `kind` from the selector."""
     return R("data_class", "data_class", kind, stereotype, "relations",
              SH.REF_OBJECTS, key="target", selector=("kind", literal),
-             association_class="DataRelation", linkable=False,
-             draw=Draw.NONE, constraint=constraint, help=help_)
+             association_class="DataRelation", draw=Draw.EDGE,
+             constraint=constraint, help=help_)
 
 
 RELATIONSHIPS = [
@@ -97,7 +101,10 @@ PROPERTIES = [
            "scope: SharingScope", "groups: String [0..*] -- directory groups "
            "that may see it when protected",
            "may_leave_region: Boolean", "may_appear_in_traces: Boolean",
-           "retention_days: Integer [0..1]", "semantics: DataSemantics"),
+           "retention_days: Integer [0..1]", "semantics: DataSemantics",
+           "schema_ref: String [0..1] -- where the class's schema lives (a "
+           "URL or a catalogue id); a pointer only, never read, copied or "
+           "checked (ADR-0111)"),
     *props("DataRelation",
            "kind: DataRelationKind -- which of the four relationships the "
            "link is", "description: String"),

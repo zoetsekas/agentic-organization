@@ -7,7 +7,7 @@ The conceptual data model: classes, their relations, producers and consumers.
 - **Version:** 1.0.0
 - **Imports:** [Core](core.md), [Organisation](organisation.md), [Access](access.md)
 - **Imported by:** [Knowledge](knowledge.md), [Process](process.md), [Assurance](assurance.md), [Deployment](deployment.md)
-- **Declares:** 2 stereotypes, 0 DataTypes, 3 enumerations, 15 relationships, 21 properties
+- **Declares:** 2 stereotypes, 0 DataTypes, 3 enumerations, 15 relationships, 22 properties
 
 ## Class diagram
 
@@ -68,6 +68,7 @@ classDiagram
     may_appear_in_traces : Boolean [1]
     retention_days : Integer [0..1]
     semantics : DataSemantics [1]
+    schema_ref : String [0..1]
   }
   class Agent["Organisation::Agent"]
   Agent "0..*" --> "0..*" DataClass : produces
@@ -121,6 +122,7 @@ classDiagram
 | «DataClass» | `may_appear_in_traces` | Boolean | 1 |  |
 | «DataClass» | `retention_days` | Integer | 0..1 |  |
 | «DataClass» | `semantics` | DataSemantics | 1 |  |
+| «DataClass» | `schema_ref` | String | 0..1 | where the class's schema lives (a URL or a catalogue id); a pointer only, never read, copied or checked (ADR-0111) |
 
 ## Enumerations
 
