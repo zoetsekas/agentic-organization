@@ -26,7 +26,9 @@ from typing import Iterator, Optional
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = "orgagents_template"
+# One template per pytest-xdist worker: workers sharing a server (the
+# ORGAGENTS_TEST_DATABASE_URL case) would otherwise drop each other's.
+TEMPLATE = "orgagents_template_" + os.environ.get("PYTEST_XDIST_WORKER", "main")
 
 
 def pinned_postgres() -> str:
