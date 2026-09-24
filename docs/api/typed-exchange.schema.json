@@ -1,0 +1,5137 @@
+{
+  "$defs": {
+    "Action": {
+      "enum": [
+        "read",
+        "write",
+        "query",
+        "invoke",
+        "delegate",
+        "publish",
+        "approve",
+        "administer"
+      ],
+      "title": "Action",
+      "type": "string"
+    },
+    "ActivityGraph": {
+      "additionalProperties": true,
+      "description": "A workflow's steps and the flow between them. `entry` is where the\nInitialNode leads.",
+      "properties": {
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/ControlFlow"
+          },
+          "title": "Edges",
+          "type": "array"
+        },
+        "entry": {
+          "default": "",
+          "title": "Entry",
+          "type": "string"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/ActivityNode"
+          },
+          "title": "Nodes",
+          "type": "array"
+        },
+        "type": {
+          "const": "Process::ActivityGraph"
+        }
+      },
+      "title": "ActivityGraph",
+      "type": "object"
+    },
+    "ActivityNode": {
+      "additionalProperties": true,
+      "description": "One step of a workflow. The field it references depends on its kind:\n`tool`, `agent` or `workflow`.",
+      "properties": {
+        "agent": {
+          "default": "",
+          "title": "Agent",
+          "type": "string"
+        },
+        "args": {
+          "additionalProperties": true,
+          "title": "Args",
+          "type": "object"
+        },
+        "cases": {
+          "default": null,
+          "title": "Cases"
+        },
+        "default": {
+          "default": "",
+          "title": "Default",
+          "type": "string"
+        },
+        "expr": {
+          "default": "",
+          "title": "Expr",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ActivityNodeKind"
+        },
+        "output": {
+          "default": "",
+          "title": "Output",
+          "type": "string"
+        },
+        "owner": {
+          "default": "",
+          "title": "Owner",
+          "type": "string"
+        },
+        "person": {
+          "default": "",
+          "title": "Person",
+          "type": "string"
+        },
+        "role": {
+          "default": "",
+          "title": "Role",
+          "type": "string"
+        },
+        "tool": {
+          "default": "",
+          "title": "Tool",
+          "type": "string"
+        },
+        "type": {
+          "const": "Process::Action"
+        },
+        "workflow": {
+          "default": "",
+          "title": "Workflow",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "title": "ActivityNode",
+      "type": "object"
+    },
+    "ActivityNodeKind": {
+      "description": "A workflow step, as the UML ActivityNode it is (ADR-0102).",
+      "enum": [
+        "tool",
+        "agent",
+        "workflow",
+        "transform",
+        "branch",
+        "human",
+        "fork",
+        "join"
+      ],
+      "title": "ActivityNodeKind",
+      "type": "string"
+    },
+    "AgentEndpoint": {
+      "description": "An agent outside this system that ours may call (ADR-0030).\n\nThe agentic workforce reaches past one organization. An endpoint is a\ndeclared, trust-classified boundary: what it offers, what we may send it,\nand what its answers are worth.",
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "provides": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Provides",
+          "type": "array"
+        },
+        "requires_approval": {
+          "default": false,
+          "title": "Requires Approval",
+          "type": "boolean"
+        },
+        "response_sla_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Response Sla Seconds"
+        },
+        "secret_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Secret Ref"
+        },
+        "send_data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Send Data Classes",
+          "type": "array"
+        },
+        "treat_output_as_data": {
+          "default": true,
+          "title": "Treat Output As Data",
+          "type": "boolean"
+        },
+        "trust": {
+          "$ref": "#/$defs/EndpointTrust",
+          "default": "external"
+        },
+        "type": {
+          "const": "Access::Endpoint"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "AgentEndpoint",
+      "type": "object"
+    },
+    "AgentMemoryOverride": {
+      "description": "An agent's narrowing of the system memory contract.",
+      "properties": {
+        "long_term_enabled": {
+          "default": true,
+          "title": "Long Term Enabled",
+          "type": "boolean"
+        },
+        "may_promote": {
+          "default": true,
+          "title": "May Promote",
+          "type": "boolean"
+        },
+        "namespaces": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Namespaces",
+          "type": "array"
+        },
+        "recall": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecallMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "session_retention_minutes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Session Retention Minutes"
+        },
+        "type": {
+          "const": "Knowledge::AgentMemoryOverride"
+        }
+      },
+      "title": "AgentMemoryOverride",
+      "type": "object"
+    },
+    "AgentSpec": {
+      "description": "One agent: who it answers to, what it is for, what it may reach.",
+      "properties": {
+        "artifact_store": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Store"
+        },
+        "autonomy": {
+          "additionalProperties": {
+            "$ref": "#/$defs/AutonomyPosture"
+          },
+          "title": "Autonomy",
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "channels": {
+          "items": {
+            "$ref": "#/$defs/ChannelClass"
+          },
+          "title": "Channels",
+          "type": "array"
+        },
+        "context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContextPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "data_dependencies": {
+          "items": {
+            "$ref": "#/$defs/DataDependency"
+          },
+          "title": "Data Dependencies",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "endpoints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Endpoints",
+          "type": "array"
+        },
+        "environments": {
+          "items": {
+            "$ref": "#/$defs/EnvironmentOverride"
+          },
+          "title": "Environments",
+          "type": "array"
+        },
+        "guardrails": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Guardrails",
+          "type": "array"
+        },
+        "humans": {
+          "items": {
+            "$ref": "#/$defs/HumanCounterpart"
+          },
+          "title": "Humans",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "instructions": {
+          "default": "",
+          "title": "Instructions",
+          "type": "string"
+        },
+        "knowledge": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Knowledge",
+          "type": "array"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "object"
+        },
+        "mandate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Mandate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_delegation_depth": {
+          "default": 3,
+          "title": "Max Delegation Depth",
+          "type": "integer"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentMemoryOverride"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "model_policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "output_contract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Contract"
+        },
+        "peers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Peers",
+          "type": "array"
+        },
+        "planning": {
+          "default": false,
+          "title": "Planning",
+          "type": "boolean"
+        },
+        "plugins": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Plugins",
+          "type": "array"
+        },
+        "produces_data": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Produces Data",
+          "type": "array"
+        },
+        "roles": {
+          "items": {
+            "$ref": "#/$defs/RoleAssignment"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "runtime_requirements": {
+          "items": {
+            "$ref": "#/$defs/RuntimeRequirement"
+          },
+          "title": "Runtime Requirements",
+          "type": "array"
+        },
+        "scaling": {
+          "$ref": "#/$defs/ScalingPolicy"
+        },
+        "shared_service": {
+          "default": false,
+          "title": "Shared Service",
+          "type": "boolean"
+        },
+        "skills": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Skills",
+          "type": "array"
+        },
+        "subagents": {
+          "items": {
+            "$ref": "#/$defs/SubAgentSpec"
+          },
+          "title": "Subagents",
+          "type": "array"
+        },
+        "successor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Successor"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "type": {
+          "const": "Organisation::Agent"
+        },
+        "workflows": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Workflows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "AgentSpec",
+      "type": "object"
+    },
+    "AlertCondition": {
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "expression": {
+          "default": "",
+          "title": "Expression",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "severity": {
+          "default": "warning",
+          "enum": [
+            "info",
+            "warning",
+            "error",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "type": {
+          "const": "Assurance::AlertCondition"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "AlertCondition",
+      "type": "object"
+    },
+    "ArtifactStore": {
+      "description": "A workspace agents read and write files in (ADR-0036).\n\nDistinct from memory (what an agent *learned*) and from a sandbox (where it\n*executes*): this is where large intermediate material lives so it does not\nhave to sit in the context window.",
+      "properties": {
+        "data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Classes",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "max_file_bytes": {
+          "default": 10000000,
+          "title": "Max File Bytes",
+          "type": "integer"
+        },
+        "max_total_bytes": {
+          "default": 1000000000,
+          "title": "Max Total Bytes",
+          "type": "integer"
+        },
+        "retention_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 30,
+          "title": "Retention Days"
+        },
+        "scope": {
+          "$ref": "#/$defs/SharingScope",
+          "default": "private"
+        },
+        "type": {
+          "const": "Data::ArtifactStore"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ArtifactStore",
+      "type": "object"
+    },
+    "AutonomyPosture": {
+      "description": "How much of an activity an agent does without a person (ADR-0072).\n\nUntil this existed the posture was *emergent*: it fell out of the action,\nwhether the capability named a decision class, whether the agent held it,\nand whether approval was required. Four independent fields, no stated\nintent \u2014 so an activity could change from supervised to autonomous by\ndeleting one line and nothing could say that it had.",
+      "enum": [
+        "advisory",
+        "human_decides",
+        "supervised",
+        "autonomous"
+      ],
+      "title": "AutonomyPosture",
+      "type": "string"
+    },
+    "BindingDocument": {
+      "description": "A binding document: one or more target bindings for a spec.",
+      "properties": {
+        "profiles": {
+          "additionalProperties": false,
+          "properties": {
+            "Access": {
+              "type": "string"
+            },
+            "Assurance": {
+              "type": "string"
+            },
+            "Authority": {
+              "type": "string"
+            },
+            "Core": {
+              "type": "string"
+            },
+            "Data": {
+              "type": "string"
+            },
+            "Deployment": {
+              "type": "string"
+            },
+            "Knowledge": {
+              "type": "string"
+            },
+            "Organisation": {
+              "type": "string"
+            },
+            "Process": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "spec": {
+          "default": "",
+          "title": "Spec",
+          "type": "string"
+        },
+        "targets": {
+          "items": {
+            "$ref": "#/$defs/TargetBinding"
+          },
+          "title": "Targets",
+          "type": "array"
+        },
+        "type": {
+          "const": "Deployment::Binding"
+        },
+        "version": {
+          "default": "0.1.0",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "title": "Binding",
+      "type": "object"
+    },
+    "BreachAction": {
+      "enum": [
+        "warn",
+        "throttle",
+        "halt"
+      ],
+      "title": "BreachAction",
+      "type": "string"
+    },
+    "Budget": {
+      "description": "A spend ceiling with a mandatory action on breach (ADR-0022).",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "limit_usd": {
+          "default": 0.0,
+          "title": "Limit Usd",
+          "type": "number"
+        },
+        "notify_channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notify Channel"
+        },
+        "on_breach": {
+          "$ref": "#/$defs/BreachAction",
+          "default": "warn"
+        },
+        "period": {
+          "default": "monthly",
+          "enum": [
+            "daily",
+            "weekly",
+            "monthly"
+          ],
+          "title": "Period",
+          "type": "string"
+        },
+        "scope": {
+          "default": "*",
+          "title": "Scope",
+          "type": "string"
+        },
+        "scope_kind": {
+          "default": "system",
+          "enum": [
+            "system",
+            "team",
+            "agent"
+          ],
+          "title": "Scope Kind",
+          "type": "string"
+        },
+        "type": {
+          "const": "Assurance::Budget"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Budget",
+      "type": "object"
+    },
+    "Cadence": {
+      "description": "When a schedule fires, in a form both humans and targets can read.\n\n`expression` is a five-field cron expression or a plain-English interval\n(\"every 15 minutes\", \"every 2 hours\"). Neither names a scheduler product.",
+      "properties": {
+        "expression": {
+          "title": "Expression",
+          "type": "string"
+        },
+        "timezone": {
+          "default": "UTC",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "type": {
+          "const": "Process::Cadence"
+        }
+      },
+      "required": [
+        "expression"
+      ],
+      "title": "Cadence",
+      "type": "object"
+    },
+    "Capability": {
+      "description": "An abstract access need, bound to an MCP server per target (ADR-0010).",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/Action",
+          "default": "query"
+        },
+        "autonomy": {
+          "$ref": "#/$defs/AutonomyPosture",
+          "default": "advisory"
+        },
+        "constraints": {
+          "$ref": "#/$defs/CapabilityConstraint"
+        },
+        "data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Classes",
+          "type": "array"
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "resource_class": {
+          "default": "",
+          "title": "Resource Class",
+          "type": "string"
+        },
+        "secret_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Secret Ref"
+        },
+        "type": {
+          "const": "Access::Capability"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Capability",
+      "type": "object"
+    },
+    "CapabilityBinding": {
+      "description": "How an abstract capability becomes a concrete MCP server mount.\n\nTwo forms: inline (name the connection here) or by reference (`server`\nnames a `ServerBinding` in the target's catalog, and the connection is\ninherited; any field set here still overrides it). `server_name` is\noptional when `server` is given \u2014 the catalog supplies it (ADR-0085).",
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Args",
+          "type": "array"
+        },
+        "capability": {
+          "title": "Capability",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "dsn_secret_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dsn Secret Ref"
+        },
+        "engine": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engine"
+        },
+        "options": {
+          "additionalProperties": true,
+          "title": "Options",
+          "type": "object"
+        },
+        "server": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Server"
+        },
+        "server_name": {
+          "default": "",
+          "title": "Server Name",
+          "type": "string"
+        },
+        "transport": {
+          "default": "stdio",
+          "title": "Transport",
+          "type": "string"
+        },
+        "type": {
+          "const": "Deployment::CapabilityBinding"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "capability"
+      ],
+      "title": "CapabilityBinding",
+      "type": "object"
+    },
+    "CapabilityConstraint": {
+      "description": "Limits enforced at the capability boundary, never by the model.",
+      "properties": {
+        "allowed_operations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Operations",
+          "type": "array"
+        },
+        "enforcement": {
+          "$ref": "#/$defs/ControlEnforcement"
+        },
+        "masked_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Masked Fields",
+          "type": "array"
+        },
+        "max_rows": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Rows"
+        },
+        "rate_per_minute": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rate Per Minute"
+        },
+        "requires_approval": {
+          "default": false,
+          "title": "Requires Approval",
+          "type": "boolean"
+        },
+        "resource_scope": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Resource Scope",
+          "type": "array"
+        },
+        "type": {
+          "const": "Access::CapabilityConstraint"
+        }
+      },
+      "title": "CapabilityConstraint",
+      "type": "object"
+    },
+    "CatchUpPolicy": {
+      "description": "What to do about runs missed while the system was down.",
+      "enum": [
+        "skip_missed",
+        "run_once",
+        "run_all"
+      ],
+      "title": "CatchUpPolicy",
+      "type": "string"
+    },
+    "ChannelBinding": {
+      "description": "How an abstract channel becomes a real surface people watch.\n\n`provider` is where implementation names are allowed: slack, msteams, smtp,\na ticketing system. `bot_identity_ref` is a reference to the workspace\nidentity the agent posts as \u2014 a name, never a token (ADR-0015).",
+      "properties": {
+        "address": {
+          "default": "",
+          "title": "Address",
+          "type": "string"
+        },
+        "bot_identity_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bot Identity Ref"
+        },
+        "channel": {
+          "title": "Channel",
+          "type": "string"
+        },
+        "options": {
+          "additionalProperties": true,
+          "title": "Options",
+          "type": "object"
+        },
+        "provider": {
+          "default": "internal",
+          "title": "Provider",
+          "type": "string"
+        },
+        "thread_replies": {
+          "default": true,
+          "title": "Thread Replies",
+          "type": "boolean"
+        },
+        "type": {
+          "const": "Deployment::ChannelBinding"
+        },
+        "workspace": {
+          "default": "",
+          "title": "Workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel"
+      ],
+      "title": "ChannelBinding",
+      "type": "object"
+    },
+    "ChannelClass": {
+      "description": "Abstract communication surfaces; the binding picks the product.",
+      "enum": [
+        "direct",
+        "async_bus",
+        "team_chat",
+        "mail",
+        "webhook"
+      ],
+      "title": "ChannelClass",
+      "type": "string"
+    },
+    "ChannelPurpose": {
+      "description": "Why an agent contacts a human on a channel (ADR-0021).",
+      "enum": [
+        "notify",
+        "approve",
+        "handoff",
+        "report",
+        "ask"
+      ],
+      "title": "ChannelPurpose",
+      "type": "string"
+    },
+    "ChannelSpec": {
+      "description": "A communication surface, abstract in the spec and bound per target.\n\nHuman-facing channels carry a contract (ADR-0021): what they are for, when\nthe people on them are available, how fast a reply is expected, and who is\ntried next when it does not come.",
+      "properties": {
+        "address": {
+          "default": "",
+          "title": "Address",
+          "type": "string"
+        },
+        "channel_class": {
+          "$ref": "#/$defs/ChannelClass",
+          "default": "async_bus"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "escalation": {
+          "items": {
+            "$ref": "#/$defs/EscalationStep"
+          },
+          "title": "Escalation",
+          "type": "array"
+        },
+        "forbid_data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbid Data Classes",
+          "type": "array"
+        },
+        "human_facing": {
+          "default": false,
+          "title": "Human Facing",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "out_of_hours": {
+          "default": "queue",
+          "enum": [
+            "queue",
+            "escalate",
+            "notify_anyway"
+          ],
+          "title": "Out Of Hours",
+          "type": "string"
+        },
+        "purposes": {
+          "items": {
+            "$ref": "#/$defs/ChannelPurpose"
+          },
+          "title": "Purposes",
+          "type": "array"
+        },
+        "response_sla_minutes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Response Sla Minutes"
+        },
+        "type": {
+          "const": "Process::Channel"
+        },
+        "working_hours": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkingHours"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ChannelSpec",
+      "type": "object"
+    },
+    "Compliance": {
+      "description": "Obligations that constrain placement, retention and disclosure.",
+      "properties": {
+        "audit_retention_days": {
+          "default": 365,
+          "title": "Audit Retention Days",
+          "type": "integer"
+        },
+        "data_residency": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Residency",
+          "type": "array"
+        },
+        "frameworks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Frameworks",
+          "type": "array"
+        },
+        "permission_review_days": {
+          "default": 90,
+          "title": "Permission Review Days",
+          "type": "integer"
+        },
+        "redact_data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Redact Data Classes",
+          "type": "array"
+        },
+        "require_approval_for": {
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
+          "title": "Require Approval For",
+          "type": "array"
+        },
+        "type": {
+          "const": "Assurance::Compliance"
+        }
+      },
+      "title": "Compliance",
+      "type": "object"
+    },
+    "ContextPolicy": {
+      "description": "How a long run keeps its context usable and affordable (ADR-0036).",
+      "properties": {
+        "keep_last_turns": {
+          "default": 6,
+          "title": "Keep Last Turns",
+          "type": "integer"
+        },
+        "max_context_tokens": {
+          "default": 150000,
+          "title": "Max Context Tokens",
+          "type": "integer"
+        },
+        "offload_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Offload To"
+        },
+        "offload_tool_output_bytes": {
+          "default": 20000,
+          "title": "Offload Tool Output Bytes",
+          "type": "integer"
+        },
+        "retain_summaries": {
+          "default": true,
+          "title": "Retain Summaries",
+          "type": "boolean"
+        },
+        "summarize_after_tokens": {
+          "default": 100000,
+          "title": "Summarize After Tokens",
+          "type": "integer"
+        },
+        "summarizer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelClass"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "type": {
+          "const": "Knowledge::ContextPolicy"
+        }
+      },
+      "title": "ContextPolicy",
+      "type": "object"
+    },
+    "ControlEnforcement": {
+      "description": "Who enforces this control, and what we are trusting them for.",
+      "properties": {
+        "application_bounds": {
+          "additionalProperties": true,
+          "title": "Application Bounds",
+          "type": "object"
+        },
+        "authoritative": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ControlEnforcer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "enforced_by": {
+          "$ref": "#/$defs/ControlEnforcer",
+          "default": "platform"
+        },
+        "enforced_in": {
+          "default": "",
+          "title": "Enforced In",
+          "type": "string"
+        },
+        "type": {
+          "const": "Authority::ControlEnforcement"
+        }
+      },
+      "title": "ControlEnforcement",
+      "type": "object"
+    },
+    "ControlEnforcer": {
+      "description": "Who actually enforces a control (ADR-0073).\n\nAn agentic organization does not replace its enterprise applications. The\nERP owns the ledger, the treasury system owns the sweep, the bank owns the\npayment, and each carries its own controls. A spec that describes a bound\nwithout saying who checks it reads as governed when it may not be.",
+      "enum": [
+        "platform",
+        "application",
+        "both"
+      ],
+      "title": "ControlEnforcer",
+      "type": "string"
+    },
+    "ControlFlow": {
+      "additionalProperties": true,
+      "description": "An edge between two steps; `END` is the ActivityFinalNode.",
+      "properties": {
+        "from": {
+          "title": "From",
+          "type": "string"
+        },
+        "to": {
+          "title": "To",
+          "type": "string"
+        },
+        "type": {
+          "const": "Process::ControlFlow"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "title": "ControlFlow",
+      "type": "object"
+    },
+    "DataClass": {
+      "description": "A classification that drives access, placement and egress (ADR-0017).",
+      "properties": {
+        "allowed_environments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Environments",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "may_appear_in_traces": {
+          "default": true,
+          "title": "May Appear In Traces",
+          "type": "boolean"
+        },
+        "may_leave_region": {
+          "default": true,
+          "title": "May Leave Region",
+          "type": "boolean"
+        },
+        "relations": {
+          "items": {
+            "$ref": "#/$defs/DataRelation"
+          },
+          "title": "Relations",
+          "type": "array"
+        },
+        "retention_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retention Days"
+        },
+        "scope": {
+          "$ref": "#/$defs/SharingScope",
+          "default": "private"
+        },
+        "semantics": {
+          "$ref": "#/$defs/DataSemantics",
+          "default": "unspecified"
+        },
+        "type": {
+          "const": "Data::DataClass"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "DataClass",
+      "type": "object"
+    },
+    "DataDependency": {
+      "description": "What an agent relies on about data it reads (ADR-0099).\n\nNot a schema. A schema belongs to whoever owns the data; restating it here\nwould be a copy that is correct until their next migration. This is the\n*consumer's* half of a contract: which class, which fields of it, how\nfresh, from whom, and what to do when the promise does not hold.",
+      "properties": {
+        "data_class": {
+          "title": "Data Class",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "max_age_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Age Seconds"
+        },
+        "on_stale": {
+          "$ref": "#/$defs/StaleAction",
+          "default": "refuse"
+        },
+        "produced_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Produced By"
+        },
+        "type": {
+          "const": "Data::DataDependency"
+        }
+      },
+      "required": [
+        "data_class"
+      ],
+      "title": "DataDependency",
+      "type": "object"
+    },
+    "DataRelation": {
+      "description": "One edge between two data classes.",
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/DataRelationKind",
+          "default": "references"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "type": {
+          "const": "Data::DataRelation"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "title": "DataRelation",
+      "type": "object"
+    },
+    "DataRelationKind": {
+      "description": "How one class of data relates to another.\n\nEach kind exists because something checks it. A relation nothing reads is\ndecoration, which is the bar every relationship in this platform has to\nclear (ADR-0081).",
+      "enum": [
+        "derived_from",
+        "identifies",
+        "part_of",
+        "references"
+      ],
+      "title": "DataRelationKind",
+      "type": "string"
+    },
+    "DataSemantics": {
+      "description": "What a class of data *is*, as distinct from how it is protected.\n\nDeliberately five, and deliberately coarse. The point is not to describe a\nschema \u2014 the system that owns the data does that \u2014 but to carry enough\nmeaning for a rule to follow (ADR-0099).",
+      "enum": [
+        "unspecified",
+        "subject",
+        "event",
+        "reference",
+        "derived",
+        "aggregate"
+      ],
+      "title": "DataSemantics",
+      "type": "string"
+    },
+    "DecisionClass": {
+      "description": "A class of decision a unit may be authorized to take (ADR-0065).\n\nDeclared in the spec, like a capability, so a mandate references a term\nsomebody wrote down rather than inventing one per team. `ADR-0066` holds\nthe open question of whether these should eventually be catalog-owned.",
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "Authority::Decision"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "DecisionClass",
+      "type": "object"
+    },
+    "DeploymentSpec": {
+      "description": "Which targets this system compiles for; bindings live separately.",
+      "properties": {
+        "binding": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Binding"
+        },
+        "high_availability": {
+          "default": false,
+          "title": "High Availability",
+          "type": "boolean"
+        },
+        "regions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Regions",
+          "type": "array"
+        },
+        "targets": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Targets",
+          "type": "array"
+        },
+        "type": {
+          "const": "Core::DeploymentSpec"
+        }
+      },
+      "title": "DeploymentSpec",
+      "type": "object"
+    },
+    "Effect": {
+      "enum": [
+        "allow",
+        "deny"
+      ],
+      "title": "Effect",
+      "type": "string"
+    },
+    "EndpointTrust": {
+      "description": "How far an external agent endpoint is trusted (ADR-0030).",
+      "enum": [
+        "internal",
+        "partner",
+        "external"
+      ],
+      "title": "EndpointTrust",
+      "type": "string"
+    },
+    "EnvironmentBinding": {
+      "description": "How an abstract environment class becomes a concrete workspace.",
+      "properties": {
+        "accelerator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accelerator"
+        },
+        "cpu": {
+          "default": "1",
+          "title": "Cpu",
+          "type": "string"
+        },
+        "disk": {
+          "default": "10Gi",
+          "title": "Disk",
+          "type": "string"
+        },
+        "environment": {
+          "title": "Environment",
+          "type": "string"
+        },
+        "image": {
+          "default": "python:3.11-slim",
+          "title": "Image",
+          "type": "string"
+        },
+        "memory": {
+          "default": "2Gi",
+          "title": "Memory",
+          "type": "string"
+        },
+        "node_selector": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Node Selector",
+          "type": "object"
+        },
+        "packages": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Packages",
+          "type": "array"
+        },
+        "type": {
+          "const": "Deployment::EnvironmentBinding"
+        }
+      },
+      "required": [
+        "environment"
+      ],
+      "title": "EnvironmentBinding",
+      "type": "object"
+    },
+    "EnvironmentClass": {
+      "description": "A reviewed, abstract execution profile (ADR-0009).",
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "egress_allowlist": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Egress Allowlist",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "mounts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Mounts",
+          "type": "array"
+        },
+        "network": {
+          "$ref": "#/$defs/NetworkPosture",
+          "default": "none"
+        },
+        "persistence": {
+          "$ref": "#/$defs/Persistence",
+          "default": "ephemeral"
+        },
+        "secret_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Secret Refs",
+          "type": "array"
+        },
+        "tier": {
+          "$ref": "#/$defs/ResourceTier",
+          "default": "minimal"
+        },
+        "timeout_seconds": {
+          "default": 300,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        },
+        "toolchains": {
+          "items": {
+            "$ref": "#/$defs/ToolchainClass"
+          },
+          "title": "Toolchains",
+          "type": "array"
+        },
+        "type": {
+          "const": "Access::Environment"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "EnvironmentClass",
+      "type": "object"
+    },
+    "EnvironmentOverride": {
+      "description": "An agent's narrowing of its environment class. Widening is rejected.",
+      "properties": {
+        "drop_mounts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Drop Mounts",
+          "type": "array"
+        },
+        "egress_allowlist": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Egress Allowlist"
+        },
+        "environment": {
+          "title": "Environment",
+          "type": "string"
+        },
+        "network": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NetworkPosture"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        },
+        "type": {
+          "const": "Access::EnvironmentOverride"
+        }
+      },
+      "required": [
+        "environment"
+      ],
+      "title": "EnvironmentOverride",
+      "type": "object"
+    },
+    "EscalationStep": {
+      "description": "Who to try next when nobody answers, and when.",
+      "properties": {
+        "after_minutes": {
+          "title": "After Minutes",
+          "type": "integer"
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channel"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        },
+        "notify": {
+          "title": "Notify",
+          "type": "string"
+        },
+        "type": {
+          "const": "Process::EscalationStep"
+        }
+      },
+      "required": [
+        "after_minutes",
+        "notify"
+      ],
+      "title": "EscalationStep",
+      "type": "object"
+    },
+    "EvaluationCase": {
+      "description": "One check an agent must pass before it may be promoted (ADR-0022).",
+      "properties": {
+        "applies_to": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Applies To",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "expect": {
+          "default": "",
+          "title": "Expect",
+          "type": "string"
+        },
+        "given": {
+          "default": "",
+          "title": "Given",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "must_not": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Must Not",
+          "type": "array"
+        },
+        "type": {
+          "const": "Assurance::Evaluation"
+        },
+        "weight": {
+          "default": 1.0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "EvaluationCase",
+      "type": "object"
+    },
+    "FailurePolicy": {
+      "description": "What happens when a triggered run fails (ADR-0020).",
+      "properties": {
+        "backoff_seconds": {
+          "default": 60,
+          "title": "Backoff Seconds",
+          "type": "integer"
+        },
+        "escalate_after_failures": {
+          "default": 2,
+          "title": "Escalate After Failures",
+          "type": "integer"
+        },
+        "halt_after_consecutive_failures": {
+          "default": 5,
+          "title": "Halt After Consecutive Failures",
+          "type": "integer"
+        },
+        "notify_channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notify Channel"
+        },
+        "retries": {
+          "default": 2,
+          "title": "Retries",
+          "type": "integer"
+        },
+        "type": {
+          "const": "Process::FailurePolicy"
+        }
+      },
+      "title": "FailurePolicy",
+      "type": "object"
+    },
+    "FlowKind": {
+      "description": "A declared directional interaction between agents (ADR-0024).",
+      "enum": [
+        "delegate",
+        "consult",
+        "notify",
+        "escalate"
+      ],
+      "title": "FlowKind",
+      "type": "string"
+    },
+    "GateRequirement": {
+      "description": "What must be true before an agent advances a stage (ADR-0022).",
+      "enum": [
+        "evaluations_passed",
+        "human_approval",
+        "security_review",
+        "cost_within_budget",
+        "owner_assigned",
+        "permissions_reviewed"
+      ],
+      "title": "GateRequirement",
+      "type": "string"
+    },
+    "Guardrail": {
+      "description": "A boundary check on what enters or leaves an agent (ADR-0035).\n\nPermissions decide what an agent may *reach*; a guardrail decides what may\n*pass*. They are different questions, and a system that answers only the\nfirst will happily let a correctly-permissioned agent paste a customer's\nidentifiers into a chat channel.",
+      "properties": {
+        "allowed_urls": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Urls",
+          "type": "array"
+        },
+        "applies_to": {
+          "items": {
+            "$ref": "#/$defs/GuardrailKind"
+          },
+          "title": "Applies To",
+          "type": "array"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/GuardrailCheck"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "classifier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelClass"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Classes",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "escalate_channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Escalate Channel"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "max_length": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Length"
+        },
+        "on_violation": {
+          "$ref": "#/$defs/GuardrailAction",
+          "default": "block"
+        },
+        "patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Patterns",
+          "type": "array"
+        },
+        "type": {
+          "const": "Assurance::Guardrail"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Guardrail",
+      "type": "object"
+    },
+    "GuardrailAction": {
+      "description": "What happens when a check trips.",
+      "enum": [
+        "block",
+        "redact",
+        "flag",
+        "escalate"
+      ],
+      "title": "GuardrailAction",
+      "type": "string"
+    },
+    "GuardrailCheck": {
+      "description": "Named checks, so a guardrail is reviewable rather than a regex soup.",
+      "enum": [
+        "pii",
+        "secrets",
+        "prompt_injection",
+        "data_class",
+        "url_allowlist",
+        "schema",
+        "pattern",
+        "max_length"
+      ],
+      "title": "GuardrailCheck",
+      "type": "string"
+    },
+    "GuardrailKind": {
+      "description": "Where a guardrail sits in the loop (ADR-0035).",
+      "enum": [
+        "input",
+        "output",
+        "tool_input",
+        "tool_output"
+      ],
+      "title": "GuardrailKind",
+      "type": "string"
+    },
+    "HumanCounterpart": {
+      "description": "A person paired with an agent, in a named capacity (ADR-0026).\n\nAn agent has one `owner` and may have any number of approvers, reviewers,\nescalation contacts, operators and stakeholders. Pairing is many-to-many:\none person can be the owner of several agents and a reviewer on others.",
+      "properties": {
+        "approves": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Approves",
+          "type": "array"
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channel"
+        },
+        "contact": {
+          "default": "",
+          "title": "Contact",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "notify_on": {
+          "items": {
+            "$ref": "#/$defs/ChannelClass"
+          },
+          "title": "Notify On",
+          "type": "array"
+        },
+        "person": {
+          "default": "",
+          "title": "Person",
+          "type": "string"
+        },
+        "role_title": {
+          "default": "",
+          "title": "Role Title",
+          "type": "string"
+        },
+        "roles": {
+          "items": {
+            "$ref": "#/$defs/HumanRole"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "type": {
+          "const": "Organisation::HumanCounterpart"
+        },
+        "working_hours": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkingHours"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "HumanCounterpart",
+      "type": "object"
+    },
+    "HumanRole": {
+      "description": "Why a person is paired with an agent (ADR-0026).\n\nAn agent answers to several people in different capacities: one is\naccountable for it, others approve specific actions, review its output, or\nare simply told what it did.",
+      "enum": [
+        "owner",
+        "approver",
+        "reviewer",
+        "escalation",
+        "operator",
+        "stakeholder"
+      ],
+      "title": "HumanRole",
+      "type": "string"
+    },
+    "InfrastructureBinding": {
+      "description": "Provider-side choices for the neutral resource set (ADR-0012).",
+      "properties": {
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "object"
+        },
+        "network": {
+          "default": "",
+          "title": "Network",
+          "type": "string"
+        },
+        "options": {
+          "additionalProperties": true,
+          "title": "Options",
+          "type": "object"
+        },
+        "project": {
+          "default": "",
+          "title": "Project",
+          "type": "string"
+        },
+        "provider": {
+          "default": "local",
+          "title": "Provider",
+          "type": "string"
+        },
+        "region": {
+          "default": "",
+          "title": "Region",
+          "type": "string"
+        },
+        "state_backend": {
+          "default": "",
+          "title": "State Backend",
+          "type": "string"
+        },
+        "type": {
+          "const": "Deployment::InfrastructureBinding"
+        }
+      },
+      "title": "InfrastructureBinding",
+      "type": "object"
+    },
+    "InteractionFlow": {
+      "description": "A declared directional edge between agents (ADR-0024).\n\nThe org tree already implies delegation down a hierarchy. Flows express\nwhat the tree cannot: that an analyst may *consult* compliance without\nbeing able to instruct it, and that the reverse does not hold.",
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/FlowKind",
+          "default": "consult"
+        },
+        "requires_approval": {
+          "default": false,
+          "title": "Requires Approval",
+          "type": "boolean"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "type": {
+          "const": "Organisation::InteractionFlow"
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "title": "InteractionFlow",
+      "type": "object"
+    },
+    "KnowledgeBinding": {
+      "description": "Which concrete system backs a declared grounding source (ADR-0023).",
+      "properties": {
+        "index": {
+          "default": "",
+          "title": "Index",
+          "type": "string"
+        },
+        "knowledge": {
+          "title": "Knowledge",
+          "type": "string"
+        },
+        "location": {
+          "default": "",
+          "title": "Location",
+          "type": "string"
+        },
+        "options": {
+          "additionalProperties": true,
+          "title": "Options",
+          "type": "object"
+        },
+        "provider": {
+          "default": "internal",
+          "title": "Provider",
+          "type": "string"
+        },
+        "secret_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Secret Ref"
+        },
+        "type": {
+          "const": "Deployment::KnowledgeBinding"
+        }
+      },
+      "required": [
+        "knowledge"
+      ],
+      "title": "KnowledgeBinding",
+      "type": "object"
+    },
+    "KnowledgeKind": {
+      "description": "Classes of grounding source, not products (ADR-0023).",
+      "enum": [
+        "document_store",
+        "wiki",
+        "ticketing",
+        "crm",
+        "mailbox",
+        "code_repository",
+        "data_warehouse",
+        "web"
+      ],
+      "title": "KnowledgeKind",
+      "type": "string"
+    },
+    "KnowledgeSource": {
+      "description": "Grounding material an agent may consult (ADR-0023).",
+      "properties": {
+        "data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Classes",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "freshness_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Freshness Seconds"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/KnowledgeKind",
+          "default": "document_store"
+        },
+        "require_citation": {
+          "default": true,
+          "title": "Require Citation",
+          "type": "boolean"
+        },
+        "secret_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Secret Ref"
+        },
+        "type": {
+          "const": "Knowledge::Knowledge"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "KnowledgeSource",
+      "type": "object"
+    },
+    "Lifecycle": {
+      "description": "Stages, gates and the review cadence for the whole system (ADR-0022).",
+      "properties": {
+        "evaluations": {
+          "items": {
+            "$ref": "#/$defs/EvaluationCase"
+          },
+          "title": "Evaluations",
+          "type": "array"
+        },
+        "gates": {
+          "items": {
+            "$ref": "#/$defs/PromotionGate"
+          },
+          "title": "Gates",
+          "type": "array"
+        },
+        "owner": {
+          "default": "",
+          "title": "Owner",
+          "type": "string"
+        },
+        "retire_after_idle_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 180,
+          "title": "Retire After Idle Days"
+        },
+        "review_cadence_days": {
+          "default": 90,
+          "title": "Review Cadence Days",
+          "type": "integer"
+        },
+        "stage": {
+          "$ref": "#/$defs/LifecycleStage",
+          "default": "draft"
+        },
+        "type": {
+          "const": "Assurance::Lifecycle"
+        }
+      },
+      "title": "Lifecycle",
+      "type": "object"
+    },
+    "LifecycleStage": {
+      "enum": [
+        "draft",
+        "development",
+        "staging",
+        "production",
+        "retired"
+      ],
+      "title": "LifecycleStage",
+      "type": "string"
+    },
+    "Mandate": {
+      "description": "A bounded scope of decision held by a unit (ADR-0065).\n\nNot a description of work \u2014 that is a responsibility. This is what the\nunit may settle without asking: permission decides whether the door\nopens, a mandate decides whether you were the one to open it.",
+      "properties": {
+        "conditions": {
+          "additionalProperties": true,
+          "title": "Conditions",
+          "type": "object"
+        },
+        "decisions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Decisions",
+          "type": "array"
+        },
+        "enforcement": {
+          "$ref": "#/$defs/ControlEnforcement"
+        },
+        "type": {
+          "const": "Authority::Mandate"
+        }
+      },
+      "title": "Mandate",
+      "type": "object"
+    },
+    "Memory": {
+      "description": "The two-tier memory contract for the system (ADR-0028).",
+      "properties": {
+        "long_term": {
+          "$ref": "#/$defs/MemoryPolicy"
+        },
+        "namespaces": {
+          "items": {
+            "$ref": "#/$defs/MemoryNamespace"
+          },
+          "title": "Namespaces",
+          "type": "array"
+        },
+        "session": {
+          "$ref": "#/$defs/MemoryPolicy"
+        },
+        "type": {
+          "const": "Knowledge::Memory"
+        }
+      },
+      "title": "Memory",
+      "type": "object"
+    },
+    "MemoryBinding": {
+      "description": "Where the two memory tiers actually live (ADR-0028).",
+      "properties": {
+        "embedding_model": {
+          "default": "",
+          "title": "Embedding Model",
+          "type": "string"
+        },
+        "index": {
+          "default": "",
+          "title": "Index",
+          "type": "string"
+        },
+        "long_term_store": {
+          "default": "relational",
+          "title": "Long Term Store",
+          "type": "string"
+        },
+        "options": {
+          "additionalProperties": true,
+          "title": "Options",
+          "type": "object"
+        },
+        "secret_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Secret Ref"
+        },
+        "session_store": {
+          "default": "in_process",
+          "title": "Session Store",
+          "type": "string"
+        },
+        "type": {
+          "const": "Deployment::MemoryBinding"
+        }
+      },
+      "title": "MemoryBinding",
+      "type": "object"
+    },
+    "MemoryNamespace": {
+      "description": "A partition of long-term memory, scoped like any other data.",
+      "properties": {
+        "data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Classes",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "retention_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retention Days"
+        },
+        "scope": {
+          "$ref": "#/$defs/SharingScope",
+          "default": "private"
+        },
+        "type": {
+          "const": "Knowledge::MemoryNamespace"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "MemoryNamespace",
+      "type": "object"
+    },
+    "MemoryPolicy": {
+      "description": "How one memory tier behaves (ADR-0028).",
+      "properties": {
+        "data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Classes",
+          "type": "array"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "max_items": {
+          "default": 500,
+          "title": "Max Items",
+          "type": "integer"
+        },
+        "promotion_allowed": {
+          "default": false,
+          "title": "Promotion Allowed",
+          "type": "boolean"
+        },
+        "promotion_requires_approval": {
+          "default": false,
+          "title": "Promotion Requires Approval",
+          "type": "boolean"
+        },
+        "recall": {
+          "$ref": "#/$defs/RecallMode",
+          "default": "on_demand"
+        },
+        "redact_data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Redact Data Classes",
+          "type": "array"
+        },
+        "retention_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retention Days"
+        },
+        "tier": {
+          "$ref": "#/$defs/MemoryTier",
+          "default": "session"
+        },
+        "type": {
+          "const": "Knowledge::MemoryPolicy"
+        }
+      },
+      "title": "MemoryPolicy",
+      "type": "object"
+    },
+    "MemoryTier": {
+      "description": "Where a memory lives (ADR-0028).",
+      "enum": [
+        "session",
+        "long_term"
+      ],
+      "title": "MemoryTier",
+      "type": "string"
+    },
+    "Metadata": {
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "environment": {
+          "default": "development",
+          "enum": [
+            "development",
+            "staging",
+            "production"
+          ],
+          "title": "Environment",
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "object"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "owner": {
+          "default": "",
+          "title": "Owner",
+          "type": "string"
+        },
+        "spec_version": {
+          "default": "1.4.0",
+          "title": "Spec Version",
+          "type": "string"
+        },
+        "type": {
+          "const": "Core::Metadata"
+        },
+        "version": {
+          "default": "0.1.0",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Metadata",
+      "type": "object"
+    },
+    "Mission": {
+      "description": "A short-lived team drawn from the standing organization (ADR-0039).\n\nThe org chart changes slowly and describes accountability. A mission\nchanges weekly and describes *work*: a named objective, deliverables, a\nleader, the people on it, and a date it ends. Members keep their home team\nand their own permissions; the mission is a temporary working arrangement,\nnot a reorganization.",
+      "properties": {
+        "channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channel"
+        },
+        "deliverables": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Deliverables",
+          "type": "array"
+        },
+        "ends_on": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ends On"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "internal_delegation": {
+          "default": true,
+          "title": "Internal Delegation",
+          "type": "boolean"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "object"
+        },
+        "leader": {
+          "default": "",
+          "title": "Leader",
+          "type": "string"
+        },
+        "mandate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Mandate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "members": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "objective": {
+          "default": "",
+          "title": "Objective",
+          "type": "string"
+        },
+        "roles": {
+          "items": {
+            "$ref": "#/$defs/RoleAssignment"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "sponsor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanCounterpart"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "starts_on": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Starts On"
+        },
+        "status": {
+          "$ref": "#/$defs/MissionStatus",
+          "default": "proposed"
+        },
+        "success_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Success Criteria",
+          "type": "array"
+        },
+        "type": {
+          "const": "Organisation::Mission"
+        },
+        "workflows": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Workflows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Mission",
+      "type": "object"
+    },
+    "MissionStatus": {
+      "description": "Where a short-lived team is in its life (ADR-0039).",
+      "enum": [
+        "proposed",
+        "active",
+        "completed",
+        "disbanded"
+      ],
+      "title": "MissionStatus",
+      "type": "string"
+    },
+    "ModelBinding": {
+      "description": "Which model serves an agent loop.",
+      "properties": {
+        "max_tokens": {
+          "default": 8192,
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "model": {
+          "default": "claude-opus-5",
+          "title": "Model",
+          "type": "string"
+        },
+        "provider": {
+          "default": "anthropic",
+          "title": "Provider",
+          "type": "string"
+        },
+        "subagent_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subagent Model"
+        },
+        "temperature": {
+          "default": 0.2,
+          "title": "Temperature",
+          "type": "number"
+        },
+        "type": {
+          "const": "Deployment::ModelBinding"
+        }
+      },
+      "title": "ModelBinding",
+      "type": "object"
+    },
+    "ModelClass": {
+      "description": "What an agent needs from a model, not which model it gets (ADR-0040).\n\nThe spec says `frontier_reasoning`; the catalog says which models qualify;\nthe binding picks one and the compiler checks it is permitted.",
+      "enum": [
+        "frontier_reasoning",
+        "balanced",
+        "fast_cheap",
+        "long_context",
+        "vision",
+        "code",
+        "embedding",
+        "on_premises"
+      ],
+      "title": "ModelClass",
+      "type": "string"
+    },
+    "ModelPolicy": {
+      "description": "Which models an agent is permitted to run on (ADR-0040).\n\nStated as capability classes plus constraints, so the design stays neutral;\nthe catalog resolves classes to concrete models and the compiler refuses a\nbinding that picks one outside this policy.",
+      "properties": {
+        "allow": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allow",
+          "type": "array"
+        },
+        "allow_fallback": {
+          "default": false,
+          "title": "Allow Fallback",
+          "type": "boolean"
+        },
+        "classes": {
+          "items": {
+            "$ref": "#/$defs/ModelClass"
+          },
+          "title": "Classes",
+          "type": "array"
+        },
+        "deny": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Deny",
+          "type": "array"
+        },
+        "max_cost_per_million_tokens": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cost Per Million Tokens"
+        },
+        "min_context_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Context Tokens"
+        },
+        "require_no_training_on_data": {
+          "default": true,
+          "title": "Require No Training On Data",
+          "type": "boolean"
+        },
+        "require_regions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Require Regions",
+          "type": "array"
+        },
+        "subagent_classes": {
+          "items": {
+            "$ref": "#/$defs/ModelClass"
+          },
+          "title": "Subagent Classes",
+          "type": "array"
+        },
+        "type": {
+          "const": "Assurance::ModelPolicy"
+        }
+      },
+      "title": "ModelPolicy",
+      "type": "object"
+    },
+    "NetworkPosture": {
+      "enum": [
+        "none",
+        "allowlist",
+        "internal",
+        "open"
+      ],
+      "title": "NetworkPosture",
+      "type": "string"
+    },
+    "Observability": {
+      "description": "The contract every target must satisfy (ADR-0016).",
+      "properties": {
+        "alerts": {
+          "items": {
+            "$ref": "#/$defs/AlertCondition"
+          },
+          "title": "Alerts",
+          "type": "array"
+        },
+        "logs": {
+          "default": true,
+          "title": "Logs",
+          "type": "boolean"
+        },
+        "metrics": {
+          "default": true,
+          "title": "Metrics",
+          "type": "boolean"
+        },
+        "propagate_across_delegation": {
+          "default": true,
+          "title": "Propagate Across Delegation",
+          "type": "boolean"
+        },
+        "redact_data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Redact Data Classes",
+          "type": "array"
+        },
+        "retention_days": {
+          "default": 30,
+          "title": "Retention Days",
+          "type": "integer"
+        },
+        "sample_rate": {
+          "default": 1.0,
+          "title": "Sample Rate",
+          "type": "number"
+        },
+        "traces": {
+          "default": true,
+          "title": "Traces",
+          "type": "boolean"
+        },
+        "type": {
+          "const": "Assurance::Observability"
+        }
+      },
+      "title": "Observability",
+      "type": "object"
+    },
+    "Organization": {
+      "description": "The root of one organisation, and the owner of everything in it\n(ADR-0101).\n\nA Team by generalisation \u2014 it has a leader, members and sub-teams like any\nunit \u2014 and the one unit that is *the organisation*: exactly one per\nsystem, no parent, and it always declares placement (ADR-0069). Every\nelement of the organisation's model is composed here: its people, roles,\ncapabilities, data classes, environments, skills, knowledge, workflows and\nthe links between its units and agents. What stays on the System is how\nthe design is run and released, not what the organisation is.\n\n`role_definitions` rather than `roles`: a Team's `roles` are the role\n*assignments* the unit holds, which the organisation inherits as a team.",
+      "properties": {
+        "capabilities": {
+          "items": {
+            "$ref": "#/$defs/Capability"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "channels": {
+          "items": {
+            "$ref": "#/$defs/ChannelSpec"
+          },
+          "title": "Channels",
+          "type": "array"
+        },
+        "data_classes": {
+          "items": {
+            "$ref": "#/$defs/DataClass"
+          },
+          "title": "Data Classes",
+          "type": "array"
+        },
+        "decisions": {
+          "items": {
+            "$ref": "#/$defs/DecisionClass"
+          },
+          "title": "Decisions",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "endpoints": {
+          "items": {
+            "$ref": "#/$defs/AgentEndpoint"
+          },
+          "title": "Endpoints",
+          "type": "array"
+        },
+        "environments": {
+          "items": {
+            "$ref": "#/$defs/EnvironmentClass"
+          },
+          "title": "Environments",
+          "type": "array"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "guardrails": {
+          "items": {
+            "$ref": "#/$defs/Guardrail"
+          },
+          "title": "Guardrails",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "interaction_flows": {
+          "items": {
+            "$ref": "#/$defs/InteractionFlow"
+          },
+          "title": "Interaction Flows",
+          "type": "array"
+        },
+        "knowledge": {
+          "items": {
+            "$ref": "#/$defs/KnowledgeSource"
+          },
+          "title": "Knowledge",
+          "type": "array"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "object"
+        },
+        "leader": {
+          "default": "",
+          "title": "Leader",
+          "type": "string"
+        },
+        "mandate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Mandate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/AgentSpec"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "memory": {
+          "$ref": "#/$defs/Memory"
+        },
+        "missions": {
+          "items": {
+            "$ref": "#/$defs/Mission"
+          },
+          "title": "Missions",
+          "type": "array"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "operating_principles": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Operating Principles",
+          "type": "array"
+        },
+        "output_contracts": {
+          "items": {
+            "$ref": "#/$defs/OutputContract"
+          },
+          "title": "Output Contracts",
+          "type": "array"
+        },
+        "people": {
+          "items": {
+            "$ref": "#/$defs/Person"
+          },
+          "title": "People",
+          "type": "array"
+        },
+        "placement": {
+          "default": true,
+          "title": "Placement",
+          "type": "boolean"
+        },
+        "plugins": {
+          "items": {
+            "$ref": "#/$defs/PluginSpec"
+          },
+          "title": "Plugins",
+          "type": "array"
+        },
+        "policies": {
+          "items": {
+            "$ref": "#/$defs/PolicyRule"
+          },
+          "title": "Policies",
+          "type": "array"
+        },
+        "role_definitions": {
+          "items": {
+            "$ref": "#/$defs/Role"
+          },
+          "title": "Role Definitions",
+          "type": "array"
+        },
+        "roles": {
+          "items": {
+            "$ref": "#/$defs/RoleAssignment"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "separations": {
+          "items": {
+            "$ref": "#/$defs/SeparationRule"
+          },
+          "title": "Separations",
+          "type": "array"
+        },
+        "shared_instructions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Shared Instructions",
+          "type": "array"
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/$defs/SkillSpec"
+          },
+          "title": "Skills",
+          "type": "array"
+        },
+        "teams": {
+          "items": {
+            "$ref": "#/$defs/Team"
+          },
+          "title": "Teams",
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ToolSpec"
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "triggers": {
+          "items": {
+            "$ref": "#/$defs/TriggerSpec"
+          },
+          "title": "Triggers",
+          "type": "array"
+        },
+        "type": {
+          "const": "Organisation::Organization"
+        },
+        "unit_links": {
+          "items": {
+            "$ref": "#/$defs/UnitLink"
+          },
+          "title": "Unit Links",
+          "type": "array"
+        },
+        "workflows": {
+          "items": {
+            "$ref": "#/$defs/WorkflowSpec"
+          },
+          "title": "Workflows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Organization",
+      "type": "object"
+    },
+    "OutputContract": {
+      "description": "The shape an agent, sub-agent or tool must return (ADR-0037).\n\n`returns: \"a cited findings list\"` tells a person what to expect and tells\na caller nothing it can check. A contract is checkable.",
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "max_retries": {
+          "default": 2,
+          "title": "Max Retries",
+          "type": "integer"
+        },
+        "on_violation": {
+          "$ref": "#/$defs/OutputViolationAction",
+          "default": "retry"
+        },
+        "required": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required",
+          "type": "array"
+        },
+        "schema": {
+          "additionalProperties": true,
+          "title": "Schema",
+          "type": "object"
+        },
+        "type": {
+          "const": "Assurance::OutputContract"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "OutputContract",
+      "type": "object"
+    },
+    "OutputViolationAction": {
+      "enum": [
+        "retry",
+        "block",
+        "flag"
+      ],
+      "title": "OutputViolationAction",
+      "type": "string"
+    },
+    "OverlapPolicy": {
+      "description": "What to do when a run is still going and the next one is due.",
+      "enum": [
+        "skip",
+        "queue",
+        "cancel_previous",
+        "allow"
+      ],
+      "title": "OverlapPolicy",
+      "type": "string"
+    },
+    "Permission": {
+      "description": "`(action, resource)` with optional conditions (ADR-0008).",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/Action"
+        },
+        "conditions": {
+          "additionalProperties": true,
+          "title": "Conditions",
+          "type": "object"
+        },
+        "resource": {
+          "default": "*",
+          "title": "Resource",
+          "type": "string"
+        },
+        "resource_kind": {
+          "$ref": "#/$defs/ResourceKind"
+        },
+        "type": {
+          "const": "Authority::Permission"
+        }
+      },
+      "required": [
+        "action",
+        "resource_kind"
+      ],
+      "title": "Permission",
+      "type": "object"
+    },
+    "Persistence": {
+      "enum": [
+        "ephemeral",
+        "session",
+        "agent"
+      ],
+      "title": "Persistence",
+      "type": "string"
+    },
+    "Person": {
+      "description": "A named human, declared once, as a principal for authority (ADR-0079).\n\nA person holds a **mandate** and never a capability or a permission. We do\nnot mediate a person's access \u2014 they sign into the ERP under their\nemployer's IAM \u2014 and a permission this platform cannot enforce is worse\nthan none (the rule ADR-0073 applies to controls, applied to principals).\n\n`capabilities` and `permissions` exist here only so the validator can\nrefuse them with that reason. They are read by\n`validate_spec`'s `person_holds_access` check and by nothing else; a\npydantic error would refuse the spec without explaining why.\n\nWhat is declared here is a **claim**. The person's real delegation of\nauthority lives in their employer's approval matrix, which this platform\ndoes not read and nothing reconciles. We declare it because this platform\nis what routes the escalation.",
+      "properties": {
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channel"
+        },
+        "contact": {
+          "default": "",
+          "title": "Contact",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "mandate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Mandate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "notify_on": {
+          "items": {
+            "$ref": "#/$defs/ChannelClass"
+          },
+          "title": "Notify On",
+          "type": "array"
+        },
+        "permissions": {
+          "items": {
+            "$ref": "#/$defs/Permission"
+          },
+          "title": "Permissions",
+          "type": "array"
+        },
+        "position": {
+          "default": "",
+          "title": "Position",
+          "type": "string"
+        },
+        "type": {
+          "const": "Organisation::Person"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        },
+        "working_hours": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkingHours"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Person",
+      "type": "object"
+    },
+    "PluginSpec": {
+      "description": "An installable bundle of skills and tools (ADR-0029).",
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "hooks": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Hooks",
+          "type": "object"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "provides_skills": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Provides Skills",
+          "type": "array"
+        },
+        "provides_tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Provides Tools",
+          "type": "array"
+        },
+        "requires_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Requires Capabilities",
+          "type": "array"
+        },
+        "type": {
+          "const": "Knowledge::Plugin"
+        },
+        "version": {
+          "default": "0.1.0",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "PluginSpec",
+      "type": "object"
+    },
+    "PolicyRule": {
+      "description": "An explicit allow or deny; deny always wins and cannot be overridden.",
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "conditions": {
+          "additionalProperties": true,
+          "title": "Conditions",
+          "type": "object"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "effect": {
+          "$ref": "#/$defs/Effect"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "resource_kinds": {
+          "items": {
+            "$ref": "#/$defs/ResourceKind"
+          },
+          "title": "Resource Kinds",
+          "type": "array"
+        },
+        "resources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Resources",
+          "type": "array"
+        },
+        "subjects": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Subjects",
+          "type": "array"
+        },
+        "type": {
+          "const": "Authority::Policy"
+        },
+        "unless": {
+          "additionalProperties": true,
+          "title": "Unless",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "effect"
+      ],
+      "title": "PolicyRule",
+      "type": "object"
+    },
+    "PromotionGate": {
+      "description": "What must hold before an agent enters a stage (ADR-0022).",
+      "properties": {
+        "approvers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Approvers",
+          "type": "array"
+        },
+        "min_pass_rate": {
+          "default": 1.0,
+          "title": "Min Pass Rate",
+          "type": "number"
+        },
+        "requires": {
+          "items": {
+            "$ref": "#/$defs/GateRequirement"
+          },
+          "title": "Requires",
+          "type": "array"
+        },
+        "to_stage": {
+          "$ref": "#/$defs/LifecycleStage"
+        },
+        "type": {
+          "const": "Assurance::PromotionGate"
+        }
+      },
+      "required": [
+        "to_stage"
+      ],
+      "title": "PromotionGate",
+      "type": "object"
+    },
+    "ProtocolBinding": {
+      "description": "Which wire protocol an external agent endpoint is reached over.\n\nThe spec says an endpoint exists, what it is trusted as and what may be\nsent to it; *which protocol* reaches it is an implementation choice and\nlives here, like a model provider or a channel (ADR-0002, ADR-0058).\nProtocol names are the runtime registry's vocabulary and are deliberately\nnot enumerated in this module \u2014 the same stance `WorkflowBinding` takes\ntowards engine names.",
+      "properties": {
+        "base_url": {
+          "default": "",
+          "title": "Base Url",
+          "type": "string"
+        },
+        "endpoint": {
+          "default": "",
+          "title": "Endpoint",
+          "type": "string"
+        },
+        "options": {
+          "additionalProperties": true,
+          "title": "Options",
+          "type": "object"
+        },
+        "protocol": {
+          "default": "",
+          "title": "Protocol",
+          "type": "string"
+        },
+        "protocol_version": {
+          "default": "",
+          "title": "Protocol Version",
+          "type": "string"
+        },
+        "transport": {
+          "default": "",
+          "title": "Transport",
+          "type": "string"
+        },
+        "type": {
+          "const": "Deployment::ProtocolBinding"
+        }
+      },
+      "title": "ProtocolBinding",
+      "type": "object"
+    },
+    "RecallMode": {
+      "enum": [
+        "none",
+        "on_demand",
+        "automatic"
+      ],
+      "title": "RecallMode",
+      "type": "string"
+    },
+    "Resilience": {
+      "description": "Durability properties a target must provide (ADR-0025).",
+      "properties": {
+        "checkpoint_each_step": {
+          "default": true,
+          "title": "Checkpoint Each Step",
+          "type": "boolean"
+        },
+        "dead_letter_channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dead Letter Channel"
+        },
+        "idempotent_triggers": {
+          "default": true,
+          "title": "Idempotent Triggers",
+          "type": "boolean"
+        },
+        "max_run_seconds": {
+          "default": 3600,
+          "title": "Max Run Seconds",
+          "type": "integer"
+        },
+        "resume_on_failure": {
+          "default": true,
+          "title": "Resume On Failure",
+          "type": "boolean"
+        },
+        "type": {
+          "const": "Assurance::Resilience"
+        }
+      },
+      "title": "Resilience",
+      "type": "object"
+    },
+    "ResourceKind": {
+      "description": "Kinds of resource a permission or capability can address.",
+      "enum": [
+        "data_class",
+        "capability",
+        "agent",
+        "team",
+        "workflow",
+        "environment",
+        "channel"
+      ],
+      "title": "ResourceKind",
+      "type": "string"
+    },
+    "ResourceTier": {
+      "description": "Abstract size of an execution environment.",
+      "enum": [
+        "minimal",
+        "small",
+        "medium",
+        "large",
+        "accelerated"
+      ],
+      "title": "ResourceTier",
+      "type": "string"
+    },
+    "Role": {
+      "description": "Responsibilities, capabilities and permissions as one contract (ADR-0007).",
+      "properties": {
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "constraints": {
+          "additionalProperties": true,
+          "title": "Constraints",
+          "type": "object"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "default": "agent",
+          "enum": [
+            "agent",
+            "team"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "permissions": {
+          "items": {
+            "$ref": "#/$defs/Permission"
+          },
+          "title": "Permissions",
+          "type": "array"
+        },
+        "responsibilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Responsibilities",
+          "type": "array"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "Organisation::Role"
+        },
+        "version": {
+          "default": "0.1.0",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Role",
+      "type": "object"
+    },
+    "RoleAssignment": {
+      "anyOf": [
+        {
+          "description": "a role id, equivalent to {\"role\": <id>}",
+          "type": "string"
+        },
+        {
+          "description": "A role bound to an agent or team; may narrow, never widen.",
+          "properties": {
+            "conditions": {
+              "additionalProperties": true,
+              "title": "Conditions",
+              "type": "object"
+            },
+            "role": {
+              "title": "Role",
+              "type": "string"
+            },
+            "withhold": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Withhold",
+              "type": "array"
+            }
+          },
+          "required": [
+            "role"
+          ],
+          "title": "RoleAssignment",
+          "type": "object"
+        }
+      ],
+      "title": "RoleAssignment"
+    },
+    "RuntimeBinding": {
+      "description": "Which agent framework executes the loop (ADR-0013).",
+      "properties": {
+        "adapter": {
+          "default": "echo",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "options": {
+          "additionalProperties": true,
+          "title": "Options",
+          "type": "object"
+        },
+        "type": {
+          "const": "Deployment::RuntimeBinding"
+        }
+      },
+      "title": "RuntimeBinding",
+      "type": "object"
+    },
+    "RuntimeRequirement": {
+      "description": "What the agent loop must support \u2014 not which framework provides it.",
+      "enum": [
+        "planning",
+        "subagents",
+        "handoff",
+        "structured_output",
+        "long_context"
+      ],
+      "title": "RuntimeRequirement",
+      "type": "string"
+    },
+    "ScalingPolicy": {
+      "description": "How many of this agent run, and how much each one takes on (ADR-0095).\n\nVendor-neutral on purpose: these are statements about expected load and\ntolerated latency, which are facts about the organization's work rather\nthan about whichever cloud was chosen to run it. A binding that changed\nthem would mean two deployments of one design disagreed about how much\nwork an agent does.\n\nScale-to-zero is not a field here. It is `min_instances == 0`, because a\nflag that could disagree with the number beside it is a bug waiting to\nhappen. What it costs is real and stated where it is chosen: an agent at\nzero loses the process holding its asynchronous handles (ADR-0093) and any\nstanding-in it was doing (ADR-0094).",
+      "properties": {
+        "concurrent_sessions_per_instance": {
+          "default": 1,
+          "title": "Concurrent Sessions Per Instance",
+          "type": "integer"
+        },
+        "max_instances": {
+          "default": 3,
+          "title": "Max Instances",
+          "type": "integer"
+        },
+        "min_instances": {
+          "default": 0,
+          "title": "Min Instances",
+          "type": "integer"
+        },
+        "type": {
+          "const": "Organisation::ScalingPolicy"
+        }
+      },
+      "title": "ScalingPolicy",
+      "type": "object"
+    },
+    "ScheduleBinding": {
+      "description": "Which scheduler actually fires the triggers (ADR-0020).",
+      "properties": {
+        "dead_letter": {
+          "default": "",
+          "title": "Dead Letter",
+          "type": "string"
+        },
+        "max_concurrency": {
+          "default": 4,
+          "title": "Max Concurrency",
+          "type": "integer"
+        },
+        "options": {
+          "additionalProperties": true,
+          "title": "Options",
+          "type": "object"
+        },
+        "provider": {
+          "default": "internal",
+          "title": "Provider",
+          "type": "string"
+        },
+        "queue": {
+          "default": "",
+          "title": "Queue",
+          "type": "string"
+        },
+        "type": {
+          "const": "Deployment::ScheduleBinding"
+        }
+      },
+      "title": "ScheduleBinding",
+      "type": "object"
+    },
+    "SeparationRule": {
+      "description": "Decisions no single principal may hold together (ADR-0070).\n\nHierarchical narrowing and separation of duties pull in opposite\ndirections: narrowing requires every parent to hold at least the union of\nits children, while separation requires that *no one principal* holds both\nsides of a control. Both cannot govern the same objects, so a team is a\nscope and this constrains agents.",
+      "properties": {
+        "decisions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Decisions",
+          "type": "array"
+        },
+        "enforcement": {
+          "$ref": "#/$defs/ControlEnforcement"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "type": {
+          "const": "Authority::Separation"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "SeparationRule",
+      "type": "object"
+    },
+    "ServerBinding": {
+      "description": "A backing enterprise system, declared once and shared by capabilities.\n\nAn enterprise has a handful of systems \u2014 an ERP, a data warehouse, an\norder-management system, a document store \u2014 and dozens of capabilities that\nreach into them. Declaring the connection on every capability repeats the\nsystem's URL, credential and trust posture N times and hides the fact that\ntwenty capabilities all land on one server. A server catalog names each\nsystem once; a capability then references it by `server` and inherits the\nconnection (ADR-0085). It is also the deployment's systems inventory \u2014 the\nthing an auditor asks for.",
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Args",
+          "type": "array"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "dsn_secret_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dsn Secret Ref"
+        },
+        "egress_allowlist": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Egress Allowlist",
+          "type": "array"
+        },
+        "engine": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engine"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "default": "mcp",
+          "title": "Kind",
+          "type": "string"
+        },
+        "options": {
+          "additionalProperties": true,
+          "title": "Options",
+          "type": "object"
+        },
+        "secret_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Secret Ref"
+        },
+        "transport": {
+          "default": "stdio",
+          "title": "Transport",
+          "type": "string"
+        },
+        "trust": {
+          "default": "internal",
+          "title": "Trust",
+          "type": "string"
+        },
+        "type": {
+          "const": "Deployment::Server"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ServerBinding",
+      "type": "object"
+    },
+    "SharingScope": {
+      "description": "How widely a data class may travel.",
+      "enum": [
+        "private",
+        "protected",
+        "public"
+      ],
+      "title": "SharingScope",
+      "type": "string"
+    },
+    "SkillSpec": {
+      "description": "A packaged capability pack an agent can hold (ADR-0029).\n\nA skill is instructions plus optional resources \u2014 it changes how an agent\nworks, not what it may reach. Access always comes from capabilities.",
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "instructions": {
+          "default": "",
+          "title": "Instructions",
+          "type": "string"
+        },
+        "requires_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Requires Capabilities",
+          "type": "array"
+        },
+        "resources": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Resources",
+          "type": "object"
+        },
+        "triggers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Triggers",
+          "type": "array"
+        },
+        "type": {
+          "const": "Knowledge::Skill"
+        },
+        "version": {
+          "default": "0.1.0",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "SkillSpec",
+      "type": "object"
+    },
+    "StaleAction": {
+      "description": "What to do when data is older than the agent said it could rely on.\n\nStaleness is a state, not a crash. `REFUSE` is the default because a\nfreshness window that carried on regardless would be decorative, and this\nplatform does not ship a control that reads as enforced and is not\n(ADR-0073).",
+      "enum": [
+        "refuse",
+        "degrade",
+        "escalate"
+      ],
+      "title": "StaleAction",
+      "type": "string"
+    },
+    "SubAgentKind": {
+      "description": "What a tool-shaped sub-agent is for (ADR-0027).",
+      "enum": [
+        "research",
+        "review",
+        "summarize",
+        "extract",
+        "critique",
+        "plan",
+        "verify",
+        "custom"
+      ],
+      "title": "SubAgentKind",
+      "type": "string"
+    },
+    "SubAgentSpec": {
+      "description": "A task-scoped worker an agent calls like a tool (ADR-0027).\n\nA sub-agent is not an org member: it has no reporting line, no human\ncounterpart of its own, no session URL and no memory beyond the call. It\nruns under its parent's identity with a **narrowed** set of that parent's\ncapabilities, returns a result, and is gone.",
+      "properties": {
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "environments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Environments",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "instructions": {
+          "default": "",
+          "title": "Instructions",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/SubAgentKind",
+          "default": "custom"
+        },
+        "knowledge": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Knowledge",
+          "type": "array"
+        },
+        "max_runtime_seconds": {
+          "default": 300,
+          "title": "Max Runtime Seconds",
+          "type": "integer"
+        },
+        "max_turns": {
+          "default": 8,
+          "title": "Max Turns",
+          "type": "integer"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "output_contract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Contract"
+        },
+        "parallel_safe": {
+          "default": true,
+          "title": "Parallel Safe",
+          "type": "boolean"
+        },
+        "purpose": {
+          "default": "",
+          "title": "Purpose",
+          "type": "string"
+        },
+        "returns": {
+          "default": "",
+          "title": "Returns",
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "type": {
+          "const": "Organisation::SubAgent"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "SubAgentSpec",
+      "type": "object"
+    },
+    "SystemSpecDocument": {
+      "description": "The whole implementation-neutral definition.",
+      "properties": {
+        "artifact_stores": {
+          "items": {
+            "$ref": "#/$defs/ArtifactStore"
+          },
+          "title": "Artifact Stores",
+          "type": "array"
+        },
+        "budgets": {
+          "items": {
+            "$ref": "#/$defs/Budget"
+          },
+          "title": "Budgets",
+          "type": "array"
+        },
+        "compliance": {
+          "$ref": "#/$defs/Compliance"
+        },
+        "context": {
+          "$ref": "#/$defs/ContextPolicy"
+        },
+        "deployment": {
+          "$ref": "#/$defs/DeploymentSpec"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle"
+        },
+        "metadata": {
+          "$ref": "#/$defs/Metadata"
+        },
+        "model_policy": {
+          "$ref": "#/$defs/ModelPolicy"
+        },
+        "observability": {
+          "$ref": "#/$defs/Observability"
+        },
+        "organization": {
+          "$ref": "#/$defs/Organization"
+        },
+        "profiles": {
+          "additionalProperties": false,
+          "properties": {
+            "Access": {
+              "type": "string"
+            },
+            "Assurance": {
+              "type": "string"
+            },
+            "Authority": {
+              "type": "string"
+            },
+            "Core": {
+              "type": "string"
+            },
+            "Data": {
+              "type": "string"
+            },
+            "Knowledge": {
+              "type": "string"
+            },
+            "Organisation": {
+              "type": "string"
+            },
+            "Process": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "resilience": {
+          "$ref": "#/$defs/Resilience"
+        },
+        "type": {
+          "enum": [
+            "Core::Model",
+            "Core::System"
+          ]
+        }
+      },
+      "required": [
+        "metadata"
+      ],
+      "title": "SystemSpec",
+      "type": "object"
+    },
+    "TargetBinding": {
+      "description": "Everything one target needs beyond the spec.",
+      "properties": {
+        "agent_overrides": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Agent Overrides",
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "$ref": "#/$defs/CapabilityBinding"
+          },
+          "title": "Capabilities",
+          "type": "array"
+        },
+        "channels": {
+          "items": {
+            "$ref": "#/$defs/ChannelBinding"
+          },
+          "title": "Channels",
+          "type": "array"
+        },
+        "environments": {
+          "items": {
+            "$ref": "#/$defs/EnvironmentBinding"
+          },
+          "title": "Environments",
+          "type": "array"
+        },
+        "infrastructure": {
+          "$ref": "#/$defs/InfrastructureBinding"
+        },
+        "knowledge": {
+          "items": {
+            "$ref": "#/$defs/KnowledgeBinding"
+          },
+          "title": "Knowledge",
+          "type": "array"
+        },
+        "memory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryBinding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "model": {
+          "$ref": "#/$defs/ModelBinding"
+        },
+        "observability_sink": {
+          "default": "otel_collector",
+          "title": "Observability Sink",
+          "type": "string"
+        },
+        "protocols": {
+          "items": {
+            "$ref": "#/$defs/ProtocolBinding"
+          },
+          "title": "Protocols",
+          "type": "array"
+        },
+        "runtime": {
+          "$ref": "#/$defs/RuntimeBinding"
+        },
+        "scheduler": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScheduleBinding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "secrets_backend": {
+          "default": "environment",
+          "title": "Secrets Backend",
+          "type": "string"
+        },
+        "servers": {
+          "items": {
+            "$ref": "#/$defs/ServerBinding"
+          },
+          "title": "Servers",
+          "type": "array"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "type": {
+          "const": "Deployment::Target"
+        },
+        "workflows": {
+          "items": {
+            "$ref": "#/$defs/WorkflowBinding"
+          },
+          "title": "Workflows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "title": "TargetBinding",
+      "type": "object"
+    },
+    "Team": {
+      "description": "A team with exactly one leader, members, and nested child teams (ADR-0006).",
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Groups",
+          "type": "array"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Labels",
+          "type": "object"
+        },
+        "leader": {
+          "default": "",
+          "title": "Leader",
+          "type": "string"
+        },
+        "mandate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Mandate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/AgentSpec"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "placement": {
+          "default": false,
+          "title": "Placement",
+          "type": "boolean"
+        },
+        "roles": {
+          "items": {
+            "$ref": "#/$defs/RoleAssignment"
+          },
+          "title": "Roles",
+          "type": "array"
+        },
+        "shared_instructions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Shared Instructions",
+          "type": "array"
+        },
+        "teams": {
+          "items": {
+            "$ref": "#/$defs/Team"
+          },
+          "title": "Teams",
+          "type": "array"
+        },
+        "type": {
+          "const": "Organisation::Team"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Team",
+      "type": "object"
+    },
+    "ToolSpec": {
+      "description": "A named callable an agent sees, wrapping something else (ADR-0029).\n\nA tool is a thin, reviewable wrapper: it narrows and names an underlying\ncapability, sub-agent, workflow or external endpoint. It never grants\nanything its target does not already grant.",
+      "properties": {
+        "constraints": {
+          "$ref": "#/$defs/CapabilityConstraint"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "idempotent": {
+          "default": true,
+          "title": "Idempotent",
+          "type": "boolean"
+        },
+        "input_schema": {
+          "additionalProperties": true,
+          "title": "Input Schema",
+          "type": "object"
+        },
+        "output_schema": {
+          "additionalProperties": true,
+          "title": "Output Schema",
+          "type": "object"
+        },
+        "type": {
+          "const": "Knowledge::Tool"
+        },
+        "validate_output": {
+          "default": false,
+          "title": "Validate Output",
+          "type": "boolean"
+        },
+        "wraps": {
+          "default": "",
+          "title": "Wraps",
+          "type": "string"
+        },
+        "wraps_kind": {
+          "default": "capability",
+          "enum": [
+            "capability",
+            "subagent",
+            "workflow",
+            "endpoint"
+          ],
+          "title": "Wraps Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ToolSpec",
+      "type": "object"
+    },
+    "ToolchainClass": {
+      "description": "Categories of tooling an environment may need, not concrete images.",
+      "enum": [
+        "none",
+        "scripting",
+        "data_analysis",
+        "software_build",
+        "browser",
+        "document",
+        "model_training",
+        "network_client"
+      ],
+      "title": "ToolchainClass",
+      "type": "string"
+    },
+    "TriggerKind": {
+      "description": "What starts a run (ADR-0020).",
+      "enum": [
+        "schedule",
+        "event",
+        "webhook",
+        "message",
+        "manual"
+      ],
+      "title": "TriggerKind",
+      "type": "string"
+    },
+    "TriggerSpec": {
+      "description": "Something that starts a run without a person asking (ADR-0020).\n\nA triggered run carries exactly the same permission envelope as interactive\nwork: it is the agent's own capabilities and identity, never a separate\nservice account with broader reach.",
+      "properties": {
+        "agent": {
+          "default": "",
+          "title": "Agent",
+          "type": "string"
+        },
+        "cadence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Cadence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "catch_up": {
+          "$ref": "#/$defs/CatchUpPolicy",
+          "default": "skip_missed"
+        },
+        "channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Channel"
+        },
+        "deliver_to": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Deliver To",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "event_class": {
+          "default": "",
+          "title": "Event Class",
+          "type": "string"
+        },
+        "failure": {
+          "$ref": "#/$defs/FailurePolicy"
+        },
+        "filters": {
+          "additionalProperties": true,
+          "title": "Filters",
+          "type": "object"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "input": {
+          "additionalProperties": true,
+          "title": "Input",
+          "type": "object"
+        },
+        "kind": {
+          "$ref": "#/$defs/TriggerKind",
+          "default": "schedule"
+        },
+        "max_runtime_seconds": {
+          "default": 900,
+          "title": "Max Runtime Seconds",
+          "type": "integer"
+        },
+        "overlap": {
+          "$ref": "#/$defs/OverlapPolicy",
+          "default": "skip"
+        },
+        "requires_approval": {
+          "default": false,
+          "title": "Requires Approval",
+          "type": "boolean"
+        },
+        "type": {
+          "const": "Process::Trigger"
+        },
+        "workflow": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workflow"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "TriggerSpec",
+      "type": "object"
+    },
+    "UnitLink": {
+      "description": "An association between two units that is not containment (ADR-0081).\n\nContainment is `team.teams`: one parent, authority narrows through it,\nplacement inherits through it. This is everything else \u2014 the relationships\na real organisation has that a tree cannot hold. It grants nothing,\nnarrows nothing and inherits nothing.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/UnitLinkKind",
+          "default": "partners_with"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "type": {
+          "const": "Organisation::UnitLink"
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "title": "UnitLink",
+      "type": "object"
+    },
+    "UnitLinkKind": {
+      "description": "How two units are related when one does not contain the other.\n\nEvery kind carries a consequence, because a relationship with none is\ndecoration (ADR-0081). `PARTNERS_WITH` is the exception and says so: it is\ndeclared inert, because the alternative is people expressing an inert\nrelationship as an `OVERSEES` that is not one.",
+      "enum": [
+        "oversees",
+        "escalates_to",
+        "serves",
+        "partners_with"
+      ],
+      "title": "UnitLinkKind",
+      "type": "string"
+    },
+    "WorkflowBinding": {
+      "description": "Which engine runs a declared workflow, and how it is reached (ADR-0056).\n\nThe spec says what a workflow is for; this says what executes it. Engine\nnames are deliberately *not* enumerated here \u2014 the runtime registry owns\nthat vocabulary, the same way no model vendor is named in a spec model\n(ADR-0002). `mode` is the binding author's statement of intent; the\nregistry decides the real invocation mode, because a service engine\ndeclared in-process would skip every check that makes the call safe.\n\n`endpoint`, `secret_ref`, `tenant` and `send_data_classes` only mean\nanything for an out-of-process engine, where invoking the engine is egress\nand is governed exactly like any other external endpoint (ADR-0030).",
+      "properties": {
+        "editor_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Editor Url"
+        },
+        "endpoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Endpoint"
+        },
+        "engine": {
+          "default": "native",
+          "title": "Engine",
+          "type": "string"
+        },
+        "flow": {
+          "default": "",
+          "title": "Flow",
+          "type": "string"
+        },
+        "mode": {
+          "default": "in_process",
+          "title": "Mode",
+          "type": "string"
+        },
+        "options": {
+          "additionalProperties": true,
+          "title": "Options",
+          "type": "object"
+        },
+        "requires_approval": {
+          "default": false,
+          "title": "Requires Approval",
+          "type": "boolean"
+        },
+        "secret_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Secret Ref"
+        },
+        "send_data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Send Data Classes",
+          "type": "array"
+        },
+        "tenant": {
+          "default": "",
+          "title": "Tenant",
+          "type": "string"
+        },
+        "trust": {
+          "default": "partner",
+          "title": "Trust",
+          "type": "string"
+        },
+        "type": {
+          "const": "Deployment::WorkflowBinding"
+        },
+        "workflow": {
+          "default": "",
+          "title": "Workflow",
+          "type": "string"
+        }
+      },
+      "title": "WorkflowBinding",
+      "type": "object"
+    },
+    "WorkflowBody": {
+      "description": "Where a workflow's insides live (ADR-0110).",
+      "enum": [
+        "graph",
+        "external"
+      ],
+      "title": "WorkflowBody",
+      "type": "string"
+    },
+    "WorkflowInterface": {
+      "description": "The seam between a governed workflow and a step built elsewhere\n(ADR-0110): what goes in and out, what it calls, which data it touches.\nThe validator checks it as if it were the step.",
+      "properties": {
+        "endpoints": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Endpoints",
+          "type": "array"
+        },
+        "inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "outputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Outputs",
+          "type": "array"
+        },
+        "receives_data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Receives Data Classes",
+          "type": "array"
+        },
+        "returns_data_classes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Returns Data Classes",
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "type": {
+          "const": "Process::WorkflowInterface"
+        }
+      },
+      "title": "WorkflowInterface",
+      "type": "object"
+    },
+    "WorkflowSpec": {
+      "description": "A declarative process graph (see `orgagents.workflows`): a UML\nActivity whose nodes are actions calling tools, agents and other\nworkflows (ADR-0102).\n\n`body: external` says the insides are built in an engine the binding\nnames; the spec then holds only its `interface` (ADR-0110).",
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/WorkflowBody",
+          "default": "graph"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "graph": {
+          "$ref": "#/$defs/ActivityGraph"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "inputs": {
+          "additionalProperties": true,
+          "title": "Inputs",
+          "type": "object"
+        },
+        "interface": {
+          "$ref": "#/$defs/WorkflowInterface"
+        },
+        "interrupt_before": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Interrupt Before",
+          "type": "array"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "Process::Workflow"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "WorkflowSpec",
+      "type": "object"
+    },
+    "WorkingHours": {
+      "description": "When the humans on a channel are actually available.",
+      "properties": {
+        "days": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Days",
+          "type": "array"
+        },
+        "end_hour": {
+          "default": 17,
+          "title": "End Hour",
+          "type": "integer"
+        },
+        "holidays": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Holidays",
+          "type": "array"
+        },
+        "start_hour": {
+          "default": 9,
+          "title": "Start Hour",
+          "type": "integer"
+        },
+        "timezone": {
+          "default": "UTC",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "type": {
+          "const": "Organisation::WorkingHours"
+        }
+      },
+      "title": "WorkingHours",
+      "type": "object"
+    }
+  },
+  "$id": "https://orgagents.dev/schema/typed-exchange.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A System Spec or a Binding in which every element names its UML type as <Profile>::<Name>.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/SystemSpecDocument"
+    },
+    {
+      "$ref": "#/$defs/BindingDocument"
+    }
+  ],
+  "title": "OrgAgents typed exchange (ADR-0113)"
+}

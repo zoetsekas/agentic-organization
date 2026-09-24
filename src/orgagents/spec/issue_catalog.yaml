@@ -3496,6 +3496,66 @@
   fix:
   - Read the exception message for the cause.
   - Fix the YAML syntax or structure (indentation, lists vs mappings), then revalidate.
+- number: 3002
+  code: uml_type_mismatch
+  severity:
+  - error
+  section: loading the design
+  refs:
+  - ADR-0113
+  title: An element's UML type contradicts where it sits
+  summary: A `type` in a typed file names a UML type other than the one its position holds.
+  explanation: Fires when a typed YAML or JSON file (ADR-0113) gives an element a `type` that
+    disagrees with the position it sits in, for example an `Organisation::Team` inside a team's
+    `members`, where an `Organisation::Agent` belongs, or a root whose `type` is not
+    `Core::Model` (a spec) or `Deployment::Binding` (a binding). `where` is the dotted path
+    to the element.
+  why: The type is there so a fragment says what it is; one that says something else is either
+    a hand edit that moved an element to the wrong list or a file of another kind, and loading
+    it by position would silently turn it into something it does not claim to be.
+  fix:
+  - Go to the path named in "where".
+  - Move the element to a list that holds its type, or correct its `type` if the element is
+    in the right place.
+  - Or delete the `type` line; untyped elements are typed by their position.
+- number: 3003
+  code: unknown_uml_type
+  severity:
+  - error
+  section: loading the design
+  refs:
+  - ADR-0113
+  - ADR-0112
+  title: A `type` names nothing any profile declares
+  summary: An element's `type` is not a stereotype, DataType or association class of any profile.
+  explanation: Fires when a typed file gives an element a `type` that is not written
+    `<Profile>::<Name>` or names a type no UML profile declares (a misspelling such as
+    `Organisation::Agnet`, or a profile this platform does not have). `where` is the dotted path
+    to the element; the message says which type belongs there.
+  why: An unknown type cannot be checked against its position, and accepting it would let a
+    typo stand in a file that claims to be typed.
+  fix:
+  - Correct the spelling to the type the message names, or delete the `type` line.
+  - Types are listed in the profile reference, docs/metamodel/*.md.
+- number: 3004
+  code: unsupported_profile_version
+  severity:
+  - error
+  section: loading the design
+  refs:
+  - ADR-0113
+  title: The file was written against a profile this platform lacks
+  summary: The root's `profiles` names a profile this platform does not have, or another major version of one.
+  explanation: Fires when a typed file's root `profiles` map names a profile that does not
+    exist here, or a version whose major number differs from this platform's version of that
+    profile. A different minor or patch version loads. `where` is `profiles.<name>`.
+  why: A major profile version may change what a stereotype means; reading such a file as if
+    it meant the same would be a silent reinterpretation of somebody's design.
+  fix:
+  - Export the design again from a platform with the matching profile versions, or upgrade this
+    platform.
+  - If the file was hand-written, delete the `profiles` map; an untyped root loads as the
+    current profiles.
 - number: 3099
   code: schema_error
   severity:

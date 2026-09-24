@@ -7,6 +7,7 @@ from typing import Any
 import yaml
 
 from .binding import Binding
+from .exchange import strip_types
 from .migrations import CURRENT, SpecVersionError, declared_version, migrate
 from .model import SystemSpec
 
@@ -37,7 +38,9 @@ def load_spec_text_with_migration(text: str) -> tuple[SystemSpec, list[str]]:
     compiler raises instead: dropping the fields we do not know about would
     quietly downgrade someone's design.
     """
-    data = _parse(text)
+    # A typed document (ADR-0113) has its types checked against their
+    # positions and removed; an untyped one passes through unchanged.
+    data = strip_types(_parse(text), SystemSpec)
     declared = declared_version(data)
     changes: list[str] = []
     if declared != CURRENT:
@@ -59,7 +62,7 @@ def load_spec(path: str | Path) -> SystemSpec:
 
 def load_binding(path: str | Path) -> Binding:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
-    return Binding.model_validate(data)
+    return Binding.model_validate(strip_types(data, Binding))
 
 
 def dump_spec(spec: SystemSpec) -> str:
