@@ -1209,7 +1209,7 @@ class Memory(BaseModel):
         )
     )
     # Namespaces long-term memory is partitioned into, each with a scope.
-    namespaces: list["MemoryNamespace"] = Field(default_factory=list)
+    namespaces: list[MemoryNamespace] = Field(default_factory=list)
 
 
 class MemoryNamespace(BaseModel):
@@ -1477,7 +1477,7 @@ class Team(BaseModel):
     mandate: Optional[Mandate] = None
     leader: str = ""                      # agent id; must also be a member
     members: list[AgentSpec] = Field(default_factory=list)
-    teams: list["Team"] = Field(default_factory=list)
+    teams: list[Team] = Field(default_factory=list)
     roles: list[RoleAssignment] = Field(default_factory=list)   # team roles
     groups: list[str] = Field(default_factory=list)             # protected-data reach
     #: Whether this team is a **placement boundary** (ADR-0069). Its agents get

@@ -181,9 +181,9 @@ class ClassTable:
     fields: list[FieldMap] = field(default_factory=list)
     as_written: bool = False
     #: Tables whose rows own rows of this one (empty for a root).
-    owners: list["ClassTable"] = field(default_factory=list)
+    owners: list[ClassTable] = field(default_factory=list)
     #: Tables specialising this one (their rows share `row_id` with it).
-    specials: list["ClassTable"] = field(default_factory=list)
+    specials: list[ClassTable] = field(default_factory=list)
     root: bool = False
 
     @property
@@ -198,7 +198,7 @@ class ClassTable:
     def owned(self) -> bool:
         return not self.root and bool(self.owners)
 
-    def chain(self) -> list["ClassTable"]:
+    def chain(self) -> list[ClassTable]:
         """This table and its general ones, most general first."""
         out, t = [], self
         while t is not None:
