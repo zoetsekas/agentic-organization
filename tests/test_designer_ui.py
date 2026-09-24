@@ -391,7 +391,7 @@ def test_the_browser_bundle_parses():
     node = shutil.which("node")
     if node is None:
         pytest.skip("no node on this machine to parse the bundle with")
-    for name in ("app.js", "canvas.js", "command/app.js"):
+    for name in ("ui.js", "settings.js", "app.js", "canvas.js", "command/app.js"):
         path = ROOT / "web" / name
         result = subprocess.run([node, "--check", str(path)],
                                 capture_output=True, text=True)
