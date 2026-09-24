@@ -267,7 +267,7 @@ def test_the_example_cloud_becomes_a_terraform_target(design, acme_modules):
 def test_a_plugin_cloud_carries_its_own_iam_mapping(acme_modules):
     """The built-in role table cannot know about a cloud shipped elsewhere, so
     a plugin profile brings its own or fails saying so."""
-    from orgagents.compiler.targets.terraform import ProviderProfile, action_roles
+    from orgagents.compiler.targets.terraform import action_roles
 
     _, cloud = acme_modules
     assert action_roles(cloud.ACME_CLOUD)["administer"] == "admin"

@@ -21,8 +21,6 @@ import pathlib
 import subprocess
 import sys
 
-import pytest
-
 from orgagents.compiler.engine import compile_system
 from orgagents.phases import review
 from orgagents.scaffold import (

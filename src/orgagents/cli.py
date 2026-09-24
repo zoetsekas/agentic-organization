@@ -306,8 +306,8 @@ def _compiler_command(args: argparse.Namespace) -> int:
     if args.cmd == "schedule":
         from datetime import datetime, timedelta, timezone
 
-        from .scheduling import describe, next_fire_times
         from .runtime.scheduler import SchedulerService
+        from .scheduling import describe, next_fire_times
 
         now = datetime.now(timezone.utc)
         for trigger in spec.triggers:
@@ -605,6 +605,7 @@ def _tenants_command(args: argparse.Namespace) -> int:
     as `fabric_admin`; the transition table still decides every move, and a
     refusal here is the same refusal the API gives (WS-028 M5).
     """
+    from .designer.audit import AuditOutcome
     from .fabric.audit import FabricAuditAction, FabricAuditLog
     from .fabric.deployments import DeploymentService, OperatorRole
     from .fabric.tenants import (
@@ -615,7 +616,6 @@ def _tenants_command(args: argparse.Namespace) -> int:
         TenantStatus,
         TenantTransitionDenied,
     )
-    from .designer.audit import AuditOutcome
     from .platform import Platform
 
     platform = Platform(args.db, configure_logs=False)
@@ -1259,8 +1259,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "metamodel":
-        from .metamodel import (to_plantuml, to_plantuml_ownership,
-                                to_plantuml_profile)
+        from .metamodel import to_plantuml, to_plantuml_ownership, to_plantuml_profile
         if args.action == "model":
             print(to_plantuml(), end="")
         elif args.action == "profile":
@@ -1308,8 +1307,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"wrote {out}/transformation.md")
             return 0
         elif args.action == "scenarios":
-            from .metamodel.scenarios import (SCENARIOS, catalogue, play,
-                                              to_object_diagram)
+            from .metamodel.scenarios import SCENARIOS, catalogue, play, to_object_diagram
             out = Path(args.out)
             (out / "scenarios").mkdir(parents=True, exist_ok=True)
             failed = 0

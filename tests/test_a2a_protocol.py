@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from orgagents.guardrails import GuardrailEngine
 from orgagents.runtime.a2a import (
     A2A_PROTOCOL,
     A2A_SPEC_VERSION,
@@ -24,7 +25,6 @@ from orgagents.runtime.a2a import (
 )
 from orgagents.runtime.endpoints import CallerBoundary
 from orgagents.sessions import SessionManager
-from orgagents.guardrails import GuardrailEngine
 from orgagents.spec.binding import ProtocolBinding
 from orgagents.spec.model import (
     AgentEndpoint,
@@ -37,7 +37,6 @@ from orgagents.spec.model import (
     GuardrailKind,
 )
 from orgagents.store import Store
-
 
 PEER = "https://peer.partner.example"
 

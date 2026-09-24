@@ -28,12 +28,18 @@ import pytest
 
 pytest.importorskip("nats", reason="nats-py is not installed (pip install 'orgagents[bus]')")
 
-from orgagents.compiler import links as L                      # noqa: E402
-from orgagents.compiler.ir import build_ir                     # noqa: E402
-from orgagents.compiler.targets.local import BUS_IMAGE         # noqa: E402
-from orgagents.runtime.agent_bus import (AgentMessenger, BusRefused, HopContext,  # noqa: E402
-                                         LinkPolicy, NatsTransport, bus_init)
-from orgagents.spec import load_binding, load_spec             # noqa: E402
+from orgagents.compiler import links as L  # noqa: E402
+from orgagents.compiler.ir import build_ir  # noqa: E402
+from orgagents.compiler.targets.local import BUS_IMAGE  # noqa: E402
+from orgagents.runtime.agent_bus import (  # noqa: E402
+    AgentMessenger,
+    BusRefused,
+    HopContext,
+    LinkPolicy,
+    NatsTransport,
+    bus_init,
+)
+from orgagents.spec import load_binding, load_spec  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 AYC = ROOT / "examples" / "ayc"

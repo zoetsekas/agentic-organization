@@ -3,14 +3,12 @@ classes, how they relate, who produces and relies on them, what reaches them
 and where agents keep what they write."""
 from __future__ import annotations
 
-from .uml import Draw, Enumeration
+from .uml import Draw, Enumeration, Profile, props
 from .uml import MetaClass as MC
-from .uml import Profile
 from .uml import Relationship as R
 from .uml import RelKind as K
 from .uml import Shape as SH
 from .uml import Stereotype as S
-from .uml import props
 
 STEREOTYPES = [
     S("DataClass", "data_class", MC.DATA_TYPE, "data_classes", "DataClass"),

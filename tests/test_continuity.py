@@ -9,9 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-from orgagents.continuity import ActingAssignment, open_assignment, split_mandate
+from orgagents.continuity import split_mandate
 from orgagents.models import Agent, SessionState
 
 SEP_PAY = {
@@ -114,7 +112,9 @@ def test_a_successor_that_would_break_a_separation_is_refused_at_validation():
     succession that could never be safe never reaches a deployment — rather
     than being discovered during the outage it was meant to survive.
     """
-    from spec_fixtures import SEPARATED, org as _org
+    from spec_fixtures import SEPARATED
+    from spec_fixtures import org as _org
+
     from orgagents.spec.validate import errors, validate_spec
 
     spec = {
@@ -150,7 +150,9 @@ def test_a_successor_that_would_break_a_separation_is_refused_at_validation():
 
 
 def test_a_successor_holding_neither_side_validates():
-    from spec_fixtures import SEPARATED, org as _org
+    from spec_fixtures import SEPARATED
+    from spec_fixtures import org as _org
+
     from orgagents.spec.validate import errors, validate_spec
 
     spec = {
@@ -181,7 +183,9 @@ def test_a_successor_holding_neither_side_validates():
 
 
 def test_an_unknown_or_self_successor_is_refused():
-    from spec_fixtures import SEPARATED, org as _org
+    from spec_fixtures import SEPARATED
+    from spec_fixtures import org as _org
+
     from orgagents.spec.validate import errors, validate_spec
 
     org = SEPARATED["organization"]

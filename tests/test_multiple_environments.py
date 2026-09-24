@@ -15,7 +15,6 @@ import pytest
 
 from orgagents.compiler.ir import build_ir
 from orgagents.placements import resolve
-from orgagents.spec.loader import load_spec_text
 from orgagents.spec.migrations import migrate
 from orgagents.spec.model import SystemSpec
 from orgagents.spec.validate import validate_spec

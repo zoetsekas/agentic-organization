@@ -20,7 +20,7 @@ The designer, later, is a view that calls these; it adds no rules of its own.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from ..spec import model as spec_model
 from . import PROFILE, Relationship, RelKind, Shape, specialisations

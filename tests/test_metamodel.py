@@ -175,6 +175,7 @@ def test_the_committed_diagrams_are_current():
     """docs/metamodel is generated; regenerate with
     `orgagents metamodel diagram`."""
     from pathlib import Path
+
     from orgagents.metamodel import to_plantuml, to_plantuml_profile
     root = Path(__file__).resolve().parents[1] / "docs" / "metamodel"
     assert (root / "orgagents-model.puml").read_text() == to_plantuml()

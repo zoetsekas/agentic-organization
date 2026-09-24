@@ -56,7 +56,7 @@ class Store:
         name: Optional[str] = None,
     ) -> BaseModel:
         body = obj.model_dump_json()
-        oid = getattr(obj, "id")
+        oid = obj.id
         with self._lock:
             self._conn.execute(
                 "INSERT INTO documents(collection,id,parent,name,body) VALUES(?,?,?,?,?) "

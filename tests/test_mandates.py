@@ -9,19 +9,17 @@ from __future__ import annotations
 
 import pytest
 
-from orgagents.compiler.ir import build_ir
-from orgagents.mandates import EffectiveMandate, resolve, root_mandate
-from orgagents.models import ToolBinding
-from orgagents.spec.model import Mandate, SystemSpec
-from orgagents.spec.validate import errors, validate_spec
-
-
 # --------------------------------------------------------------------------
 # Resolution: authority narrows downward
 # --------------------------------------------------------------------------
+from spec_fixtures import BASE, SEPARATED  # noqa: E402
+from spec_fixtures import org as _org
 
-
-from spec_fixtures import BASE, SEPARATED, org as _org  # noqa: E402
+from orgagents.compiler.ir import build_ir
+from orgagents.mandates import EffectiveMandate, resolve, root_mandate
+from orgagents.models import ToolBinding
+from orgagents.spec.model import Mandate
+from orgagents.spec.validate import errors, validate_spec
 
 
 def test_a_unit_declaring_nothing_inherits_rather_than_holding_everything():

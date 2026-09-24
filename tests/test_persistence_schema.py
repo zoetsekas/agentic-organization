@@ -12,8 +12,7 @@ import pytest
 from orgagents.metamodel import PROFILES, RelKind, Shape
 from orgagents.metamodel.completeness import _owner_class, _walk_field, py_class
 from orgagents.persistence import migrations, relational
-from orgagents.persistence.relational import (Flat, Links, Parts, Ref, ident,
-                                              plan, structure)
+from orgagents.persistence.relational import Flat, Links, Parts, Ref, ident, plan, structure
 
 
 def _all_fields(fields):
@@ -177,7 +176,6 @@ def test_a_generated_migration_takes_the_old_schema_to_the_new(
     import copy
 
     import psycopg
-
     from pg import drop_database, fresh_database
     new = structure()
     old = copy.deepcopy(new)

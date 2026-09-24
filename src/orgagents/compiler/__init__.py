@@ -1,5 +1,5 @@
-from .diff import IRDiff, IncomparableIRError, diff_ir
 from .base import REGISTRY, GeneratedFile, Target, register_builtin_targets
+from .diff import IncomparableIRError, IRDiff, diff_ir
 from .engine import CompileResult, compile_system
 from .ir import SystemIR, build_ir
 

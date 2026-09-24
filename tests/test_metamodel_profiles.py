@@ -12,8 +12,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from orgagents.metamodel import (PROFILE, PROFILES, SPEC_PROFILES, RelKind,
-                                 link_rules, profile_of)
+from orgagents.metamodel import PROFILE, PROFILES, SPEC_PROFILES, RelKind, link_rules, profile_of
 
 SNAPSHOT = json.loads((Path(__file__).parent / "snapshots" /
                        "metamodel_link_rules.json").read_text("utf-8"))

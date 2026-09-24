@@ -8,7 +8,6 @@ exactly as it did, because most delegation genuinely wants an answer now.
 from __future__ import annotations
 
 import threading
-import time
 from pathlib import Path
 
 import pytest

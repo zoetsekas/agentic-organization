@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from orgagents.catalogs import (
+    STALE_MARKER,
     ApprovalStatus,
-    CatalogEntry,
     CatalogError,
     CatalogKind,
     CatalogService,
@@ -20,8 +20,6 @@ from orgagents.catalogs import (
     FigureProvenance,
     FileFigureSource,
     HttpFigureSource,
-    MappingFigureSource,
-    STALE_MARKER,
     seed_catalog,
 )
 from orgagents.compiler import build_ir

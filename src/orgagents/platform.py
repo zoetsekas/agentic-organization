@@ -9,7 +9,7 @@ from .data.planes import DataPlanes
 from .harness.builder import HarnessBuilder
 from .harness.mcp import MCPRegistry
 from .harness.sandbox import SANDBOX_TEMPLATES, SandboxRunner
-from .messaging import ChannelKind, MessageBus, logging_transport
+from .messaging import ChannelKind, logging_transport
 from .models import WorkflowRef
 from .observability import Observability, configure_logging
 from .org import OrgChart

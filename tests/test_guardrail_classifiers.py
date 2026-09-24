@@ -14,8 +14,8 @@ from orgagents.classifiers import (
     PatternClassifier,
 )
 from orgagents.context import (
-    ContextManager,
     ArtifactWorkspace,
+    ContextManager,
     FirstLastSummarizer,
     ModelSummarizer,
     ResolvedContext,

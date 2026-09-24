@@ -13,9 +13,15 @@ from orgagents.compiler.engine import compile_system
 from orgagents.compiler.ir import build_ir
 from orgagents.metamodel import PROFILE, RelKind, Shape, specialisations
 from orgagents.metamodel.scenarios import SCENARIOS, base, play
-from orgagents.metamodel.transformation import (ELEMENTS, Mode, carried_by,
-                                                describe, image_class, trace,
-                                                trace_targets)
+from orgagents.metamodel.transformation import (
+    ELEMENTS,
+    Mode,
+    carried_by,
+    describe,
+    image_class,
+    trace,
+    trace_targets,
+)
 from orgagents.spec.loader import load_spec
 
 ROOT = Path(__file__).resolve().parents[1]

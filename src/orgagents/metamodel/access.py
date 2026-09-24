@@ -3,14 +3,12 @@ capabilities and the limits enforced at their boundary, external endpoints
 and sandbox environments."""
 from __future__ import annotations
 
-from .uml import DataType, Draw, Enumeration
+from .uml import DataType, Draw, Enumeration, Profile, props
 from .uml import MetaClass as MC
-from .uml import Profile
 from .uml import Relationship as R
 from .uml import RelKind as K
 from .uml import Shape as SH
 from .uml import Stereotype as S
-from .uml import props
 
 STEREOTYPES = [
     S("Callable", "callable", MC.INTERFACE, "", "",

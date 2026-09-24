@@ -19,10 +19,6 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .classifiers import (  # re-exported: this is where callers look for them
-    INJECTION_PHRASES,
-    PATTERNS,
-    PII_CHECKS,
-    SECRET_CHECKS,
     Classification,
     Classifier,
     PatternClassifier,

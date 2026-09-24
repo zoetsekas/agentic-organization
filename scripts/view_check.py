@@ -31,8 +31,9 @@ sys.path.insert(0, str(ROOT / "src"))
 WORK = pathlib.Path(tempfile.mkdtemp(prefix="orgagents-views-"))
 os.chdir(WORK)
 
-from orgagents.api import create_app                      # noqa: E402
-from fastapi.testclient import TestClient                 # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from orgagents.api import create_app  # noqa: E402
 
 app = create_app(str(WORK / "designer.db"))
 c = TestClient(app)
@@ -50,9 +51,9 @@ app.state.fabric["tenants"].register(id="northwind", name="Northwind",
 # thing anything had ever exercised, because nothing had ever run. Load the
 # design into the runtime and run two agents, so the populated states are
 # checked too — which is where the columns, badges and the trace live.
-from orgagents.compiler.ir import build_ir                # noqa: E402
-from orgagents.runtime.loader import load_system          # noqa: E402
-from orgagents.spec.model import SystemSpec               # noqa: E402
+from orgagents.compiler.ir import build_ir  # noqa: E402
+from orgagents.runtime.loader import load_system  # noqa: E402
+from orgagents.spec.model import SystemSpec  # noqa: E402
 
 RAN: list[str] = []
 try:
@@ -549,7 +550,7 @@ async def main() -> int:
         async def agents_form_saves():
             """The form's whole purpose. Editing a field and saving must reach
             the spec, or this view is a viewer."""
-            box = page.locator("#agentform textarea, #agentform input[type=text]")
+            page.locator("#agentform textarea, #agentform input[type=text]")
             # Re-select: the check before this one saves, and the view
             # re-renders. A check that leans on the previous one's leftover
             # state is reporting the sequence rather than the thing.

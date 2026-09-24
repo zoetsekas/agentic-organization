@@ -13,9 +13,6 @@ from typing import Callable, Optional, Protocol, runtime_checkable
 
 from . import openshell as openshell_mod
 from .model import (
-    CoResidency,
-    ProviderCapabilities,
-    Support,
     CONTAINER,
     DEFAULT_PROVIDER,
     MICROVM_SBX,
@@ -23,11 +20,14 @@ from .model import (
     TARGET_NATIVE,
     Availability,
     BoundaryStatement,
+    CoResidency,
     Degradation,
     DetectionContext,
     EnvironmentFacts,
+    ProviderCapabilities,
     ProviderMapping,
     SandboxResolution,
+    Support,
     TenantScoping,
 )
 

@@ -3,14 +3,12 @@ workflows as UML Activities with their actions and control flows, the seam to
 a body built in an engine, triggers and channels."""
 from __future__ import annotations
 
-from .uml import DataType, Draw, Enumeration
+from .uml import DataType, Draw, Enumeration, Profile, Property, props
 from .uml import MetaClass as MC
-from .uml import Profile, Property
 from .uml import Relationship as R
 from .uml import RelKind as K
 from .uml import Shape as SH
 from .uml import Stereotype as S
-from .uml import props
 
 STEREOTYPES = [
     S("Action", "action", MC.ACTION, "", "ActivityNode",

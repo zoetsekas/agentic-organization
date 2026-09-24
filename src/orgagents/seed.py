@@ -28,11 +28,11 @@ from .models import (
     Skill,
     ToolBinding,
     Visibility,
+    WorkflowRef,
 )
 from .platform import Platform
-from .models import WorkflowRef
-from .store import PLUGINS, SKILLS, WORKFLOWS
 from .spec.model import org_collection
+from .store import PLUGINS, SKILLS, WORKFLOWS
 
 DEMO_WAREHOUSE = "demo_warehouse.db"
 

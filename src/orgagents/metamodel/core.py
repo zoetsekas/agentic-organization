@@ -3,11 +3,9 @@ profile shares — the abstract ends a policy is about, and the shared
 enumerations and value types. Imports nothing but UML."""
 from __future__ import annotations
 
-from .uml import DataType, Enumeration
+from .uml import DataType, Enumeration, Profile, props
 from .uml import MetaClass as MC
-from .uml import Profile
 from .uml import Stereotype as S
-from .uml import props
 
 STEREOTYPES = [
     S("Principal", "principal", MC.INTERFACE, "", "",

@@ -12,7 +12,7 @@ import sys
 from collections import Counter, defaultdict
 from typing import Any, Optional
 
-from .models import Agent, Alert, AgentSession, SessionEvent, SessionState, Severity
+from .models import Agent, AgentSession, Alert, SessionEvent, SessionState, Severity
 from .store import AGENTS, ALERTS, EVENTS, SESSIONS, Store
 
 _LOG = logging.getLogger("orgagents")

@@ -29,10 +29,16 @@ import pytest
 import yaml
 
 from orgagents.harness.builder import ApprovalGrants
-from orgagents.security.service_auth import (ApprovalTokenError, NonceStore,
-                                             bearer_matches, generate_signing_key,
-                                             issue_approval, parse_public_keys,
-                                             public_key_of, verify_approval)
+from orgagents.security.service_auth import (
+    ApprovalTokenError,
+    NonceStore,
+    bearer_matches,
+    generate_signing_key,
+    issue_approval,
+    parse_public_keys,
+    public_key_of,
+    verify_approval,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 AYC = ROOT / "examples" / "ayc"
@@ -332,9 +338,10 @@ def _hardened(service):
 
 @pytest.fixture(scope="module")
 def stack():
+    import tempfile
+
     from orgagents.compiler import compile_system
     from orgagents.spec import load_binding, load_spec
-    import tempfile
 
     out = Path(tempfile.mkdtemp())
     compile_system(load_spec(str(AYC / "ayc.system.yaml")), targets=["local"],

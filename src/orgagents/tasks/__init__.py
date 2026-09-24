@@ -10,6 +10,7 @@ from .divergence import Divergence, DivergenceKind, detect
 from .local import LocalTaskBackend
 from .model import (
     TASKS,
+    TRANSITIONS,
     ApprovalState,
     IllegalTaskTransition,
     TaskActor,
@@ -18,7 +19,6 @@ from .model import (
     TaskRecord,
     TaskState,
     TaskTransitionDenied,
-    TRANSITIONS,
     allowed_transitions,
     check_transition,
 )

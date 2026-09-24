@@ -16,8 +16,6 @@ Two kinds of test live here and both matter:
 """
 from __future__ import annotations
 
-import pytest
-
 from orgagents.mandates import resolve
 from orgagents.spec.model import (
     Mandate,

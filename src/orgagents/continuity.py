@@ -32,7 +32,6 @@ from pydantic import BaseModel, Field
 from .ids import new_id, now_iso
 from .missions import window_is_open
 
-
 #: How long a *lateral* standing-in runs before it must be renewed. Written
 #: down and put on the record rather than left open, because ADR-0094 rule 3
 #: says a stand-in that never ends is a reorganisation nobody approved — and a

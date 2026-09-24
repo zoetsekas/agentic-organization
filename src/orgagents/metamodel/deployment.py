@@ -15,14 +15,12 @@ server, a runtime or a cloud. It is not part of the assembled spec
 """
 from __future__ import annotations
 
-from .uml import DataType, Draw
+from .uml import DataType, Draw, Profile, props
 from .uml import MetaClass as MC
-from .uml import Profile
 from .uml import Relationship as R
 from .uml import RelKind as K
 from .uml import Shape as SH
 from .uml import Stereotype as S
-from .uml import props
 
 STEREOTYPES = [
     S("Binding", "binding", MC.ARTIFACT, "", "Binding",

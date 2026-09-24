@@ -19,7 +19,12 @@ from mcp.shared.memory import create_connected_server_and_client_session  # noqa
 
 from orgagents.api import create_app  # noqa: E402
 from orgagents.mcp_server._common import (  # noqa: E402
-    Backend, ConfigurationError, ServerConfig, http_app, load_token_map)
+    Backend,
+    ConfigurationError,
+    ServerConfig,
+    http_app,
+    load_token_map,
+)
 from orgagents.mcp_server.designer import build_designer_server  # noqa: E402
 from orgagents.mcp_server.runtime import build_runtime_server  # noqa: E402
 

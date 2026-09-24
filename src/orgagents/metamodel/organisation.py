@@ -3,14 +3,12 @@ sub-agents, people, roles and missions, and how they relate to each other."""
 from __future__ import annotations
 
 from ..spec import model as _spec
-from .uml import DataType, Draw, Enumeration
+from .uml import DataType, Draw, Enumeration, Profile, props
 from .uml import MetaClass as MC
-from .uml import Profile
 from .uml import Relationship as R
 from .uml import RelKind as K
 from .uml import Shape as SH
 from .uml import Stereotype as S
-from .uml import props
 
 STEREOTYPES = [
     S("Organization", "organization", MC.COMPONENT, "organization",

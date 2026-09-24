@@ -6,7 +6,6 @@ even a public card — so no public peer could be discovered at all. The waiver
 covers one check on one body-less read, and these tests exist to keep it that
 narrow: a waiver that quietly grew would be worse than the flaw it fixed.
 """
-import pytest
 
 from orgagents.runtime.endpoints import CallerBoundary, call_endpoint
 

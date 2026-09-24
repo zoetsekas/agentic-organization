@@ -5,9 +5,8 @@ binary and no `openshell` binary in this environment, so availability is always
 described through an injected `DetectionContext`.
 """
 
-from pathlib import Path
-
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -318,7 +317,7 @@ def test_resolution_serializes_for_a_mapping_report():
 
 def test_every_provider_answers_both_capability_questions():
     """Rules 6 and 8 both turn on these, so an unanswered one is a gap."""
-    from orgagents.sandboxes import provider_names, get_provider
+    from orgagents.sandboxes import get_provider, provider_names
 
     for name in provider_names():
         caps = get_provider(name).capabilities()
@@ -385,7 +384,6 @@ def test_a_single_agent_is_never_a_degradation():
     from orgagents.sandboxes import (
         DetectionContext,
         EnvironmentFacts,
-        EnvironmentFacts as _F,
         resolve_co_residency,
         resolve_provider,
     )

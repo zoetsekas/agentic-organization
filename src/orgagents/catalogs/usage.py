@@ -10,7 +10,7 @@ the record says what a design would actually run on.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 

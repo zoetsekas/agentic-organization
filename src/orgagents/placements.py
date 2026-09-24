@@ -34,7 +34,7 @@ kernel too.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 #: Separator between the unit and the environment class in a placement id.
 #: Chosen so a placement id is a legal DNS label component after the ids

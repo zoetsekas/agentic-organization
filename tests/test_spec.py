@@ -7,7 +7,6 @@ import pytest
 from pydantic import BaseModel
 
 from orgagents.spec import load_spec, validate_spec
-from orgagents.spec import model as spec_model
 from orgagents.spec.loader import SpecVersionError, load_spec_text
 from orgagents.spec.model import NetworkPosture, SystemSpec
 

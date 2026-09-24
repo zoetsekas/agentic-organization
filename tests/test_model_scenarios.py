@@ -13,8 +13,7 @@ import pytest
 from orgagents.metamodel.constraints import CONSTRAINTS, check
 from orgagents.metamodel.instances import collect
 from orgagents.metamodel.operations import OperationError, link, relationship
-from orgagents.metamodel.scenarios import (SCENARIOS, base, catalogue, play,
-                                           to_object_diagram)
+from orgagents.metamodel.scenarios import SCENARIOS, base, catalogue, play, to_object_diagram
 from orgagents.spec.loader import load_spec
 
 ROOT = Path(__file__).resolve().parents[1]
