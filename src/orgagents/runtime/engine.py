@@ -147,6 +147,13 @@ class AgentRuntime:
         # Declarations from the IR, filled by the loader (ADR-0099).
         self._ir_agents: list[dict[str, Any]] = []
         self._ir_data_classes: list[dict[str, Any]] = []
+        # Deployment hooks over the assembled toolset, applied before the
+        # policy wrapper: `(agent, session_id, tools) -> tools`. A worker uses
+        # one to put the bus's `delegate`/`send_message` in place of the
+        # in-process ones, and to refuse a tool a separation forbids to the
+        # delegation chain it is running for (ADR-0117). A hook can add,
+        # replace or remove; it can never get around `guarded`.
+        self.tool_hooks: list[Callable[[Agent, str, dict[str, Any]], dict[str, Any]]] = []
 
     def _by_priority(self, handles: list[str]) -> list[str]:
         """Handles, most important first, stably.
@@ -661,6 +668,8 @@ class AgentRuntime:
         tools.update(self._workflow_tools(agent, session.id))
         tools.update(self._messaging_tools(agent, session.id))
         tools.update(self._escalation_tools(agent, session.id))
+        for hook in self.tool_hooks:
+            tools = hook(agent, session.id, tools)
         # The framework invokes these callables directly, never through
         # `HarnessBuilder.call`, so the policy checks are wrapped around them
         # here. Without this the mandate and approval gates bind only callers

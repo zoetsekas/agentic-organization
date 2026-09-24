@@ -74,6 +74,34 @@ class SubjectNamespace:
     def wildcard(self) -> str:
         return f"{self.prefix}.>"
 
+    # -- agent-to-agent over JetStream (ADR-0117) ---------------------------
+    # The sender is the *last* token, so a broker permission that lets an
+    # agent publish only to `<to>.inbox.<itself>` is what vouches for who
+    # sent it: the receiver reads the sender from the subject, never from
+    # the payload.
+
+    def inbox(self, to_agent_id: str, from_agent_id: str) -> str:
+        return f"{self.agent(to_agent_id)}.inbox.{_token(from_agent_id)}"
+
+    def reply(self, to_agent_id: str, from_agent_id: str) -> str:
+        return f"{self.agent(to_agent_id)}.reply.{_token(from_agent_id)}"
+
+    def mailbox(self, agent_id: str) -> str:
+        """Everything addressed to one agent: its inbox and its replies."""
+        return f"{self.agent(agent_id)}.>"
+
+    @property
+    def agents_wildcard(self) -> str:
+        return f"{self.prefix}.agent.>"
+
+    @property
+    def stream(self) -> str:
+        """The tenant's one JetStream stream for agent mail."""
+        return "ORGAGENTS_" + _token(self.tenant).upper().replace("-", "_")
+
+    def consumer(self, agent_id: str) -> str:
+        return "agent_" + _token(agent_id)
+
 
 @dataclass(frozen=True)
 class ChannelDurability:

@@ -28,7 +28,11 @@ client = ["httpx>=0.27,<1"]
 # tested on 1.30. Capped below 2 because a major version may change the FastMCP server API
 # these are written against; raising the cap is a tested change, not a bump.
 mcp = ["mcp>=1.10,<2", "httpx>=0.27,<1"]
-dev = ["pytest>=8.0", "httpx>=0.27", "jsonschema>=4.20"]
+# Agent-to-agent messaging between worker containers over NATS JetStream
+# (ADR-0117); every generated agent image installs it. Tested on 2.16; capped
+# below 3 because a major version may change the JetStream client API.
+bus = ["nats-py>=2.7,<3"]
+dev = ["pytest>=8.0", "httpx>=0.27", "jsonschema>=4.20", "nats-py>=2.7,<3"]
 
 [project.scripts]
 orgagents = "orgagents.cli:main"

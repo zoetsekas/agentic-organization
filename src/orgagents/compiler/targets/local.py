@@ -22,6 +22,8 @@ from ...bus import SubjectNamespace
 from ...runtime.engines import InvocationMode, UnknownEngine, engine
 from ..base import GeneratedFile
 from ..ir import SystemIR
+from ..links import (BUS_ADMIN_PASSWORD_REF, BUS_ADMIN_USER, agent_links, bus_password_ref,
+                     bus_user, nats_config)
 from ..registry import registry_report
 
 # Abstract environment vocabulary → local container settings. This table is the
@@ -192,7 +194,8 @@ class LocalTarget:
             "produces": ["Dockerfile", "docker/Dockerfile.<environment>",
                          ".dockerignore", "docker-compose.yaml", "Makefile",
                          ".env.example",
-                         "system.ir.json", "agents/*.json", "triggers.json",
+                         "system.ir.json", "agents/*.json", "nats/nats.conf",
+                         "triggers.json",
                          "channels.json", "memory.json", "REGISTRY.md",
                          "run_local.py", "README.md", "wheels/README.md"],
             "caveats": ["Compose approximates network policy and cannot represent "
@@ -226,6 +229,9 @@ class LocalTarget:
             GeneratedFile("Dockerfile", self._runtime_dockerfile(ir)).with_header(ir),
             GeneratedFile(".dockerignore", self._dockerignore()),
             GeneratedFile("requirements.txt", self._requirements(ir)),
+            # The broker's users and subject permissions: the design's edges,
+            # enforced by NATS as well as by both workers (ADR-0117).
+            GeneratedFile("nats/nats.conf", nats_config(ir, server_name=ir.qualified("bus"))),
             GeneratedFile("wheels/README.md", WHEELS_README),
             # A built wheel is a build input, not source: never committed.
             GeneratedFile("wheels/.gitignore", "*.whl\n"),
@@ -236,6 +242,7 @@ class LocalTarget:
         ]
         if self._service_engines(ir):
             files.append(GeneratedFile("flows/README.md", self._flows_readme(ir)))
+        links = agent_links(ir)
         for agent in ir.agents:
             files.append(
                 GeneratedFile(
@@ -244,6 +251,10 @@ class LocalTarget:
                         {
                             "agent": agent.model_dump(mode="json"),
                             "system_prompt": agent.system_prompt(),
+                            # Who it may reach and who may reach it, and the
+                            # separations a delegation must keep: computed
+                            # here, never by the worker (ADR-0117).
+                            "links": links[agent.id],
                         },
                         indent=2,
                     )
@@ -402,6 +413,8 @@ class LocalTarget:
             "openai_agents_sdk": "orgagents[openai]",
         }
         wanted = sorted({extras.get(a, "orgagents") for a in adapters}) or ["orgagents"]
+        # Every agent container is on the tenant's bus (ADR-0117).
+        wanted.append("orgagents[bus]")
         provider = ir.binding.model.provider
         provider_package = {
             "anthropic": "anthropic>=0.40", "openai": "openai>=1.40",
@@ -614,12 +627,14 @@ WORKDIR /workspace
                 "ORGAGENTS_MANIFEST": f"/app/agents/{agent.id}.json",
                 "ORGAGENTS_ADAPTER": agent.runtime_adapter,
                 "OTEL_EXPORTER_OTLP_ENDPOINT": "http://telemetry:4317",
-                # Where the bus is and which subjects are ours. The runtime
-                # reads these only if it is configured onto the NATS backend;
-                # the in-process bus remains the default (ADR-0059).
-                "ORGAGENTS_BUS": "${ORGAGENTS_BUS:-in_process}",
+                # Where the bus is, which subjects are ours, and this
+                # agent's own broker user: it can publish only to the
+                # inboxes its edges reach, as itself (ADR-0117).
+                "ORGAGENTS_BUS": "${ORGAGENTS_BUS:-nats}",
                 "ORGAGENTS_BUS_URL": "nats://nats:4222",
                 "ORGAGENTS_BUS_SUBJECT_PREFIX": self._subjects(ir).prefix,
+                "ORGAGENTS_BUS_USER": bus_user(agent.id),
+                "ORGAGENTS_BUS_PASSWORD": f"${{{bus_password_ref(agent.id)}}}",
                 # This worker's own service token (no agent is given
                 # another's, so reaching a neighbour's port is not being able
                 # to make it act), and the issuer's *public* keys it verifies
@@ -632,7 +647,12 @@ WORKDIR /workspace
             "volumes": ["./agents:/app/agents:ro",
                         f"{ir.qualified(f'agent-state-{agent.id}')}:{WORKER_STATE_DIR}"],
             "networks": networks,
-            "depends_on": ["state", "nats"],
+            "depends_on": {
+                "state": {"condition": "service_started"},
+                "nats": {"condition": "service_healthy"},
+                # Its consumer exists before it pulls from it.
+                "bus-init": {"condition": "service_completed_successfully"},
+            },
             # The process bound goes with the other limits: Compose refuses a
             # service that sets `pids_limit` beside `deploy.resources.limits`.
             "deploy": {"resources": {"limits": {
@@ -838,17 +858,23 @@ WORKDIR /workspace
             # core NATS and pay nothing for it.
             "nats": {
                 "image": BUS_IMAGE,
-                "command": ["--jetstream", "--store_dir", "/data",
-                            "--name", ir.qualified("bus"),
-                            # The monitoring port, for the health check only;
-                            # it is not published.
-                            "--http_port", "8222"],
+                # JetStream, the monitoring port (health check only, never
+                # published) and one user per agent whose subject permissions
+                # are the design's edges (ADR-0117). The broker holds every
+                # agent's password; each agent holds only its own.
+                "command": ["-c", "/etc/nats/nats.conf"],
+                "environment": {
+                    BUS_ADMIN_PASSWORD_REF: f"${{{BUS_ADMIN_PASSWORD_REF}}}",
+                    **{bus_password_ref(a.id): f"${{{bus_password_ref(a.id)}}}"
+                       for a in ir.agents},
+                },
                 "healthcheck": {
                     "test": ["CMD", "wget", "-qO-", "http://127.0.0.1:8222/healthz"],
                     "interval": "10s", "timeout": "3s", "retries": 5,
                 },
                 "networks": [ir.qualified("control")],
-                "volumes": [f'{ir.qualified("bus-data")}:/data'],
+                "volumes": [f'{ir.qualified("bus-data")}:/data',
+                            "./nats/nats.conf:/etc/nats/nats.conf:ro"],
                 "labels": {
                     # Subjects are tenant-prefixed as well as per-instance, so
                     # two tenants wrongly pointed at one broker still would not
@@ -856,6 +882,26 @@ WORKDIR /workspace
                     "org.agentic.subject_prefix": subjects.prefix,
                     "org.agentic.tenant": ir.tenant.id if ir.tenant else "",
                 },
+            },
+            # Creates the tenant's stream and one durable consumer per
+            # agent, then exits. It holds the bus operator's password, which
+            # no agent does; agents can pull from their own consumer and
+            # nothing else (ADR-0117).
+            "bus-init": {
+                "build": {"context": ".", "dockerfile": "Dockerfile"},
+                "image": f"{ir.name}/platform:{ir.spec_version}",
+                "command": ["orgagents", "bus-init", "--ir", "/app/system.ir.json"],
+                "environment": {
+                    "ORGAGENTS_BUS_URL": "nats://nats:4222",
+                    "ORGAGENTS_BUS_ADMIN_USER": BUS_ADMIN_USER,
+                    BUS_ADMIN_PASSWORD_REF: f"${{{BUS_ADMIN_PASSWORD_REF}}}",
+                },
+                "networks": [ir.qualified("control")],
+                "depends_on": {"nats": {"condition": "service_healthy"}},
+                "restart": "no",
+                "healthcheck": {"disable": True},
+                **{k: v for k, v in CONTAINER_HARDENING.items()},
+                "tmpfs": ["/tmp"],
             },
             "designer": {
                 "build": {"context": ".", "dockerfile": "Dockerfile"},
@@ -1177,6 +1223,11 @@ validate:      ## re-validate the source spec
         # One service token per worker, and the approval issuer's public
         # keys for all of them (ADR-0114). The matching private key goes to
         # the issuer only, never into a worker's environment.
+        # The bus (ADR-0117): the operator user that creates the stream, and
+        # one broker password per agent.
+        lines += ["# Bus operator (bus-init only) and one broker password per agent (ADR-0117).",
+                  f"{BUS_ADMIN_PASSWORD_REF}="]
+        lines += [f"{bus_password_ref(a.id)}=" for a in ir.agents]
         lines += ["# Approval issuer's public keys, kid:base64url[,kid:...] (ADR-0114).",
                   f"{APPROVAL_PUBLIC_KEYS_REF}=",
                   "# Per worker (ADR-0114): its service token."]
