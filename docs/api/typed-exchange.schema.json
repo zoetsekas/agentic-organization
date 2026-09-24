@@ -1431,6 +1431,18 @@
           "default": null,
           "title": "Retention Days"
         },
+        "schema_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Schema Ref"
+        },
         "scope": {
           "$ref": "#/$defs/SharingScope",
           "default": "private"
