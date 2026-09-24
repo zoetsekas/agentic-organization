@@ -4,6 +4,12 @@
 #   ORGAGENTS_SEED=1 docker compose up --build   -> with the demo organization
 #   docker compose --profile scheduler up        -> also run declared triggers
 #
+# Designs are stored in PostgreSQL (the `postgres` service, ADR-0113), in
+# tables generated from the UML profiles. On its first start against a volume
+# that already holds designs in the older SQLite store (/data/designer.db),
+# the designer copies them into PostgreSQL once and leaves the SQLite file as
+# it was.
+#
 # This runs the designer. The Compose file the *compiler* generates for a
 # system you design in it is a separate artifact (`orgagents compile --target
 # local`), and the two are not meant to be merged.
@@ -24,6 +30,9 @@ services:
       - "127.0.0.1:${ORGAGENTS_PORT:-8000}:8000"
     environment:
       ORGAGENTS_DB: /data/designer.db
+      # Designs, revisions, workspaces, locks and audit (ADR-0113). The
+      # platform's own records stay in ORGAGENTS_DB.
+      ORGAGENTS_DATABASE_URL: postgresql://orgagents:${ORGAGENTS_POSTGRES_PASSWORD:-orgagents}@postgres:5432/orgagents
       ORGAGENTS_DESIGNER_AUTH: none
       ORGAGENTS_BASE_URL: ${ORGAGENTS_BASE_URL:-http://localhost:8000}
       # Session URLs are handed out to humans, so the base URL has to be the
@@ -40,12 +49,47 @@ services:
     security_opt: ["no-new-privileges:true"]
     pids_limit: 256
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status==200 else 1)"]
       interval: 30s
       timeout: 3s
-      start_period: 10s
+      start_period: 30s
       retries: 3
+
+  # The designer's database (ADR-0113): the model in one PostgreSQL schema
+  # per UML profile. Pinned by digest to the record in docker/images.lock
+  # (ADR-0053). Not published: only the designer, on this Compose network,
+  # reaches it (ADR-0114). It runs as the image's own `postgres` user (70),
+  # so it needs no capabilities; its root filesystem is read-only and its
+  # data lives on the volume. Set ORGAGENTS_POSTGRES_PASSWORD to change the
+  # password (before the first start: it is set when the volume is created).
+  postgres:
+    image: postgres:16-alpine@sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb
+    container_name: orgagents-postgres
+    user: "70:70"
+    environment:
+      POSTGRES_USER: orgagents
+      POSTGRES_PASSWORD: ${ORGAGENTS_POSTGRES_PASSWORD:-orgagents}
+      POSTGRES_DB: orgagents
+    volumes:
+      - designer-postgres:/var/lib/postgresql/data
+    read_only: true
+    tmpfs: [/tmp, /var/run/postgresql]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    restart: unless-stopped
+    healthcheck:
+      # Over TCP, so the temporary server initdb runs on a socket does not
+      # count as ready.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "orgagents", "-d", "orgagents"]
+      interval: 5s
+      timeout: 3s
+      start_period: 30s
+      retries: 10
 
   # Opt-in: runs the triggers a designed system declares. Off by default
   # because an unattended agent loop should be something you asked for.
@@ -73,3 +117,4 @@ services:
 
 volumes:
   designer-data:
+  designer-postgres:

@@ -18,6 +18,12 @@ if [ "${1:-serve}" = "serve" ]; then
         echo "seeding a demo organization into $DB"
         python -m orgagents.cli --db "$DB" seed
     fi
+    # Designs kept in the SQLite store before ADR-0113 are copied into
+    # PostgreSQL once; the SQLite file is only read. A problem is reported
+    # and the designer starts anyway: the SQLite file still holds everything.
+    if [ -n "${ORGAGENTS_DATABASE_URL:-}" ] && [ -f "$DB" ]; then
+        python -m orgagents.cli --db "$DB" db migrate-from-sqlite "$DB" --once             || echo "warning: moving designs from $DB into PostgreSQL reported a problem; $DB is unchanged" >&2
+    fi
     echo "designer listening on ${HOST}:${PORT} (UI at ${BASE_URL}/ui/)"
     exec python -m orgagents.cli --db "$DB" --base-url "$BASE_URL" \
         serve --host "$HOST" --port "$PORT"

@@ -29,6 +29,8 @@
 # plane is where the image runs: fabric, tenant, designer, or sandbox.
 
 # --- fabric plane: shared infrastructure the fabric owns ---------------------
+# postgres is also the designer's own database (ADR-0113): docker-compose.yml
+# runs it by this digest.
 postgres:16-alpine                                   sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb  fabric,designer,tenant
 traefik:v3                                           sha256:1c32e7c368204fd72812152ebdd2ac0425993df6fd982317deb02e48f2d5423c  fabric
 # quay.io is blocked by this environment's egress proxy; the tag was never checked.
