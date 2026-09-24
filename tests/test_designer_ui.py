@@ -262,9 +262,6 @@ SERVER_ONLY = {
     ("GET", "/api/designer/issue-codes"):
         "The whole catalog, for tooling and docs; the UI asks for one code at "
         "a time when a code in the Issues tab is clicked.",
-    ("GET", "/api/designer/systems/{}/export"):
-        "Typed export (ADR-0113) for the CLI, MCP and tooling; the UI's "
-        "Export… action is recorded in ADR-0113 1.1.0 as not yet built.",
 }
 
 

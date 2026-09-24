@@ -2273,6 +2273,50 @@ function wireImport() {
   });
 }
 
+/* ---------------------------------------------------------- export a file
+   The open organisation as a file (ADR-0113): YAML or JSON, typed so every
+   element names its UML type, and the definition or the binding saved with
+   it. What is saved is the last saved version; unsaved edits are not in it,
+   so the dialog says so rather than exporting something the person did not
+   expect. */
+function wireExport() {
+  $("#btn-org-export")?.addEventListener("click", async () => {
+    const d = design();
+    const id = d?.state.systemId;
+    if (!id) {
+      await ui.alertDialog("Open an organisation first; Export saves the open one.",
+        { title: "Nothing to export" });
+      return;
+    }
+    const answer = await ui.formDialog({
+      title: "Export the organisation",
+      message: "Saves the last saved version as a typed file: every element "
+        + "names its UML type, and Import reads it back."
+        + (d.state.dirty ? "\n\nYou have unsaved changes; they are not in the file." : ""),
+      submitLabel: "Export",
+      fields: [
+        { name: "format", label: "Format", type: "radio", value: "yaml", options: [
+          ["yaml", "YAML", "easiest to read and review in a diff"],
+          ["json", "JSON", "for tools that read JSON"]] },
+        { name: "part", label: "What", type: "radio", value: "spec", options: [
+          ["spec", "Definition", "the organisation itself (*.system.*)"],
+          ["binding", "Binding", "where it runs, saved with it (*.binding.*)"]] },
+      ],
+    });
+    if (!answer) return;
+    try {
+      const q = new URLSearchParams({ format: answer.format, part: answer.part });
+      const got = await d.dfile(`/systems/${encodeURIComponent(id)}/export?${q}`);
+      setStatus(`exported ${got.filename}`);
+      ui.announce(`Exported ${got.filename}`);
+    } catch (err) {
+      await ui.alertDialog(err.status === 404 && answer.part === "binding"
+        ? "This organisation has no binding saved with it yet." : err.message,
+        { title: "Not exported" });
+    }
+  });
+}
+
 /* Every other form that has a `required` field is marked, even before it is
    wired: the mark is how a person knows what they must fill in. */
 function markAllRequired() {
@@ -2288,6 +2332,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   initPanels();
   wireWorkspaces();
   wireImport();
+  wireExport();
   // Authority is a review, reached from where review happens (ADR-0108).
   $("#btn-org-authority")?.addEventListener("click", () => showView("authority"));
   $("#btn-authority-back")?.addEventListener("click", () =>

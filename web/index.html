@@ -173,7 +173,9 @@
       <button id="btn-org-authority"
               title="what this design grants, resolved: decisions, separations, placements, people">Review authority…</button>
       <button id="btn-org-import"
-              title="open an organisation from a *.system.yaml on this computer">Import from file…</button>
+              title="open an organisation from a YAML or JSON file on this computer, typed or not">Import from file…</button>
+      <button id="btn-org-export"
+              title="save the open organisation as a typed YAML or JSON file">Export…</button>
       <button id="btn-org-edit">Edit definition…</button>
       <button id="btn-org-duplicate">Duplicate</button>
       <button id="btn-org-delete">Delete…</button>
@@ -550,8 +552,9 @@
             <kbd>🗑</kbd> buttons.</li>
           <li><strong>Open an organisation</strong>: <span class="g-btn">New organisation</span>,
             <span class="g-btn">Load example…</span> (a shipped example), or
-            <span class="g-btn">Import from file…</span> (a <code>*.system.yaml</code>
-            from your computer), all on the <em>Org chart</em> screen.</li>
+            <span class="g-btn">Import from file…</span> (a YAML or JSON design
+            from your computer), all on the <em>Org chart</em> screen.
+            <span class="g-btn">Export…</span> saves the open one back to a file.</li>
           <li><strong>Design it</strong> on the <em>Canvas</em> or in the
             <em>Components</em> editors, then <span class="g-btn">Save</span>.</li>
           <li><span class="g-btn">Publish…</span> when the <em>Issues</em> tab is clear:
@@ -709,7 +712,14 @@
               shipped organisations, laid out.</td></tr>
             <tr><td><span class="g-btn">Import from file…</span></td><td>A design
               file from your computer, into a workspace you choose. A file that is
-              not a design is refused with the reason under the file field.</td></tr>
+              not a design is refused with the reason under the file field.
+              <code>.yaml</code>, <code>.yml</code> and <code>.json</code> are read,
+              typed (every element naming its UML type, as Export writes it) or
+              untyped (a hand-written <code>*.system.yaml</code>).</td></tr>
+            <tr><td><span class="g-btn">Export…</span></td><td>Saves the open
+              organisation's last saved version as a typed YAML or JSON file —
+              its definition, or the binding saved with it. Unsaved edits are not
+              in the file; save first. Import reads the file back.</td></tr>
           </tbody>
         </table>
         <p>From a shell:</p>
@@ -1427,6 +1437,9 @@ orgagents compile my.system.yaml --target local</pre>
 <dialog id="import-dialog" class="dialog">
   <form id="importform" class="form" method="dialog">
     <h3>Import an organisation from a file</h3>
+    <p class="hint">A <code>.yaml</code>, <code>.yml</code> or <code>.json</code>
+      file, typed (as Export writes it, every element naming its UML type) or
+      untyped (a hand-written <code>*.system.yaml</code>). Both are read the same.</p>
     <label>File<input name="file" type="file" required
       accept=".yaml,.yml,.json" /></label>
     <label>Name<input name="name"

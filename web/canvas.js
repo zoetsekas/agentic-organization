@@ -28,6 +28,33 @@ const canvas = {
 };
 
 /* ------------------------------------------------------------- transport */
+/* A file the server sends to be saved, not parsed: the export (ADR-0113).
+   Fetched with the same headers as every other call, then handed to the
+   browser as a download named by the server's Content-Disposition. */
+async function dfile(path) {
+  const res = await fetch(DAPI + path, {
+    headers: { "X-User": canvas.user, "X-User-Name": canvas.user },
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { detail = JSON.parse(text).detail || detail; } catch { /* not JSON */ }
+    const err = new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    err.status = res.status;
+    throw err;
+  }
+  const named = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "");
+  const filename = named ? named[1] : path.split("/").pop();
+  const url = URL.createObjectURL(new Blob([text], {
+    type: res.headers.get("Content-Type") || "text/plain" }));
+  const link = Object.assign(document.createElement("a"), { href: url, download: filename });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return { filename, size: text.length };
+}
+
 async function dapi(path, options = {}) {
   const res = await fetch(DAPI + path, {
     headers: {
@@ -6166,6 +6193,7 @@ window.initCanvas = initCanvas;
 window.designer = {
   state: canvas,
   dapi,
+  dfile,
   spec,
   teams: allTeams,
   agents: allAgents,

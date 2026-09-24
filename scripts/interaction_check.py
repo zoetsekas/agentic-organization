@@ -126,6 +126,27 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     results.append((ok, name, detail))
 
 
+async def palette_item(page, label: str):
+    """The palette entry for `label`, made visible the way a person would.
+
+    The palette is grouped by UML profile (ADR-0111 1.1.0 / ADR-0112 M7):
+    kinds whose profiles no diagram draws yet sit in a closed "Other
+    profiles" group on the Organisation diagram. A person opens that group
+    before dragging, so this does too -- by clicking its summary, not by
+    forcing the drag onto an invisible item. If the entry is still hidden
+    afterwards the drag fails, which is the point: a kind the palette
+    cannot show is a kind nobody can place.
+    """
+    item = page.locator(".drag-item", has_text=label).first
+    if not await item.is_visible():
+        closed = page.locator("details:not([open])").filter(
+            has=page.locator(".drag-item", has_text=label))
+        if await closed.count():
+            await closed.first.locator(":scope > summary").click()
+            await page.wait_for_timeout(200)
+    return item
+
+
 async def main() -> None:
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(**({"executable_path": CHROME} if CHROME else {}))
@@ -145,7 +166,7 @@ async def main() -> None:
 
         # -- 1. Drag from the palette onto the canvas ----------------------
         before = await page.locator("#canvas-nodes > *").count()
-        await page.locator(".drag-item", has_text="Guardrail").first.drag_to(
+        await (await palette_item(page, "Guardrail")).drag_to(
             page.locator("#canvas"), target_position={"x": 700, "y": 520}
         )
         await page.wait_for_timeout(700)
@@ -246,7 +267,7 @@ async def main() -> None:
         # so two teams dropped close together came out linked and the only
         # way to see it was to read the YAML.
         async def drop(label, x, y):
-            await page.locator(".drag-item", has_text=label).first.drag_to(
+            await (await palette_item(page, label)).drag_to(
                 page.locator("#canvas"), target_position={"x": x, "y": y})
             await page.wait_for_timeout(600)
 
@@ -682,7 +703,7 @@ async def main() -> None:
         # so the second one is invisible and un-editable.
         dropped = []
         for _ in range(3):
-            await page.locator(".drag-item", has_text="Data class").first.drag_to(
+            await (await palette_item(page, "Data class")).drag_to(
                 page.locator("#canvas"), target_position={"x": 980, "y": 240})
             await page.wait_for_timeout(500)
         dropped = await page.evaluate("""() => {
@@ -781,7 +802,7 @@ async def main() -> None:
         agent_box = await page.locator(
             '#canvas-nodes [data-id="controller"]').bounding_box()
         canvas_box = await page.locator("#canvas").bounding_box()
-        await page.locator(".drag-item", has_text="Tool").first.drag_to(
+        await (await palette_item(page, "Tool")).drag_to(
             page.locator("#canvas"),
             target_position={
                 "x": agent_box["x"] - canvas_box["x"] + agent_box["width"] / 2,
@@ -832,7 +853,7 @@ async def main() -> None:
         canvas_box = await page.locator("#canvas").bounding_box()
         team_box = await page.locator(
             '#canvas-nodes [data-id="treasury"]').bounding_box()
-        await page.locator(".drag-item", has_text="Data class").first.drag_to(
+        await (await palette_item(page, "Data class")).drag_to(
             page.locator("#canvas"),
             target_position={
                 "x": team_box["x"] - canvas_box["x"] + team_box["width"] / 2,
@@ -873,7 +894,7 @@ async def main() -> None:
 
         # A node placed on one diagram does not appear on the other: that is
         # what makes them different views rather than one canvas twice.
-        await page.locator(".drag-item", has_text="Guardrail").first.drag_to(
+        await (await palette_item(page, "Guardrail")).drag_to(
             page.locator("#canvas"), target_position={"x": 820, "y": 160})
         await page.wait_for_timeout(600)
         split = await page.evaluate("""() => {
@@ -921,7 +942,7 @@ async def main() -> None:
           const d = window.designer;
           return Object.keys(d.diagram().nodes).length;
         }""")
-        await page.locator(".drag-item", has_text="Channel").first.drag_to(
+        await (await palette_item(page, "Channel")).drag_to(
             page.locator("#canvas"), target_position={"x": 640, "y": 300})
         await page.wait_for_timeout(600)
         added = await page.evaluate(
@@ -1050,7 +1071,7 @@ async def main() -> None:
           .map(({ agent }) => agent.id)""")
         box = await page.locator(f'#canvas-nodes [data-id="{env2}"]').bounding_box()
         surface = await page.locator("#canvas").bounding_box()
-        await page.locator(".drag-item", has_text="Agent").first.drag_to(
+        await (await palette_item(page, "Agent")).drag_to(
             page.locator("#canvas"), target_position={
                 "x": box["x"] - surface["x"] + box["width"] - 120,
                 "y": box["y"] - surface["y"] + box["height"] - 60})

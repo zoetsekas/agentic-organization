@@ -90,6 +90,40 @@ def serve() -> None:
     uvicorn.run(app, host="127.0.0.1", port=8813, log_level="error")
 
 
+async def answer_dialog(page, value: str | None = None,
+                        title: str | None = None) -> str:
+    """Answer the app's own dialog (web/ui.js, ADR-0117) through its controls.
+
+    The designer no longer uses the browser's alert/confirm/prompt, so
+    `page.on("dialog")` never fires; a dialog left open makes the page behind
+    it inert and every later click times out. This waits for the dialog,
+    checks it is the one expected, types `value` into its first field when
+    given, and presses its submit button -- what a person does. Returns the
+    dialog's title, so a check can report what it was asked.
+    """
+    dialog = page.locator("dialog.ui-dialog[open]").last
+    await dialog.wait_for(state="visible", timeout=5000)
+    heading = " ".join((await dialog.locator("h3").first.text_content()
+                        or "").split())
+    if title is not None:
+        assert title.lower() in heading.lower(), \
+            f"expected a {title!r} dialog, got {heading!r}"
+    if value is not None:
+        await dialog.locator("input:not([type=radio]), textarea").first \
+            .fill(value)
+    before = await page.locator("dialog.ui-dialog[open]").count()
+    await dialog.locator("button[type=submit]").click()
+    # A field the dialog refuses keeps it open and says why under the field.
+    for _ in range(25):
+        if await page.locator("dialog.ui-dialog[open]").count() < before:
+            break
+        await page.wait_for_timeout(200)
+    else:
+        why = " ".join((await dialog.locator(".field-error").all_text_contents()))
+        raise AssertionError(f"the {heading!r} dialog did not close: {why}")
+    return heading
+
+
 async def main() -> int:
     from playwright.async_api import async_playwright
 
@@ -116,6 +150,20 @@ async def main() -> int:
             except Exception as exc:                       # noqa: BLE001
                 results.append((view, name, False,
                                 f"{type(exc).__name__}: {exc}".split("\n")[0][:120]))
+            # A dialog nobody answered makes the page behind it inert, and
+            # every later check would time out blaming its own button. Say
+            # which check left it, then close it the way a person would.
+            stray = page.locator("dialog.ui-dialog[open]")
+            if await stray.count():
+                said = " ".join((await stray.last.text_content() or "").split())
+                for _ in range(5):
+                    if not await stray.count():
+                        break
+                    await page.keyboard.press("Escape")
+                    await page.wait_for_timeout(150)
+                if results[-1][2]:
+                    results[-1] = (view, name, False,
+                                   f"left a dialog open: {said[:90]}")
 
         async def show(view: str) -> None:
             if view == "authority":
@@ -222,16 +270,12 @@ async def main() -> int:
             name = (await first.locator("strong, h3, b").first.text_content()
                     or "").strip()
             # Send back asks why, and returns without doing anything if that
-            # is dismissed — which is right for a control that makes an entry
-            # unselectable, and which Playwright dismisses by default.
-            handler = lambda d: asyncio.ensure_future(  # noqa: E731
-                d.accept("checked by the view sweep"))
-            page.on("dialog", handler)
-            try:
-                await first.get_by_role("button", name="Send back").first.click()
-                await page.wait_for_timeout(1200)
-            finally:
-                page.remove_listener("dialog", handler)
+            # is cancelled — which is right for a control that makes an entry
+            # unselectable. The reason is typed into the app's own dialog.
+            await first.get_by_role("button", name="Send back").first.click()
+            await answer_dialog(page, "checked by the view sweep",
+                                title="Send back")
+            await page.wait_for_timeout(1200)
             await page.select_option("#pc-status", "proposed")
             await page.wait_for_timeout(900)
             proposed = " ".join((await page.locator("#pc-entries").text_content()
@@ -347,21 +391,24 @@ async def main() -> int:
         async def market_install():
             """Install asks which runtime agent to install into, because the
             marketplace installs into the running system and not the design."""
-            # `installEntry` asks which runtime agent to install into with a
-            # `window.prompt`, which blocks the page until it is answered.
+            # `installEntry` asks which runtime agent to install into, in the
+            # app's own dialog, which holds the page until it is answered.
             cards = await page.locator("#catalog > *").count()
             buttons = await page.get_by_role("button", name="Install").count()
             assert buttons, (
                 f"{cards} card(s) and no Install button; the view shows "
                 f"{(await page.locator('#catalog').text_content() or '')[:60]!r}")
-            handler = lambda d: asyncio.ensure_future(d.accept("cfo"))  # noqa: E731
-            page.on("dialog", handler)
-            try:
-                await page.locator("#catalog > *").first \
-                    .get_by_role("button", name="Install").first.click()
-            finally:
-                page.remove_listener("dialog", handler)
+            await page.locator("#catalog > *").first \
+                .get_by_role("button", name="Install").first.click()
+            await answer_dialog(page, "cfo", title="Install")
             await page.wait_for_timeout(1200)
+            # A refused install says so in a second dialog; a check that left
+            # it open would blame every later click for it.
+            late = page.locator("dialog.ui-dialog[open]")
+            if await late.count():
+                said = " ".join((await late.last.text_content() or "").split())
+                await answer_dialog(page)
+                raise AssertionError(f"install refused: {said[:80]}")
             stats = " ".join((await page.locator("#catstats").text_content()
                               or "").split())
             assert "Installs" in stats, f"no install count shown: {stats[:60]}"
@@ -565,6 +612,30 @@ async def main() -> int:
             assert n, "no organisation in the switcher"
             return f"{n} design(s)"
         await check("Org chart", "lists designs", org_switcher)
+
+        async def org_export():
+            """Export saves the open design as a typed file (ADR-0113), and
+            the file is one Import reads back: a round trip, not a click."""
+            import json
+            await page.click("#btn-org-export")
+            dialog = page.locator("dialog.ui-dialog[open]").last
+            await dialog.wait_for(timeout=5000)
+            await dialog.get_by_role("radio", name="JSON").check()
+            async with page.expect_download(timeout=10000) as info:
+                await answer_dialog(page, title="Export")
+            download = await info.value
+            text = pathlib.Path(await download.path()).read_text(encoding="utf-8")
+            doc = json.loads(text)
+            assert doc.get("type"), f"the export is not typed: {text[:80]!r}"
+            ws_id = await page.evaluate("() => window.designer.state.workspaceId")
+            back = c.post("/api/designer/import", headers=A, json={
+                "workspace_id": ws_id, "text": text,
+                "filename": download.suggested_filename, "name": "Exported"})
+            assert back.status_code == 200, \
+                f"Import refused its own export: {back.text[:100]}"
+            return (f"{download.suggested_filename} ({doc['type']}) "
+                    "imports back")
+        await check("Org chart", "exports a typed file", org_export)
 
         # ---- Authority ------------------------------------------------------
         await show("authority")
