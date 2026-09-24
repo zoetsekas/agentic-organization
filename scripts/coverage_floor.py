@@ -18,8 +18,8 @@ from collections import defaultdict
 
 # Measured on Linux, Python 3.12, `.[dev]` with PostgreSQL available, at the
 # commit that introduced this file (measured value in the comment). The
-# `mcp` extra was not installed for that run, so mcp_server's floor is what
-# runs without it; CI installs it and measures higher.
+# per-package values are from a run without the `mcp` extra; mcp_server and
+# the total are from the CI configuration (`.[dev,mcp]`, pytest -n auto).
 FLOORS: dict[str, float] = {
     "compiler": 94,      # 95.23
     "spec": 92,          # 93.24
@@ -35,11 +35,11 @@ FLOORS: dict[str, float] = {
     "tasks": 96,         # 97.39
     "channels": 95,      # 96.18
     "security": 91,      # 92.70
-    "mcp_server": 2,     # 3.22 without the mcp extra
+    "mcp_server": 67,    # 68.10 (the mcp extra installed, as CI does)
 }
 # Everything not listed above, taken together.
 OTHER_FLOOR = 91     # 92.09
-TOTAL_FLOOR = 87     # 88.11
+TOTAL_FLOOR = 88     # 89.17 with the mcp extra (88.11 without)
 
 
 def package_of(path: str) -> str:
