@@ -259,6 +259,9 @@ SERVER_ONLY = {
     ("POST", "/api/designer/systems/{}/lock/heartbeat"):
         "Known and documented: no heartbeat is sent, so a long edit can lose "
         "its lock. Tracked in DESIGNER.md's caveat table, not silently absent.",
+    ("GET", "/api/designer/issue-codes"):
+        "The whole catalog, for tooling and docs; the UI asks for one code at "
+        "a time when a code in the Issues tab is clicked.",
 }
 
 
@@ -273,7 +276,7 @@ def _referenced_paths(*sources: str) -> set[str]:
     found: set[str] = set()
     for source in sources:
         for raw in re.findall(r"[`\"']((?:/systems|/workspaces|/palette"
-                              r"|/settings|/whoami|/audit|/layout|/examples|/metamodel|/operations|/gestures|/import)[^`\"'\s]*)",
+                              r"|/settings|/whoami|/audit|/layout|/examples|/metamodel|/operations|/gestures|/import|/issue-codes)[^`\"'\s]*)",
                               source):
             path = "/api/designer" + raw.split("?")[0]
             path = re.sub(r"\$\{[^}]*\}", "{}", path).rstrip("/")
@@ -290,7 +293,8 @@ def test_every_designer_route_has_something_that_calls_it(client, app_js,
     went wrong: `.../placements` was built, served, tested, and reachable by
     nobody.
     """
-    referenced = _referenced_paths(app_js, canvas_js)
+    settings_js = (BUNDLE / "settings.js").read_text()
+    referenced = _referenced_paths(app_js, canvas_js, settings_js)
     orphans = {}
     for route in client.app.routes:
         path = getattr(route, "path", "")
@@ -448,3 +452,42 @@ def test_every_view_has_a_loader_keyed_by_its_own_id(index_html, app_js):
     assert not stale, (
         f"the loader map is keyed by views that do not exist: {sorted(stale)}"
     )
+
+
+def test_an_id_is_renamed_when_the_box_is_left_not_per_keystroke(canvas_js):
+    """Renaming redraws the form; per keystroke it stole the cursor after
+    every character."""
+    assert 'field.name === "id" ? "change" : "input"' in canvas_js
+
+
+# -- settings and themes -----------------------------------------------------
+
+def test_settings_are_a_dialog_not_a_prompt(canvas_js, index_html):
+    """The old ⚙ was a window.prompt over raw JSON."""
+    assert 'id="settings-dialog"' in index_html
+    assert "Designer settings:" not in canvas_js
+    settings_js = (BUNDLE / "settings.js").read_text()
+    assert 'dapi("/settings", { method: "PUT"' in settings_js
+
+
+def test_the_theme_is_applied_before_the_body_paints(index_html):
+    head = index_html[:index_html.index("<body>")]
+    assert '<script src="settings.js"></script>' in head
+    assert '<link rel="stylesheet" href="theme.css" />' in head
+
+
+def test_every_theme_choice_resolves_to_a_palette(index_html):
+    settings_js = (BUNDLE / "settings.js").read_text()
+    theme_css = (BUNDLE / "theme.css").read_text()
+    for choice in ("light", "system", "dark"):
+        assert f'["{choice}"' in settings_js
+    # `system` is resolved in script, so CSS needs exactly one light palette,
+    # and it must redefine every colour token the dark one defines.
+    assert theme_css.count(':root[data-theme="light"] {') == 1
+    css = (BUNDLE / "styles.css").read_text()
+    root = css[css.index(":root {"):css.index("}", css.index(":root {"))]
+    colour_tokens = set(re.findall(r"(--[a-z0-9-]+):\s*(?:#|rgba)", root))
+    light = theme_css[theme_css.index(':root[data-theme="light"] {'):]
+    light = light[:light.index("}")]
+    missing = {t for t in colour_tokens if f"{t}:" not in light}
+    assert not missing, f"light theme leaves these dark: {sorted(missing)}"

@@ -8,6 +8,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" />
 <link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="guide.css" />
+<link rel="stylesheet" href="theme.css" />
+<!-- Before the body: the stored theme is applied before the first paint. -->
+<script src="settings.js"></script>
 </head>
 <body>
 <header class="topbar">
@@ -77,7 +81,7 @@
           aria-label="History">🕘</button>
   <button id="btn-members" class="icon-btn" title="People — members of this workspace"
           aria-label="People">👥</button>
-  <button id="btn-designer-settings" class="icon-btn" title="Settings — designer settings"
+  <button id="btn-designer-settings" class="icon-btn" title="Settings — theme, display and installation"
           aria-label="Settings">⚙</button>
 </div>
 
@@ -272,6 +276,15 @@
              link: the model is unchanged. -->
         <div id="edge-filter" class="edge-filter" role="group"
              aria-label="Relationships shown on the canvas"></div>
+        <!-- What each kind of box means. Shape and texture carry the
+             difference, colour repeats it, so it reads without colour too. -->
+        <div class="canvas-legend" aria-label="Legend">
+          <span class="lg lg-team"><i></i>Team</span>
+          <span class="lg lg-agent"><i></i>Agent</span>
+          <span class="lg lg-subagent"><i></i>Sub-agent</span>
+          <span class="lg lg-env"><i></i>Environment (where agents run)</span>
+          <span class="lg lg-held"><i></i>Skill · plugin · tool</span>
+        </div>
         <div id="canvas" class="canvas-surface">
           <!-- Placement regions sit under the edges and the nodes: a region is
                the ground a node stands on, not a thing drawn over it. -->
@@ -419,80 +432,241 @@
         <nav id="guide-toc"></nav>
       </aside>
       <article class="panel guide-body" id="guide-body">
+        <svg width="0" height="0" class="gd-defs" aria-hidden="true" focusable="false">
+          <defs>
+            <marker id="gd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" class="gd-head"/>
+            </marker>
+            <marker id="gd-arrow-acc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" class="gd-head-acc"/>
+            </marker>
+          </defs>
+        </svg>
+
+        <section class="g-sec">
         <h2 id="g-start">Getting started</h2>
-        <p>The Agentic Designer is where an organisation of AI agents is
+        <p class="g-lede">The Agentic Designer is where an organisation of AI agents is
           designed, checked and published. You describe the organisation — its
           teams, agents, what they may do and with what data — as a
           <strong>model</strong>; the designer checks every change against the
           model's rules, and publishing turns the model into running systems.</p>
-        <ol>
+        <figure class="g-fig">
+          <svg class="gd" viewBox="0 0 1080 190" role="img" aria-labelledby="gd-flow-t">
+            <title id="gd-flow-t">End-to-end flow: workspace, organisation, design, issues clear, review authority, publish, deploy</title>
+            <g class="gd-step"><rect x="10" y="40" width="128" height="72" rx="8" class="gd-box"/>
+              <text x="74" y="70" class="gd-t">Workspace</text><text x="74" y="92" class="gd-s">who may see it</text></g>
+            <g class="gd-step"><rect x="162" y="40" width="128" height="72" rx="8" class="gd-box"/>
+              <text x="226" y="70" class="gd-t">Organisation</text><text x="226" y="92" class="gd-s">new · example · file</text></g>
+            <g class="gd-step"><rect x="314" y="40" width="140" height="72" rx="8" class="gd-box gd-acc"/>
+              <text x="384" y="70" class="gd-t">Design</text><text x="384" y="92" class="gd-s">Canvas · Components</text></g>
+            <g class="gd-step"><rect x="478" y="40" width="128" height="72" rx="8" class="gd-box gd-ok"/>
+              <text x="542" y="70" class="gd-t">Issues clear</text><text x="542" y="92" class="gd-s">rules satisfied</text></g>
+            <g class="gd-step"><rect x="630" y="40" width="140" height="72" rx="8" class="gd-box gd-warn"/>
+              <text x="700" y="70" class="gd-t">Review authority</text><text x="700" y="92" class="gd-s">tick: reviewed</text></g>
+            <g class="gd-step"><rect x="794" y="40" width="120" height="72" rx="8" class="gd-box gd-acc"/>
+              <text x="854" y="70" class="gd-t">Publish</text><text x="854" y="92" class="gd-s">validate · compile</text></g>
+            <g class="gd-step"><rect x="938" y="40" width="132" height="72" rx="8" class="gd-box"/>
+              <text x="1004" y="70" class="gd-t">Deploy</text><text x="1004" y="92" class="gd-s">request to platform</text></g>
+            <g class="gd-line" marker-end="url(#gd-arrow)">
+              <line x1="138" y1="76" x2="160" y2="76"/><line x1="290" y1="76" x2="312" y2="76"/>
+              <line x1="454" y1="76" x2="476" y2="76"/><line x1="606" y1="76" x2="628" y2="76"/>
+              <line x1="770" y1="76" x2="792" y2="76"/><line x1="914" y1="76" x2="936" y2="76"/>
+            </g>
+            <path d="M542,112 C542,160 384,160 384,114" class="gd-line gd-dash" marker-end="url(#gd-arrow)"/>
+            <text x="463" y="172" class="gd-s">not clear? fix and Save</text>
+          </svg>
+          <figcaption>From a workspace to a running organisation. The last three
+            steps are one dialog: <em>Publish…</em> opens with the authority
+            review.</figcaption>
+        </figure>
+        <aside class="g-callout g-tip g-side"><strong>Tip</strong> Nothing
+          showing? The <em>as</em> box decides which workspaces you see — check
+          it is the name you used before.</aside>
+        <ol class="g-steps">
           <li><strong>Say who you are</strong> in the <em>as</em> box at the top
             left. A workspace is visible only to its members, so use the same
             name every time.</li>
           <li><strong>Choose or create a workspace</strong> with the
             <em>Workspace</em> list and its <kbd>＋</kbd> <kbd>✎</kbd>
             <kbd>🗑</kbd> buttons.</li>
-          <li><strong>Open an organisation</strong>: <em>New organisation</em>,
-            <em>Load example…</em> (a shipped example), or <em>Import from
-            file…</em> (a <code>*.system.yaml</code> from your computer), all on
-            the <em>Org chart</em> screen.</li>
+          <li><strong>Open an organisation</strong>: <span class="g-btn">New organisation</span>,
+            <span class="g-btn">Load example…</span> (a shipped example), or
+            <span class="g-btn">Import from file…</span> (a <code>*.system.yaml</code>
+            from your computer), all on the <em>Org chart</em> screen.</li>
           <li><strong>Design it</strong> on the <em>Canvas</em> or in the
-            <em>Components</em> editors, then <strong>Save</strong>.</li>
-          <li><strong>Publish…</strong> when the <em>Issues</em> tab is clear:
+            <em>Components</em> editors, then <span class="g-btn">Save</span>.</li>
+          <li><span class="g-btn">Publish…</span> when the <em>Issues</em> tab is clear:
             review what the design grants, tick that you have, then request
             deployment.</li>
         </ol>
+        </section>
 
+        <section class="g-sec">
         <h2 id="g-concepts">The model, in five ideas</h2>
-        <ul>
-          <li><strong>Organisation and teams.</strong> Every design has one
-            organisation; it is the root team. Teams contain sub-teams and
-            agents. An agent belongs to exactly one team.</li>
-          <li><strong>Agents and sub-agents.</strong> An agent is a member of the
-            organisation, with a team, a mandate and human counterparts. A
-            sub-agent is a worker owned by one agent, called like a tool, and
-            never wider than its parent.</li>
-          <li><strong>What an agent may do.</strong> Capabilities (directly, or
-            through roles — its own or its team's), knowledge it consults,
-            skills, plugins and tools it holds, data it produces or relies on.</li>
-          <li><strong>Where it runs.</strong> Each agent is deployed into one or
-            more environments (sandboxes).</li>
-          <li><strong>Rules.</strong> Policies, guardrails, separations of
-            duties, decisions and mandates bound what anyone may decide.</li>
-        </ul>
-        <p>The model is written in UML: every relationship is a composition
-          (a part moves with its whole), an association (a reference, drawable
-          from either end), a usage, a realisation or a deployment. That
-          decides how it is drawn and what dragging does.</p>
+        <figure class="g-fig">
+          <svg class="gd" viewBox="0 0 1080 400" role="img" aria-labelledby="gd-model-t">
+            <title id="gd-model-t">The model: an organisation is the root team, holding teams and agents; agents own sub-agents, have capabilities, are deployed into environments, and rules bound them all</title>
+            <!-- rules band -->
+            <rect x="10" y="10" width="1060" height="44" rx="8" class="gd-box gd-warn"/>
+            <text x="540" y="30" class="gd-t">Rules — policies · guardrails · separations of duties · decisions · mandates</text>
+            <text x="540" y="46" class="gd-s">bound what anyone may decide</text>
+            <!-- org -->
+            <rect x="10" y="74" width="560" height="236" rx="10" class="gd-box gd-acc"/>
+            <text x="26" y="98" class="gd-t gd-l">Organisation <tspan class="gd-s">= the root team</tspan></text>
+            <rect x="30" y="112" width="520" height="182" rx="8" class="gd-box"/>
+            <text x="46" y="134" class="gd-t gd-l">Team <tspan class="gd-s">contains sub-teams and agents</tspan></text>
+            <rect x="50" y="148" width="300" height="130" rx="8" class="gd-box gd-agent"/>
+            <text x="66" y="170" class="gd-t gd-l">Agent</text>
+            <text x="66" y="188" class="gd-s gd-l">in exactly one team · mandate · human counterparts</text>
+            <rect x="66" y="204" width="130" height="58" rx="6" class="gd-box"/>
+            <text x="131" y="228" class="gd-t">Sub-agent</text>
+            <text x="131" y="246" class="gd-s">called like a tool</text>
+            <text x="274" y="228" class="gd-s">owned by one agent,</text>
+            <text x="274" y="246" class="gd-s">never wider than it</text>
+            <rect x="370" y="148" width="160" height="58" rx="8" class="gd-box gd-dim"/>
+            <text x="450" y="172" class="gd-t">Sub-team</text>
+            <text x="450" y="190" class="gd-s">nests the same way</text>
+            <!-- capabilities -->
+            <rect x="660" y="74" width="410" height="236" rx="10" class="gd-box"/>
+            <text x="676" y="98" class="gd-t gd-l">What an agent may do</text>
+            <g class="gd-s gd-l">
+              <text x="680" y="126">• capabilities — directly, or through roles</text>
+              <text x="692" y="144">(its own or its team's)</text>
+              <text x="680" y="170">• knowledge it consults</text>
+              <text x="680" y="196">• skills, plugins and tools it holds</text>
+              <text x="680" y="222">• data it produces or relies on</text>
+            </g>
+            <line x1="350" y1="250" x2="658" y2="250" class="gd-line" marker-end="url(#gd-arrow)"/>
+            <text x="614" y="242" class="gd-s">holds / uses</text>
+            <!-- environments -->
+            <rect x="160" y="340" width="240" height="50" rx="8" class="gd-box gd-dash"/>
+            <text x="280" y="370" class="gd-t">Environment (sandbox) A</text>
+            <rect x="440" y="340" width="240" height="50" rx="8" class="gd-box gd-dash"/>
+            <text x="560" y="370" class="gd-t">Environment (sandbox) B</text>
+            <path d="M200,278 L240,338" class="gd-line" marker-end="url(#gd-arrow)"/>
+            <path d="M300,278 L500,338" class="gd-line" marker-end="url(#gd-arrow)"/>
+            <text x="740" y="362" class="gd-s gd-l">an agent is deployed into one or more</text>
+            <text x="740" y="380" class="gd-s gd-l">environments — where it runs</text>
+          </svg>
+          <figcaption>Organisation and teams, agents and sub-agents, what an agent
+            may do, where it runs, and the rules around all of it.</figcaption>
+        </figure>
+        <aside class="g-callout g-note g-side"><strong>UML underneath</strong>
+          The model is written in UML: every relationship is a
+          <em>composition</em> (a part moves with its whole), an
+          <em>association</em> (a reference, drawable from either end), a
+          <em>usage</em>, a <em>realisation</em> or a <em>deployment</em>. That
+          decides how it is drawn and what dragging does.</aside>
+        <dl class="g-ideas">
+          <div><dt><span class="g-num">1</span> Organisation and teams</dt>
+            <dd>Every design has one organisation; it is the root team. Teams
+              contain sub-teams and agents. An agent belongs to exactly one team.</dd></div>
+          <div><dt><span class="g-num">2</span> Agents and sub-agents</dt>
+            <dd>An agent is a member of the organisation, with a team, a mandate
+              and human counterparts. A sub-agent is a worker owned by one agent,
+              called like a tool, and never wider than its parent.</dd></div>
+          <div><dt><span class="g-num">3</span> What an agent may do</dt>
+            <dd>Capabilities (directly, or through roles — its own or its
+              team's), knowledge it consults, skills, plugins and tools it holds,
+              data it produces or relies on.</dd></div>
+          <div><dt><span class="g-num">4</span> Where it runs</dt>
+            <dd>Each agent is deployed into one or more environments (sandboxes).</dd></div>
+          <div><dt><span class="g-num">5</span> Rules</dt>
+            <dd>Policies, guardrails, separations of duties, decisions and
+              mandates bound what anyone may decide.</dd></div>
+        </dl>
+        </section>
 
+        <section class="g-sec">
+        <h2 id="g-screen">The screen at a glance</h2>
+        <figure class="g-fig">
+          <svg class="gd" viewBox="0 0 1080 430" role="img" aria-labelledby="gd-screen-t">
+            <title id="gd-screen-t">Designer layout: header, context bar, palette and explorer on the left, canvas in the middle, properties and issues on the right</title>
+            <rect x="10" y="10" width="1060" height="40" rx="6" class="gd-box gd-dim"/>
+            <text x="26" y="35" class="gd-t gd-l">Header</text>
+            <text x="120" y="35" class="gd-s gd-l">screens: Org chart · Canvas · Agents · Components ▾ · Catalog · Marketplace · Sessions · Operations · User guide</text>
+            <rect x="10" y="58" width="1060" height="40" rx="6" class="gd-box gd-dim"/>
+            <text x="26" y="83" class="gd-t gd-l">Context bar</text>
+            <text x="150" y="83" class="gd-s gd-l">as ▢ · Workspace ▾ ＋ ✎ 🗑 · organisation ▾ · version · lock · People · History · Settings</text>
+            <rect x="10" y="108" width="220" height="312" rx="8" class="gd-box"/>
+            <text x="120" y="134" class="gd-t">Palette | Explorer</text>
+            <g class="gd-s"><text x="120" y="164">drag components</text><text x="120" y="182">onto the canvas</text>
+              <text x="120" y="222">Explorer lists</text><text x="120" y="240">everything, drawn</text><text x="120" y="258">or not</text></g>
+            <rect x="240" y="108" width="580" height="312" rx="8" class="gd-box gd-acc"/>
+            <rect x="252" y="118" width="556" height="26" rx="4" class="gd-box gd-dim"/>
+            <text x="264" y="136" class="gd-s gd-l">diagram tabs  +   ·  tree · layered · grid  ·  Relationships ▾</text>
+            <text x="800" y="136" class="gd-s gd-r">status line</text>
+            <rect x="252" y="150" width="556" height="24" rx="4" class="gd-box gd-warn"/>
+            <text x="530" y="167" class="gd-s">validation strip — issues found</text>
+            <text x="530" y="270" class="gd-t">Canvas</text>
+            <text x="530" y="292" class="gd-s">every gesture is a model operation</text>
+            <rect x="330" y="320" width="110" height="44" rx="6" class="gd-box gd-agent"/>
+            <rect x="480" y="210" width="110" height="44" rx="6" class="gd-box gd-agent"/>
+            <rect x="630" y="320" width="130" height="56" rx="6" class="gd-box gd-dash"/>
+            <line x1="440" y1="342" x2="628" y2="342" class="gd-line"/>
+            <rect x="830" y="108" width="240" height="312" rx="8" class="gd-box"/>
+            <text x="950" y="134" class="gd-t">Properties | Issues</text>
+            <g class="gd-s"><text x="950" y="164">edit the selected box</text>
+              <text x="950" y="182">* marks required fields</text>
+              <text x="950" y="222">Issues: click one to</text><text x="950" y="240">select its component</text></g>
+            <text x="120" y="400" class="gd-s">↔ resize · – □ ❐</text>
+            <text x="950" y="400" class="gd-s">↔ resize · – □ ❐</text>
+          </svg>
+          <figcaption>The Canvas screen. Side panels resize from their inner
+            edge and can be minimised, maximised and restored.</figcaption>
+        </figure>
+        </section>
+
+        <section class="g-sec">
         <h2 id="g-workspaces">Workspaces</h2>
+        <aside class="g-callout g-warn g-side"><strong>No undo</strong> Deleting
+          a workspace cannot be undone — and the organisations you tick go with
+          it.</aside>
         <p>A workspace groups organisations and the people who may see them.</p>
-        <ul>
-          <li><kbd>＋</kbd> creates one; <kbd>✎</kbd> renames the open one.</li>
-          <li><kbd>🗑</kbd> deletes it. Only its owner may; you type its name to
-            confirm, and if it holds organisations you tick that they go too.
-            There is no undo.</li>
-          <li><em>People</em> (or the <em>Workspace</em> screen) adds members
-            with a role: viewer, reviewer, editor, admin or owner.</li>
-        </ul>
+        <table class="g-table">
+          <thead><tr><th>Control</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>＋</kbd></td><td>Creates a workspace.</td></tr>
+            <tr><td><kbd>✎</kbd></td><td>Renames the open one.</td></tr>
+            <tr><td><kbd>🗑</kbd></td><td>Deletes it. Only its owner may; you type its
+              name to confirm, and if it holds organisations you tick that they go
+              too.</td></tr>
+            <tr><td><span class="g-btn">People</span> or the <em>Workspace</em> screen</td>
+              <td>Adds members with a role: <span class="g-chip">viewer</span>
+              <span class="g-chip">reviewer</span> <span class="g-chip">editor</span>
+              <span class="g-chip">admin</span> <span class="g-chip">owner</span>.</td></tr>
+          </tbody>
+        </table>
+        </section>
 
+        <section class="g-sec">
         <h2 id="g-open">Opening an organisation</h2>
-        <ul>
-          <li><strong>New organisation</strong> starts an empty design; its
-            name is required.</li>
-          <li><strong>Load example…</strong> opens one of the shipped
-            organisations, laid out.</li>
-          <li><strong>Import from file…</strong> opens a design file from your
-            computer into a workspace you choose. A file that is not a design is
-            refused with the reason under the file field. From a shell:
-            <code>orgagents examples import path/to/x.system.yaml --user you</code>.</li>
-        </ul>
+        <table class="g-table">
+          <thead><tr><th>Button</th><th>What it opens</th></tr></thead>
+          <tbody>
+            <tr><td><span class="g-btn">New organisation</span></td><td>An empty
+              design; its name is required.</td></tr>
+            <tr><td><span class="g-btn">Load example…</span></td><td>One of the
+              shipped organisations, laid out.</td></tr>
+            <tr><td><span class="g-btn">Import from file…</span></td><td>A design
+              file from your computer, into a workspace you choose. A file that is
+              not a design is refused with the reason under the file field.</td></tr>
+          </tbody>
+        </table>
+        <p>From a shell:</p>
+        <pre class="code">orgagents examples import path/to/x.system.yaml --user you</pre>
+        </section>
 
+        <section class="g-sec">
         <h2 id="g-canvas">The canvas</h2>
+        <aside class="g-callout g-tip g-side"><strong>Filters hide, never
+          delete</strong> Hiding a relationship kind only stops it being drawn;
+          the link is still in the model.</aside>
         <p>The canvas is a picture of the model; every gesture is a model
-          operation, and the model answers — accepted, with what else changed,
-          or refused, with why. The status line at the top right says which.</p>
-        <table>
+          operation, and the model answers — <span class="g-chip g-chip-ok">accepted</span>,
+          with what else changed, or <span class="g-chip g-chip-err">refused</span>,
+          with why. The status line at the top right says which.</p>
+        <table class="g-table g-wide">
           <thead><tr><th>You do</th><th>It means</th></tr></thead>
           <tbody>
             <tr><td>Drag a component from the <em>Palette</em> onto open
@@ -505,7 +679,7 @@
               there: a part has one whole.</td></tr>
             <tr><td>Drag a box into / out of an environment box</td><td>Deploy /
               undeploy it (a team: all its agents).</td></tr>
-            <tr><td>Right-click → <em>Link from here</em>, then click a box</td>
+            <tr><td>Right-click → <span class="g-btn">Link from here</span>, then click a box</td>
               <td>Draw a relationship. Where the model allows it, either end
               works: link a knowledge source to agents, or agents to it. If
               several relationships fit, you are asked which.</td></tr>
@@ -515,15 +689,109 @@
               size is kept.</td></tr>
           </tbody>
         </table>
-        <p><strong>Relationships</strong> (above the canvas) filters what is
-          drawn, by UML kind and, with <kbd>▾</kbd>, by relationship. It hides
-          lines, never links, and is remembered in your browser.</p>
-        <p><strong>Diagrams</strong>: the tabs above the canvas are separate
-          pictures of one model (<kbd>+</kbd> adds one). <em>tree</em>,
-          <em>layered</em> and <em>grid</em> arrange the open diagram.</p>
-        <p><strong>Explorer</strong> (left, next to Palette) lists everything in
-          the model, including what is not drawn.</p>
+        <dl class="g-defs">
+          <div><dt>Relationships</dt><dd>(above the canvas) filters what is
+            drawn, by UML kind and, with <kbd>▾</kbd>, by relationship. It hides
+            lines, never links, and is remembered in your browser.</dd></div>
+          <div><dt>Diagrams</dt><dd>The tabs above the canvas are separate
+            pictures of one model (<kbd>+</kbd> adds one). <span class="g-chip">tree</span>
+            <span class="g-chip">layered</span> <span class="g-chip">grid</span>
+            arrange the open diagram.</dd></div>
+          <div><dt>Explorer</dt><dd>(left, next to Palette) lists everything in
+            the model, including what is not drawn.</dd></div>
+        </dl>
+        </section>
 
+        <section class="g-sec">
+        <h2 id="g-workflows">Workflows: two levels</h2>
+        <aside class="g-callout g-note g-side"><strong>The seam is the
+          interface</strong> A step built in an engine is governed at its
+          edges: what it is given, what it calls and which data it touches.
+          The engine's own graph never enters the design.</aside>
+        <p class="g-lede">A workflow has two levels. The <em>governed
+          workflow</em> is drawn here. What happens <em>inside</em> one of
+          its steps may be built in an engine such as Langflow, LangGraph or
+          your own code.</p>
+        <figure class="g-fig">
+          <svg class="gd" viewBox="0 0 1080 330" role="img" aria-labelledby="gd-wf-t">
+            <title id="gd-wf-t">Two levels: the governed purchase-to-pay workflow drawn in the designer, and the invoice-capture step whose insides are built in an engine, joined by a declared interface</title>
+            <rect x="10" y="10" width="1060" height="176" rx="10" class="gd-box gd-acc"/>
+            <text x="26" y="34" class="gd-t gd-l">Governed workflow <tspan class="gd-s">drawn here · owners · approvals · parallel work · validated</tspan></text>
+            <rect x="30" y="80" width="130" height="56" rx="7" class="gd-box gd-agent"/>
+            <text x="95" y="104" class="gd-t">Raise PO</text><text x="95" y="122" class="gd-s">owner: buyer</text>
+            <rect x="188" y="80" width="140" height="56" rx="7" class="gd-box gd-warn"/>
+            <text x="258" y="104" class="gd-t">COO approval</text><text x="258" y="122" class="gd-s">human · approver: COO</text>
+            <rect x="356" y="62" width="8" height="92" class="gd-bar"/>
+            <text x="360" y="172" class="gd-s">fork</text>
+            <rect x="396" y="48" width="170" height="48" rx="7" class="gd-box gd-agent"/>
+            <text x="481" y="69" class="gd-t">Receive goods</text><text x="481" y="86" class="gd-s">owner: buyer</text>
+            <rect x="396" y="112" width="170" height="52" rx="7" class="gd-box gd-dash"/>
+            <text x="481" y="133" class="gd-t">Capture invoice</text><text x="481" y="151" class="gd-s">owner: AP · external</text>
+            <rect x="598" y="62" width="8" height="92" class="gd-bar"/>
+            <text x="602" y="172" class="gd-s">join</text>
+            <rect x="638" y="80" width="170" height="56" rx="7" class="gd-box gd-agent"/>
+            <text x="723" y="104" class="gd-t">Match &amp; pay</text><text x="723" y="122" class="gd-s">owner: AP · 3-way match</text>
+            <text x="846" y="98" class="gd-s gd-l">the hand that raises</text>
+            <text x="846" y="114" class="gd-s gd-l">the order never pays it</text>
+            <g class="gd-line" marker-end="url(#gd-arrow)">
+              <line x1="160" y1="108" x2="186" y2="108"/><line x1="328" y1="108" x2="354" y2="108"/>
+              <line x1="364" y1="72" x2="394" y2="72"/><line x1="364" y1="138" x2="394" y2="138"/>
+              <line x1="566" y1="72" x2="596" y2="72"/><line x1="566" y1="138" x2="596" y2="138"/>
+              <line x1="606" y1="108" x2="636" y2="108"/>
+            </g>
+            <path d="M481,164 L481,230" class="gd-line gd-dash" marker-end="url(#gd-arrow-acc)"/>
+            <text x="492" y="204" class="gd-s gd-l">interface: inputs · outputs · tools · endpoints · data classes</text>
+            <rect x="300" y="232" width="362" height="84" rx="10" class="gd-box gd-dim gd-dash"/>
+            <text x="481" y="258" class="gd-t">Inside the step: built in an engine</text>
+            <text x="481" y="278" class="gd-s">prompts · retrievers · connectors — the engine's own builder</text>
+            <text x="481" y="298" class="gd-s">bound per target · Open in &lt;engine&gt; ↗</text>
+          </svg>
+          <figcaption>AYC's purchase-to-pay. Every step names who owns it; the
+            fork runs receiving and invoice capture at the same time and the join
+            waits for both. Invoice capture is built in the tenant's flow engine,
+            and only its interface is held in the design.</figcaption>
+        </figure>
+        <table class="g-table g-wide">
+          <thead><tr><th>On the process canvas</th><th>It means</th></tr></thead>
+          <tbody>
+            <tr><td><span class="g-chip">Agent step</span> <span class="g-chip">Tool step</span></td>
+              <td>Work an agent or a tool does. The box says who owns it.</td></tr>
+            <tr><td><span class="g-chip">Human approval</span></td>
+              <td>The workflow pauses for the named person or role. A human
+              step with nobody named is an issue; in production it blocks.</td></tr>
+            <tr><td><span class="g-chip">Branch</span></td><td>Chooses one way out.</td></tr>
+            <tr><td><span class="g-chip">Fork</span> … <span class="g-chip">Join</span></td>
+              <td>Every way out of the fork runs; the join waits for all of
+              them. A fork whose branches never meet, or a join no fork leads
+              to, is an issue.</td></tr>
+            <tr><td><span class="g-chip">External step</span> (dashed)</td>
+              <td>Calls a workflow whose body is <code>external</code>. It shows
+              the engine from the binding the design was saved with, and
+              <span class="g-btn">Open in &lt;engine&gt; ↗</span> when the binding
+              gives the flow's address.</td></tr>
+          </tbody>
+        </table>
+        <ol class="g-steps">
+          <li>Add a workflow in <em>Components → Workflows</em>, set
+            <span class="g-chip">body</span> to <code>external</code> and fill in its
+            <span class="g-chip">interface</span>: inputs, outputs, the capabilities
+            and endpoints it calls, and the data classes it receives and returns.</li>
+          <li>In the governed workflow, add a <code>workflow</code> step that calls
+            it and set its <span class="g-chip">owner</span>. The owner must hold
+            every capability the interface names and the data it is sent.</li>
+          <li>Bind the workflow to its engine in the target's binding
+            (<code>workflows:</code> — engine, flow, and <code>editor_url</code> for
+            the link). Without a binding, publishing is refused.</li>
+        </ol>
+        <aside class="g-callout g-warn"><strong>Governed at its edges</strong>
+          What an external step does inside is as safe as its declared interface
+          is true. Calling an out-of-process engine is egress: the owner's
+          allowlist, data classes and credentials are checked on every call, and
+          the reply is treated as data. If the design has no saved binding the
+          canvas cannot know the engine, and says so on the step.</aside>
+        </section>
+
+        <section class="g-sec">
         <h2 id="g-properties">Properties and the Components editors</h2>
         <p>Select a box to edit it in <em>Properties</em> (right). The
           <em>Components</em> menu opens the same form full-size for every kind
@@ -537,60 +805,120 @@
           <li>A value the model refuses is put back, with the reason under the
             field.</li>
         </ul>
+        </section>
 
+        <section class="g-sec">
         <h2 id="g-forms">Forms</h2>
         <p>Every form marks what it requires with <span class="req">*</span>.
           On submit, each field that is missing or wrong is outlined and the
           reason is written under it; editing the field clears it.</p>
+        </section>
 
+        <section class="g-sec">
         <h2 id="g-panels">Panels</h2>
         <p>Every side panel can be resized from its inner edge (double-click to
           reset), minimised <kbd>–</kbd>, maximised <kbd>□</kbd> and restored
           <kbd>❐</kbd>. Your choices are remembered in this browser.</p>
+        </section>
 
+        <section class="g-sec">
         <h2 id="g-save">Saving, history, locks</h2>
+        <figure class="g-fig">
+          <svg class="gd" viewBox="0 0 1080 300" role="img" aria-labelledby="gd-life-t">
+            <title id="gd-life-t">Lifecycle: lock, edit with undo and redo, save a version, restore from history, publish when complete</title>
+            <rect x="10" y="110" width="170" height="70" rx="35" class="gd-box gd-dim"/>
+            <text x="95" y="140" class="gd-t">Unlocked</text><text x="95" y="160" class="gd-s">anyone with edit role</text>
+            <rect x="250" y="110" width="200" height="70" rx="35" class="gd-box gd-acc"/>
+            <text x="350" y="140" class="gd-t">Editing</text><text x="350" y="160" class="gd-s">unsaved steps · ↶ ↷</text>
+            <rect x="530" y="110" width="200" height="70" rx="35" class="gd-box gd-ok"/>
+            <text x="630" y="140" class="gd-t">Saved version vN</text><text x="630" y="160" class="gd-s">may be incomplete</text>
+            <rect x="820" y="110" width="250" height="70" rx="35" class="gd-box gd-warn"/>
+            <text x="945" y="140" class="gd-t">Published</text><text x="945" y="160" class="gd-s">review → compile → deploy</text>
+            <g class="gd-line" marker-end="url(#gd-arrow)">
+              <line x1="180" y1="136" x2="248" y2="136"/>
+              <line x1="450" y1="136" x2="528" y2="136"/>
+              <line x1="730" y1="136" x2="818" y2="136"/>
+            </g>
+            <text x="214" y="126" class="gd-s">Lock</text>
+            <text x="489" y="126" class="gd-s">Save</text>
+            <text x="774" y="120" class="gd-s">Publish…</text>
+            <text x="774" y="200" class="gd-s">only if complete,</text>
+            <text x="774" y="216" class="gd-s">Issues clear</text>
+            <path d="M600,180 C580,240 400,240 370,182" class="gd-line gd-dash" marker-end="url(#gd-arrow)"/>
+            <text x="485" y="244" class="gd-s">edit again</text>
+            <path d="M600,110 C600,40 680,40 666,108" class="gd-line" marker-end="url(#gd-arrow)"/>
+            <text x="640" y="34" class="gd-s">History → restore a version</text>
+            <path d="M330,110 C300,50 150,50 110,108" class="gd-line gd-dash" marker-end="url(#gd-arrow)"/>
+            <text x="220" y="46" class="gd-s">unlock · admin breaks a stale lock</text>
+            <text x="540" y="286" class="gd-s">A draft may be incomplete (a new tool that wraps nothing yet) — never broken.</text>
+          </svg>
+          <figcaption>Save, history, lock and publish. Locking is optional; it
+            stops others editing while you work.</figcaption>
+        </figure>
         <ul>
-          <li><strong>Save</strong> writes a new version; <kbd>↶</kbd>
+          <li><span class="g-btn">Save</span> writes a new version; <kbd>↶</kbd>
             <kbd>↷</kbd> undo and redo your unsaved steps.</li>
-          <li><strong>History</strong> lists versions and restores one.</li>
-          <li><strong>Lock</strong> stops others editing while you work; an admin
+          <li><span class="g-btn">History</span> lists versions and restores one.</li>
+          <li><span class="g-btn">Lock</span> stops others editing while you work; an admin
             can break a stale lock.</li>
           <li>A draft may be <em>incomplete</em> — a new tool that wraps nothing
             yet — but never <em>broken</em>; publishing requires it complete.</li>
         </ul>
+        </section>
 
+        <section class="g-sec">
         <h2 id="g-issues">Issues</h2>
         <p>The <em>Issues</em> tab and the strip above the canvas list what the
           validator and the model's rules find. Click an issue to select the
           component it is about.</p>
+        </section>
 
+        <section class="g-sec">
         <h2 id="g-authority">Reviewing authority</h2>
+        <aside class="g-callout g-note g-side"><strong>Declared vs granted</strong>
+          A capability declared on a team is inherited by every agent in it;
+          the review shows the combined result, not the individual
+          declarations.</aside>
         <p>The canvas and forms show what was <em>declared</em>. The authority
-          review shows what the design <strong>grants</strong>, resolved: what
-          each agent may actually decide once team inheritance, roles and
-          mandates combine; which pairs of decisions are kept apart and whether
-          anyone holds both; where each agent's work lives (its placement, a
-          unit crossed with an environment); and what each person is
-          accountable for. It is read-only — change the design to change it.</p>
+          review shows what the design <strong>grants</strong>, resolved:</p>
         <ul>
-          <li>It is the <strong>first step of Publish…</strong>: nothing is
-            requested until you tick that you have reviewed it.</li>
-          <li><strong>Review authority…</strong> on the Org chart opens it any
-            time; <em>← Back to the design</em> returns you.</li>
+          <li>what each agent may actually decide once team inheritance, roles
+            and mandates combine;</li>
+          <li>which pairs of decisions are kept apart and whether anyone holds
+            both;</li>
+          <li>where each agent's work lives (its placement, a unit crossed with
+            an environment);</li>
+          <li>and what each person is accountable for.</li>
+        </ul>
+        <p>It is read-only — change the design to change it.</p>
+        <ul>
+          <li>It is the <strong>first step of <span class="g-btn">Publish…</span></strong>:
+            nothing is requested until you tick that you have reviewed it.</li>
+          <li><span class="g-btn">Review authority…</span> on the Org chart opens it any
+            time; <span class="g-btn">← Back to the design</span> returns you.</li>
           <li>An agent's <strong>Effective authority</strong> — its resolved
             decisions, each marked declared here or inherited — is shown in its
             Properties and on the Agents screen, as of the last save.</li>
         </ul>
+        </section>
 
+        <section class="g-sec">
         <h2 id="g-publish">Publishing</h2>
-        <p><strong>Publish…</strong> first asks you to review what the design
-          grants (above), then validates and compiles it for a
-          target (local, LangGraph, ADK, MAF, Terraform for AWS/Azure/GCP) and
-          asks the platform to run it. Compilation is traced: every element and
-          link of the model reaches what is built, or is named as not built.
-          <em>Request deployment</em> is enabled once the design compiles, you
-          may publish, and the review is ticked.</p>
+        <ol class="g-steps">
+          <li>Review what the design grants (above) and tick that you have.</li>
+          <li>The design is validated and compiled for a target:
+            <span class="g-chip">local</span> <span class="g-chip">LangGraph</span>
+            <span class="g-chip">ADK</span> <span class="g-chip">MAF</span>
+            <span class="g-chip">Terraform for AWS/Azure/GCP</span>.</li>
+          <li><span class="g-btn">Request deployment</span> asks the platform to run it.
+            It is enabled once the design compiles, you may publish, and the
+            review is ticked.</li>
+        </ol>
+        <p>Compilation is traced: every element and link of the model reaches
+          what is built, or is named as not built.</p>
+        </section>
 
+        <section class="g-sec">
         <h2 id="g-catalog">Catalog and Marketplace</h2>
         <p><strong>Catalog</strong> holds the approved building blocks a design
           may choose from — models, MCP servers, environment templates,
@@ -598,12 +926,16 @@
           <em>proposed</em> until approved. <strong>Marketplace</strong> shares
           agents, skills, plugins, workflows, sandbox templates and sessions
           between organisations.</p>
+        </section>
 
+        <section class="g-sec">
         <h2 id="g-runtime">Sessions and Operations</h2>
         <p><strong>Sessions</strong> lists runs of published organisations, each
           with its trace. <strong>Operations</strong> shows alerts and per-agent
           health.</p>
+        </section>
 
+        <section class="g-sec">
         <h2 id="g-cli">Command line</h2>
         <pre class="code">orgagents examples list
 orgagents examples load northwind --user you
@@ -612,18 +944,24 @@ orgagents spec validate my.system.yaml
 orgagents metamodel check my.system.yaml     # the model's rules
 orgagents metamodel trace my.system.yaml     # model → built artifacts
 orgagents compile my.system.yaml --target local</pre>
+        </section>
 
+        <section class="g-sec">
         <h2 id="g-trouble">When something does not work</h2>
-        <ul>
-          <li><strong>Nothing to see</strong>: check the <em>as</em> box is the
-            name you used — a workspace is visible only to its members.</li>
-          <li><strong>A drop or link is refused</strong>: the status line says
-            which rule refused it and which element breaks it.</li>
-          <li><strong>Cannot edit</strong>: you may be a viewer, or someone holds
-            the lock (the badge next to your name says).</li>
-          <li><strong>After an update</strong>: rebuild with
-            <code>docker compose up --build</code> and reload the page.</li>
-        </ul>
+        <table class="g-table">
+          <thead><tr><th>Symptom</th><th>What to check</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Nothing to see</strong></td><td>Check the <em>as</em> box is the
+              name you used — a workspace is visible only to its members.</td></tr>
+            <tr><td><strong>A drop or link is refused</strong></td><td>The status line says
+              which rule refused it and which element breaks it.</td></tr>
+            <tr><td><strong>Cannot edit</strong></td><td>You may be a viewer, or someone holds
+              the lock (the badge next to your name says).</td></tr>
+            <tr><td><strong>After an update</strong></td><td>Rebuild with
+              <code>docker compose up --build</code> and reload the page.</td></tr>
+          </tbody>
+        </table>
+        </section>
       </article>
     </div>
   </section>
@@ -850,6 +1188,32 @@ orgagents compile my.system.yaml --target local</pre>
       <button type="button" id="btn-import-cancel">Cancel</button>
     </div>
   </form>
+</dialog>
+
+<!-- Settings: this person's display preferences, and the installation's. -->
+<dialog id="settings-dialog" class="dialog settings-dialog" aria-labelledby="settings-title">
+  <div class="settings-head">
+    <h3 id="settings-title">Settings</h3>
+    <button type="button" class="icon-btn settings-close" aria-label="Close">&#x2715;</button>
+  </div>
+  <div class="settings-tabs" role="tablist">
+    <button type="button" role="tab" data-tab="prefs">Appearance &amp; canvas</button>
+    <button type="button" role="tab" data-tab="install">Installation</button>
+  </div>
+  <div class="settings-body"></div>
+  <div class="settings-foot"></div>
+</dialog>
+
+<!-- One issue code explained: what fires it, why it matters, how to fix it. -->
+<dialog id="issue-dialog" class="dialog issue-dialog" aria-labelledby="issue-title">
+  <div class="issue-dialog-head">
+    <span id="issue-number" class="issue-number"></span>
+    <span id="issue-severity" class="issue-severity"></span>
+    <button type="button" id="btn-issue-close" class="icon-btn"
+      aria-label="Close">&#x2715;</button>
+  </div>
+  <h3 id="issue-title"></h3>
+  <div id="issue-body"></div>
 </dialog>
 
 <script src="app.js"></script>

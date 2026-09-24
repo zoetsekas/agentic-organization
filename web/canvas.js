@@ -272,10 +272,11 @@ function addProcessDiagram(workflowId) {
   clearSelectionOffDiagram();
   markDirty(`added a process canvas for ${workflow.id}`);
   renderCanvas();
-  /* Laid out by the product's own algorithm rather than the stack above:
-     a flow wants ranks, and the stack is only somewhere for the nodes to be
-     until the layout runs. */
-  arrangeDiagram("layered");
+  /* Laid out by the product's own algorithm rather than the stack above: a
+     governed process wants its owners' lanes and ranks along them
+     (ADR-0110), and the stack is only somewhere for the nodes to be until
+     the layout runs. */
+  arrangeDiagram("lanes");
   return id;
 }
 
@@ -393,6 +394,8 @@ function renderDiagramBar() {
        arrange button is press it on a diagram they spent an hour on. */
     el("span", { class: "dia-spacer" }),
     ...(readOnly ? [] : Object.entries({
+      ...(diagram()?.kind === "process"
+          ? { lanes: "one lane per owner, the flow left to right (ADR-0110)" } : {}),
       tree: "parents over children, depth down the page",
       layered: "ranked by flow; a loop back is drawn, not ranked",
       grid: "reading order, for a set with no structure to honour",
@@ -421,13 +424,21 @@ async function arrangeDiagram(algorithm) {
   }
   const kind = current.kind || "organisation";
   const edges = kind === "process" ? processEdges(current.root) : [];
+  /* A process is laid out from its entry, and each step carries the lane of
+     its owner; a step with no owner of its own sits with what leads to it. */
+  const lanes = kind === "process" ? processLanes(current.root) : {};
+  if (kind === "process") {
+    const entry = processGraph(current.root).entry;
+    nodes.sort((a, b) => (b === entry) - (a === entry));
+  }
 
   try {
     const result = await dapi("/layout", {
       method: "POST",
       body: JSON.stringify({
         kind, algorithm,
-        nodes: nodes.map((id) => ({ id, parent: parentOf[id] || null })),
+        nodes: nodes.map((id) => ({ id, parent: parentOf[id] || null,
+                                    lane: lanes[id]?.key || "" })),
         edges,
       }),
     });
@@ -446,7 +457,9 @@ async function arrangeDiagram(algorithm) {
     const surface = $("#canvas");
     if (surface) {
       const xs = Object.values(result.positions || {});
-      surface.scrollLeft = Math.max(0, Math.min(...xs.map((p) => p.x)) - 40);
+      /* A process keeps its initial node and lane headers in view. */
+      const margin = kind === "process" ? 200 : 40;
+      surface.scrollLeft = Math.max(0, Math.min(...xs.map((p) => p.x)) - margin);
       surface.scrollTop = Math.max(0, Math.min(...xs.map((p) => p.y)) - 40);
     }
     setStatus(result.notes?.length
@@ -472,14 +485,262 @@ function processEdges(workflowId) {
     if (node.kind !== "branch") continue;
     for (const c of node.cases || []) {
       if (c.to && c.to !== "END") {
-        edges.push({ source: node.id, target: c.to, kind: "branch_case" });
+        edges.push({ source: node.id, target: c.to, kind: "branch_case",
+                     label: c.when || "" });
       }
     }
     if (node.default && node.default !== "END") {
-      edges.push({ source: node.id, target: node.default, kind: "branch_case" });
+      edges.push({ source: node.id, target: node.default, kind: "branch_case",
+                   label: "else" });
     }
   }
   return edges;
+}
+
+
+/* ------------------------------------------ the process view (ADR-0110)
+
+   A governed workflow is drawn as a UML activity: an initial node at the
+   entry, a final node where it ends, one swimlane per owner, the flow left
+   to right. A loop back is routed below the lanes, not through the steps
+   between, and labelled with the condition that takes it. */
+
+function processGraph(workflowId) {
+  const workflow = (org(spec())?.workflows || []).find((w) => w.id === workflowId);
+  const graph = workflow?.graph || {};
+  const nodes = graph.nodes || [];
+  return { entry: graph.entry || nodes[0]?.id || "", nodes, edges: graph.edges || [] };
+}
+
+/* The lane a step is drawn in: its owner's team, or the owner itself when
+   it has no team. */
+function ownerLane(ownerId) {
+  if (!ownerId) return null;
+  const teams = allTeams();
+  const team = (id) => teams.find((t) => t.id === id);
+  const teamLane = (t) => ({ key: `team:${t.id}`, kind: "team", label: t.name || t.id });
+  if (team(ownerId)) return teamLane(team(ownerId));
+  const home = teams.find((t) => (t.members || []).some((m) => m.id === ownerId));
+  if (home) return teamLane(home);
+  if (allAgents().some(({ agent }) => agent.id === ownerId)) {
+    return { key: `agent:${ownerId}`, kind: "agent", label: ownerId };
+  }
+  const person = (org(spec())?.people || []).find((p) => p.id === ownerId);
+  if (person) {
+    if (person.unit && team(person.unit)) return teamLane(team(person.unit));
+    return { key: `person:${person.id}`, kind: "person", label: person.name || person.id };
+  }
+  return { key: `owner:${ownerId}`, kind: "person", label: ownerId };
+}
+
+function stepOwnerId(step) {
+  return step.owner || (step.kind === "agent" ? step.agent : "")
+    || (step.kind === "human" ? step.person : "") || "";
+}
+
+/* Every step's lane, a step with no owner of its own sitting with the step
+   that leads to it (the server's `lanes` layout follows the same rule). */
+function processLanes(workflowId) {
+  const { nodes, edges } = processGraph(workflowId);
+  const lane = {};
+  for (const n of nodes) {
+    const own = ownerLane(stepOwnerId(n))
+      || (n.kind === "human" && n.role
+          ? { key: `role:${n.role}`, kind: "person", label: `role ${n.role}` } : null);
+    if (own) lane[n.id] = own;
+  }
+  const into = {};
+  for (const e of processEdges(workflowId)) (into[e.target] = into[e.target] || []).push(e.source);
+  for (let pass = 0; pass < nodes.length; pass += 1) {
+    let changed = false;
+    for (const n of nodes) {
+      if (lane[n.id]) continue;
+      const from = (into[n.id] || []).find((p) => lane[p]);
+      if (from) { lane[n.id] = lane[from]; changed = true; }
+    }
+    if (!changed) break;
+  }
+  return lane;
+}
+
+/* A step's box as drawn, measured where it can be. */
+function stepBox(node) {
+  const box = document.querySelector(`#canvas-nodes [data-id="${CSS.escape(node.id)}"]`);
+  const w = box?.offsetWidth || node.width || 200;
+  const h = box?.offsetHeight || 84;
+  return { x: node.x, y: node.y, w, h, cx: node.x + w / 2, cy: node.y + h / 2 };
+}
+
+const LANE_HEAD = 130, LANE_PAD = 22;
+
+function laneBands(layout) {
+  const lanes = processLanes(layout.root);
+  const groups = {};
+  for (const node of Object.values(layout.nodes || {})) {
+    const lane = lanes[node.id];
+    if (!lane) continue;
+    const b = stepBox(node);
+    const g = (groups[lane.key] ||= { ...lane, top: Infinity, bottom: -Infinity, steps: [] });
+    g.top = Math.min(g.top, b.y - LANE_PAD);
+    g.bottom = Math.max(g.bottom, b.y + b.h + LANE_PAD);
+    g.steps.push(node.id);
+  }
+  const bands = Object.values(groups).sort((a, b) => a.top - b.top);
+  /* Lanes laid out by `lanes` touch; close the small gaps measuring leaves,
+     so the lanes read as one pool. */
+  for (let i = 0; i + 1 < bands.length; i += 1) {
+    const gap = bands[i + 1].top - bands[i].bottom;
+    if (gap > 0 && gap < 4 * LANE_PAD) {
+      bands[i].bottom += gap / 2;
+      bands[i + 1].top -= gap / 2;
+    }
+  }
+  return bands;
+}
+
+function processExtent(layout) {
+  const boxes = Object.values(layout.nodes || {}).map(stepBox);
+  if (!boxes.length) return null;
+  return {
+    left: Math.max(0, Math.min(...boxes.map((b) => b.x)) - LANE_HEAD - 20),
+    right: Math.max(...boxes.map((b) => b.x + b.w)) + 110,
+    bottom: Math.max(...boxes.map((b) => b.y + b.h)),
+  };
+}
+
+function renderLanes(host) {
+  const layout = diagram();
+  const extent = layout && processExtent(layout);
+  if (!extent) return host.replaceChildren();
+  host.replaceChildren(...laneBands(layout).map((lane) =>
+    el("div", {
+      class: "lane", "data-lane-kind": lane.kind,
+      style: `left:${extent.left}px; top:${lane.top}px; `
+        + `width:${extent.right - extent.left}px; height:${lane.bottom - lane.top}px`,
+      title: `${lane.label}: ${lane.steps.length} step(s) owned here`,
+    },
+      el("span", { class: "lane-head" },
+        el("span", { class: "lane-kind" }, lane.kind), lane.label))));
+}
+
+function renderProcessEdges(svg, layout) {
+  const ns = "http://www.w3.org/2000/svg";
+  const mk = (tag, attrs, styles = {}, text) => {
+    const n = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    Object.assign(n.style, styles);
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  const parts = [];
+  const defs = mk("defs", {});
+  for (const [id, color] of [["pv-arrow", "--edge-report"], ["pv-arrow-case", "--edge-peer"],
+                             ["pv-arrow-loop", "--amber"]]) {
+    const marker = mk("marker", { id, viewBox: "0 0 10 10", refX: "9", refY: "5",
+                                  markerWidth: "7", markerHeight: "7",
+                                  orient: "auto-start-reverse" });
+    marker.appendChild(mk("path", { d: "M0,0 L10,5 L0,10 z" }, { fill: `var(${color})` }));
+    defs.appendChild(marker);
+  }
+  parts.push(defs);
+  const nodes = layout.nodes || {};
+  const extent = processExtent(layout);
+  if (!extent) return svg.replaceChildren(...parts);
+  const bands = laneBands(layout);
+  const floor = Math.max(extent.bottom, ...bands.map((b) => b.bottom));
+  let loops = 0;
+
+  for (const edge of derivedEdges().filter(edgeShown)) {
+    const a = nodes[edge.source], b = nodes[edge.target];
+    if (!a || !b) continue;
+    const s = stepBox(a), t = stepBox(b);
+    const isCase = edge.kind === "branch_case";
+    const back = t.x <= s.x;
+    const color = back ? "--amber" : isCase ? "--edge-peer" : "--edge-report";
+    let d, lx, ly;
+    if (back) {
+      /* Routed below every lane and back up, so it never crosses a step. */
+      loops += 1;
+      const y = floor + 44 + loops * 16;
+      d = `M ${s.cx} ${s.y + s.h} C ${s.cx} ${y}, ${s.cx} ${y}, ${s.cx - 20} ${y} `
+        + `L ${t.cx + 20} ${y} C ${t.cx} ${y}, ${t.cx} ${y}, ${t.cx} ${t.y + t.h}`;
+      lx = (s.cx + t.cx) / 2; ly = y - 5;
+    } else {
+      const x1 = s.x + s.w, y1 = s.cy, x2 = t.x, y2 = t.cy;
+      const bend = Math.max(30, (x2 - x1) / 2);
+      d = `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
+      lx = (x1 + x2) / 2; ly = (y1 + y2) / 2 - 6;
+    }
+    parts.push(mk("path", {
+      d, fill: "none", "stroke-width": "1.6", class: `pv-edge${back ? " pv-loop" : ""}`,
+      "marker-end": `url(#${back ? "pv-arrow-loop" : isCase ? "pv-arrow-case" : "pv-arrow"})`,
+      ...(isCase || back ? { "stroke-dasharray": back ? "6 4" : "5 4" } : {}),
+    }, { stroke: `var(${color})` }));
+    const label = edge.label || (back ? "loop" : "");
+    if (label) {
+      const full = back && edge.label ? `↺ ${edge.label}` : back ? "↺ loop" : label;
+      const text = mk("text", { x: lx, y: ly, "text-anchor": "middle", class: "edge-label pv-label" },
+                      { fill: `var(${back ? "--amber-ink" : "--ink-muted"})` },
+                      full.length > 26 ? `${full.slice(0, 25)}…` : full);
+      text.appendChild(mk("title", {}, {}, full));
+      parts.push(text);
+    }
+  }
+
+  /* The initial node at the entry, and a final node after every step that
+     ends the workflow. */
+  const graph = processGraph(layout.root);
+  const entry = nodes[graph.entry];
+  if (entry) {
+    const e = stepBox(entry);
+    parts.push(mk("circle", { cx: e.x - 20, cy: e.cy, r: 7, class: "pv-initial" },
+                  { fill: "var(--ink)" }));
+    parts.push(mk("path", { d: `M ${e.x - 13} ${e.cy} L ${e.x - 2} ${e.cy}`,
+                            "stroke-width": "1.6", "marker-end": "url(#pv-arrow)" },
+                  { stroke: "var(--edge-report)" }));
+  }
+  /* Where a step ends the workflow: to its right, or — for a decision,
+     whose ways out already leave to the right — below it, labelled with the
+     case that ends it. */
+  const ends = new Map(graph.edges.filter((e) => e.to === "END")
+    .map((e) => [e.from, ""]));
+  for (const n of graph.nodes) {
+    if (n.kind !== "branch") continue;
+    const c = (n.cases || []).find((x) => x.to === "END");
+    if (c) ends.set(n.id, c.when || "");
+    else if (n.default === "END") ends.set(n.id, "else");
+  }
+  const bullseye = (fx, fy) => {
+    parts.push(mk("circle", { cx: fx, cy: fy, r: 11, fill: "none", "stroke-width": "2",
+                              class: "pv-final" }, { stroke: "var(--ink)" }));
+    parts.push(mk("circle", { cx: fx, cy: fy, r: 6, class: "pv-final" },
+                  { fill: "var(--ink)" }));
+  };
+  for (const [id, label] of ends) {
+    const node = nodes[id];
+    if (!node) continue;
+    const e = stepBox(node);
+    const below = graph.nodes.find((n) => n.id === id)?.kind === "branch";
+    if (below) {
+      const fy = e.y + e.h + 36;
+      parts.push(mk("path", { d: `M ${e.cx} ${e.y + e.h} L ${e.cx} ${fy - 13}`,
+                              "stroke-width": "1.6", "stroke-dasharray": "5 4",
+                              "marker-end": "url(#pv-arrow-case)" },
+                    { stroke: "var(--edge-peer)" }));
+      if (label) {
+        parts.push(mk("text", { x: e.cx + 8, y: e.y + e.h + 18, class: "edge-label pv-label" },
+                      { fill: "var(--ink-muted)" }, label));
+      }
+      bullseye(e.cx, fy);
+    } else {
+      const fx = e.x + e.w + 46;
+      parts.push(mk("path", { d: `M ${e.x + e.w} ${e.cy} L ${fx - 13} ${e.cy}`,
+                              "stroke-width": "1.6", "marker-end": "url(#pv-arrow)" },
+                    { stroke: "var(--edge-report)" }));
+      bullseye(fx, e.cy);
+    }
+  }
+  svg.replaceChildren(...parts);
 }
 
 /* The nodes of the diagram currently open, always an object. */
@@ -618,7 +879,7 @@ async function loadPalette() {
      under an Agent is `agent.tools`. The indent is the model, not styling,
      so it is rendered from the tree the server sends rather than guessed. */
   const item = (kind, depth) => el("div", {
-    class: "drag-item", draggable: "true",
+    class: "drag-item", draggable: "true", "data-kind": kind.kind,
     style: depth ? `margin-left:${depth * 14}px` : null,
     title: kind.help || kind.label,
     ondragstart: (e) => {
@@ -632,13 +893,81 @@ async function loadPalette() {
     ...(kind.children || []).flatMap((c) => branch(c, depth + 1)),
   ];
 
-  root.replaceChildren(
+  canvas.orgPalette = () => [
     ...canvas.palette.groups.map((group) => el("div", { class: "group" },
       el("h4", { title: group.help || "" }, group.label),
       ...group.kinds.flatMap((kind) => branch(kind, 0)))),
     el("p", { class: "note" },
       "An indented component is one the component above it contains. "
-      + "Drop to place, then draw the links the model allows."));
+      + "Drop to place, then draw the links the model allows.")];
+  root.dataset.mode = "";
+  syncPalette();
+}
+
+/* On a process canvas the palette holds steps, not components (ADR-0110):
+   you do not drop a team into a workflow, and a step is not a component of
+   the organisation. Dropping one creates it in the workflow's graph through
+   the same model operation every other drop uses. */
+const STEP_PALETTE = [
+  ["agent", "Agent task", "\u25C8", "hands the step to an agent, who owns it"],
+  ["tool", "Tool call", "\u2699", "calls a tool or capability"],
+  ["human", "Human approval", "\u2713", "pauses for a named person or role"],
+  ["branch", "Decision", "\u25C7", "chooses one way out by condition"],
+  ["fork", "Fork", "\u2AF4", "every way out runs at once"],
+  ["join", "Join", "\u2AF4", "waits for every branch of a fork"],
+  ["workflow", "Sub-workflow", "\u2933", "runs another workflow, drawn here or built in an engine"],
+  ["transform", "Transform", "\u0192", "reshapes the workflow's state"],
+];
+
+function syncPalette() {
+  const root = $("#palette-groups");
+  if (!root || !canvas.orgPalette) return;
+  const mode = diagram()?.kind === "process" ? "process" : "organisation";
+  if (root.dataset.mode === mode) return;
+  root.dataset.mode = mode;
+  if (mode === "organisation") return root.replaceChildren(...canvas.orgPalette());
+  root.replaceChildren(
+    el("div", { class: "group" },
+      el("h4", { title: "the steps of a governed workflow (ADR-0110)" }, "Process steps"),
+      ...STEP_PALETTE.map(([kind, label, icon, help]) => el("div", {
+        class: "drag-item", draggable: "true", "data-kind": "step",
+        "data-step": kind, title: help,
+        ondragstart: (e) => {
+          e.dataTransfer.setData("text/step", kind);
+          e.dataTransfer.effectAllowed = "copy";
+        },
+      }, el("span", { class: "ic" }, icon), label))),
+    el("p", { class: "note" },
+      "Drop a step onto the process, then set its owner in Properties. "
+      + "Edges are edited under the workflow's graph."));
+}
+
+/* A new step in the open workflow, by the model operation path: the model
+   creates it inside the workflow and says what it still lacks. */
+async function placeStep(stepKind, x, y) {
+  const open = diagram();
+  const workflow = (org(spec())?.workflows || []).find((w) => w.id === open?.root);
+  if (!workflow) return setStatus("this process canvas has no workflow");
+  const taken = new Set((workflow.graph?.nodes || []).map((n) => n.id));
+  let n = 1;
+  while (taken.has(`${stepKind}_${n}`)) n += 1;
+  const id = `${stepKind}_${n}`;
+  let said = "";
+  try {
+    const answer = await modelOperation({ op: "create", kind: "action", id,
+                                          owner: workflow.id,
+                                          attrs: { kind: stepKind } });
+    said = `step ${id} added to ${workflow.id}${effectsLine(answer)}`;
+  } catch (err) {
+    setStatus(err.message);
+    return;
+  }
+  layoutNodes()[id] = { id, kind: "step", x, y, width: 200, height: 80,
+                        collapsed: false, note: "" };
+  markDirty(said);
+  renderCanvas();
+  selectNode(layoutNodes()[id]);
+  setStatus(said);
 }
 
 /* The node vocabulary the design fixes: shape carries the kind, so a reader
@@ -702,9 +1031,19 @@ const STEP_SPEC = {
   fields: [
     { name: "id", type: "string", required: true },
     { name: "kind", type: "enum",
-      options: ["tool", "agent", "workflow", "branch", "transform", "human"],
-      help: "what this step does. A branch is the only one that may have "
-            + "several ways out, because it is the only one that chooses" },
+      options: ["tool", "agent", "workflow", "branch", "transform", "human",
+                "fork", "join"],
+      help: "what this step does. A branch chooses one way out; a fork takes "
+            + "every way out at once, and its branches meet at a join "
+            + "(ADR-0110)" },
+    { name: "owner", type: "string",
+      help: "who does this step: an agent, a team or a person. An agent step "
+            + "is its agent's unless this says otherwise; a step calling a "
+            + "workflow built in an engine is checked against its owner" },
+    { name: "person", type: "string",
+      help: "for a human step: the person who approves" },
+    { name: "role", type: "string",
+      help: "for a human step: or the role whose holder approves" },
     { name: "tool", type: "string" },
     { name: "agent", type: "string" },
     { name: "workflow", type: "string" },
@@ -760,6 +1099,7 @@ function renderCanvas() {
       .sort((a, b) => isContainer(b) - isContainer(a))
       .map((node) => renderNode(node)));
   $("#canvas-empty").hidden = Object.keys(layout.nodes).length > 0;
+  syncPalette();
   renderRegions();
   renderEdges();
   renderEdgeFilter();
@@ -855,6 +1195,7 @@ function renderNode(node) {
           : ""),
     "data-kind": node.kind, "data-id": node.id,
     "data-shape": shapeOf(node.kind),
+    "data-step": node.kind === "step" ? (component.kind || "tool") : null,
     "data-classification": node.kind === "agent"
       ? classificationOf(component) : null,
     style: `left:${node.x}px; top:${node.y}px; min-width:${node.width}px`
@@ -867,9 +1208,11 @@ function renderNode(node) {
     node.kind === "environment"
       ? el("span", { class: "n-net" }, postureOf(component))
       : el("span", { class: "n-icon" }, kindSpec(node.kind).icon || "▫"),
-    el("div", { class: "n-kind" }, kindSpec(node.kind).label),
+    el("div", { class: "n-kind" },
+       node.kind === "step" ? stepKindLabel(component) : kindSpec(node.kind).label),
     titleEl,
     el("div", { class: "n-sub" }, nodeSubtitle(node.kind, component, node)),
+    ...(node.kind === "step" ? stepEngine(component) : []),
     ...(node.kind === "agent" ? heldChips(component, readOnly) : []),
     ...(isContainer(node) && !readOnly
         ? [el("span", { class: "n-resize", title: "Drag to resize" })] : []));
@@ -1283,6 +1626,7 @@ async function unlink(node) {
 }
 
 function nodeSubtitle(kind, component, node) {
+  if (kind === "step") return stepOwnerText(component);
   if (kind === "team") return `leader: ${component.leader || "—"}`;
   if (kind === "agent") {
     const owner = (component.humans || []).find((h) => (h.roles || []).includes("owner"));
@@ -1309,6 +1653,7 @@ function renderEdges() {
   const svg = $("#canvas-edges");
   const layout = diagram();
   if (!layout) return svg.replaceChildren();
+  if (layout.kind === "process") return renderProcessEdges(svg, layout);
   const edges = derivedEdges().filter(edgeShown);
   const ns = "http://www.w3.org/2000/svg";
   const parts = [];
@@ -1463,6 +1808,7 @@ function regionBoxes() {
 function renderRegions() {
   const host = $("#canvas-regions");
   if (!host) return;
+  if (diagram()?.kind === "process") return renderLanes(host);
   host.replaceChildren(...regionBoxes().map((region) =>
     el("div", {
       class: "region",
@@ -1510,7 +1856,8 @@ function derivedEdges() {
   const open = diagram();
   if (open?.kind === "process") {
     for (const edge of processEdges(open.root)) {
-      out.push({ source: edge.source, target: edge.target, kind: edge.kind });
+      out.push({ source: edge.source, target: edge.target, kind: edge.kind,
+                 label: edge.label || "" });
     }
     return out;
   }
@@ -1731,7 +2078,7 @@ function explorerModel() {
       group: true,
       children: s.organization?.id ? [unit(s.organization)] : [] },
     flat("person", "people", (p) => p.position || ""),
-    flat("role", "roles", (r) => r.title || ""),
+    flat("role", "role_definitions", (r) => r.title || ""),
     flat("decision", "decisions", (d) => d.title || ""),
     flat("separation", "separations",
          (x) => `${(x.decisions || []).length} decisions kept apart`),
@@ -2146,11 +2493,19 @@ function wireDropTarget() {
     e.preventDefault();
     surface.classList.remove("drag-over");
     const kind = e.dataTransfer.getData("text/kind");
-    if (!kind) return;
+    const step = e.dataTransfer.getData("text/step");
+    if (!kind && !step) return;
     if (!canvas.record) { setStatus("Open or create a system first, then drop components onto the canvas."); return; }
     const rect = surface.getBoundingClientRect();
     const x = Math.round((e.clientX - rect.left + surface.scrollLeft) / 10) * 10;
     const y = Math.round((e.clientY - rect.top + surface.scrollTop) / 10) * 10;
+    if (step) {
+      if (diagram()?.kind !== "process") return setStatus("a step belongs on a process canvas");
+      return placeStep(step, x, y);
+    }
+    if (diagram()?.kind === "process") {
+      return setStatus("a process canvas holds steps; open an organisation diagram to add components");
+    }
     placeComponent(kind, x, y);
   });
 }
@@ -3216,7 +3571,128 @@ const NODE_KINDS = [
   ["branch", "", "chooses what runs next"],
   ["transform", "expr", "reshapes the state"],
   ["human", "", "pauses for a person"],
+  ["fork", "", "runs every way out at once"],
+  ["join", "", "waits for every branch of a fork"],
 ];
+
+/* ------------------------------------ two levels, one seam (ADR-0110)
+
+   The process canvas draws the governed workflow: which steps happen, who
+   owns each, where a person approves, what runs in parallel. What happens
+   *inside* a step may belong to an engine; such a step calls a workflow
+   whose body is external, and the canvas says which engine holds it and
+   links out to it. It never draws the engine's own graph. */
+
+const STEP_LABELS = {
+  tool: "Tool step", agent: "Agent step", workflow: "Workflow step",
+  branch: "Branch", transform: "Transform", human: "Human approval",
+  fork: "Fork", join: "Join",
+};
+
+function stepWorkflow(step) {
+  if (step?.kind !== "workflow" || !step.workflow) return null;
+  return (org(spec())?.workflows || []).find((w) => w.id === step.workflow) || null;
+}
+
+function stepKindLabel(step) {
+  const called = stepWorkflow(step);
+  if (called?.body === "external") return "External step";
+  return STEP_LABELS[step?.kind] || "Step";
+}
+
+/* Who does the step. Every step a person reads on the canvas answers that
+   first, because it is what the step is governed by. */
+function stepOwnerText(step) {
+  const kind = step?.kind || "tool";
+  if (kind === "fork") return "every way out runs";
+  if (kind === "join") return "waits for every branch";
+  if (kind === "branch") return `${(step.cases || []).length} case(s)`
+    + (step.default ? ` · else ${step.default}` : "");
+  if (kind === "transform") return "reshapes the state";
+  if (kind === "human") {
+    const who = step.person
+      ? personLabel({ person: step.person })
+      : step.role ? `role ${step.role}` : step.owner || "";
+    return who ? `approver: ${who}` : "approver: — nobody named";
+  }
+  const owner = step.owner || (kind === "agent" ? step.agent : "");
+  const what = kind === "tool" ? step.tool : kind === "workflow" ? step.workflow : "";
+  return [owner ? `owner: ${owner}` : "owner: —", what ? `calls ${what}` : ""]
+    .filter(Boolean).join(" · ");
+}
+
+/* Which engine runs each workflow comes from the binding the design was
+   saved with. The spec never names an engine (ADR-0056), so without a saved
+   binding the canvas can only say that the step is external. */
+const engineCache = {};
+
+function workflowEngines() {
+  const systemId = canvas.systemId;
+  if (!systemId) return Promise.resolve(null);
+  const key = `${systemId}@${canvas.record?.version}`;
+  return (engineCache[key] ||= dapi(`/systems/${systemId}/workflow-engines`)
+    .catch(() => null));
+}
+
+function stepEngine(step) {
+  const called = stepWorkflow(step);
+  if (!called) return [];
+  const external = called.body === "external";
+  const box = el("div", { class: `n-engine${external ? " external" : ""}` },
+    external ? "built in an engine" : "drawn here");
+  workflowEngines().then((data) => {
+    const bound = data?.workflows?.[called.id] || data?.workflows?.["*"];
+    if (!bound || bound.engine === "native") {
+      box.replaceChildren(external
+        ? el("span", { class: "n-engine-missing" },
+             data?.target ? `no engine bound for ${data.target}`
+                          : "engine: save with a binding to see it")
+        : "drawn here");
+      return;
+    }
+    const parts = [el("span", {}, `engine: ${bound.engine}`)];
+    if (bound.editor_url) {
+      const link = el("a", { href: bound.editor_url, target: "_blank",
+                             rel: "noopener", class: "n-open-in",
+                             title: `the flow '${bound.flow || called.id}' in ${bound.engine}` },
+                      `Open in ${bound.engine} ↗`);
+      link.addEventListener("mousedown", (e) => e.stopPropagation());
+      link.addEventListener("click", (e) => e.stopPropagation());
+      parts.push(link);
+    }
+    box.replaceChildren(...parts);
+  });
+  return [box];
+}
+
+/* A workflow's interface: the seam to an engine (ADR-0110). Six lists, each
+   of which a step calling the workflow is checked against. */
+const INTERFACE_FIELDS = [
+  ["inputs", "inputs", "what the step is given"],
+  ["outputs", "outputs", "what it hands back"],
+  ["tools", "calls", "capabilities or tools the body calls; the step's owner must hold them"],
+  ["endpoints", "endpoints", "external endpoints the body calls"],
+  ["receives_data_classes", "receives", "data classes it is sent; the owner must hold them"],
+  ["returns_data_classes", "returns", "data classes it hands back"],
+];
+
+function renderInterface(field, value, readOnly, onChange) {
+  const current = value && typeof value === "object" ? { ...value } : {};
+  const wrap = el("div", { class: "interface-wrap" });
+  for (const [key, label, hint] of INTERFACE_FIELDS) {
+    const input = el("input", { placeholder: "comma separated", title: hint,
+                                ...(readOnly ? { disabled: "" } : {}) });
+    input.value = (current[key] || []).join(", ");
+    input.addEventListener("input", () => {
+      const items = input.value.split(",").map((x) => x.trim()).filter(Boolean);
+      if (items.length) current[key] = items; else delete current[key];
+      onChange({ ...current });
+    });
+    wrap.appendChild(el("label", { class: "interface-row" },
+      el("span", { class: "interface-key" }, label), input));
+  }
+  return wrap;
+}
 
 function graphIssues(graph) {
   const nodes = graph.nodes || [];
@@ -3254,11 +3730,39 @@ function graphIssues(graph) {
     }
   }
   for (const n of nodes) {
-    if (n.kind === "branch") continue;
+    if (n.kind === "branch" || n.kind === "fork") continue;
     if ((out[n.id] || []).length > 1) {
       issues.push({ id: n.id,
-        text: `“${n.id}” has ${out[n.id].length} ways out and is not a branch, `
-              + "so nothing chooses between them" });
+        text: `“${n.id}” has ${out[n.id].length} ways out and is not a branch `
+              + "or a fork, so nothing decides what they mean" });
+    }
+  }
+  // A fork's branches meet at a join, and a join is where a fork's meet.
+  const kindOf = Object.fromEntries(nodes.map((n) => [n.id, n.kind]));
+  const joined = new Set();
+  for (const n of nodes) {
+    if (n.kind !== "fork") continue;
+    const seen = new Set(), stack = [...(out[n.id] || [])];
+    let found = false;
+    while (stack.length) {
+      const t = stack.pop();
+      if (!t || t === "END" || seen.has(t)) continue;
+      seen.add(t);
+      if (kindOf[t] === "join") { found = true; joined.add(t); continue; }
+      stack.push(...(out[t] || []));
+    }
+    if (!found) {
+      issues.push({ id: n.id,
+        text: `“${n.id}” forks and its branches never meet at a join` });
+    }
+  }
+  for (const n of nodes) {
+    if (n.kind === "join" && !joined.has(n.id)) {
+      issues.push({ id: n.id, text: `no fork's branches lead to “${n.id}”` });
+    }
+    if (n.kind === "human" && !n.person && !n.role && !n.owner) {
+      issues.push({ id: n.id,
+        text: `“${n.id}” pauses for a person without naming who approves` });
     }
   }
   // Reachability, which is the one that finds a step that simply never runs.
@@ -3328,7 +3832,9 @@ function graphPreview(graph) {
                  class: `gp-node${issueIds.has(n.id) ? " gp-bad" : ""}`
                         + (n.id === entry ? " gp-entry" : "") });
     mk("text", { x: 44, y: y + 14, class: "gp-id" }, n.id);
-    mk("text", { x: 44, y: y + 26, class: "gp-kind" }, n.kind || "—");
+    mk("text", { x: 44, y: y + 26, class: "gp-kind" },
+       (n.kind || "—") + (n.person ? ` · ${n.person}` : "")
+       + (n.owner ? ` · ${n.owner}` : ""));
   });
   return svg;
 }
@@ -3366,7 +3872,17 @@ function renderGraph(field, value, readOnly, onChange) {
       ? el("span", { class: "muted small" },
            `${(node.cases || []).length} case(s)`
            + (node.default ? ` · else ${node.default}` : " · no default"))
-      : el("span", { class: "muted small" }, "pauses for a person");
+      : node.kind === "human"
+      ? (() => {
+          const t = el("input", { value: node.person || node.role || "",
+                                  placeholder: "approver (person id)",
+                                  ...(readOnly ? { disabled: "" } : {}) });
+          t.addEventListener("input", () => { node.person = t.value; onChange(graph); });
+          return t;
+        })()
+      : el("span", { class: "muted small" },
+           node.kind === "fork" ? "every way out runs"
+           : node.kind === "join" ? "waits for every branch" : "");
 
     const del = el("button", { type: "button", class: "ghost",
                                ...(readOnly ? { disabled: "" } : {}) }, "×");
@@ -3584,6 +4100,14 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
     return label;
   }
 
+  /* ---- a workflow's interface (ADR-0110) ---- */
+  if (field.type === "interface") {
+    const input = renderInterface(field, value, readOnly, onChange);
+    const label = el("label", { class: "stacked" }, fieldTitle(field), input);
+    if (field.help) label.appendChild(el("small", { class: "hint" }, field.help));
+    return label;
+  }
+
   /* ---- policy conditions (ADR-0008) ---- */
   if (field.type === "conditions") {
     const input = renderConditions(field, value, readOnly, onChange);
@@ -3755,7 +4279,12 @@ function fieldControl(field, value, readOnly, onChange, componentKind = null,
   } else {
     input = el("input", attrs);
     input.value = value ?? "";
-    input.addEventListener("input", () => onChange(input.value));
+    /* An id is renamed, not edited: the rename moves the layout and every
+       reference, then redraws the form. Doing that per keystroke replaced the
+       box under the cursor after each character, so an id is committed when
+       the box is left or Enter is pressed. */
+    input.addEventListener(field.name === "id" ? "change" : "input",
+                           () => onChange(input.value));
   }
   if (input && input.tagName !== "DIV") input.setAttribute("name", field.name);
   // A yes/no reads as one line — the box, then what ticking it means.
@@ -4062,7 +4591,17 @@ function renderValidation(validation) {
               ...(known ? { onclick: () => selectAndReveal(finding.component) } : {}),
             }, where)
           : null,
-        finding.code ? el("span", { class: "v-code" }, finding.code) : null),
+        finding.issue_id
+          ? el("span", { class: "v-num" }, finding.issue_id) : null,
+        finding.code
+          ? el("button", {
+              class: "v-code link",
+              title: finding.title
+                ? `${finding.title} — what this means and how to fix it`
+                : "what this means and how to fix it",
+              onclick: () => openIssueCode(finding),
+            }, finding.code)
+          : null),
       el("div", { class: "v-msg" }, finding.message));
   };
 
@@ -4072,6 +4611,70 @@ function renderValidation(validation) {
       ? el("ul", { class: "findings" }, ...findings.map(row))
       : el("p", { class: "hint" }, "No errors and no warnings."));
 }
+
+/* An issue code, explained. The row says what is wrong here; the catalog says
+   what the rule is, why it exists and how to satisfy it. */
+const issueCodeCache = new Map();
+
+async function openIssueCode(finding) {
+  const dialog = $("#issue-dialog");
+  if (!dialog) return;
+  const code = finding.code;
+  $("#issue-number").textContent = finding.issue_id || "";
+  $("#issue-severity").textContent = finding.severity || "";
+  $("#issue-severity").className = `issue-severity ${finding.severity === "error" ? "err" : "warn"}`;
+  $("#issue-title").textContent = finding.title || code;
+  $("#issue-body").replaceChildren(el("p", { class: "hint" }, "Loading…"));
+  if (!dialog.open) dialog.showModal();
+
+  let entry = issueCodeCache.get(code);
+  if (!entry) {
+    try {
+      entry = await dapi(`/issue-codes/${encodeURIComponent(code)}`);
+      issueCodeCache.set(code, entry);
+    } catch (e) {
+      entry = null;
+    }
+  }
+  if (!entry) {
+    $("#issue-body").replaceChildren(
+      el("p", {}, finding.message || ""),
+      el("p", { class: "hint" }, `No explanation is catalogued for ${code} yet.`));
+    return;
+  }
+  $("#issue-number").textContent = entry.id;
+  $("#issue-title").textContent = entry.title || code;
+
+  const section = (heading, ...content) =>
+    el("section", { class: "issue-sec" }, el("h4", {}, heading), ...content);
+  const para = (text) => el("p", {}, text || "");
+  const where = findingWhere(finding);
+  $("#issue-body").replaceChildren(
+    el("p", { class: "issue-summary" }, entry.summary || ""),
+    el("div", { class: "issue-here" },
+      el("span", { class: "issue-label" }, "In this design"),
+      where ? el("code", {}, where) : null,
+      el("p", {}, finding.message || "")),
+    section("What triggers it", para(entry.explanation)),
+    section("Why it matters", para(entry.why)),
+    section("How to fix it",
+      el("ol", {}, ...(entry.fix || []).map((step) => el("li", {}, step)))),
+    entry.example
+      ? section("Example", el("pre", { class: "issue-example" }, entry.example))
+      : null,
+    el("div", { class: "issue-foot" },
+      el("code", {}, entry.code),
+      el("span", {}, entry.section || ""),
+      ...(entry.refs || []).map((r) => el("span", { class: "issue-ref" }, r))));
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  $("#btn-issue-close")?.addEventListener("click", () => $("#issue-dialog").close());
+  /* A click on the backdrop lands on the dialog element itself. */
+  $("#issue-dialog")?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) e.currentTarget.close();
+  });
+});
 
 /* Take the reader to the component a finding names: select it, and scroll it
    into view, which is the whole point of attributing a finding at all. */
@@ -4278,22 +4881,8 @@ function wireCanvas() {
     await openSystem(canvas.systemId);
   });
   $("#btn-members").addEventListener("click", () => showView("workspace"));
-  $("#btn-designer-settings").addEventListener("click", async () => {
-    const settings = await dapi("/settings");
-    const entry = window.prompt(
-      "Designer settings:\n" + JSON.stringify(settings, null, 2) +
-      "\n\nChange as key=value (e.g. lock_ttl_seconds=300)");
-    if (!entry) return;
-    const [key, value] = entry.split("=");
-    try {
-      await dapi("/settings", {
-        method: "PUT",
-        body: JSON.stringify({ [key.trim()]: isNaN(Number(value)) ? value.trim()
-          : Number(value) }),
-      });
-      setStatus("settings updated");
-    } catch (err) { alert(err.message); }
-  });
+  /* The ⚙ button opens settings.js's dialog: display preferences and the
+     installation's settings. */
   $("#btn-resolve-mine").addEventListener("click", () => {
     canvas.conflicts.forEach((c) => { canvas.resolutions[c.path] = "ours"; });
     renderConflicts();

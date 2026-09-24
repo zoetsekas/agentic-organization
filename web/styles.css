@@ -104,6 +104,36 @@
   --err: var(--clay-ink);
   --radius: var(--r-md);
   --mono: var(--font-mono);
+
+  /* One hue per component kind, so a canvas reads at a glance. The kinds
+     drawn most (team, agent, sub-agent, person, role, capability,
+     environment) get the hues furthest apart; each palette group keeps a
+     family (authority violet, access warm, work green/blue, assurance red). */
+  --kind-team: #5B8DEF;
+  --kind-agent: #3FC1AC;
+  --kind-subagent: #7FD8E6;
+  --kind-person: #E57BB9;
+  --kind-role: #A98BFA;
+  --kind-decision: #C38CF2;
+  --kind-separation: #8C7CF0;
+  --kind-policy: #D69BE6;
+  --kind-capability: #E8B04A;
+  --kind-data-class: #D8D063;
+  --kind-environment: #93A6BA;
+  --kind-endpoint: #F07E5C;
+  --kind-mission: #F2A06E;
+  --kind-workflow: #5CC878;
+  --kind-trigger: #A2D05A;
+  --kind-channel: #62B4DC;
+  --kind-knowledge: #CFA67C;
+  --kind-memory: #B7A08A;
+  --kind-guardrail: #EA6A62;
+  --kind-contract: #DD9150;
+  --kind-evaluation: #84C98A;
+  --kind-skill: #86D6A8;
+  --kind-plugin: #A7C272;
+  --kind-tool: #C4CB70;
+  --kind-note: #7C8894;
 }
 
 * { box-sizing: border-box; }
@@ -951,6 +981,57 @@ textarea.json.invalid { border-color: var(--clay); }
 .findings .v-code {
   font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--ink-dim);
 }
+.findings button.v-code {
+  background: none; border: none; padding: 0; cursor: pointer;
+  text-decoration: underline dotted; text-underline-offset: 2px;
+}
+.findings button.v-code:hover, .findings button.v-code:focus-visible {
+  color: var(--accent); text-decoration-style: solid;
+}
+.findings .v-num {
+  font-family: var(--font-mono); font-size: var(--t-tiny); color: var(--ink-muted);
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+  padding: 0 4px;
+}
+
+/* -- an issue code, explained ----------------------------------------------- */
+.issue-dialog { width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 64px); }
+.issue-dialog-head { display: flex; align-items: center; gap: var(--s3); }
+.issue-dialog-head .icon-btn { margin-left: auto; }
+.issue-number {
+  font-family: var(--font-mono); font-size: var(--t-small); color: var(--ink);
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 1px 6px;
+}
+.issue-severity { font-family: var(--font-mono); font-size: var(--t-tiny); text-transform: uppercase; }
+.issue-severity.err { color: var(--err); }
+.issue-severity.warn { color: var(--warn); }
+.issue-dialog h3 { margin: var(--s3) 0 var(--s2); }
+.issue-summary { color: var(--ink); font-size: 15px; line-height: 1.5; margin-top: 0; }
+.issue-here {
+  background: var(--raised); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: var(--s3) var(--s4); margin: var(--s4) 0;
+}
+.issue-here p { margin: var(--s2) 0 0; color: var(--ink-muted); font-size: var(--t-small); }
+.issue-here code { font-family: var(--font-mono); font-size: var(--t-tiny); margin-left: var(--s2); }
+.issue-label { font-size: var(--t-tiny); text-transform: uppercase; letter-spacing: .08em; color: var(--ink-dim); }
+.issue-sec h4 {
+  margin: var(--s4) 0 var(--s2); font-size: var(--t-tiny); text-transform: uppercase;
+  letter-spacing: .08em; color: var(--ink-dim);
+}
+.issue-sec p, .issue-sec li { line-height: 1.55; color: var(--ink); }
+.issue-sec ol { padding-left: 1.3em; margin: 0; }
+.issue-sec li + li { margin-top: var(--s2); }
+.issue-example {
+  font-family: var(--font-mono); font-size: 12px; background: var(--ground);
+  border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s3); overflow-x: auto;
+}
+.issue-foot {
+  display: flex; flex-wrap: wrap; gap: var(--s3); align-items: center;
+  margin-top: var(--s5); padding-top: var(--s3); border-top: 1px solid var(--line);
+  font-size: var(--t-tiny); color: var(--ink-dim);
+}
+.issue-foot code { font-family: var(--font-mono); }
+.issue-ref { border: 1px solid var(--line); border-radius: 10px; padding: 0 6px; }
 .findings .v-msg { font-size: var(--t-small); color: var(--ink-muted); line-height: 1.45; }
 
 /* An association's kind, written on its edge (ADR-0081). */
@@ -1281,3 +1362,226 @@ label.check-row > .hint { flex-basis: 100%; }
   background: none; border: 0; padding: 0; color: var(--accent);
   cursor: pointer; text-decoration: underline;
 }
+
+/* -- component kinds by colour ----------------------------------------------
+   Shape still says what a thing *is* (container, card, capsule, chevron); the
+   hue says which kind at a glance. It sits on the top edge, the kind label and
+   a faint wash, so an agent's left stripe stays free for its classification
+   and selection still wins. */
+.canvas-surface .node[data-kind="team"]             { --kc: var(--kind-team); }
+.canvas-surface .node[data-kind="agent"]            { --kc: var(--kind-agent); }
+.canvas-surface .node[data-kind="subagent"]         { --kc: var(--kind-subagent); }
+.canvas-surface .node[data-kind="person"]           { --kc: var(--kind-person); }
+.canvas-surface .node[data-kind="role"]             { --kc: var(--kind-role); }
+.canvas-surface .node[data-kind="decision"]         { --kc: var(--kind-decision); }
+.canvas-surface .node[data-kind="separation"]       { --kc: var(--kind-separation); }
+.canvas-surface .node[data-kind="policy"]           { --kc: var(--kind-policy); }
+.canvas-surface .node[data-kind="capability"]       { --kc: var(--kind-capability); }
+.canvas-surface .node[data-kind="data_class"]       { --kc: var(--kind-data-class); }
+.canvas-surface .node[data-kind="environment"]      { --kc: var(--kind-environment); }
+.canvas-surface .node[data-kind="endpoint"]         { --kc: var(--kind-endpoint); }
+.canvas-surface .node[data-kind="mission"]          { --kc: var(--kind-mission); }
+.canvas-surface .node[data-kind="workflow"],
+.canvas-surface .node[data-kind="step"]             { --kc: var(--kind-workflow); }
+.canvas-surface .node[data-kind="trigger"]          { --kc: var(--kind-trigger); }
+.canvas-surface .node[data-kind="channel"]          { --kc: var(--kind-channel); }
+.canvas-surface .node[data-kind="knowledge"]        { --kc: var(--kind-knowledge); }
+.canvas-surface .node[data-kind="memory_namespace"] { --kc: var(--kind-memory); }
+.canvas-surface .node[data-kind="guardrail"]        { --kc: var(--kind-guardrail); }
+.canvas-surface .node[data-kind="output_contract"]  { --kc: var(--kind-contract); }
+.canvas-surface .node[data-kind="evaluation"]       { --kc: var(--kind-evaluation); }
+.canvas-surface .node[data-kind="skill"]            { --kc: var(--kind-skill); }
+.canvas-surface .node[data-kind="plugin"]           { --kc: var(--kind-plugin); }
+.canvas-surface .node[data-kind="tool"]             { --kc: var(--kind-tool); }
+.canvas-surface .node[data-kind="note"]             { --kc: var(--kind-note); }
+
+.canvas-surface .node[data-kind]:not(.selected) {
+  border-top: 3px solid var(--kc, var(--line-strong));
+  background: color-mix(in srgb, var(--kc, var(--raised)) 10%, var(--raised));
+}
+.canvas-surface .node[data-kind] .n-kind,
+.canvas-surface .node[data-kind] .n-icon { color: var(--kc, var(--ink-dim)); }
+/* A container keeps its dashed outline, in its own hue, and a lighter wash
+   so what it holds stays the brighter thing. */
+.canvas-surface .node.container[data-kind]:not(.selected),
+.canvas-surface .node[data-shape="container"][data-kind]:not(.selected) {
+  border: 1.5px dashed color-mix(in srgb, var(--kc) 70%, transparent);
+  border-top-width: 3px; border-top-style: solid;
+  background: color-mix(in srgb, var(--kc) 6%, var(--ground));
+}
+
+/* The palette and the outline use the same hues, so a kind is one colour
+   wherever it appears. */
+.palette .drag-item[data-kind] .ic,
+.palette [data-kind] > .ic { color: var(--kc); }
+.palette [data-kind="team"] { --kc: var(--kind-team); }
+.palette [data-kind="agent"] { --kc: var(--kind-agent); }
+.palette [data-kind="subagent"] { --kc: var(--kind-subagent); }
+.palette [data-kind="person"] { --kc: var(--kind-person); }
+.palette [data-kind="role"] { --kc: var(--kind-role); }
+.palette [data-kind="decision"] { --kc: var(--kind-decision); }
+.palette [data-kind="separation"] { --kc: var(--kind-separation); }
+.palette [data-kind="policy"] { --kc: var(--kind-policy); }
+.palette [data-kind="capability"] { --kc: var(--kind-capability); }
+.palette [data-kind="data_class"] { --kc: var(--kind-data-class); }
+.palette [data-kind="environment"] { --kc: var(--kind-environment); }
+.palette [data-kind="endpoint"] { --kc: var(--kind-endpoint); }
+.palette [data-kind="mission"] { --kc: var(--kind-mission); }
+.palette [data-kind="workflow"] { --kc: var(--kind-workflow); }
+.palette [data-kind="trigger"] { --kc: var(--kind-trigger); }
+.palette [data-kind="channel"] { --kc: var(--kind-channel); }
+.palette [data-kind="knowledge"] { --kc: var(--kind-knowledge); }
+.palette [data-kind="memory_namespace"] { --kc: var(--kind-memory); }
+.palette [data-kind="guardrail"] { --kc: var(--kind-guardrail); }
+.palette [data-kind="output_contract"] { --kc: var(--kind-contract); }
+.palette [data-kind="evaluation"] { --kc: var(--kind-evaluation); }
+.palette [data-kind="skill"] { --kc: var(--kind-skill); }
+.palette [data-kind="plugin"] { --kc: var(--kind-plugin); }
+.palette [data-kind="tool"] { --kc: var(--kind-tool); }
+.outline-surface .o-node[data-kind="team"] { stroke: var(--kind-team); }
+.outline-surface .o-node[data-kind="agent"] { fill: var(--kind-agent); }
+
+/* -- three kinds of box, three visual languages ------------------------------
+   A team, an environment and an agent were all rounded boxes told apart by a
+   dash and a tint. Shape and texture now carry the difference and colour only
+   repeats it:
+     team        — an org unit: dashed outline, a solid title band, round corners
+     environment — ground agents stand on: diagonal hatching, square corners,
+                   a tab label; never a card, because it is a place, not an actor
+     agent       — the actor: the most solid thing on the canvas */
+.canvas-surface .node[data-kind="team"]:not(.selected) {
+  border-radius: var(--r-lg);
+  background:
+    linear-gradient(to bottom,
+      color-mix(in srgb, var(--kind-team) 22%, var(--ground)) 0 54px,
+      color-mix(in srgb, var(--kind-team) 5%, var(--ground)) 54px);
+}
+.canvas-surface .node[data-kind="team"] .n-title { color: var(--ink); }
+
+.canvas-surface .node[data-kind="environment"]:not(.selected),
+.canvas-surface .node.container[data-kind="environment"]:not(.selected) {
+  border: 1.5px solid color-mix(in srgb, var(--kind-environment) 70%, transparent);
+  border-radius: var(--r-sm);
+  background:
+    repeating-linear-gradient(135deg,
+      color-mix(in srgb, var(--kind-environment) 14%, transparent) 0 2px,
+      transparent 2px 10px),
+    color-mix(in srgb, var(--kind-environment) 5%, var(--ground));
+}
+.canvas-surface .node[data-kind="environment"] .n-kind::before { content: "▦ "; }
+
+/* Placement regions are environments seen from the agent's side: same
+   hatching, quieter, because they sit behind everything. */
+.region {
+  border: 1px solid color-mix(in srgb, var(--kind-environment) 45%, transparent);
+  border-radius: var(--r-sm);
+  background:
+    repeating-linear-gradient(135deg,
+      color-mix(in srgb, var(--kind-environment) 9%, transparent) 0 1.5px,
+      transparent 1.5px 12px);
+  opacity: 1;
+}
+.region[data-network="none"] { border-style: solid; border-color: var(--kind-environment); }
+.region[data-network="open"] { border-color: var(--amber-line); }
+.region-label {
+  top: -1px; left: var(--s4);
+  padding: 1px var(--s2) 2px;
+  background: color-mix(in srgb, var(--kind-environment) 22%, var(--ground));
+  border: 1px solid color-mix(in srgb, var(--kind-environment) 45%, transparent);
+  border-top: none; border-radius: 0 0 var(--r-sm) var(--r-sm);
+  color: var(--kind-environment);
+}
+.region-label::before { content: "▦ ENV"; letter-spacing: .1em; color: var(--ink-muted); }
+
+/* Held components are small and secondary: a pill, not a card. */
+.canvas-surface .node[data-kind="skill"],
+.canvas-surface .node[data-kind="plugin"],
+.canvas-surface .node[data-kind="tool"] { border-radius: var(--r-pill); }
+
+/* The legend repeats each language at swatch size. */
+.canvas-legend {
+  display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5);
+  padding: var(--s2) var(--s4); font-size: var(--t-tiny); color: var(--ink-muted);
+  border-bottom: 1px solid var(--line);
+}
+.canvas-legend .lg { display: inline-flex; align-items: center; gap: var(--s2); }
+.canvas-legend .lg i { display: inline-block; width: 22px; height: 13px; }
+.canvas-legend .lg-team i {
+  border: 1.5px dashed var(--kind-team); border-top: 4px solid var(--kind-team);
+  border-radius: 3px; background: color-mix(in srgb, var(--kind-team) 12%, var(--ground));
+}
+.canvas-legend .lg-agent i {
+  border: 1px solid var(--line-strong); border-top: 3px solid var(--kind-agent);
+  border-radius: 3px; background: color-mix(in srgb, var(--kind-agent) 22%, var(--raised));
+}
+.canvas-legend .lg-subagent i {
+  border: 1px solid var(--line-strong); border-top: 3px solid var(--kind-subagent);
+  border-radius: 3px; background: color-mix(in srgb, var(--kind-subagent) 18%, var(--raised));
+}
+.canvas-legend .lg-env i {
+  border: 1px solid var(--kind-environment); border-radius: 1px;
+  background: repeating-linear-gradient(135deg,
+    color-mix(in srgb, var(--kind-environment) 45%, transparent) 0 2px, transparent 2px 6px);
+}
+.canvas-legend .lg-held i {
+  height: 10px; border-radius: var(--r-pill);
+  border: 1px solid var(--kind-tool); background: color-mix(in srgb, var(--kind-tool) 20%, var(--raised));
+}
+
+/* ---- the governed workflow on the process canvas (ADR-0110) ----
+   Each step says what kind it is and who owns it. A fork and a join are
+   the UML bars they are; a human approval is amber, because it is where a
+   person decides; a step built in an engine is dashed, because its insides
+   are drawn somewhere else. */
+.canvas-surface .node[data-step="fork"],
+.canvas-surface .node[data-step="join"] {
+  border-top: 5px solid var(--ink-muted);
+  border-bottom: 5px solid var(--ink-muted);
+}
+.canvas-surface .node[data-step="fork"] .n-kind,
+.canvas-surface .node[data-step="join"] .n-kind { color: var(--ink); }
+.canvas-surface .node[data-step="human"] { border-left: 3px solid var(--amber); }
+.canvas-surface .node[data-step="human"] .n-kind { color: var(--amber-ink); }
+.canvas-surface .node[data-step="branch"] { border-left: 3px solid var(--edge-peer); }
+.canvas-surface .node[data-step="workflow"]:has(.n-engine.external) { border-style: dashed; }
+.canvas-surface .node .n-engine {
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-dim);
+  display: flex; gap: 8px; align-items: baseline; margin-top: 2px; white-space: nowrap;
+}
+.canvas-surface .node .n-engine.external { color: var(--accent-bright); }
+.canvas-surface .node .n-engine-missing { color: var(--clay-ink); }
+.canvas-surface .node .n-open-in { color: var(--accent); text-decoration: underline; }
+.interface-wrap { display: grid; gap: 4px; }
+.interface-row { display: grid; grid-template-columns: 72px 1fr; gap: 6px; align-items: center; }
+.interface-key { font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-dim); }
+
+/* ---- swimlanes: one per owner (ADR-0110) ----
+   A band per owning team, agent or person, the header in that kind's
+   colour, so who does each step is read across the whole row. */
+.canvas-regions .lane {
+  position: absolute; box-sizing: border-box;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--lane-c, var(--kind-team)) 5%, transparent);
+}
+.canvas-regions .lane[data-lane-kind="team"]   { --lane-c: var(--kind-team); }
+.canvas-regions .lane[data-lane-kind="agent"]  { --lane-c: var(--kind-agent); }
+.canvas-regions .lane[data-lane-kind="person"] { --lane-c: var(--kind-person); }
+.canvas-regions .lane-head {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 118px; box-sizing: border-box;
+  padding: 10px 10px; display: flex; flex-direction: column; gap: 4px;
+  border-left: 3px solid var(--lane-c);
+  border-right: 1px solid var(--line);
+  background: color-mix(in srgb, var(--lane-c) 12%, var(--panel));
+  color: var(--lane-c); font: 600 var(--t-small)/1.25 var(--font-ui);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.canvas-regions .lane-kind {
+  font: 500 var(--t-micro)/1 var(--font-mono); letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-dim);
+}
+.canvas-edges .pv-label { font: 500 10px var(--font-mono); paint-order: stroke;
+  stroke: var(--ground); stroke-width: 3px; }
+.palette .drag-item[data-kind="step"] { --kc: var(--accent); }
+.palette .drag-item[data-step="human"] { --kc: var(--amber); }
+.palette .drag-item[data-step="fork"],
+.palette .drag-item[data-step="join"] { --kc: var(--ink-muted); }

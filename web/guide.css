@@ -1,0 +1,162 @@
+/* User guide: full width, a readable measure for prose, sticky contents with
+   scroll-spy, callouts, and inline SVG diagrams themed from the tokens in
+   styles.css. Every rule is scoped to the guide's own containers. */
+.guide.split { grid-template-columns: 240px minmax(0, 1fr); }
+.guide-toc { overflow-y: auto; overflow-x: hidden; align-self: start; max-height: 100%; }
+.guide-toc h2 { font-size: var(--t-mid); margin: 0 0 var(--s4); }
+.guide-toc nav { display: flex; flex-direction: column; gap: 2px; }
+.guide-toc .guide-link {
+  text-align: left; background: none; border: 0; border-left: 2px solid transparent;
+  border-radius: 0 var(--r-sm) var(--r-sm) 0; padding: var(--s2) var(--s3);
+  color: var(--ink-muted); height: auto; min-height: 0; line-height: 1.3;
+  box-shadow: none; justify-content: flex-start;
+}
+.guide-toc .guide-link:hover { background: var(--raised-2); color: var(--ink); }
+.guide-toc .guide-link.active {
+  border-left-color: var(--accent); color: var(--accent-bright); background: var(--accent-wash);
+}
+.guide-body.panel {
+  max-width: none; overflow-y: auto; scroll-behavior: smooth; font-size: var(--t-mid);
+  line-height: 1.65; padding: var(--s8) clamp(16px, 3vw, 56px);
+}
+.guide-body .gd-defs { position: absolute; }
+.guide-body .g-sec {
+  display: flow-root; max-width: 1320px; padding-bottom: var(--s8); margin-bottom: var(--s8);
+  border-bottom: 1px solid var(--line);
+}
+.guide-body .g-sec:last-child { border-bottom: 0; }
+.guide-body .g-sec > :is(p, ul, ol, dl, pre, .g-callout, .g-table:not(.g-wide)) { max-width: 75ch; }
+.guide-body h2 {
+  font-size: var(--t-display); line-height: 1.25; margin: 0 0 var(--s6);
+  letter-spacing: -.01em; scroll-margin-top: var(--s7);
+}
+.guide-body p, .guide-body ul, .guide-body ol, .guide-body dl { margin: 0 0 var(--s6); }
+.guide-body li { margin-bottom: var(--s3); }
+.guide-body li::marker { color: var(--ink-dim); }
+.guide-body .g-lede { font-size: 17px; color: var(--ink); }
+.guide-body code {
+  font-size: .88em; background: var(--raised-2); padding: 1px 5px; border-radius: var(--r-sm);
+}
+.guide-body pre.code { font-size: var(--t-body); line-height: 1.6; overflow-x: auto; max-width: 75ch; }
+.guide-body pre.code code { background: none; padding: 0; }
+.guide-body kbd, .guide-body .g-btn, .guide-body .g-chip {
+  display: inline-block; font-size: .86em; line-height: 1.5; padding: 0 7px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm);
+  background: var(--raised-2); white-space: nowrap; vertical-align: baseline;
+}
+.guide-body kbd {
+  font-family: var(--font-mono); border-bottom-width: 2px; min-width: 1.6em; text-align: center;
+}
+.guide-body .g-btn { font-weight: 600; color: var(--ink); }
+.guide-body .g-chip {
+  border-radius: var(--r-pill); font-family: var(--font-mono); color: var(--ink-muted);
+}
+.guide-body .g-chip-ok { color: var(--ok); border-color: var(--moss-line); background: var(--moss-ground); }
+.guide-body .g-chip-err { color: var(--err); border-color: var(--clay-line-2); background: var(--clay-ground); }
+
+/* numbered procedures */
+.guide-body ol.g-steps { list-style: none; padding: 0; counter-reset: gstep; }
+.guide-body ol.g-steps > li {
+  counter-increment: gstep; position: relative; padding-left: 40px; margin-bottom: var(--s5);
+}
+.guide-body ol.g-steps > li::before {
+  content: counter(gstep); position: absolute; left: 0; top: 1px;
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  font: 600 var(--t-small) var(--font-mono); color: var(--accent-on);
+  background: var(--accent-deep); border: 1px solid var(--accent); box-sizing: border-box;
+}
+
+/* definition cards */
+.guide-body dl.g-ideas, .guide-body dl.g-defs { display: grid; gap: var(--s4); }
+.guide-body dl.g-ideas > div, .guide-body dl.g-defs > div {
+  padding: var(--s4) var(--s5); background: var(--raised); border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.guide-body dt { font-weight: 700; color: var(--ink); margin-bottom: 2px; }
+.guide-body dd { margin: 0; color: var(--ink-muted); }
+.guide-body .g-num {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: var(--s2);
+  border-radius: 50%; font: 600 var(--t-tiny) var(--font-mono);
+  background: var(--accent-wash); color: var(--accent-bright); border: 1px solid var(--accent-deep);
+}
+
+/* callouts */
+.guide-body .g-callout {
+  border: 1px solid var(--line-strong); border-left-width: 3px; border-radius: var(--r-md);
+  padding: var(--s5) var(--s6); margin: 0 0 var(--s6); background: var(--raised);
+  font-size: var(--t-body); line-height: 1.6; color: var(--ink-muted); align-self: start;
+}
+.guide-body .g-callout > strong:first-child {
+  display: block; margin-bottom: var(--s1); font-size: var(--t-tiny); letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.guide-body .g-tip { border-left-color: var(--moss); background: var(--moss-ground); }
+.guide-body .g-tip > strong:first-child { color: var(--moss-ink); }
+.guide-body .g-warn { border-left-color: var(--clay); background: var(--clay-ground); }
+.guide-body .g-warn > strong:first-child { color: var(--clay-ink); }
+.guide-body .g-note { border-left-color: var(--accent); background: var(--accent-ground); }
+.guide-body .g-note > strong:first-child { color: var(--accent-bright); }
+
+/* tables */
+.guide-body table {
+  border-collapse: collapse; width: 100%; margin: 0 0 var(--s6); font-size: var(--t-body);
+}
+.guide-body td, .guide-body th {
+  border-bottom: 1px solid var(--line); padding: var(--s3) var(--s4); text-align: left;
+  vertical-align: top;
+}
+.guide-body th {
+  font-size: var(--t-tiny); text-transform: uppercase; letter-spacing: .08em;
+  color: var(--ink-dim); border-bottom-color: var(--line-strong);
+}
+.guide-body tbody tr:hover td { background: var(--raised); }
+.guide-body .g-table td:first-child { width: 42%; color: var(--ink); }
+
+/* diagrams */
+.guide-body .g-fig { margin: 0 0 var(--s7); max-width: 1320px; overflow-x: auto; }
+.guide-body .g-fig figcaption {
+  font-size: var(--t-small); color: var(--ink-dim); margin-top: var(--s3); max-width: 75ch;
+}
+.guide-body svg.gd {
+  display: block; width: 100%; min-width: 720px; height: auto;
+  background: var(--ground); border: 1px solid var(--line); border-radius: var(--r-lg);
+  padding: var(--s4); box-sizing: border-box; font-family: var(--font-ui);
+}
+.guide-body .gd-box { fill: var(--raised); stroke: var(--line-strong); stroke-width: 1.2; }
+.guide-body .gd-acc { fill: var(--accent-ground); stroke: var(--accent); }
+.guide-body .gd-ok { fill: var(--moss-ground); stroke: var(--moss); }
+.guide-body .gd-warn { fill: var(--amber-ground); stroke: var(--amber); }
+.guide-body .gd-agent { fill: var(--raised-2); stroke: var(--accent-bright); }
+.guide-body .gd-dim { fill: var(--panel); stroke: var(--line-strong); }
+.guide-body .gd-dash { stroke-dasharray: 5 4; }
+.guide-body .gd-line, .guide-body .gd-line line { stroke: var(--ink-dim); stroke-width: 1.4; fill: none; }
+.guide-body .gd-head { fill: var(--ink-dim); }
+.guide-body .gd-head-acc { fill: var(--accent); }
+.guide-body .gd-t { fill: var(--ink); font-size: 14px; font-weight: 600; text-anchor: middle; }
+.guide-body .gd-s, .guide-body .gd-s text {
+  fill: var(--ink-muted); font-size: 12px; font-weight: 400; text-anchor: middle;
+}
+.guide-body .gd-n { fill: var(--accent-bright); font: 600 12px var(--font-mono); text-anchor: middle; }
+.guide-body .gd-l, .guide-body .gd-l text { text-anchor: start; }
+.guide-body .gd-r { text-anchor: end; }
+
+/* wide screens: tips float beside the prose; figures keep their width */
+@media (min-width: 1500px) {
+  .guide-body .g-sec > .g-side { float: right; width: 320px; margin: 0 0 var(--s6) 40px; }
+}
+@media (max-width: 1100px) {
+  .guide.split { grid-template-columns: 1fr; }
+  .guide-toc { max-height: none; }
+  .guide-toc.panel { padding: var(--s3) var(--s4); margin-bottom: var(--s3); }
+  .guide-toc h2 { display: none; }
+  .guide-toc nav { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; }
+  .guide-toc .guide-link { white-space: nowrap; flex: none; }
+  .guide-toc .guide-link {
+    border-left: 0; border-bottom: 2px solid transparent; border-radius: var(--r-sm);
+  }
+  .guide-toc .guide-link.active { border-bottom-color: var(--accent); }
+  .guide-body.panel { padding: var(--s6); font-size: var(--t-body); }
+  .guide-body h2 { font-size: var(--t-head); }
+}
+/* a UML fork/join bar (Workflows: two levels) */
+.guide-body .gd-bar { fill: var(--ink-muted); stroke: none; }

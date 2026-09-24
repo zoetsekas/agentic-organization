@@ -247,11 +247,32 @@ window.showView = showView;
    disagree (ADR-0107). */
 function renderGuide() {
   const toc = $("#guide-toc");
-  if (!toc || toc.childElementCount) return;
-  toc.replaceChildren(...[...document.querySelectorAll("#guide-body h2")].map((h) =>
-    el("button", { type: "button", class: "guide-link",
-                   onclick: () => h.scrollIntoView({ behavior: "smooth" }) },
-       h.textContent)));
+  const body = $("#guide-body");
+  if (!toc || !body || toc.childElementCount) return;
+  const heads = [...body.querySelectorAll("h2")];
+  const links = heads.map((h) =>
+    el("button", { type: "button", class: "guide-link", "data-target": h.id,
+                   onclick: () => h.scrollIntoView({ behavior: "smooth", block: "start" }) },
+       h.textContent));
+  toc.replaceChildren(...links);
+  /* Scroll-spy: the current section is the last heading above the top third. */
+  const spy = () => {
+    const top = body.getBoundingClientRect().top + body.clientHeight / 3;
+    let i = 0;
+    heads.forEach((h, n) => { if (h.getBoundingClientRect().top <= top) i = n; });
+    if (body.scrollTop + body.clientHeight >= body.scrollHeight - 4) i = heads.length - 1;
+    links.forEach((b, n) => {
+      b.classList.toggle("active", n === i);
+      if (n === i) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
+    });
+  };
+  let queued = false;
+  body.addEventListener("scroll", () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; spy(); });
+  }, { passive: true });
+  spy();
 }
 
 function activeView() {

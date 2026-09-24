@@ -1,0 +1,192 @@
+/* Themes and per-person display preferences.
+
+   styles.css defines the dark palette and builds every component from its
+   tokens, so a theme is only a different set of token values: nothing here
+   styles a component. settings.js resolves the person's choice (light, dark or
+   system) to `data-theme` on <html>, and the display preferences to the other
+   `data-*` attributes below. */
+
+:root { color-scheme: dark; }
+
+/* -- light ---------------------------------------------------------------
+   Same structure as the dark palette: a ground, a panel above it and raised
+   surfaces above that, then ink in three weights. The accent and the semantic
+   four are darkened until their ink passes 4.5:1 on the panel. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --ground: #EEF1F4;
+  --panel: #F8FAFB;
+  --raised: #FFFFFF;
+  --raised-2: #F2F5F7;
+  --line: #DCE1E6;
+  --line-strong: #C3CBD3;
+  --line-dashed: #A9B3BD;
+
+  --ink: #151A1F;
+  --ink-muted: #4A5561;
+  --ink-dim: #5B6672;
+  --ink-faint: #7A8591;
+
+  --accent: #1E7F71;
+  --accent-deep: #CDEBE5;
+  --accent-bright: #145E54;
+  --accent-on: #FFFFFF;
+  --accent-wash: rgba(30, 127, 113, .10);
+  --accent-ground: #E4F4F1;
+
+  --moss: #3D8B45;
+  --moss-ink: #2F6E36;
+  --moss-ink-2: #4E7A54;
+  --moss-line: #B9DBBD;
+  --moss-ground: #EDF7EE;
+  --moss-ground-2: #E3F2E5;
+
+  --amber: #B7791F;
+  --amber-ink: #8A5A12;
+  --amber-ink-2: #8F7445;
+  --amber-line: #E9D1A6;
+  --amber-ground: #FBF4E6;
+  --amber-ground-2: #F7ECD6;
+
+  --clay: #C4473A;
+  --clay-ink: #A3372C;
+  --clay-ink-2: #8E6660;
+  --clay-line: #EDC4BE;
+  --clay-line-2: #E2A69D;
+  --clay-ground: #FBEDEB;
+  --clay-ground-2: #F7E0DD;
+
+  --slate: #5B6672;
+  --slate-ink: #4A5561;
+  --slate-line: #DCE1E6;
+  --slate-ground: #F2F5F7;
+
+  --edge-report: #9AA5B0;
+  --edge-peer: #6E97A6;
+  --edge-egress: #C79A4E;
+
+  /* Component kinds, one step darker so a label in the hue stays legible
+     on white. */
+  --kind-team: #2F62C8;
+  --kind-agent: #16806F;
+  --kind-subagent: #1B7C8C;
+  --kind-person: #B53C84;
+  --kind-role: #6A4BD1;
+  --kind-decision: #8A4BC4;
+  --kind-separation: #5647C0;
+  --kind-policy: #9A4FAF;
+  --kind-capability: #A86C0B;
+  --kind-data-class: #857A0E;
+  --kind-environment: #56687A;
+  --kind-endpoint: #C24A28;
+  --kind-mission: #B8612A;
+  --kind-workflow: #2D8A45;
+  --kind-trigger: #5E8A1F;
+  --kind-channel: #237BA5;
+  --kind-knowledge: #8C653F;
+  --kind-memory: #7A6550;
+  --kind-guardrail: #C0362E;
+  --kind-contract: #A85A1E;
+  --kind-evaluation: #3F8A46;
+  --kind-skill: #2F8A5E;
+  --kind-plugin: #5F7A26;
+  --kind-tool: #7A7F1E;
+  --kind-note: #5B6672;
+}
+/* The few places styles.css still paints a translucent black read as a
+   smudge on white. */
+:root[data-theme="light"] dialog::backdrop { background: rgba(21, 26, 31, .35); }
+:root[data-theme="light"] .canvas-surface .node[data-shape="container"] {
+  background: rgba(255, 255, 255, .75);
+}
+
+/* -- density ---------------------------------------------------------------- */
+:root[data-density="compact"] {
+  --s1: 3px; --s2: 4px; --s3: 6px; --s4: 8px; --s5: 10px;
+  --s6: 12px; --s7: 16px; --s8: 20px;
+  --ctl-h: 28px;
+}
+:root[data-density="spacious"] {
+  --s1: 5px; --s2: 8px; --s3: 10px; --s4: 13px; --s5: 16px;
+  --s6: 20px; --s7: 26px; --s8: 32px;
+  --ctl-h: 36px;
+}
+
+/* -- text size -------------------------------------------------------------- */
+:root[data-text="large"] {
+  --t-micro: 11px; --t-tiny: 12px; --t-small: 13px; --t-body: 15px;
+  --t-mid: 17px; --t-head: 22px; --t-display: 29px;
+}
+:root[data-text="larger"] {
+  --t-micro: 12px; --t-tiny: 13px; --t-small: 15px; --t-body: 17px;
+  --t-mid: 19px; --t-head: 25px; --t-display: 32px;
+}
+
+/* -- canvas ------------------------------------------------------------------ */
+:root[data-canvas-grid="off"] .canvas-surface { background-image: none; }
+:root[data-canvas-legend="off"] .canvas-legend { display: none; }
+:root[data-canvas-regions="off"] .canvas-regions { display: none; }
+:root[data-canvas-edge-labels="off"] .canvas-edges .edge-label { display: none; }
+
+/* -- motion ------------------------------------------------------------------ */
+:root[data-motion="reduce"] *,
+:root[data-motion="reduce"] *::before,
+:root[data-motion="reduce"] *::after {
+  transition-duration: 0s !important; animation-duration: 0s !important;
+  scroll-behavior: auto !important;
+}
+
+/* -- the settings dialog ------------------------------------------------------ */
+.settings-dialog { width: min(640px, calc(100vw - 32px)); padding: 0; }
+.settings-dialog .settings-head {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s5) var(--s6) 0;
+}
+.settings-dialog .settings-head h3 { margin: 0; }
+.settings-dialog .settings-head .icon-btn { margin-left: auto; }
+.settings-tabs {
+  display: flex; gap: var(--s2); padding: var(--s4) var(--s6) 0;
+  border-bottom: 1px solid var(--line);
+}
+.settings-tabs button {
+  background: none; border: none; border-bottom: 2px solid transparent;
+  border-radius: 0; padding: var(--s2) var(--s3); color: var(--ink-muted);
+}
+.settings-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.settings-body { padding: var(--s5) var(--s6) var(--s6); max-height: 65vh; overflow: auto; }
+.settings-group + .settings-group { margin-top: var(--s6); }
+.settings-group h4 {
+  margin: 0 0 var(--s3); font-size: var(--t-tiny); text-transform: uppercase;
+  letter-spacing: .08em; color: var(--ink-dim);
+}
+.settings-row {
+  display: grid; grid-template-columns: 1fr auto; gap: var(--s2) var(--s5);
+  align-items: center; padding: var(--s3) 0; border-bottom: 1px solid var(--line);
+}
+.settings-row:last-child { border-bottom: none; }
+.settings-row .what { display: flex; flex-direction: column; gap: 2px; }
+.settings-row .what strong { font-weight: 600; font-size: var(--t-body); }
+.settings-row .what small { color: var(--ink-muted); font-size: var(--t-small); }
+.settings-row select, .settings-row input[type="number"], .settings-row input[type="text"] {
+  min-width: 150px;
+}
+/* A segmented control: three or four mutually exclusive choices, all visible. */
+.segmented {
+  display: inline-flex; border: 1px solid var(--line-strong);
+  border-radius: var(--r-md); overflow: hidden;
+}
+.segmented label {
+  display: inline-flex; align-items: center; gap: var(--s1);
+  padding: var(--s2) var(--s4); cursor: pointer; font-size: var(--t-small);
+  color: var(--ink-muted); margin: 0; white-space: nowrap;
+}
+.segmented label + label { border-left: 1px solid var(--line-strong); }
+.segmented input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented label:has(input:checked) { background: var(--accent-ground); color: var(--ink); }
+.segmented label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.settings-foot {
+  display: flex; gap: var(--s3); align-items: center; justify-content: flex-end;
+  padding: var(--s4) var(--s6); border-top: 1px solid var(--line);
+}
+.settings-foot .hint { margin-right: auto; }
