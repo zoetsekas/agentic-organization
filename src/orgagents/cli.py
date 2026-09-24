@@ -1060,10 +1060,12 @@ def main(argv: list[str] | None = None) -> int:
         "metamodel", help="print the UML metamodel (ADR-0101) as PlantUML, or "
                           "regenerate docs/metamodel")
     p_mm.add_argument("action", choices=["model", "profile", "diagram",
-                                         "check", "scenarios", "trace",
-                                         "transformation"],
+                                         "docs", "check", "scenarios",
+                                         "trace", "transformation"],
                       help="model/profile: print PlantUML; diagram: write "
-                           "docs/metamodel/*.puml; check: validate a spec "
+                           "docs/metamodel/*.puml; docs: write the profile "
+                           "reference (one page per profile) and the "
+                           "diagrams (ADR-0112); check: validate a spec "
                            "against the model's constraints; scenarios: play "
                            "and write docs/metamodel/scenarios")
     p_mm.add_argument("spec", nargs="?", default="",
@@ -1147,6 +1149,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"GAP {g}")
             print("complete" if not gaps else f"{len(gaps)} gap(s)")
             return 1 if gaps else 0
+        elif args.action == "docs":
+            from .metamodel.reference import write
+            written = write(Path(args.out))
+            print(f"wrote {len(written)} files to {args.out}: "
+                  + ", ".join(p.name for p in written))
+            return 0
         elif args.action == "transformation":
             from .metamodel.transformation import describe
             out = Path(args.out)

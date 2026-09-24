@@ -24,6 +24,7 @@ class Capability <<Capability>>
 class Environment <<Environment>>
 class Endpoint <<Endpoint>>
 class DataClass <<DataClass>>
+class ArtifactStore <<ArtifactStore>>
 class Skill <<Skill>>
 class Plugin <<Plugin>>
 class Tool <<Tool>>
@@ -54,7 +55,9 @@ Organization "1" *-- "0..*" Policy : policies
 Organization "1" *-- "0..*" Capability : capabilities
 Organization "1" *-- "0..*" Environment : environments
 Organization "1" *-- "0..*" Endpoint : endpoints
+DataClass "0..*" *-- "0..*" DataClass : relations
 Organization "1" *-- "0..*" DataClass : data_classes
+System "1" *-- "0..*" ArtifactStore : artifact_stores
 Organization "1" *-- "0..*" Skill : skills
 Organization "1" *-- "0..*" Plugin : plugins
 Organization "1" *-- "0..*" Tool : tools

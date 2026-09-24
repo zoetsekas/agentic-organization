@@ -1726,7 +1726,10 @@ def create_app(
         of fact: a canvas that decided for itself which components connect
         could draw a relationship the spec has no field for.
         """
-        return {"groups": palette_tree(), "links": LINK_RULES}
+        from .metamodel import palette_profiles
+
+        return {"groups": palette_tree(), "links": LINK_RULES,
+                "profiles": palette_profiles()}
 
     # -- fabric: the command centre's namespace (ADR-0049, ADR-0051) -------
     #

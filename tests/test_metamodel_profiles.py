@@ -148,3 +148,124 @@ def test_a_generalisation_stays_within_what_the_specific_profile_sees():
         for r in p.relationships:
             if r.kind is RelKind.GENERALIZATION:
                 assert profile_of(r.target).name in _visible(p)
+
+
+# -- Authority and Data are declared (ADR-0112 M3, ADR-0111) --------------------
+
+def test_every_data_relation_kind_is_a_relationship_of_its_uml_kind():
+    from orgagents.spec.model import DataRelationKind
+    rels = {r.selector[1]: r for r in PROFILE.relationships
+            if r.field == "relations" and r.source == "data_class"}
+    assert set(rels) == {k.value for k in DataRelationKind}
+    assert rels["derived_from"].kind is RelKind.ABSTRACTION
+    assert rels["derived_from"].stereotype == "derive"
+    assert rels["part_of"].kind is RelKind.COMPOSITION
+    assert rels["identifies"].kind is RelKind.ASSOCIATION
+    assert rels["references"].kind is RelKind.ASSOCIATION
+    assert all(r.association_class == "DataRelation" and r.key == "target"
+               for r in rels.values())
+
+
+def test_a_dangling_data_relation_is_reported_by_the_model_constraints():
+    from orgagents.metamodel.constraints import check
+    from orgagents.metamodel.scenarios import base
+    from orgagents.spec.model import DataClass, DataRelation
+    spec = base()
+    spec.organization.data_classes.append(DataClass(
+        id="derived_report",
+        relations=[DataRelation(kind="derived_from", target="nowhere")]))
+    found = [v for v in check(spec) if "nowhere" in str(v)]
+    assert len(found) == 1, found        # once, not once per relation kind
+    assert "derive" in str(found[0])
+
+
+def test_authority_values_are_datatypes_of_the_authority_profile():
+    from orgagents.metamodel import authority
+    names = {d.name for d in authority.PROFILE.datatypes}
+    assert {"Mandate", "Permission", "ControlEnforcement"} <= names
+    enums = {e.name for e in authority.PROFILE.enumerations}
+    assert {"AutonomyPosture", "ControlEnforcer", "ResourceKind"} <= enums
+
+
+def test_the_resource_kinds_are_the_realisers_of_resource():
+    """`ResourceKind`'s literals are exactly the stereotypes that realise
+    «Resource», so a permission's kind and the policy end agree."""
+    from orgagents.metamodel import specialisations
+    lits = set(PROFILE.enumeration("ResourceKind").literals)
+    assert lits == set(specialisations("resource")) - {"organization"}
+
+
+# -- the generated reference (ADR-0112 M5) ---------------------------------------
+
+DOCS = Path(__file__).resolve().parents[1] / "docs" / "metamodel"
+
+
+def test_there_is_a_reference_page_for_every_profile():
+    from orgagents.metamodel.reference import outputs, page_name
+    names = set(outputs())
+    assert {page_name(p) for p in PROFILES} <= names
+    assert {"profiles.md", "orgagents-model.puml", "orgagents-profile.puml",
+            "orgagents-ownership.puml"} <= names
+
+
+def test_the_committed_reference_is_current():
+    """docs/metamodel is generated from the profiles and never hand-edited;
+    regenerate with `orgagents metamodel docs`."""
+    from orgagents.metamodel.reference import outputs
+    stale = [name for name, render in outputs().items()
+             if not (DOCS / name).exists()
+             or (DOCS / name).read_text(encoding="utf-8") != render()]
+    assert not stale, f"stale; run `orgagents metamodel docs`: {stale}"
+
+
+def test_a_profile_page_carries_its_declarations_and_a_diagram():
+    from orgagents.metamodel import authority
+    from orgagents.metamodel.reference import profile_page
+    page = profile_page(authority.PROFILE)
+    assert "```mermaid" in page and "classDiagram" in page
+    for name in ("«Policy»", "Mandate", "ControlEnforcer", "may decide"):
+        assert name in page
+
+
+def test_the_diagrams_take_attributes_from_the_profile_not_the_python():
+    """An association class's attributes are its declared properties."""
+    from orgagents.metamodel import to_plantuml
+    puml = to_plantuml()
+    assert "class DataDependency <<AssociationClass>> {" in puml
+    assert "on_stale : StaleAction" in puml
+    assert "enum DataRelationKind" in puml
+
+
+# -- the profile each element belongs to, for the API and the palette (M5) --------
+
+def test_the_metamodel_description_names_each_elements_profile():
+    from orgagents.metamodel import describe
+    d = describe()
+    assert [p["name"] for p in d["profiles"]] == NAMES
+    by_kind = {s["kind"]: s["profile"] for s in d["stereotypes"]}
+    assert by_kind["agent"] == "Organisation"
+    assert by_kind["policy"] == "Authority"
+    assert by_kind["data_class"] == "Data"
+    assert by_kind["workflow"] == "Process"
+    assert all(s["profile"] in NAMES for s in d["stereotypes"])
+    assert all(r["profile"] for r in d["relationships"])
+    assert {e["name"]: e["profile"] for e in d["enumerations"]}[
+        "SharingScope"] == "Core"
+    deployment = next(p for p in d["profiles"] if p["name"] == "Deployment")
+    assert not deployment["spec"] and "server" in deployment["stereotypes"]
+
+
+def test_the_palette_route_says_which_profile_each_kind_is_in():
+    from fastapi.testclient import TestClient
+
+    from orgagents.api import create_app, palette_kinds
+    client = TestClient(create_app(":memory:"))
+    body = client.get("/api/designer/palette", headers={"X-User": "a"}).json()
+    profiles = body["profiles"]
+    for kind in palette_kinds(body["groups"]):
+        if kind["kind"] in profiles:
+            assert profiles[kind["kind"]] in NAMES
+    assert profiles["agent"] == "Organisation"
+    assert profiles["capability"] == "Access"
+    assert profiles["guardrail"] == "Assurance"
+    assert "system" not in profiles

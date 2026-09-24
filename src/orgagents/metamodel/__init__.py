@@ -38,7 +38,6 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ..spec import model as _spec
 from . import (access, assurance, authority, core, data, deployment,
                knowledge, organisation, process)
 from .core import SYSTEM_OWNED
@@ -51,6 +50,7 @@ __all__ = [
     "PROFILE", "PROFILES", "SPEC_PROFILES", "STEREOTYPES", "RELATIONSHIPS",
     "ENUMERATIONS", "DATATYPES", "PROPERTIES", "NON_PALETTE", "SYSTEM_OWNED",
     "profile_of", "specialisations", "link_rules", "describe",
+    "palette_profiles",
     "to_plantuml", "to_plantuml_profile", "to_plantuml_ownership",
 ]
 
@@ -189,16 +189,46 @@ def link_rules(profile: Profile = PROFILE) -> list[dict[str, Any]]:
         })
     return rules
 
+def _declaring(item: Any, attr: str) -> str:
+    """The name of the profile whose `attr` list holds `item`."""
+    for p in PROFILES:
+        if any(x is item for x in getattr(p, attr)):
+            return p.name
+    return ""
+
+
+def palette_profiles() -> dict[str, str]:
+    """Each palette kind's profile, so the designer can group the palette
+    by profile and show the profiles a diagram draws (ADR-0112 §6)."""
+    return {s.kind: _declaring(s, "stereotypes") for s in PROFILE.stereotypes
+            if s.palette}
+
 
 def describe(profile: Profile = PROFILE) -> dict[str, Any]:
-    """The profile as data, for the API and for anybody reading the model."""
+    """The profile as data, for the API and for anybody reading the model.
+
+    Every element names the profile that declares it (ADR-0112), and
+    `profiles` lists all of them — the Deployment profile included — with
+    their imports and what each declares."""
     return {
         "profile": profile.name,
         "metaclasses": [m.value for m in MetaClass],
         "relationship_kinds": [k.value for k in RelKind],
+        "profiles": [
+            {"name": p.name, "version": p.version, "doc": p.doc,
+             "imports": list(p.imports),
+             "stereotypes": [s.kind for s in p.stereotypes],
+             "palette": [s.kind for s in p.stereotypes if s.palette],
+             "datatypes": [d.name for d in p.datatypes],
+             "enumerations": [e.name for e in p.enumerations],
+             "spec": p.name != "Deployment"}
+            for p in PROFILES
+        ],
         "stereotypes": [
             {"name": f"«{s.name}»", "kind": s.kind, "extends": s.extends.value,
-             "collection": s.collection, "doc": s.doc}
+             "collection": s.collection, "doc": s.doc,
+             "profile": _declaring(s, "stereotypes"),
+             "abstract": s.abstract, "palette": s.palette}
             for s in profile.stereotypes
         ],
         "relationships": [
@@ -208,21 +238,27 @@ def describe(profile: Profile = PROFILE) -> dict[str, Any]:
              "field": f"{r.owner_kind()}.{r.field}", "shape": r.shape.value,
              "draw": r.draw.value, "linkable": r.linkable,
              "association_class": r.association_class,
-             "constraint": r.constraint}
+             "constraint": r.constraint,
+             "profile": _declaring(r, "relationships")}
             for r in profile.relationships
         ],
         "enumerations": [
             {"name": e.name, "literals": list(e.literals), "doc": e.doc,
+             "profile": _declaring(e, "enumerations"),
              **({"uml": dict(e.uml)} if e.uml else {})}
             for e in profile.enumerations
         ],
-        "datatypes": [{"name": d.name, "doc": d.doc} for d in profile.datatypes],
+        "datatypes": [{"name": d.name, "doc": d.doc,
+                       "profile": _declaring(d, "datatypes")}
+                      for d in profile.datatypes],
         "properties": [
             {"owner": p.owner, "name": p.name, "type": p.type,
-             "multiplicity": p.multiplicity}
+             "multiplicity": p.multiplicity,
+             "profile": _declaring(p, "properties")}
             for p in profile.properties
         ],
     }
+
 
 
 # --------------------------------------------------------------------------
@@ -238,30 +274,22 @@ _PUML_ARROW = {
     RelKind.DEPLOYMENT: "..>",
     RelKind.REALIZATION: "..|>",
     RelKind.GENERALIZATION: "--|>",
+    RelKind.ABSTRACTION: "..>",
 }
 
 
 def _cls(kind: str) -> str:
-    return "".join(p.title() for p in kind.split("_"))
+    """A diagram name: a stereotype kind in CamelCase (`data_class` →
+    `DataClass`); a DataType or association class name as it is."""
+    return "".join(p[:1].upper() + p[1:] for p in kind.split("_"))
 
 
-def _attributes(model_name: str, skip: set[str]) -> list[str]:
-    """`name : Type` lines for a spec model's own fields, for a class box."""
-    cls = getattr(_spec, model_name, None)
-    if cls is None:
-        return []
-    out = []
-    for name, f in cls.model_fields.items():
-        if name in skip:
-            continue
-        ann = f.annotation
-        t = (ann.__name__ if isinstance(ann, type) else str(ann))
-        for junk in ("typing.", "orgagents.spec.model.", "<class '", "'>"):
-            t = t.replace(junk, "")
-        t = t.replace("Optional[", "").rstrip("]") + " [0..1]" \
-            if t.startswith("Optional[") else t
-        out.append(f"{name} : {t}")
-    return out
+def _attributes(owner: str, profile: Profile) -> list[str]:
+    """`name : Type [mult]` lines for an owner's declared properties — read
+    from the profile, never from the Python model (ADR-0112 §8)."""
+    return [f"{p.name} : {p.type}"
+            + ("" if p.multiplicity == "1" else f" [{p.multiplicity}]")
+            for p in profile.properties if p.owner == owner]
 
 
 def to_plantuml_profile(profile: Profile = None) -> str:  # type: ignore[assignment]
@@ -306,7 +334,14 @@ def to_plantuml(profile: Profile = None) -> str:  # type: ignore[assignment]
     sys_st = p.stereotype("system")
     out.append(f'package "<<{sys_st.name}>> Model" as SystemModel {{' if sys_st
                else "package Model {")
-    keys = {r.key for r in p.relationships if r.key}
+    def box(head: str, attrs: list[str]) -> None:
+        if not attrs:
+            out.append(f"  {head}")
+            return
+        out.append(f"  {head} {{")
+        out.extend(f"    {a}" for a in attrs)
+        out.append("  }")
+
     for s in p.stereotypes:
         if s.kind == "system":
             continue
@@ -316,16 +351,19 @@ def to_plantuml(profile: Profile = None) -> str:  # type: ignore[assignment]
               MetaClass.DATA_TYPE: "class"}.get(s.extends, "class")
         if s.abstract and kw == "class":
             kw = "abstract class"
-        out.append(f"  {kw} {_cls(s.kind)} {stereo}")
+        box(f"{kw} {_cls(s.kind)} {stereo}", _attributes(s.kind, p))
+    seen: set[str] = set()
     for r in p.relationships:
-        if r.association_class:
+        if r.association_class and r.association_class not in seen:
+            seen.add(r.association_class)
             kind = ("DeploymentSpecification" if r.kind is RelKind.DEPLOYMENT
                     else "AssociationClass")
-            attrs = _attributes(r.association_class,
-                                {"source", "target", r.key})
-            out.append(f"  class {r.association_class} <<{kind}>> {{")
-            out.extend(f"    {a}" for a in attrs)
-            out.append("  }")
+            box(f"class {r.association_class} <<{kind}>>",
+                _attributes(r.association_class, p))
+    for d in p.datatypes:
+        box(f"class {d.name} <<dataType>>", _attributes(d.name, p))
+    for e in p.enumerations:
+        box(f"enum {e.name}", list(e.literals))
     out.append("}")
     out.append("")
     for r in p.relationships:
@@ -348,6 +386,8 @@ def to_plantuml(profile: Profile = None) -> str:  # type: ignore[assignment]
             line = f"{a} ..> {b} : <<use>> {r.stereotype} [{role}]"
         elif r.kind is RelKind.DEPLOYMENT:
             line = f"{a} ..> {b} : <<deploy>> [{role}]"
+        elif r.kind is RelKind.ABSTRACTION:
+            line = f"{a} ..> {b} : <<{r.stereotype}>> [{role}]"
         else:
             line = f"{a} {sm} --> {tm} {b} : {r.stereotype} [{role}]"
         if r.constraint:

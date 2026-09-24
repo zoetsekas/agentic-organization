@@ -8,76 +8,751 @@ package "<<System>> Model" as SystemModel {
   interface Principal <<Principal>>
   interface Resource <<Resource>>
   class Note <<Note>>
-  class Organization <<Organization>>
-  class Team <<Team>>
-  class Agent <<Agent>> <<active>>
-  class Subagent <<SubAgent>>
-  abstract class Worker <<Worker>>
-  class Person <<Person>>
-  class Role <<Role>>
-  class Mission <<Mission>>
-  class Decision <<Decision>>
-  class Separation <<Separation>>
-  class Policy <<Policy>>
+  class Organization <<Organization>> {
+    operating_principles : String [0..*]
+  }
+  class Team <<Team>> {
+    id : String
+    name : String
+    description : String
+    groups : String [0..*]
+    placement : Boolean
+    shared_instructions : String [0..*]
+    labels : Map
+    mandate : Mandate [0..1]
+  }
+  class Agent <<Agent>> <<active>> {
+    description : String
+    channels : ChannelClass [0..*]
+    shared_service : Boolean
+    runtime_requirements : RuntimeRequirement [0..*]
+    max_delegation_depth : Integer
+    scaling : ScalingPolicy
+    planning : Boolean
+    labels : Map
+    mandate : Mandate [0..1]
+    autonomy : Map
+    memory : AgentMemoryOverride [0..1]
+    context : ContextPolicy [0..1]
+    model_policy : ModelPolicy [0..1]
+  }
+  class Subagent <<SubAgent>> {
+    kind : SubAgentKind
+    purpose : String
+    returns : String
+    max_turns : Integer
+    max_runtime_seconds : Integer
+    parallel_safe : Boolean
+  }
+  abstract class Worker <<Worker>> {
+    id : String
+    name : String
+    instructions : String
+  }
+  class Person <<Person>> {
+    id : String
+    name : String
+    contact : String
+    position : String
+    notify_on : ChannelClass [0..*]
+    working_hours : WorkingHours [0..1]
+    mandate : Mandate [0..1]
+    permissions : Permission [0..0]
+    capabilities : String [0..0]
+  }
+  class Role <<Role>> {
+    id : String
+    title : String
+    version : String
+    kind : RoleKind
+    responsibilities : String [0..*]
+    constraints : Map
+    permissions : Permission [0..*]
+  }
+  class Mission <<Mission>> {
+    id : String
+    name : String
+    objective : String
+    deliverables : String [0..*]
+    status : MissionStatus
+    sponsor : HumanCounterpart [0..1]
+    starts_on : String [0..1]
+    ends_on : String [0..1]
+    internal_delegation : Boolean
+    success_criteria : String [0..*]
+    labels : Map
+    mandate : Mandate [0..1]
+  }
+  class Decision <<Decision>> {
+    id : String
+    title : String
+    description : String
+  }
+  class Separation <<Separation>> {
+    id : String
+    enforcement : ControlEnforcement
+    reason : String
+  }
+  class Policy <<Policy>> {
+    id : String
+    effect : Effect
+    description : String
+    actions : Action [0..*]
+    resource_kinds : ResourceKind [0..*]
+    conditions : Map
+    unless : Map
+  }
   interface Callable <<Callable>>
   interface Wrappable <<Wrappable>>
-  interface Capability <<Capability>>
-  class Environment <<Environment>>
-  interface Endpoint <<Endpoint>>
-  class DataClass <<DataClass>>
-  class Skill <<Skill>>
-  class Plugin <<Plugin>>
-  interface Tool <<Tool>>
-  class Knowledge <<Knowledge>>
-  class MemoryNamespace <<MemoryNamespace>>
-  class Action <<Action>>
+  interface Capability <<Capability>> {
+    id : String
+    description : String
+    action : Action
+    resource_class : String
+    constraints : CapabilityConstraint
+    autonomy : AutonomyPosture
+    secret_ref : String [0..1]
+  }
+  class Environment <<Environment>> {
+    id : String
+    description : String
+    toolchains : ToolchainClass [0..*]
+    tier : ResourceTier
+    network : NetworkPosture
+    egress_allowlist : String [0..*]
+    mounts : String [0..*]
+    persistence : Persistence
+    timeout_seconds : Integer
+    secret_refs : String [0..*]
+  }
+  interface Endpoint <<Endpoint>> {
+    id : String
+    description : String
+    trust : EndpointTrust
+    provides : String [0..*]
+    treat_output_as_data : Boolean
+    requires_approval : Boolean
+    response_sla_seconds : Integer [0..1]
+    secret_ref : String [0..1]
+  }
+  class DataClass <<DataClass>> {
+    id : String
+    description : String
+    scope : SharingScope
+    groups : String [0..*]
+    may_leave_region : Boolean
+    may_appear_in_traces : Boolean
+    retention_days : Integer [0..1]
+    semantics : DataSemantics
+  }
+  class ArtifactStore <<ArtifactStore>> {
+    id : String
+    description : String
+    scope : SharingScope
+    groups : String [0..*]
+    retention_days : Integer [0..1]
+    max_file_bytes : Integer
+    max_total_bytes : Integer
+  }
+  class Skill <<Skill>> {
+    id : String
+    description : String
+    version : String
+    instructions : String
+    triggers : String [0..*]
+    resources : Map
+  }
+  class Plugin <<Plugin>> {
+    id : String
+    description : String
+    version : String
+    hooks : Map
+  }
+  interface Tool <<Tool>> {
+    id : String
+    description : String
+    wraps_kind : WrapsKind
+    input_schema : Map
+    output_schema : Map
+    constraints : CapabilityConstraint
+    idempotent : Boolean
+    validate_output : Boolean
+  }
+  class Knowledge <<Knowledge>> {
+    id : String
+    description : String
+    kind : KnowledgeKind
+    freshness_seconds : Integer [0..1]
+    require_citation : Boolean
+    secret_ref : String [0..1]
+  }
+  class MemoryNamespace <<MemoryNamespace>> {
+    id : String
+    description : String
+    scope : SharingScope
+    groups : String [0..*]
+    retention_days : Integer [0..1]
+  }
+  class Action <<Action>> {
+    kind : ActivityNodeKind
+    id : String
+    expr : String
+    args : Map
+    output : String
+    cases : Any
+    default : String
+  }
   class ControlFlow <<ControlFlow>>
   interface StepOwner <<StepOwner>>
-  class Workflow <<Workflow>>
-  class Trigger <<Trigger>>
-  class Channel <<Channel>>
-  class Guardrail <<Guardrail>>
-  class OutputContract <<OutputContract>>
-  class Evaluation <<Evaluation>>
-  class RoleAssignment <<AssociationClass>> {
-    withhold : list[str]
-    conditions : dict[str, Any]
+  class Workflow <<Workflow>> {
+    body : WorkflowBody
+    interface : WorkflowInterface
+    id : String
+    name : String
+    description : String
+    inputs : Map
+  }
+  class Trigger <<Trigger>> {
+    id : String
+    description : String
+    kind : TriggerKind
+    cadence : Cadence [0..1]
+    event_class : String
+    filters : Map
+    input : Map
+    enabled : Boolean
+    overlap : OverlapPolicy
+    catch_up : CatchUpPolicy
+    max_runtime_seconds : Integer
+    requires_approval : Boolean
+    failure : FailurePolicy
+  }
+  class Channel <<Channel>> {
+    id : String
+    channel_class : ChannelClass
+    description : String
+    address : String
+    human_facing : Boolean
+    purposes : ChannelPurpose [0..*]
+    working_hours : WorkingHours [0..1]
+    response_sla_minutes : Integer [0..1]
+    escalation : EscalationStep [0..*]
+    out_of_hours : OutOfHours
+  }
+  class Guardrail <<Guardrail>> {
+    id : String
+    description : String
+    applies_to : GuardrailKind [0..*]
+    checks : GuardrailCheck [0..*]
+    on_violation : GuardrailAction
+    patterns : String [0..*]
+    allowed_urls : String [0..*]
+    max_length : Integer [0..1]
+    enabled : Boolean
+    classifier : ModelClass [0..1]
+  }
+  class OutputContract <<OutputContract>> {
+    id : String
+    description : String
+    schema_ : Map
+    required : String [0..*]
+    on_violation : OutputViolationAction
+    max_retries : Integer
+  }
+  class Evaluation <<Evaluation>> {
+    id : String
+    description : String
+    given : String
+    expect : String
+    must_not : String [0..*]
+    weight : Real
   }
   class RoleAssignment <<AssociationClass>> {
-    withhold : list[str]
-    conditions : dict[str, Any]
+    withhold : String [0..*]
+    conditions : Map
   }
   class HumanCounterpart <<AssociationClass>> {
-    name : str
-    contact : str
-    role_title : str
-    roles : list[HumanRole]
-    approves : list[str]
-    notify_on : list[ChannelClass]
-    channel : str [0..1]
+    name : String
+    contact : String
+    role_title : String
+    roles : HumanRole [0..*]
+    approves : String [0..*]
+    notify_on : ChannelClass [0..*]
     working_hours : WorkingHours [0..1]
   }
   class InteractionFlow <<AssociationClass>> {
     kind : FlowKind
-    description : str
-    requires_approval : bool
+    description : String
+    requires_approval : Boolean
   }
   class UnitLink <<AssociationClass>> {
     kind : UnitLinkKind
-    reason : str
+    reason : String
   }
   class EnvironmentOverride <<DeploymentSpecification>> {
-    timeout_seconds : int [0..1]
+    timeout_seconds : Integer [0..1]
     network : NetworkPosture [0..1]
-    egress_allowlist : list[str [0..1]
-    drop_mounts : list[str]
+    egress_allowlist : String [0..*]
+    drop_mounts : String [0..*]
   }
   class DataDependency <<AssociationClass>> {
-    fields : list[str]
-    max_age_seconds : int [0..1]
+    fields : String [0..*]
+    max_age_seconds : Integer [0..1]
     on_stale : StaleAction
-    produced_by : str [0..1]
-    description : str
+    description : String
+  }
+  class DataRelation <<AssociationClass>> {
+    kind : DataRelationKind
+    description : String
+  }
+  class Metadata <<dataType>> {
+    name : String
+    spec_version : String
+    version : String
+    description : String
+    owner : String
+    environment : SpecEnvironment
+    labels : Map
+  }
+  class DeploymentSpec <<dataType>> {
+    targets : String [0..*]
+    regions : String [0..*]
+    high_availability : Boolean
+    binding : String [0..1]
+  }
+  class ScalingPolicy <<dataType>> {
+    min_instances : Integer
+    max_instances : Integer
+    concurrent_sessions_per_instance : Integer
+  }
+  class WorkingHours <<dataType>> {
+    timezone : String
+    days : Integer [0..*]
+    start_hour : Integer
+    end_hour : Integer
+    holidays : String [0..*]
+  }
+  class Mandate <<dataType>> {
+    enforcement : ControlEnforcement
+    conditions : Map
+  }
+  class Permission <<dataType>> {
+    action : Action
+    resource_kind : ResourceKind
+    conditions : Map
+  }
+  class ControlEnforcement <<dataType>> {
+    enforced_by : ControlEnforcer
+    enforced_in : String
+    authoritative : ControlEnforcer [0..1]
+    application_bounds : Map
+  }
+  class CapabilityConstraint <<dataType>> {
+    max_rows : Integer [0..1]
+    masked_fields : String [0..*]
+    allowed_operations : String [0..*]
+    resource_scope : String [0..*]
+    requires_approval : Boolean
+    rate_per_minute : Integer [0..1]
+    enforcement : ControlEnforcement
+  }
+  class Memory <<dataType>> {
+    session : MemoryPolicy
+    long_term : MemoryPolicy
+  }
+  class MemoryPolicy <<dataType>> {
+    tier : MemoryTier
+    enabled : Boolean
+    retention_days : Integer [0..1]
+    max_items : Integer
+    recall : RecallMode
+    promotion_allowed : Boolean
+    promotion_requires_approval : Boolean
+  }
+  class AgentMemoryOverride <<dataType>> {
+    session_retention_minutes : Integer [0..1]
+    long_term_enabled : Boolean
+    recall : RecallMode [0..1]
+    may_promote : Boolean
+  }
+  class ContextPolicy <<dataType>> {
+    max_context_tokens : Integer
+    summarize_after_tokens : Integer
+    keep_last_turns : Integer
+    offload_tool_output_bytes : Integer
+    retain_summaries : Boolean
+    summarizer : ModelClass [0..1]
+  }
+  class WorkflowInterface <<dataType>> {
+    inputs : String [0..*]
+    outputs : String [0..*]
+  }
+  class ActivityGraph <<dataType>>
+  class Cadence <<dataType>> {
+    expression : String
+    timezone : String
+  }
+  class FailurePolicy <<dataType>> {
+    retries : Integer
+    backoff_seconds : Integer
+    escalate_after_failures : Integer
+    halt_after_consecutive_failures : Integer
+  }
+  class EscalationStep <<dataType>> {
+    after_minutes : Integer
+    notify : String
+    note : String
+  }
+  class Lifecycle <<dataType>> {
+    stage : LifecycleStage
+    owner : String
+    gates : PromotionGate [0..*]
+    review_cadence_days : Integer
+    retire_after_idle_days : Integer [0..1]
+  }
+  class PromotionGate <<dataType>> {
+    to_stage : LifecycleStage
+    requires : GateRequirement [0..*]
+    min_pass_rate : Real
+    approvers : String [0..*]
+  }
+  class Compliance <<dataType>> {
+    frameworks : String [0..*]
+    data_residency : String [0..*]
+    audit_retention_days : Integer
+    require_approval_for : Action [0..*]
+    permission_review_days : Integer
+  }
+  class Observability <<dataType>> {
+    traces : Boolean
+    metrics : Boolean
+    logs : Boolean
+    propagate_across_delegation : Boolean
+    retention_days : Integer
+    sample_rate : Real
+    alerts : AlertCondition [0..*]
+  }
+  class AlertCondition <<dataType>> {
+    id : String
+    description : String
+    expression : String
+    severity : AlertSeverity
+  }
+  class Resilience <<dataType>> {
+    checkpoint_each_step : Boolean
+    resume_on_failure : Boolean
+    idempotent_triggers : Boolean
+    max_run_seconds : Integer
+  }
+  class Budget <<dataType>> {
+    id : String
+    scope_kind : BudgetScopeKind
+    period : BudgetPeriod
+    limit_usd : Real
+    on_breach : BreachAction
+  }
+  class ModelPolicy <<dataType>> {
+    classes : ModelClass [0..*]
+    allow : String [0..*]
+    deny : String [0..*]
+    max_cost_per_million_tokens : Real [0..1]
+    min_context_tokens : Integer [0..1]
+    require_no_training_on_data : Boolean
+    require_regions : String [0..*]
+    subagent_classes : ModelClass [0..*]
+    allow_fallback : Boolean
+  }
+  enum SharingScope {
+    private
+    protected
+    public
+  }
+  enum Action {
+    read
+    write
+    query
+    invoke
+    delegate
+    publish
+    approve
+    administer
+  }
+  enum Effect {
+    allow
+    deny
+  }
+  enum ModelClass {
+    frontier_reasoning
+    balanced
+    fast_cheap
+    long_context
+    vision
+    code
+    embedding
+    on_premises
+  }
+  enum ChannelClass {
+    direct
+    async_bus
+    team_chat
+    mail
+    webhook
+  }
+  enum SpecEnvironment {
+    development
+    staging
+    production
+  }
+  enum FlowKind {
+    delegate
+    consult
+    notify
+    escalate
+  }
+  enum UnitLinkKind {
+    oversees
+    escalates_to
+    serves
+    partners_with
+  }
+  enum HumanRole {
+    owner
+    approver
+    reviewer
+    escalation
+    operator
+    stakeholder
+  }
+  enum SubAgentKind {
+    research
+    review
+    summarize
+    extract
+    critique
+    plan
+    verify
+    custom
+  }
+  enum MissionStatus {
+    proposed
+    active
+    completed
+    disbanded
+  }
+  enum RuntimeRequirement {
+    planning
+    subagents
+    handoff
+    structured_output
+    long_context
+  }
+  enum RoleKind {
+    agent
+    team
+  }
+  enum ControlEnforcer {
+    platform
+    application
+    both
+  }
+  enum AutonomyPosture {
+    advisory
+    human_decides
+    supervised
+    autonomous
+  }
+  enum ResourceKind {
+    data_class
+    capability
+    agent
+    team
+    workflow
+    environment
+    channel
+  }
+  enum NetworkPosture {
+    none
+    allowlist
+    internal
+    open
+  }
+  enum ToolchainClass {
+    none
+    scripting
+    data_analysis
+    software_build
+    browser
+    document
+    model_training
+    network_client
+  }
+  enum ResourceTier {
+    minimal
+    small
+    medium
+    large
+    accelerated
+  }
+  enum Persistence {
+    ephemeral
+    session
+    agent
+  }
+  enum EndpointTrust {
+    internal
+    partner
+    external
+  }
+  enum DataSemantics {
+    unspecified
+    subject
+    event
+    reference
+    derived
+    aggregate
+  }
+  enum DataRelationKind {
+    derived_from
+    identifies
+    part_of
+    references
+  }
+  enum StaleAction {
+    refuse
+    degrade
+    escalate
+  }
+  enum KnowledgeKind {
+    document_store
+    wiki
+    ticketing
+    crm
+    mailbox
+    code_repository
+    data_warehouse
+    web
+  }
+  enum MemoryTier {
+    session
+    long_term
+  }
+  enum RecallMode {
+    none
+    on_demand
+    automatic
+  }
+  enum WrapsKind {
+    capability
+    subagent
+    workflow
+    endpoint
+  }
+  enum ActivityNodeKind {
+    tool
+    agent
+    workflow
+    transform
+    branch
+    human
+    fork
+    join
+  }
+  enum WorkflowBody {
+    graph
+    external
+  }
+  enum TriggerKind {
+    schedule
+    event
+    webhook
+    message
+    manual
+  }
+  enum OverlapPolicy {
+    skip
+    queue
+    cancel_previous
+    allow
+  }
+  enum CatchUpPolicy {
+    skip_missed
+    run_once
+    run_all
+  }
+  enum ChannelPurpose {
+    notify
+    approve
+    handoff
+    report
+    ask
+  }
+  enum OutOfHours {
+    queue
+    escalate
+    notify_anyway
+  }
+  enum GuardrailKind {
+    input
+    output
+    tool_input
+    tool_output
+  }
+  enum GuardrailCheck {
+    pii
+    secrets
+    prompt_injection
+    data_class
+    url_allowlist
+    schema
+    pattern
+    max_length
+  }
+  enum GuardrailAction {
+    block
+    redact
+    flag
+    escalate
+  }
+  enum OutputViolationAction {
+    retry
+    block
+    flag
+  }
+  enum LifecycleStage {
+    draft
+    development
+    staging
+    production
+    retired
+  }
+  enum GateRequirement {
+    evaluations_passed
+    human_approval
+    security_review
+    cost_within_budget
+    owner_assigned
+    permissions_reviewed
+  }
+  enum BreachAction {
+    warn
+    throttle
+    halt
+  }
+  enum BudgetScopeKind {
+    system
+    team
+    agent
+  }
+  enum BudgetPeriod {
+    daily
+    weekly
+    monthly
+  }
+  enum AlertSeverity {
+    info
+    warning
+    error
+    critical
   }
 }
 
@@ -105,9 +780,16 @@ Team ..|> Principal
 Role ..|> Principal
 Agent ..|> Resource
 Team ..|> Resource
+Agent "0..*" --> "0..*" Agent : peer of [peers]
+Mission "0..*" --> "0..1" Agent : led by [leader]
+Mission "0..*" --> "0..*" Role : plays [roles]
+(Mission, Role) .. RoleAssignment
+Person "0..*" --> "0..1" Team : belongs to [unit] {empty = the root}
 Separation "0..*" --> "2..*" Decision : keeps apart [decisions]
 Policy "0..*" --> "0..*" Principal : applies to [subjects] {'*' = every principal}
 Policy "0..*" --> "0..*" Resource : governs [resources] {kind given by resource_kinds; '*' = every}
+Mandate "0..*" --> "0..*" Decision : may decide [decisions]
+Permission "0..*" --> "1" Resource : on [resource] {kind given by resource_kind; an id or a glob; '*' = every}
 Agent ..> Environment : <<deploy>> [environments]
 (Agent, Environment) .. EnvironmentOverride
 Worker ..|> Capability : provides [capabilities]
@@ -120,12 +802,25 @@ Endpoint ..|> Wrappable
 Capability ..|> Resource
 Environment ..|> Resource
 Capability ..|> Callable
+Capability "0..*" --> "0..1" Decision : exercises [decision]
 Agent "0..*" --> "0..*" DataClass : produces [produces_data]
 Agent "0..*" --> "0..*" DataClass : relies on [data_dependencies]
 (Agent, DataClass) .. DataDependency
 Capability "0..*" --> "0..*" DataClass : reaches [data_classes]
 Endpoint "0..*" --> "0..*" DataClass : may receive [send_data_classes]
 DataClass ..|> Resource
+DataClass ..> DataClass : <<derive>> [relations] {a restriction of the target holds for the source}
+(DataClass, DataClass) .. DataRelation
+DataClass "0..*" *-- "0..*" DataClass : part of > {the source is the part, the target the whole}
+(DataClass, DataClass) .. DataRelation
+DataClass "0..*" --> "0..*" DataClass : identifies [relations]
+(DataClass, DataClass) .. DataRelation
+DataClass "0..*" --> "0..*" DataClass : references [relations]
+(DataClass, DataClass) .. DataRelation
+DataClass "0..*" --> "0..*" Environment : may be processed in [allowed_environments] {empty = any environment}
+DataDependency "0..*" --> "0..1" Agent : produced by [produced_by]
+Agent "0..*" --> "0..1" ArtifactStore : writes to [artifact_store]
+ArtifactStore "0..*" --> "0..*" DataClass : may hold [data_classes]
 Worker "0..*" --> "0..*" Knowledge : consults [knowledge]
 Agent "0..*" --> "0..*" Skill : holds [skills]
 Agent "0..*" --> "0..*" Plugin : holds [plugins]
@@ -138,6 +833,10 @@ Plugin "0..*" --> "0..*" Skill : provides [provides_skills]
 Plugin "0..*" --> "0..*" Tool : provides [provides_tools]
 Tool "0..*" --> "1" Wrappable : wraps [wraps] {kind given by wraps_kind}
 Tool ..|> Callable
+MemoryPolicy "0..*" --> "0..*" DataClass : may hold [data_classes]
+MemoryPolicy "0..*" --> "0..*" DataClass : redacts [redact_data_classes]
+AgentMemoryOverride "0..*" --> "0..*" MemoryNamespace : may use [namespaces]
+ContextPolicy "0..*" --> "0..1" ArtifactStore : offloads to [offload_to]
 Agent ..> Workflow : <<use>> runs [workflows]
 Trigger "0..*" --> "1" Agent : fires [agent]
 Trigger "0..*" --> "0..1" Workflow : starts [workflow]
@@ -162,8 +861,25 @@ Workflow ..> Callable : <<use>> interface calls [interface.tools] {'c__op' = ope
 Workflow ..> Endpoint : <<use>> interface reaches [interface.endpoints]
 Workflow "0..*" --> "0..*" DataClass : receives [interface.receives_data_classes]
 Workflow "0..*" --> "0..*" DataClass : returns [interface.returns_data_classes]
+Workflow "0..*" --> "0..*" Action : interrupts before [interrupt_before]
+ActivityGraph "0..*" --> "0..1" Action : enters at [entry] {empty = the first step}
+Trigger "0..*" --> "0..1" Channel : listens on [channel] {kind = message}
+Trigger "0..*" --> "0..*" Channel : delivers to [deliver_to]
+FailurePolicy "0..*" --> "0..1" Channel : notifies [notify_channel]
+Channel "0..*" --> "0..*" DataClass : forbids [forbid_data_classes]
+EscalationStep "0..*" --> "0..1" Channel : on [channel]
+Person "0..*" --> "0..1" Channel : reached on [channel]
+HumanCounterpart "0..*" --> "0..1" Channel : reached on [channel]
+Mission "0..*" --> "0..1" Channel : works on [channel]
+Mission ..> Workflow : <<use>> runs [workflows]
 Agent "0..*" --> "0..*" Guardrail : guarded by [guardrails]
 Worker "0..*" --> "0..1" OutputContract : returns [output_contract]
 Guardrail "0..*" --> "0..*" DataClass : protects [data_classes]
 Evaluation "0..*" --> "0..*" Agent : evaluates [applies_to]
+Guardrail "0..*" --> "0..1" Channel : escalates on [escalate_channel]
+Budget "0..*" --> "0..1" Channel : notifies [notify_channel]
+Resilience "0..*" --> "0..1" Channel : dead letters to [dead_letter_channel]
+Compliance "0..*" --> "0..*" DataClass : redacts [redact_data_classes]
+Observability "0..*" --> "0..*" DataClass : redacts [redact_data_classes]
+Budget "0..*" --> "0..1" Resource : caps [scope] {kind given by scope_kind; empty when scope_kind = system}
 @enduml
