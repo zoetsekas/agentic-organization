@@ -222,7 +222,21 @@
       "max_instances": 3,
       "concurrent_sessions_per_instance": 1
     },
-    "data_dependencies": [],
+    "data_dependencies": [
+      {
+        "data_class": "sales_report",
+        "fields": [
+          "sku",
+          "region",
+          "units",
+          "revenue"
+        ],
+        "max_age_seconds": 604800,
+        "on_stale": "degrade",
+        "produced_by": "ar_agent",
+        "description": "Which products sell where, to aim a promotion."
+      }
+    ],
     "produces_data": [],
     "planning": false,
     "requires_approval_for": [

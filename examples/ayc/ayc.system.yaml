@@ -238,6 +238,8 @@ organization:
               roles: [receivables_clerk]
               mandate:
                 decisions: [record_receivable]
+              # Reconciling sales to cash is where the report comes from.
+              produces_data: [sales_report]
               humans:
                 - person: p_ar
                   roles: [owner]
@@ -438,6 +440,15 @@ organization:
               roles: [marketer]
               mandate:
                 decisions: [run_promotion, publish_content]
+              # A promotion aimed by last week's sales is fine; by last
+              # quarter's it is a guess, so it says so rather than refusing.
+              data_dependencies:
+                - data_class: sales_report
+                  fields: [sku, region, units, revenue]
+                  max_age_seconds: 604800
+                  on_stale: degrade
+                  produced_by: ar_agent
+                  description: Which products sell where, to aim a promotion.
               humans:
                 - person: p_cgo
                   roles: [owner]
@@ -462,6 +473,20 @@ organization:
       may_appear_in_traces: false
       # What it *is*, as distinct from how it is protected (ADR-0099).
       semantics: subject
+      relations:
+        # Composition (ADR-0111): the contact details are a part of the
+        # account, and go when the account goes.
+        - kind: part_of
+          target: customer_account
+    - id: customer_account
+      description: A customer's account as the storefront holds it — identity, order history and store credit.
+      scope: private
+      groups: [commerce]
+      allowed_environments: [storefront_ops]
+      may_appear_in_traces: false
+      semantics: subject
+      # A pointer to where the schema lives, never a copy of it (ADR-0111).
+      schema_ref: https://shopify.dev/docs/api/admin-graphql/latest/objects/Customer
     - id: order_data
       description: Orders, fulfillments and shipment status.
       scope: protected
@@ -473,6 +498,26 @@ organization:
         # the customer follow the order, instead of relying on somebody to
         # remember that it should.
         - kind: identifies
+          target: customer_pii
+        - kind: part_of
+          target: customer_account
+        # Each order line names a SKU; a pointer, carrying no restriction.
+        - kind: references
+          target: inventory_data
+    - id: sales_report
+      description: Sales by product and customer region, for pricing and promotions.
+      scope: protected
+      groups: [commerce, finance]
+      allowed_environments: [finance_ops, studio]
+      semantics: aggregate
+      # Built from orders and from who placed them, so it keeps what
+      # customer_pii may not do: it stays out of traces (ADR-0099). The Data
+      # diagram shows the restriction on this class and where it came from.
+      may_appear_in_traces: false
+      relations:
+        - kind: derived_from
+          target: order_data
+        - kind: derived_from
           target: customer_pii
     - id: inventory_data
       description: Fishbowl inventory, stock levels, cycle counts and locations.
@@ -1233,7 +1278,7 @@ compliance:
   frameworks: [SOC2, PCI_DSS]
   data_residency: [us-central1]
   audit_retention_days: 730
-  redact_data_classes: [customer_pii]
+  redact_data_classes: [customer_pii, customer_account, sales_report]
   require_approval_for: [write, administer, publish]
   permission_review_days: 90
 
@@ -1250,7 +1295,7 @@ observability:
   propagate_across_delegation: true
   retention_days: 365
   sample_rate: 1.0
-  redact_data_classes: [customer_pii]
+  redact_data_classes: [customer_pii, customer_account, sales_report]
 
 lifecycle:
   stage: development

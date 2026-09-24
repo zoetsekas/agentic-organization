@@ -176,7 +176,9 @@
       "concurrent_sessions_per_instance": 1
     },
     "data_dependencies": [],
-    "produces_data": [],
+    "produces_data": [
+      "sales_report"
+    ],
     "planning": false,
     "requires_approval_for": [
       "receivable_management"

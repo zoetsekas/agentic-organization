@@ -229,4 +229,4 @@ has run the declared cases, which is not the same as having failed them.
 - **Missions with no end date:** none
 - **Compliance frameworks:** SOC2, PCI_DSS
 - **Data residency:** us-central1
-- **Redacted from traces:** customer_pii
+- **Redacted from traces:** customer_pii, customer_account, sales_report
