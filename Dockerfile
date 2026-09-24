@@ -21,10 +21,12 @@ FROM base AS builder
 WORKDIR /app
 # Dependencies resolve from the project metadata alone, so this layer is
 # rebuilt only when the metadata changes, not on every source edit.
-COPY pyproject.toml README.md ./
+# constraints.txt pins every version, so the image installs what CI tested
+# rather than whatever resolved on the day it was built.
+COPY pyproject.toml README.md constraints.txt ./
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip setuptools wheel \
- && /opt/venv/bin/pip install \
+ && /opt/venv/bin/pip install -c constraints.txt \
       "pydantic>=2.6" "fastapi>=0.110" "uvicorn>=0.29" \
       "python-multipart>=0.0.9" "pyyaml>=6.0" "cryptography>=42,<47"       "sqlalchemy>=2,<3" "psycopg[binary]>=3.1,<4"
 
