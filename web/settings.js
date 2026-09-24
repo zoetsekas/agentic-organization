@@ -220,6 +220,9 @@
     const dialog = document.getElementById("settings-dialog");
     dialog?.querySelectorAll(".settings-tabs button").forEach((b) =>
       b.addEventListener("click", () => openSettings(b.dataset.tab)));
+    // The shared tabs pattern (ui.js): arrows move between the two tabs.
+    window.ui?.wireTabs(dialog?.querySelector(".settings-tabs"), {
+      label: "Settings", panel: () => dialog.querySelector(".settings-body") });
     dialog?.querySelector(".settings-close")?.addEventListener("click", () => dialog.close());
     dialog?.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
     document.getElementById("btn-designer-settings")

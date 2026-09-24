@@ -515,7 +515,11 @@ legend {
 .node-rename-input {
   font: inherit; font-weight: 600; font-size: var(--t-body);
   background: var(--raised-2); border: 1px solid var(--accent);
-  border-radius: var(--r-sm); padding: 0 3px; outline: none;
+  border-radius: var(--r-sm); padding: 0 3px;
+  /* The border is the focus ring here: the global outline would sit on top
+     of the node's own edge and read as two boxes. It is kept visible — a
+     focused field with no ring at all is the defect this replaced. */
+  outline: 2px solid var(--accent); outline-offset: 0;
   width: 100%; box-sizing: border-box; color: var(--ink);
 }
 
@@ -784,7 +788,8 @@ dialog::backdrop { background: rgba(0,0,0,.55); }
   border-radius: var(--r-sm); width: 110px; height: auto;
   background: var(--raised); color: var(--ink);
 }
-.reflist-free:focus { outline: none; border-color: var(--accent); }
+.reflist-free:focus { border-color: var(--accent); }
+.reflist-free:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* The catalog's entry form: a substantive edit is visibly unavailable on an
    approved entry, so the refusal is read before the form is filled in. */
@@ -1585,3 +1590,110 @@ label.check-row > .hint { flex-basis: 100%; }
 .palette .drag-item[data-step="human"] { --kc: var(--amber); }
 .palette .drag-item[data-step="fork"],
 .palette .drag-item[data-step="join"] { --kc: var(--ink-muted); }
+
+/* -- accessibility and shared patterns (ADR-0117) ----------------------------
+   The pieces ui.js builds, the grouped navigation, and the canvas's keyboard
+   states. Every colour is a token, so the light theme follows without a rule
+   of its own. */
+
+/* Read by a screen reader, not drawn. */
+.sr-only {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Navigation: four groups, each with its name above it, so what shares the
+   design context and what watches the runtime is visible at a glance. */
+.tabs { align-items: flex-end; gap: var(--s3); }
+.nav-group {
+  display: flex; align-items: center; gap: 2px; position: relative;
+  padding: 12px var(--s2) 2px; border-left: 1px solid var(--line);
+}
+.nav-group:first-child { border-left: 0; }
+.nav-group-label {
+  position: absolute; top: 0; left: var(--s2);
+  font-family: var(--font-mono); font-size: var(--t-micro); line-height: 1;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim);
+}
+.tabs button[aria-current="page"] {
+  background: var(--raised-2); color: var(--ink);
+  border-color: var(--line-strong); font-weight: 500;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* The context bar on a view that ignores it: still usable, visibly not in
+   play, and labelled so the dimming is not mistaken for disabled. */
+body[data-scope="runtime"] .contextbar > :not(.context-note) { opacity: .45; }
+.context-note {
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--amber-ink);
+  border: 1px solid var(--amber-line); background: var(--amber-ground);
+  border-radius: var(--r-pill); padding: 2px var(--s3);
+}
+
+/* Dialogs built by ui.js. */
+.ui-dialog { width: min(480px, calc(100vw - 32px)); min-width: 0; }
+.ui-dialog.wide { width: min(640px, calc(100vw - 32px)); }
+.ui-dialog .dlg-message p { margin: 0 0 var(--s3); color: var(--ink-muted); white-space: pre-line; }
+.ui-dialog .dlg-field { display: flex; flex-direction: column; gap: var(--s1); margin-bottom: var(--s4); }
+.ui-dialog .dlg-label { display: block; font-weight: 500; color: var(--ink); }
+.ui-dialog input, .ui-dialog select, .ui-dialog textarea { width: 100%; box-sizing: border-box; }
+.ui-dialog [aria-invalid="true"] { border-color: var(--err) !important; box-shadow: 0 0 0 2px var(--clay-ground); }
+.ui-dialog .field-error:empty, .toast:empty { display: none; }
+.ui-dialog .dlg-actions { display: flex; justify-content: flex-end; gap: var(--s3); margin-top: var(--s4); }
+.dlg-radios { display: flex; flex-direction: column; gap: var(--s2); }
+.dlg-radio {
+  display: flex; gap: var(--s3); align-items: flex-start; cursor: pointer;
+  border: 1px solid var(--line); border-radius: var(--r); padding: var(--s3);
+}
+.dlg-radio:has(input:checked) { border-color: var(--accent); background: var(--accent-wash); }
+.dlg-radio:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dlg-radio input { width: auto; margin-top: 3px; }
+.dlg-radio span { display: flex; flex-direction: column; gap: 2px; }
+.dlg-radio small { color: var(--ink-muted); }
+button.danger.primary { background: var(--clay-ground-2); color: var(--clay-ink); border-color: var(--clay); }
+
+/* Toasts: bottom-right, above everything but a modal. */
+.toasts {
+  position: fixed; right: var(--s5); bottom: var(--s5); z-index: 50;
+  display: flex; flex-direction: column; gap: var(--s2); max-width: min(420px, calc(100vw - 32px));
+}
+.toast {
+  display: flex; align-items: center; gap: var(--s3);
+  background: var(--raised-2); color: var(--ink);
+  border: 1px solid var(--line-strong); border-left: 3px solid var(--accent);
+  border-radius: var(--r); padding: var(--s3) var(--s4);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .35); font-size: var(--t-small);
+}
+.toast .grow { flex: 1; }
+.toast-action { font-weight: 600; color: var(--accent-bright); }
+
+/* Empty states: what is not here, and what to do about it. */
+.empty-state {
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2);
+  border: 1px dashed var(--line-strong); border-radius: var(--r-md);
+  padding: var(--s5); color: var(--ink-muted); background: var(--panel);
+}
+.empty-state .empty-title { color: var(--ink); font-weight: 600; }
+.empty-state p { margin: 0; max-width: 60ch; }
+.empty-state.err { border-color: var(--clay-line-2); background: var(--clay-ground); }
+
+/* The server could not be reached: said once, at the top, with a retry. */
+.offline {
+  position: fixed; left: 50%; top: 64px; transform: translateX(-50%); z-index: 60;
+  display: flex; gap: var(--s3); align-items: center; flex-wrap: wrap;
+  background: var(--clay-ground-2); color: var(--clay-ink);
+  border: 1px solid var(--clay-line-2); border-radius: var(--r-md);
+  padding: var(--s3) var(--s5); max-width: calc(100vw - 32px);
+}
+.offline strong { color: var(--ink); }
+
+/* Canvas keyboard states. Focus is drawn apart from selection: the ring is
+   where the keyboard is, the teal fill is what Properties shows, and the
+   two differ while arrows move between boxes. */
+.canvas-surface .node { touch-action: none; }
+.canvas-surface .node:focus { outline: none; }
+.canvas-surface .node:focus-visible {
+  outline: 2px dashed var(--accent-bright); outline-offset: 3px;
+}
+.canvas-surface .node.link-aim { box-shadow: 0 0 0 3px var(--accent); }
+.canvas-surface .node:focus-visible .node-delete-btn { opacity: 1; }

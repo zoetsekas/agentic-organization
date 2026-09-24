@@ -318,20 +318,28 @@ function removeDiagram(id) {
   const layout = canvas.record?.layout;
   if (!layout?.diagrams?.[id]) return;
   if (diagramList().length === 1) {
-    return alert("A design has at least one diagram. Rename this one, or add "
-      + "another before removing it.");
+    return ui.alertDialog("A design has at least one diagram. Rename this one, "
+      + "or add another before removing it.", { title: "Cannot remove the last diagram" });
   }
   const name = layout.diagrams[id].name;
-  if (!window.confirm(
-      `Remove the diagram '${name}'?\n\nOnly the picture goes: every `
-      + "component on it stays declared in the model, and the Explorer still "
-      + "lists them.")) return;
+  /* Only the picture goes — every component on it stays declared and the
+     Explorer still lists them — so it is undone rather than asked about. */
   delete layout.diagrams[id];
   if (layout.active === id) layout.active = Object.keys(layout.diagrams)[0];
   markDirty(`removed the diagram '${name}'`);
   renderDiagramBar();
   renderCanvas();
   renderInspector();
+  offerUndo(`Removed the diagram '${name}'. Its components are still in the model.`);
+}
+
+async function renameDiagram(d) {
+  const name = await ui.promptDialog("Rename diagram", {
+    label: "Name", value: d.name, submitLabel: "Rename" });
+  if (!name || name === d.name) return;
+  d.name = name;
+  markDirty("renamed a diagram");
+  renderDiagramBar();
 }
 
 /* The tabs above the canvas, and the breadcrumb that says what a nested
@@ -343,27 +351,34 @@ function renderDiagramBar() {
   const layout = canvas.record?.layout;
   if (!layout) return bar.replaceChildren();
   const readOnly = !canvas.permissions.includes("system.edit");
-  bar.replaceChildren(
+  /* The diagram tabs are a tablist of their own; the buttons after them
+     (add, arrange) are a toolbar, not tabs, so they sit outside it. F2 and
+     Delete do on a focused tab what double-click and right-click do. */
+  const tabs = el("div", { class: "dia-tabs" },
     ...diagramList().map((d) => {
       const tab = el("button", {
         class: `dia-tab${d.id === layout.active ? " active" : ""}`,
         title: d.root ? `a diagram of ${d.root}` : "the whole organisation",
-      }, d.root ? el("span", { class: "ic" }, "\u21b3") : null, d.name);
-      tab.addEventListener("click", () => openDiagram(d.id));
-      tab.addEventListener("dblclick", () => {
-        if (readOnly) return;
-        const name = window.prompt("Name this diagram", d.name);
-        if (!name) return;
-        d.name = name;
-        markDirty("renamed a diagram");
-        renderDiagramBar();
+      }, d.root ? el("span", { class: "ic", "aria-hidden": "true" }, "\u21b3") : null, d.name);
+      tab.addEventListener("click", () => {
+        if (d.id !== layout.active) openDiagram(d.id);
       });
+      tab.addEventListener("dblclick", () => { if (!readOnly) renameDiagram(d); });
       tab.addEventListener("contextmenu", (e) => {
         e.preventDefault();
         if (!readOnly) removeDiagram(d.id);
       });
+      tab.addEventListener("keydown", (e) => {
+        if (readOnly) return;
+        if (e.key === "F2") { e.preventDefault(); renameDiagram(d); }
+        else if (e.key === "Delete") { e.preventDefault(); removeDiagram(d.id); }
+      });
       return tab;
-    }),
+    }));
+  const focusedTab = bar.contains(document.activeElement)
+    && document.activeElement.classList.contains("dia-tab");
+  bar.replaceChildren(
+    tabs,
     el("button", {
       class: "dia-add", title: "a new, empty diagram of this design",
       disabled: readOnly ? "" : null,
@@ -404,6 +419,8 @@ function renderDiagramBar() {
       button.addEventListener("click", () => arrangeDiagram(name));
       return button;
     })));
+  ui.wireTabs(tabs, { label: "Diagrams", panel: () => $("#canvas") });
+  if (focusedTab) tabs.querySelector(".dia-tab.active")?.focus();
 }
 
 /* ------------------------------------------------------------ arranging */
@@ -465,6 +482,7 @@ async function arrangeDiagram(algorithm) {
     setStatus(result.notes?.length
       ? `${result.algorithm}: ${result.notes[0]}`
       : `arranged with ${result.algorithm}`);
+    offerUndo(`Arranged with ${result.algorithm}.`);
   } catch (err) {
     setStatus(`could not arrange: ${err.message}`);
   }
@@ -1084,29 +1102,199 @@ function rememberViewport() {
   view.y = surface.scrollTop;
 }
 
+/* ---------------------------------------------------- incremental drawing
+   Every change used to call a renderCanvas that rebuilt every node, region,
+   edge, the edge filter, the Explorer, the Outline and the diagram bar —
+   thirty-odd call sites, and a click to select one box paid for all of it
+   (ADR-0117). Now:
+
+   - a node's element is kept, keyed by id, and rebuilt only when what it was
+     drawn from changes (its signature below);
+   - selection is a class and an attribute, toggled in place (syncSelection);
+   - a drag moves one box and redraws only the edges that touch it;
+   - the side panels are rebuilt when the model, the diagram or the reader's
+     rights change, not on every redraw of the canvas.
+
+   Keeping elements also keeps keyboard focus: a node that is replaced takes
+   focus with it, which is what made a keyboard canvas impossible before. */
+const nodeEls = new Map();      // id -> { el, sig, node, component }
+
+/* Everything renderNode reads, as one string. If two renders produce the same
+   signature from the same objects, the element already on the page is right.
+   The objects are compared too, not only their JSON: the element's handlers
+   close over them, and after an undo they are different objects with the
+   same content. */
+function nodeSignature(node, component, context) {
+  const linking = context.linking;
+  return [
+    node.x, node.y, node.width, node.height, node.note || "",
+    /* A team's box shows the team, not its members: its nested members and
+       sub-teams are their own boxes, and stringifying them made the root
+       team's signature the whole organisation on every redraw. */
+    JSON.stringify(component, (key, value) =>
+      key === "members" || key === "teams" ? undefined : value),
+    nodeSubtitle(node.kind, component, node),
+    // The chips inside an agent carry the held components' own names.
+    node.kind === "agent"
+      ? context.held + Object.entries(HELD_KINDS).map(([kind, field]) =>
+          (component[field] || []).map((id) => findComponent(kind, id)?.name || id).join(","))
+          .join(";")
+      : "",
+    linking ? (linking.id === node.id ? "src" : linkRule(linking.kind, node.kind) ? "tgt" : "no") : "",
+    lockOn(node.id) ? "locked" : "",
+    context.edit,
+  ].join("\u0001");
+}
+
 function renderCanvas() {
-  const nodes = $("#canvas-nodes");
+  const started = performance.now();
+  const host = $("#canvas-nodes");
   const layout = diagram() || { nodes: {} };
   /* A component one agent holds lives inside that agent's box (below), so
      drawing it a second time as its own node would say two different things
      about one fact. Held by two or more, it is shared, it keeps its node, and
      the edges are the point. */
   const inlined = inlinedComponents();
-  nodes.replaceChildren(
-    ...Object.values(layout.nodes)
-      .filter((node) => !inlined.has(node.id))
-      // Containers first, so the workers deployed in them draw on top.
-      .sort((a, b) => isContainer(b) - isContainer(a))
-      .map((node) => renderNode(node)));
+  const context = {
+    held: [...inlined].sort().join(","),
+    linking: canvas.linking,
+    edit: canvas.permissions.includes("system.edit"),
+  };
+  const focusedId = host.contains(document.activeElement)
+    ? document.activeElement.closest?.(".node")?.dataset.id : null;
+  let built = 0;
+  const wanted = Object.values(layout.nodes)
+    .filter((node) => !inlined.has(node.id))
+    // Containers first, so the workers deployed in them draw on top.
+    .sort((a, b) => isContainer(b) - isContainer(a));
+  const keep = new Set();
+  const ordered = wanted.map((node) => {
+    const component = findComponent(node.kind, node.id) || {};
+    const sig = nodeSignature(node, component, context);
+    keep.add(node.id);
+    const cached = nodeEls.get(node.id);
+    if (cached && cached.sig === sig && cached.node === node
+        && cached.component === component) {
+      return cached.el;
+    }
+    built += 1;
+    const box = renderNode(node, component);
+    nodeEls.set(node.id, { el: box, sig, node, component });
+    return box;
+  });
+  for (const id of [...nodeEls.keys()]) if (!keep.has(id)) nodeEls.delete(id);
+  /* Put the elements in order without moving the ones already in place: a
+     moved element loses focus, and replaceChildren moves all of them. */
+  let ref = host.firstChild;
+  for (const box of ordered) {
+    if (box === ref) { ref = ref.nextSibling; continue; }
+    host.insertBefore(box, ref);
+  }
+  while (ref) { const next = ref.nextSibling; ref.remove(); ref = next; }
+
   $("#canvas-empty").hidden = Object.keys(layout.nodes).length > 0;
   syncPalette();
   renderRegions();
   renderEdges();
+  renderPanels();
+  syncSelection();
+  if (focusedId && !host.contains(document.activeElement)) {
+    nodeEls.get(focusedId)?.el.focus({ preventScroll: true });
+  }
+  canvas.renderStats = { ms: performance.now() - started, built,
+                         kept: ordered.length - built };
+}
+
+/* The panels beside the canvas describe the model, so they are rebuilt when
+   the model (or which diagram, or the reader's rights) changes — not on every
+   selection or drag. `canvas.rev` is bumped by every recorded change. */
+function panelsKey() {
+  return [canvas.record ? canvas.rev || 0 : "none", canvas.record?.layout?.active,
+          canvas.permissions.includes("system.edit"), canvas.systemId].join("|");
+}
+
+function renderPanels(force = false) {
+  const key = panelsKey();
+  if (!force && key === canvas.panelsKey) return;
+  const where = `${canvas.systemId}|${canvas.record?.layout?.active}`;
+  canvas.panelsKey = key;
   renderEdgeFilter();
-  restoreViewport();
+  /* Only on arriving somewhere: restoring the stored viewport on every
+     redraw put the reader back where the diagram was last saved each time
+     anything changed. */
+  if (where !== canvas.viewportFor) {
+    canvas.viewportFor = where;
+    restoreViewport();
+  }
   renderExplorer();
-  renderOutline();
+  /* Next frame: the outline measures its panel, and measuring straight after
+     the nodes changed forced a synchronous layout of the whole page — most of
+     what an undo cost. A frame later the browser has laid out anyway. */
+  if (!canvas.outlineFrame) {
+    canvas.outlineFrame = requestAnimationFrame(() => {
+      canvas.outlineFrame = 0;
+      renderOutline();
+      syncSelection();
+    });
+  }
   renderDiagramBar();
+}
+
+/* A change recorded after the canvas was last drawn (a drop answered by the
+   server, say) still reaches the panels, once, on the next frame. */
+function schedulePanels() {
+  if (canvas.panelsFrame) return;
+  canvas.panelsFrame = requestAnimationFrame(() => {
+    canvas.panelsFrame = 0;
+    renderPanels();
+  });
+}
+
+/* Selection, drawn in place: the node, its row in the Explorer and its box in
+   the Outline. No element is rebuilt. */
+function syncSelection() {
+  const id = canvas.selected?.id;
+  for (const { el: box } of nodeEls.values()) {
+    const on = box.dataset.id === id;
+    box.classList.toggle("selected", on);
+    if (on) box.setAttribute("aria-current", "true");
+    else box.removeAttribute("aria-current");
+  }
+  for (const row of document.querySelectorAll("#explorer-tree .ex-row[data-id]")) {
+    row.classList.toggle("selected", row.dataset.id === id);
+  }
+  for (const rect of document.querySelectorAll("#outline-svg rect[data-id]")) {
+    rect.classList.toggle("selected", rect.dataset.id === id);
+  }
+  syncRovingFocus();
+}
+
+/* One node is in the Tab order at a time (the roving tabindex pattern): Tab
+   reaches the diagram once, arrows move inside it, and Tab again leaves. The
+   one is the node last focused, else the selection, else the first. */
+function syncRovingFocus() {
+  const boxes = [...nodeEls.values()].map((c) => c.el).filter((b) => b.isConnected);
+  if (!boxes.length) return;
+  const pick = boxes.find((b) => b.dataset.id === canvas.focusId)
+    || boxes.find((b) => b.dataset.id === canvas.selected?.id)
+    || boxes[0];
+  for (const box of boxes) box.tabIndex = box === pick ? 0 : -1;
+}
+
+function focusNode(box) {
+  if (!box) return;
+  canvas.focusId = box.dataset.id;
+  syncRovingFocus();
+  box.focus({ preventScroll: true });
+  box.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+}
+
+/* How a node is named to a screen reader: its kind, its name, and the line
+   under it, which is what a sighted reader takes in at a glance. */
+function nodeLabel(node, component) {
+  const name = component?.name || component?.id || node.id;
+  const sub = nodeSubtitle(node.kind, component || {}, node);
+  return `${name}${sub ? `, ${sub}` : ""}`;
 }
 
 function lockOn(id) {
@@ -1149,7 +1337,7 @@ function heldChips(agent, readOnly) {
         if (canvas.linking) return;
         canvas.selected = { kind, id };
         showSide("details");
-        renderCanvas();
+        syncSelection();
         renderInspector();
       });
       chips.push(chip);
@@ -1160,17 +1348,20 @@ function heldChips(agent, readOnly) {
     : [];
 }
 
-function renderNode(node) {
-  const component = findComponent(node.kind, node.id) || {};
+function renderNode(node, component = findComponent(node.kind, node.id) || {}) {
   const linking = canvas.linking;
   const blocked = lockOn(node.id);
   const readOnly = !canvas.permissions.includes("system.edit") || !!blocked;
 
   /* × delete button — top-right corner */
+  /* Out of the Tab order on purpose: Delete on the focused node does the
+     same, and a button inside every box would put two stops per node in a
+     diagram a keyboard user is moving through with arrows. */
   const delBtn = el("button", {
     class: "node-delete-btn", title: "Delete", tabindex: "-1",
+    "aria-label": `Delete ${component.name || node.id}`,
     disabled: readOnly ? "" : null,
-  }, "×");
+  }, el("span", { "aria-hidden": "true" }, "×"));
   delBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     deleteNode(node.kind, node.id);
@@ -1203,11 +1394,16 @@ function renderNode(node) {
           ? `; width:${node.width}px; height:${node.height || CONTAINER.height}px`
           : ""),
     title: blocked ? `locked by ${blocked.holder_name || blocked.holder}` : "",
+    tabindex: "-1",
+    role: "group",
+    "aria-roledescription": node.kind === "step" ? "step" : kindSpec(node.kind).label,
+    "aria-label": nodeLabel(node, component)
+      + (blocked ? `, locked by ${blocked.holder_name || blocked.holder}` : ""),
   },
     delBtn,
     node.kind === "environment"
       ? el("span", { class: "n-net" }, postureOf(component))
-      : el("span", { class: "n-icon" }, kindSpec(node.kind).icon || "▫"),
+      : el("span", { class: "n-icon", "aria-hidden": "true" }, kindSpec(node.kind).icon || "▫"),
     el("div", { class: "n-kind" },
        node.kind === "step" ? stepKindLabel(component) : kindSpec(node.kind).label),
     titleEl,
@@ -1216,8 +1412,13 @@ function renderNode(node) {
     ...(node.kind === "agent" ? heldChips(component, readOnly) : []),
     ...(isContainer(node) && !readOnly
         ? [el("span", { class: "n-resize", title: "Drag to resize" })] : []));
-  box.addEventListener("mousedown", (e) => {
-    if (e.target === delBtn) return;
+  /* Pointer events, not mouse events: one handler for a mouse, a pen and a
+     finger. `touch-action: none` on the node (styles.css) stops a touch drag
+     from scrolling the canvas instead. */
+  box.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    if (delBtn.contains(e.target)) return;
+    if (e.target.closest?.("a, input")) return;
     if (e.target.classList?.contains("n-resize")) {
       startResize(e, node, box);
       return;
@@ -1228,10 +1429,14 @@ function renderNode(node) {
     startDrag(e, node, box);
   });
   box.addEventListener("click", (e) => {
-    if (e.target === delBtn) return;
+    if (delBtn.contains(e.target)) return;
+    canvas.focusId = node.id;
+    box.focus({ preventScroll: true });
     if (canvas.linking) return completeLink(node);
     selectNode(node);
   });
+  box.addEventListener("keydown", (e) => handleNodeKey(e, node, box, readOnly));
+  box.addEventListener("focus", () => { canvas.focusId = node.id; });
   box.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     selectNode(node);
@@ -1429,18 +1634,17 @@ function linkRule(sourceKind, targetKind) {
 /* When several apply, the reader says which. The prompt states what each one
    does, because "contains" and "associates" have very different consequences
    and neither is obvious from a line on a canvas. */
-function chooseRule(rules, from, target) {
+async function chooseRule(rules, from, target) {
   if (rules.length === 1) return rules[0];
-  const numbered = rules.map((r, i) => `${i + 1}. ${r.label} — ${r.help}`);
-  const answer = window.prompt(
-    `How is ${target.id} related to ${from.id}?\n\n${numbered.join("\n\n")}\n\n`
-    + "Enter a number.", "1");
-  if (answer === null) return null;
-  const at = Number(answer.trim()) - 1;
-  if (!Number.isInteger(at) || at < 0 || at >= rules.length) {
-    throw new Error(`'${answer}' is not one of 1..${rules.length}`);
-  }
-  return rules[at];
+  /* A list of choices, each with what it does — it was a numbered prompt,
+     and a mistyped number was an error after the fact. */
+  const answer = await ui.formDialog({
+    title: `How is ${target.id} related to ${from.id}?`,
+    submitLabel: "Link", wide: true,
+    fields: [{ name: "rule", label: "Relationship", type: "radio",
+               options: rules.map((r, i) => [String(i), r.label, r.help]) }],
+  });
+  return answer ? rules[Number(answer.rule)] : null;
 }
 
 /* Where a line from this kind may go: its own relationships, and the ones
@@ -1456,18 +1660,23 @@ function legalTargetsFrom(sourceKind) {
 }
 
 function beginLink(node) {
-  canvas.linking = { id: node.id, kind: node.kind };
   const targets = legalTargetsFrom(node.kind);
-  setStatus(targets.length
-    ? `linking from ${node.id} — click ${targets.map((t) => an(t)).join(" or ")},`
-      + " or press Escape"
-    : `nothing links from ${an(node.kind)}`);
+  if (!targets.length) {
+    setStatus(`nothing links from ${an(node.kind)}`);
+    ui.announce(`Nothing links from ${an(node.kind)}.`);
+    return;
+  }
+  canvas.linking = { id: node.id, kind: node.kind };
+  setStatus(`linking from ${node.id} — click ${targets.map((t) => an(t)).join(" or ")}`
+    + " (or arrow to it and press Enter), or press Escape");
+  ui.announce(`Linking from ${node.id}. Arrow to ${targets.map((t) => an(t)).join(" or ")} `
+    + "and press Enter, or Escape to cancel.");
   renderCanvas();
 }
 
 function cancelLink(quiet = false) {
   canvas.linking = null;
-  if (!quiet) setStatus("link cancelled");
+  if (!quiet) { setStatus("link cancelled"); ui.announce("Link cancelled."); }
   renderCanvas();
 }
 
@@ -1505,40 +1714,40 @@ function detach(kind, id) {
   return null;
 }
 
-function completeLink(target) {
+async function completeLink(target) {
   const from = canvas.linking;
   if (!from) return;
   if (from.id === target.id) return cancelLink();
   const rules = linkRules(from.kind, target.kind);
-  let rule = rules[0] || null;
-  if (rule) {
-    try {
-      rule = chooseRule(rules, from, target);
-    } catch (err) {
-      alert(err.message);
-      return cancelLink(true);
-    }
-    if (!rule) return cancelLink();
-  }
-  if (!rule) {
+  if (!rules.length) {
     /* The refusal names the model, not the UI: two agents are not connected
        by a line, they are connected by a declared flow or by belonging to the
-       same organisation. */
+       same organisation. The link stays open, so the next target can be
+       tried without starting again. */
     const legal = legalTargetsFrom(from.kind);
-    alert(`${an(from.kind, true)} does not link to ${an(target.kind)}.\n\n`
+    const why = `${an(from.kind, true)} does not link to ${an(target.kind)}. `
       + (legal.length
           ? `From ${an(from.kind)} you can link to: ${legal.join(", ")}.`
-          : `Nothing links from ${an(from.kind)}.`));
-    return cancelLink(true);
+          : `Nothing links from ${an(from.kind)}.`);
+    setStatus(why);
+    ui.announce(why);
+    return;
   }
+  const rule = await chooseRule(rules, from, target);
+  if (!rule) return cancelLink();
   canvas.linking = null;
-  applyLink(rule, from, target)
-    .then((answer) => {
-      markDirty(`linked ${from.id} → ${target.id}`);
-      setStatus(`${from.id} ${rule.label} ${target.id}${effectsLine(answer)}`);
-    })
-    .catch((err) => alert(err.message))
-    .finally(() => { renderCanvas(); renderInspector(); });
+  try {
+    const answer = await applyLink(rule, from, target);
+    if (answer === null) { setStatus("link cancelled"); return; }
+    markDirty(`linked ${from.id} → ${target.id}`);
+    setStatus(`${from.id} ${rule.label} ${target.id}${effectsLine(answer)}`);
+    ui.announce(`Linked ${from.id} to ${target.id}.`);
+  } catch (err) {
+    await ui.alertDialog(err.message, { title: "Not linked" });
+  } finally {
+    renderCanvas();
+    renderInspector();
+  }
 }
 
 /* The request for a link, named the model's way round. What the model needs
@@ -1548,16 +1757,28 @@ async function applyLink(rule, from, target) {
   const [src, dst] = rule.reversed ? [target, from] : [from, target];
   const attrs = {};
   if (rule.kinds && rule.kinds.length) {
-    const kind = window.prompt(
-      `${rule.label} — ${src.id} → ${dst.id}\n\nOne of: ${rule.kinds.join(", ")}`
-      + `\n\n${rule.help || ""}`, rule.kinds[0]);
-    if (!kind) throw new Error("a kind is needed; nothing was linked");
-    attrs.kind = kind;
-    if (rule.relationship === "association") {
-      attrs.reason = window.prompt(
-        "Why does this relationship exist?\n\nAn association nobody can "
-        + "explain is decoration, and the validator says so.", "") || "";
-    }
+    /* One dialog for what the model needs and the canvas cannot know: the
+       kind is a choice from the model's list (it was free text, so a typo
+       went to the server), and the reason sits beside it. Cancel links
+       nothing; the caller reads null as that. */
+    const answer = await ui.formDialog({
+      title: `${rule.label}: ${src.id} → ${dst.id}`,
+      message: rule.help || "",
+      submitLabel: "Link",
+      fields: [
+        { name: "kind", label: "Kind", type: "select", value: rule.kinds[0],
+          options: rule.kinds.map((k) => [k, k]) },
+        ...(rule.relationship === "association"
+          ? [{ name: "reason", label: "Why does this relationship exist?",
+               type: "textarea", required: false,
+               help: "An association nobody can explain is decoration, and "
+                 + "the validator says so." }]
+          : []),
+      ],
+    });
+    if (!answer) return null;
+    attrs.kind = answer.kind;
+    if (rule.relationship === "association") attrs.reason = answer.reason || "";
   }
   return modelOperation({
     op: "link",
@@ -1574,13 +1795,14 @@ async function applyLink(rule, from, target) {
 async function unlink(node) {
   const s = spec();
   if (node.kind === "subagent") {
-    return alert("A sub-agent is a part of the agent that calls it: move it "
-      + "to another agent or delete it.");
+    return ui.alertDialog("A sub-agent is a part of the agent that calls it: "
+      + "move it to another agent or delete it.", { title: "Nothing to unlink" });
   }
   const requests = [];
   if (node.kind === "team" || node.kind === "agent") {
     if (node.id === s.organization?.id) {
-      return alert("The organisation itself has nowhere to be unlinked to.");
+      return ui.alertDialog("The organisation itself has nowhere to be "
+        + "unlinked to.", { title: "Nothing to unlink" });
     }
     // A part has one whole; "unlinked" is moved to the organisation's root.
     requests.push({ op: "link",
@@ -1608,7 +1830,9 @@ async function unlink(node) {
         relationship: "interaction_flows" });
     }
   }
-  if (!requests.length) return alert(`Nothing links ${node.id}.`);
+  if (!requests.length) {
+    return ui.alertDialog(`Nothing links ${node.id}.`, { title: "Nothing to unlink" });
+  }
   const said = [];
   for (const request of requests) {
     try {
@@ -1623,6 +1847,7 @@ async function unlink(node) {
   setStatus(said.filter(Boolean).join(" · "));
   renderCanvas();
   renderInspector();
+  offerUndo(`Unlinked ${node.id}.`);
 }
 
 function nodeSubtitle(kind, component, node) {
@@ -1661,10 +1886,11 @@ function renderEdges() {
     const a = layout.nodes[edge.source], b = layout.nodes[edge.target];
     if (!a || !b) continue;
     const line = document.createElementNS(ns, "path");
-    const x1 = a.x + a.width / 2, y1 = a.y + 45;
-    const x2 = b.x + b.width / 2, y2 = b.y + 45;
-    const mid = (y1 + y2) / 2;
-    line.setAttribute("d", `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`);
+    const { d, labelX, labelY } = edgeGeometry(a, b);
+    line.setAttribute("d", d);
+    /* Which boxes it joins, so a drag can move this line and no other. */
+    line.setAttribute("data-source", edge.source);
+    line.setAttribute("data-target", edge.target);
     line.setAttribute("fill", "none");
     line.setAttribute("stroke-width", "1.5");
     /* An edge says which kind of relation it is by how it is drawn: a solid
@@ -1685,8 +1911,9 @@ function renderEdges() {
          pattern, and a reader should not have to consult a legend to know
          whether a team is inside another or supervising it. */
       const text = document.createElementNS(ns, "text");
-      text.setAttribute("x", String((x1 + x2) / 2));
-      text.setAttribute("y", String(mid - 4));
+      text.setAttribute("x", String(labelX));
+      text.setAttribute("y", String(labelY));
+      line.edgeLabel = text;
       text.setAttribute("text-anchor", "middle");
       text.setAttribute("class", "edge-label");
       text.setAttribute("fill", `var(${style.stroke})`);
@@ -1695,6 +1922,41 @@ function renderEdges() {
     }
   }
   svg.replaceChildren(...parts);
+}
+
+/* The curve between two boxes, and where its label sits. */
+function edgeGeometry(a, b) {
+  const x1 = a.x + a.width / 2, y1 = a.y + 45;
+  const x2 = b.x + b.width / 2, y2 = b.y + 45;
+  const mid = (y1 + y2) / 2;
+  return { d: `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`,
+           labelX: (x1 + x2) / 2, labelY: mid - 4 };
+}
+
+/* During a drag only the lines touching the moving box change. A process
+   diagram draws its edges its own way, so it is redrawn whole, once a frame. */
+function updateEdgesFor(id) {
+  const layout = diagram();
+  if (!layout) return;
+  if (layout.kind === "process") {
+    if (!canvas.edgeFrame) {
+      canvas.edgeFrame = requestAnimationFrame(() => { canvas.edgeFrame = 0; renderEdges(); });
+    }
+    return;
+  }
+  for (const path of $("#canvas-edges").querySelectorAll("path[data-source]")) {
+    const source = path.getAttribute("data-source");
+    const target = path.getAttribute("data-target");
+    if (source !== id && target !== id) continue;
+    const a = layout.nodes[source], b = layout.nodes[target];
+    if (!a || !b) continue;
+    const { d, labelX, labelY } = edgeGeometry(a, b);
+    path.setAttribute("d", d);
+    if (path.edgeLabel) {
+      path.edgeLabel.setAttribute("x", String(labelX));
+      path.edgeLabel.setAttribute("y", String(labelY));
+    }
+  }
 }
 
 const EDGE_STYLES = {
@@ -2116,7 +2378,21 @@ function renderExplorer() {
   const row = (node, depth) => {
     if (!matchesFilter(node, needle)) return [];
     const onCanvas = !node.group && !!laidOut[node.id];
+    const choose = node.group ? null : () => {
+      if (onCanvas) return selectAndReveal(node.id);
+      canvas.selected = { kind: node.kind, id: node.id };
+      showSide("details");
+      syncSelection();
+      renderInspector();
+    };
+    /* A row is a control, so a keyboard reaches it and Enter chooses it. */
     const item = el("div", {
+      "data-id": node.group ? null : node.id,
+      role: node.group ? null : "button",
+      tabindex: node.group ? null : "0",
+      onkeydown: node.group ? null : (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(); }
+      },
       class: `ex-row${node.group ? " group" : ""}`
         + `${canvas.selected?.id === node.id ? " selected" : ""}`
         + `${onCanvas ? "" : " off-canvas"}`,
@@ -2126,15 +2402,9 @@ function renderExplorer() {
       title: node.group ? ""
         : `${node.id}${node.note ? ` — ${node.note}` : ""}`
           + (onCanvas ? "" : " — declared, not on the canvas"),
-      onclick: node.group ? null : () => {
-        if (onCanvas) return selectAndReveal(node.id);
-        canvas.selected = { kind: node.kind, id: node.id };
-        showSide("details");
-        renderExplorer();
-        renderInspector();
-      },
+      onclick: choose,
     },
-      el("span", { class: "ic" }, kindSpec(node.kind).icon || "▫"),
+      el("span", { class: "ic", "aria-hidden": "true" }, kindSpec(node.kind).icon || "▫"),
       el("span", { class: "ex-label" }, node.label),
       /* The note is context, the label is the thing. In a column this
          narrow, showing both at every depth truncated the labels to three
@@ -2193,10 +2463,19 @@ function renderOutline() {
     rect.setAttribute("class",
       `o-node${canvas.selected?.id === node.id ? " selected" : ""}`);
     rect.setAttribute("data-kind", node.kind);
+    rect.setAttribute("data-id", node.id);
     return rect;
   }));
+  positionOutlineViewport();
+}
 
+/* The viewport box alone: scrolling moves it, and scrolling happens on every
+   frame of a scroll, so it must not rebuild the boxes under it. */
+function positionOutlineViewport() {
+  const surface = $("#canvas");
+  const scale = canvas.outlineScale;
   const view = $("#outline-viewport");
+  if (!surface || !scale || !view || !Object.keys(layoutNodes()).length) return;
   view.style.display = "block";
   view.style.left = `${surface.scrollLeft * scale}px`;
   view.style.top = `${surface.scrollTop * scale}px`;
@@ -2228,7 +2507,9 @@ async function openPublish() {
   canvas.publishVerdictOk = false;
   const bar = $("#publish-bar");
   if (!bar) return;
-  if (!canvas.systemId) return alert("Open an organisation first.");
+  if (!canvas.systemId) {
+    return ui.alertDialog("Open an organisation first.", { title: "Nothing to publish" });
+  }
   bar.hidden = false;
   bar.removeAttribute("data-ok");
   $("#publish-verdict").textContent = "checking";
@@ -2273,8 +2554,18 @@ function renderPublishVerdict(verdict) {
 async function requestDeployment() {
   const tenant = $("#publish-tenant").value.trim();
   if (!tenant) {
-    return alert("Name the tenant. It is assigned by the fabric, so the "
+    /* Said at the field, which is where it is fixed. */
+    const field = $("#publish-tenant");
+    field.setAttribute("aria-invalid", "true");
+    field.classList.add("invalid");
+    field.addEventListener("input", () => {
+      field.removeAttribute("aria-invalid");
+      field.classList.remove("invalid");
+    }, { once: true });
+    field.focus();
+    setStatus("Name the tenant. It is assigned by the fabric, so the "
       + "designer cannot choose one for you.");
+    return;
   }
   try {
     const result = await dapi(`/systems/${canvas.systemId}/publish`, {
@@ -2303,28 +2594,38 @@ async function requestDeployment() {
 function startDrag(event, node, box) {
   if (lockOn(node.id)) return;
   event.preventDefault();
-  const surface = $("#canvas");
   const startX = event.clientX, startY = event.clientY;
   const originX = node.x, originY = node.y;
+  const pointer = event.pointerId;
   const snap = 10;
+  let frame = 0;
+  /* One box and the lines that touch it. This redrew every edge and region
+     on every pointer move; the regions still follow, once a frame. */
   function move(e) {
+    if (pointer !== undefined && e.pointerId !== undefined && e.pointerId !== pointer) return;
     node.x = Math.max(0, Math.round((originX + e.clientX - startX) / snap) * snap);
     node.y = Math.max(0, Math.round((originY + e.clientY - startY) / snap) * snap);
     box.style.left = `${node.x}px`;
     box.style.top = `${node.y}px`;
-    renderEdges();
-    renderRegions();
+    updateEdgesFor(node.id);
+    if (!frame) frame = requestAnimationFrame(() => { frame = 0; renderRegions(); });
   }
   const before = containersHolding(node);
   function end() {
-    window.removeEventListener("mousemove", move);
-    window.removeEventListener("mouseup", end);
-    markDirty();
-    if (node.x === originX && node.y === originY) return;   // a click
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+    cancelAnimationFrame(frame);
+    /* A press that did not move is a click, and a click is not an edit: this
+       marked the design dirty and pushed an empty undo step on every one. */
+    if (node.x === originX && node.y === originY) return;
+    renderRegions();
+    markDirty(`moved ${node.id}`);
     droppedAt(node, before);
   }
-  window.addEventListener("mousemove", move);
-  window.addEventListener("mouseup", end);
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
 }
 
 /* ---------------------------------------------- containers and dropping
@@ -2471,13 +2772,15 @@ function startResize(event, node, box) {
     box.style.minWidth = `${node.width}px`;
   }
   function end() {
-    window.removeEventListener("mousemove", move);
-    window.removeEventListener("mouseup", end);
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
     markDirty(`resized ${node.id}`);
     renderCanvas();
   }
-  window.addEventListener("mousemove", move);
-  window.addEventListener("mouseup", end);
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
 }
 
 /* dropping a new component from the palette */
@@ -2514,9 +2817,17 @@ function wireDropTarget() {
 /* Deleting is the model's: the element, its parts and every link to it go,
    and the status line lists each link destroyed — or nothing goes, and it
    names what still requires the element. A note is the canvas's own. */
+/* No "are you sure?" first: the removal is one step of the undo history, and
+   the toast afterwards says what went and offers it back (ADR-0117). A
+   question asked before every delete is answered without being read; an undo
+   is there when the mistake is noticed. */
 async function deleteNode(kind, id) {
   if (!canvas.record) return;
-  if (!window.confirm(`Remove "${id}"?`)) return;
+  /* Where the keyboard goes next: the nearest box, so a run of deletes does
+     not drop focus on <body> after the first. */
+  const hadFocus = document.activeElement?.closest?.(".node")?.dataset.id === id;
+  const next = hadFocus ? (nearestBox(id, 1, 0) || nearestBox(id, -1, 0)
+    || nearestBox(id, 0, 1) || nearestBox(id, 0, -1))?.dataset.id : null;
   try {
     if (kind === "note" || !findComponent(kind, id)) {
       removeComponent(kind, id);
@@ -2526,13 +2837,35 @@ async function deleteNode(kind, id) {
       setStatus(`removed ${id}${effectsLine(answer)}`);
     }
   } catch (err) {
-    alert(err.message);
+    await ui.alertDialog(err.message, { title: `${id} was not removed` });
     return;
   }
   if (canvas.selected?.id === id) canvas.selected = null;
-  markDirty();
+  markDirty(`removed ${id}`);
   renderCanvas();
   renderInspector();
+  // By id: the neighbour's element may have been redrawn by the delete.
+  if (next && nodeEls.get(next)) focusNode(nodeEls.get(next).el);
+  offerUndo(`Removed ${id}.`);
+}
+
+/* A toast for a change that is easy to miss, with Undo. The button undoes
+   this change only: if something else has been done since, the history's top
+   is no longer it, and it says so rather than undoing the wrong thing. */
+function offerUndo(message) {
+  const entry = canvas.history?.past[canvas.history.past.length - 1];
+  ui.announce(`${message} Undo with Control+Z.`);
+  ui.toast(message, {
+    action: "Undo",
+    onAction: () => {
+      const top = canvas.history?.past[canvas.history.past.length - 1];
+      if (!entry || top !== entry) {
+        setStatus("something else changed since; use ↶ to step back through it");
+        return;
+      }
+      undo();
+    },
+  });
 }
 
 function duplicateNode(node) {
@@ -2647,12 +2980,123 @@ function ctxItem(label, fn, disabled = false) {
   return btn;
 }
 
+/* ---------------------------------------------- the keyboard on a node
+   The canvas was mouse-only (WCAG 2.1.1). Each node is focusable (a roving
+   tabindex: one in the Tab order), and the keys below are what a mouse does:
+
+     arrows          move focus to the nearest box that way
+     Enter / Space   select it and show Properties (or finish a link)
+     Delete          remove it — undoable, and the toast says so
+     L               start a link; arrows and Enter pick the target, Esc stops
+     Shift+arrows    move the box 10px
+     F2              rename in place
+     Shift+F10       its context menu
+
+   Handled on the node, not the document, so a key pressed in a form field or
+   a dialog never reaches it. */
+function nearestBox(fromId, dx, dy) {
+  const layout = diagram();
+  const a = layout?.nodes[fromId];
+  if (!a) return null;
+  const from = centre(a);
+  let best = null, score = Infinity;
+  for (const { el: box } of nodeEls.values()) {
+    const id = box.dataset.id;
+    const b = layout.nodes[id];
+    if (id === fromId || !b || !box.isConnected) continue;
+    const to = centre(b);
+    const vx = to.x - from.x, vy = to.y - from.y;
+    const along = vx * dx + vy * dy;
+    if (along <= 0) continue;                 // not in that direction
+    const across = Math.abs(vx * dy - vy * dx);
+    /* Straight ahead beats diagonal: sideways distance counts double, so a
+       box directly below wins over a nearer one off to the side. */
+    const s = along + 2 * across;
+    if (s < score) { score = s; best = box; }
+  }
+  return best;
+}
+
+const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
+function handleNodeKey(e, node, box, readOnly) {
+  if (e.target !== box) return;               // the rename box, a chip, a link
+  if (e.ctrlKey || e.metaKey || e.altKey) return;   // undo/redo go to the page
+  const key = e.key;
+  const arrow = ARROWS[key];
+  const component = findComponent(node.kind, node.id) || {};
+  if (arrow && e.shiftKey && !canvas.linking) {
+    if (readOnly || lockOn(node.id)) return;
+    node.x = Math.max(0, node.x + arrow[0] * 10);
+    node.y = Math.max(0, node.y + arrow[1] * 10);
+    box.style.left = `${node.x}px`;
+    box.style.top = `${node.y}px`;
+    updateEdgesFor(node.id);
+    renderRegions();
+    // One undo step for a run of nudges, as for a run of keystrokes.
+    markDirty(`moved ${node.id}`, true);
+    ui.announce(`${component.name || node.id} at ${node.x}, ${node.y}.`);
+  } else if (arrow) {
+    const next = nearestBox(node.id, arrow[0], arrow[1]);
+    if (!next) { ui.announce("Nothing further that way."); }
+    else {
+      focusNode(next);
+      if (canvas.linking) {
+        const target = layoutNodes()[next.dataset.id];
+        ui.announce(linkRule(canvas.linking.kind, target.kind)
+          ? "Enter links here." : `${an(canvas.linking.kind, true)} does not link to ${an(target.kind)}.`);
+      }
+    }
+  } else if (key === "Enter" || key === " ") {
+    if (canvas.linking) completeLink(node);
+    else {
+      selectNode(node);
+      ui.announce(`${component.name || node.id} selected. Properties shown.`);
+    }
+  } else if ((key === "Delete" || key === "Backspace") && !canvas.linking) {
+    if (readOnly) return ui.announce("This design is read-only for you.");
+    deleteNode(node.kind, node.id);
+  } else if (key.toLowerCase() === "l" && !e.shiftKey) {
+    if (readOnly) return ui.announce("This design is read-only for you.");
+    if (canvas.linking) cancelLink(true);
+    beginLink(node);
+    nodeEls.get(node.id)?.el.focus({ preventScroll: true });
+  } else if (key === "F2" && !readOnly) {
+    const title = box.querySelector(".n-title");
+    if (title) startInlineRename(node, component, title);
+  } else if (key === "ContextMenu" || (key === "F10" && e.shiftKey)) {
+    const r = box.getBoundingClientRect();
+    selectNode(node);
+    showContextMenu(r.left + 12, r.bottom - 4, node, readOnly);
+    document.querySelector("#ctx-menu .ctx-item:not([disabled])")?.focus();
+  } else if (key === "Escape") {
+    if (canvas.linking) cancelLink();
+    else if (canvas.selected) {
+      canvas.selected = null;
+      syncSelection();
+      renderInspector();
+      ui.announce("Selection cleared.");
+    } else return;
+  } else return;
+  e.preventDefault();
+  e.stopPropagation();
+}
+
 /* ---------------------------------------------- keyboard shortcuts */
+/* Views whose edits are the open design's, so undo means the design's undo. */
+const DESIGN_VIEWS = new Set(["canvas", "org", "designer", "components"]);
+
 function handleCanvasKey(e) {
+  /* A modal owns the keyboard; so does any view that is not the canvas. This
+     listener is on the document, and Delete pressed in the catalog's search
+     removed the selected canvas node from a view nobody could see. */
+  if (window.ui?.modalOpen()) return;
+  const view = document.querySelector(".view.active")?.id.replace("view-", "");
   const tag = document.activeElement?.tagName;
   /* Undo is the exception to "ignore keys while typing": the browser's own
      undo inside a text box is what you want there, and ours everywhere else.
      So it is checked before the guard and skipped inside a field. */
+  if (!DESIGN_VIEWS.has(view)) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z"
       && tag !== "INPUT" && tag !== "TEXTAREA") {
     e.preventDefault();
@@ -2665,6 +3109,7 @@ function handleCanvasKey(e) {
   }
   /* ignore when typing in an input/textarea/select */
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (view !== "canvas") return;
   if (e.key === "Escape" && canvas.linking) {
     e.preventDefault();
     return cancelLink();
@@ -2672,32 +3117,23 @@ function handleCanvasKey(e) {
 
   if (e.key === "Escape") {
     hideContextMenu();
+    if (!canvas.selected) return;
     canvas.selected = null;
-    renderCanvas();
+    syncSelection();
     renderInspector();
     return;
   }
 
+  /* Delete and the arrows belong to the focused node (handleNodeKey). Here
+     they only cover a selection made from the Explorer or an issue, where
+     focus is not on a box. */
   if (!canvas.selected || !canvas.record) return;
+  if (document.activeElement && document.activeElement !== document.body) return;
   const { kind, id } = canvas.selected;
-  const node = layoutNodes()[id];
-  if (!node) return;
-
-  if (e.key === "Delete" || e.key === "Backspace") {
+  if (!layoutNodes()[id]) return;
+  if (e.key === "Delete") {
     e.preventDefault();
     deleteNode(kind, id);
-    return;
-  }
-
-  const snap = 10;
-  const dirs = { ArrowLeft: [-snap, 0], ArrowRight: [snap, 0], ArrowUp: [0, -snap], ArrowDown: [0, snap] };
-  if (dirs[e.key]) {
-    e.preventDefault();
-    const [dx, dy] = dirs[e.key];
-    node.x = Math.max(0, node.x + dx);
-    node.y = Math.max(0, node.y + dy);
-    markDirty();
-    renderCanvas();
   }
 }
 
@@ -3067,7 +3503,7 @@ function findIn(draft, kind, id) {
 function selectNode(node) {
   canvas.selected = { kind: node.kind, id: node.id };
   showSide("details");
-  renderCanvas();
+  syncSelection();
   renderInspector();
 }
 
@@ -3656,7 +4092,7 @@ function stepEngine(step) {
                              rel: "noopener", class: "n-open-in",
                              title: `the flow '${bound.flow || called.id}' in ${bound.engine}` },
                       `Open in ${bound.engine} ↗`);
-      link.addEventListener("mousedown", (e) => e.stopPropagation());
+      link.addEventListener("pointerdown", (e) => e.stopPropagation());
       link.addEventListener("click", (e) => e.stopPropagation());
       parts.push(link);
     }
@@ -4399,6 +4835,7 @@ function undoState() {
 function resetHistory() {
   canvas.history = { past: [], future: [], last: null, at: 0, reason: "",
                      coalescing: false };
+  canvas.rev = (canvas.rev || 0) + 1;
   if (canvas.record) canvas.history.last = undoState();
   updateUndoButtons();
 }
@@ -4443,6 +4880,7 @@ function applyHistory(state) {
   canvas.linking = null;
   canvas.dirty = true;
   canvas.history.last = state;
+  canvas.rev = (canvas.rev || 0) + 1;
   updateBadges();
   renderCanvas();
   renderInspector();
@@ -4495,6 +4933,8 @@ function markDirty(reason = "edited", coalesce = false) {
   const open = diagram();
   if (open) open.updated_at = canvas.record.layout.updated_at;
   pushHistory(reason, coalesce);
+  canvas.rev = (canvas.rev || 0) + 1;
+  schedulePanels();
   updateBadges();
   announce(reason);
 }
@@ -4609,7 +5049,9 @@ function renderValidation(validation) {
     el("h3", {}, validation.ok ? "Nothing blocking" : "Not yet valid"),
     findings.length
       ? el("ul", { class: "findings" }, ...findings.map(row))
-      : el("p", { class: "hint" }, "No errors and no warnings."));
+      : ui.emptyState({ title: "No errors and no warnings.",
+          body: "Nothing stands between this design and publishing it.",
+          action: "Publish…", onAction: () => openPublish() }));
 }
 
 /* An issue code, explained. The row says what is wrong here; the catalog says
@@ -4682,8 +5124,9 @@ function selectAndReveal(id) {
   const node = layoutNodes()[id];
   if (!node) return;
   canvas.selected = { kind: node.kind, id };
+  canvas.focusId = id;
   showSide("details");
-  renderCanvas();
+  syncSelection();
   renderInspector();
   const surface = $("#canvas");
   if (surface) {
@@ -4715,7 +5158,9 @@ async function saveSystem(resolutions = null) {
     setStatus(`save failed: ${err.message}`);
     if (err.status === 409) {
       const lock = err.detail && err.detail.lock;
-      alert(`Locked by ${lock ? lock.holder_name || lock.holder : "someone else"}.`);
+      await ui.alertDialog(
+        `Locked by ${lock ? lock.holder_name || lock.holder : "someone else"}. `
+        + "Your changes are still here, unsaved.", { title: "Not saved" });
     }
   }
 }
@@ -4798,10 +5243,15 @@ function wireCanvas() {
     button.addEventListener("click", () => showSide(button.dataset.side)));
   document.querySelectorAll("#left-tabs button").forEach((button) =>
     button.addEventListener("click", () => showLeft(button.dataset.left)));
-  $("#explorer-filter")?.addEventListener("input", renderExplorer);
+  ui.wireTabs($("#side-tabs"), { label: "Inspector",
+    panel: (t) => `side-${t.dataset.side}` });
+  ui.wireTabs($("#left-tabs"), { label: "Model",
+    panel: (t) => `left-${t.dataset.left}` });
+  $("#explorer-filter")?.addEventListener("input", () => { renderExplorer(); syncSelection(); });
+  $("#explorer-filter")?.setAttribute("aria-label", "Filter the model");
   /* The outline follows the viewport, and clicking it moves the viewport.
      Both directions, or it is a picture rather than a control. */
-  $("#canvas")?.addEventListener("scroll", renderOutline);
+  $("#canvas")?.addEventListener("scroll", positionOutlineViewport, { passive: true });
   $("#outline-surface")?.addEventListener("click", (e) => {
     const scale = canvas.outlineScale;
     const surface = $("#canvas");
@@ -4831,7 +5281,10 @@ function wireCanvas() {
       await openSystem(canvas.systemId);
     } catch (err) {
       if (err.status === 409 && canvas.permissions.includes("lock.break")) {
-        if (window.confirm(`${err.message}\n\nBreak the lock and take it?`)) {
+        if (await ui.confirmDialog(`${err.message}\n\nTheir unsaved work is not lost, `
+            + "but they can no longer save without merging.",
+            { title: "Break the lock and take it?", confirmLabel: "Break and take",
+              danger: true })) {
           await dapi(`/systems/${canvas.systemId}/lock/break`, {
             method: "POST", body: JSON.stringify({ target: "*" }),
           });
@@ -4846,11 +5299,12 @@ function wireCanvas() {
           } catch (takeErr) {
             /* Somebody got there first. Say so plainly rather than leaving
                the badge to imply it worked. */
-            alert(`The lock was broken, and ${takeErr.message}`);
+            await ui.alertDialog(`The lock was broken, and ${takeErr.message}`,
+              { title: "Lock not taken" });
           }
           await openSystem(canvas.systemId);
         }
-      } else alert(err.message);
+      } else await ui.alertDialog(err.message, { title: "Lock refused" });
     }
   });
   /* The publish path (WS-032 M9).
@@ -4871,12 +5325,22 @@ function wireCanvas() {
 
   $("#btn-revisions").addEventListener("click", async () => {
     const revisions = await dapi(`/systems/${canvas.systemId}/revisions`);
-    const choice = window.prompt(
-      "History:\n" + revisions.map((r) =>
-        `v${r.version} — ${r.author} — ${r.message || "saved"}`).join("\n") +
-      "\n\nRestore which version? (blank to cancel)");
-    if (!choice) return;
-    await dapi(`/systems/${canvas.systemId}/restore/${Number(choice)}`,
+    if (!revisions.length) {
+      return ui.alertDialog("This design has not been saved yet.", { title: "History" });
+    }
+    /* A list to choose from rather than a version number to type from
+       memory of a list the prompt had just closed. */
+    const answer = await ui.formDialog({
+      title: "History", wide: true, submitLabel: "Restore",
+      message: "Restoring makes a new version from the one you choose; "
+        + "nothing is deleted.",
+      fields: [{ name: "version", label: "Restore which version?", type: "select",
+                 value: String(revisions[0].version),
+                 options: revisions.map((r) => [String(r.version),
+                   `v${r.version} — ${r.author} — ${r.message || "saved"}`]) }],
+    });
+    if (!answer) return;
+    await dapi(`/systems/${canvas.systemId}/restore/${Number(answer.version)}`,
       { method: "POST" });
     await openSystem(canvas.systemId);
   });
@@ -4904,7 +5368,7 @@ function wireCanvas() {
     if (e.target.id === "canvas" || e.target.id === "canvas-nodes") {
       if (canvas.linking) return cancelLink();
       canvas.selected = null;
-      renderCanvas();
+      syncSelection();
       renderInspector();
     }
   });
@@ -4938,6 +5402,7 @@ window.designer = {
   handleSaveOutcome,
   markDirty,
   renderCanvas,
+  offerUndo,
   renderExplorer,
   renderComponents,
   wireComponentsMenu,

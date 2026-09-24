@@ -22,29 +22,51 @@
       <p class="sub">Organizational agent platform</p>
     </div>
   </div>
-  <nav class="tabs" id="tabs">
-    <button data-view="org" class="active">Org chart</button>
-    <button data-view="canvas">Canvas</button>
-    <!-- One editor per kind of component (ADR-0107). Agents keeps its own
-         screen; every other kind opens the Components editor. -->
-    <div class="nav-menu">
-      <button type="button" id="btn-components" class="nav-menu-btn"
-              aria-haspopup="menu" aria-expanded="false">Components ▾</button>
-      <div class="menu" id="components-list" role="menu" hidden></div>
+  <!-- Four groups, by what a person is doing (ADR-0117): designing an
+       organisation, finding parts for it, watching it run, or reading how.
+       Ten flat buttons said nothing about which of them share the design
+       context below and which ignore it. A view is a page, not a tab, so the
+       active one is aria-current="page" rather than aria-selected. -->
+  <nav class="tabs" id="tabs" aria-label="Views">
+    <div class="nav-group" role="group" aria-labelledby="nav-g-design">
+      <span class="nav-group-label" id="nav-g-design">Design</span>
+      <button data-view="org" class="active" aria-current="page">Org chart</button>
+      <button data-view="canvas">Canvas</button>
+      <!-- One editor per kind of component (ADR-0107). Agents keeps its own
+           screen; every other kind opens the Components editor. -->
+      <div class="nav-menu">
+        <button type="button" id="btn-components" class="nav-menu-btn"
+                aria-haspopup="menu" aria-expanded="false">Components <span aria-hidden="true">▾</span></button>
+        <div class="menu" id="components-list" role="menu" hidden></div>
+      </div>
     </div>
-    <button data-view="catalog">Catalog</button>
-    <button data-view="marketplace">Marketplace</button>
-    <button data-view="workspace">Workspace</button>
-    <button data-view="sessions">Sessions</button>
-    <button data-view="ops">Operations</button>
-    <button data-view="user-guide">User guide</button>
+    <div class="nav-group" role="group" aria-labelledby="nav-g-library">
+      <span class="nav-group-label" id="nav-g-library">Library</span>
+      <button data-view="catalog">Catalog</button>
+      <button data-view="marketplace">Marketplace</button>
+    </div>
+    <div class="nav-group" role="group" aria-labelledby="nav-g-run">
+      <span class="nav-group-label" id="nav-g-run">Run</span>
+      <button data-view="workspace">Workspace</button>
+      <button data-view="sessions">Sessions</button>
+      <button data-view="ops">Operations</button>
+    </div>
+    <div class="nav-group" role="group" aria-labelledby="nav-g-help">
+      <span class="nav-group-label" id="nav-g-help">Help</span>
+      <button data-view="user-guide">User guide</button>
+    </div>
   </nav>
-  <div class="status" id="status">connecting…</div>
+  <!-- Polite: a status line that interrupted would be read over whatever the
+       person was listening to, on every keystroke that marks the design. -->
+  <div class="status" id="status" role="status" aria-live="polite">connecting…</div>
 </header>
 
 <!-- The design context every design view shares: who you are, which workspace,
      which organisation is open. Runtime views ignore it. -->
-<div class="contextbar" id="contextbar">
+<div class="contextbar" id="contextbar" aria-label="Design context">
+  <!-- Shown on the views that do not read this bar, so a person changing
+       the workspace on Sessions is not left wondering why nothing moved. -->
+  <span class="context-note" id="context-note" hidden>Design context — not used by this view</span>
   <label class="inline">as
     <input id="user-input" value="ana" size="8" title="Acting user (dev auth)" />
   </label>
@@ -55,15 +77,15 @@
   <select id="ws-select" title="Workspace"></select>
   <!-- Workspaces: create, rename, delete (ADR-0106). -->
   <button id="btn-ws-new" class="icon-btn" title="New workspace"
-          aria-label="New workspace">＋</button>
+          aria-label="New workspace"><span aria-hidden="true">＋</span></button>
   <button id="btn-ws-edit" class="icon-btn" title="Rename workspace"
-          aria-label="Rename workspace">✎</button>
+          aria-label="Rename workspace"><span aria-hidden="true">✎</span></button>
   <button id="btn-ws-delete" class="icon-btn" title="Delete workspace"
-          aria-label="Delete workspace">🗑</button>
+          aria-label="Delete workspace"><span aria-hidden="true">🗑</span></button>
   <label class="inline" for="sys-select"><span class="eyebrow">Org</span></label>
   <select id="sys-select" data-org-select title="Organisation"></select>
   <button id="btn-new-system" class="icon-btn" title="New organisation"
-          aria-label="New organisation">＋</button>
+          aria-label="New organisation"><span aria-hidden="true">＋</span></button>
   <span id="version-badge" class="badge">v—</span>
   <span id="lock-badge" class="badge"></span>
   <span class="sep"></span>
@@ -71,18 +93,18 @@
   <!-- Local and bounded, and thrown away the moment somebody else's change
        is merged in: an undo that crosses a merge restores a state that was
        never true for anybody. -->
-  <button id="btn-undo" title="nothing to undo" disabled>↶</button>
-  <button id="btn-redo" title="nothing to redo" disabled>↷</button>
+  <button id="btn-undo" class="icon-btn" title="nothing to undo" aria-label="Undo" aria-keyshortcuts="Control+Z" disabled><span aria-hidden="true">↶</span></button>
+  <button id="btn-redo" class="icon-btn" title="nothing to redo" aria-label="Redo" aria-keyshortcuts="Control+Y" disabled><span aria-hidden="true">↷</span></button>
   <button id="btn-save" class="primary">Save</button>
   <button id="btn-publish" title="Validate, compile and ask the fabric to run this design">Publish…</button>
   <!-- Icons, named in full for the tooltip and a screen reader, so the bar
        stays on one line (ADR-0107). -->
   <button id="btn-revisions" class="icon-btn" title="History — versions of this design"
-          aria-label="History">🕘</button>
+          aria-label="History"><span aria-hidden="true">🕘</span></button>
   <button id="btn-members" class="icon-btn" title="People — members of this workspace"
-          aria-label="People">👥</button>
+          aria-label="People"><span aria-hidden="true">👥</span></button>
   <button id="btn-designer-settings" class="icon-btn" title="Settings — theme, display and installation"
-          aria-label="Settings">⚙</button>
+          aria-label="Settings"><span aria-hidden="true">⚙</span></button>
 </div>
 
 <!-- The publish path (WS-032 M9). It sits above every view because it acts on
@@ -156,7 +178,7 @@
       <button id="btn-org-duplicate">Duplicate</button>
       <button id="btn-org-delete">Delete…</button>
     </div>
-    <div id="org-error" class="v-err"></div>
+    <div id="org-error" class="v-err" role="alert"></div>
     <!-- The shipped examples. Each is a worked organisation the test suite
          keeps valid; loading one creates a design in the open workspace,
          already laid out, so it opens ready to read. -->
@@ -215,7 +237,7 @@
 
   <!-- CANVAS DESIGNER -->
   <section id="view-canvas" class="view">
-    <div id="conflict-bar" class="conflict-bar" hidden>
+    <div id="conflict-bar" class="conflict-bar" role="alert" hidden>
       <strong>Conflicting edits</strong>
       <span id="conflict-summary"></span>
       <div id="conflict-list" class="conflict-list"></div>
@@ -269,7 +291,7 @@
         <!-- One model, many diagrams. Double-click a tab to rename it,
              right-click to remove it — removing a diagram removes a picture
              and never a component. -->
-        <div id="diagram-bar" class="diagram-bar" role="tablist"></div>
+        <div id="diagram-bar" class="diagram-bar" role="group" aria-label="Diagrams"></div>
         <div id="validation-strip" class="validation-strip" role="status"></div>
         <!-- Which relationships the canvas draws, by UML kind and by
              relationship (ADR-0105). Hiding an edge hides a line, never a
@@ -285,7 +307,18 @@
           <span class="lg lg-env"><i></i>Environment (where agents run)</span>
           <span class="lg lg-held"><i></i>Skill · plugin · tool</span>
         </div>
-        <div id="canvas" class="canvas-surface">
+        <!-- A keyboard reaches every node (WCAG 2.1.1, ADR-0117). The surface
+             is an application region because its keys are its own — arrows
+             move between boxes rather than scroll — and it says so in the
+             description a screen reader reads on entry. -->
+        <p id="canvas-help" class="sr-only">Tab to reach the diagram. Arrow keys
+          move between components; Enter opens Properties; Delete removes the
+          component, and Undo brings it back; L starts a link, then arrows and
+          Enter choose its target and Escape cancels; Shift and an arrow moves
+          the component; F2 renames; Shift+F10 opens its menu.</p>
+        <div id="canvas" class="canvas-surface" role="application"
+             aria-roledescription="diagram" aria-label="Design canvas"
+             aria-describedby="canvas-help">
           <!-- Placement regions sit under the edges and the nodes: a region is
                the ground a node stands on, not a thing drawn over it. -->
           <div id="canvas-regions" class="canvas-regions"></div>
@@ -684,7 +717,8 @@
               works: link a knowledge source to agents, or agents to it. If
               several relationships fit, you are asked which.</td></tr>
             <tr><td>Select → <kbd>Delete</kbd></td><td>Delete it, its parts and
-              every link to it — or be told what still needs it.</td></tr>
+              every link to it — or be told what still needs it. A notice at the
+              bottom right says what went, with <span class="g-btn">Undo</span>.</td></tr>
             <tr><td>Drag an environment's corner</td><td>Resize the box; the
               size is kept.</td></tr>
           </tbody>
@@ -700,6 +734,32 @@
           <div><dt>Explorer</dt><dd>(left, next to Palette) lists everything in
             the model, including what is not drawn.</dd></div>
         </dl>
+        <h3 id="g-keyboard">With the keyboard</h3>
+        <p>Everything the mouse does on the canvas, the keyboard does too.
+          <kbd>Tab</kbd> reaches the diagram once; inside it the keys are the
+          canvas's own, and <kbd>Tab</kbd> again leaves it.</p>
+        <table class="g-table g-wide">
+          <thead><tr><th>Key</th><th>On the focused box</th></tr></thead>
+          <tbody>
+            <tr><td><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd></td><td>Move to
+              the nearest box that way.</td></tr>
+            <tr><td><kbd>Enter</kbd> or <kbd>Space</kbd></td><td>Select it and show
+              its Properties.</td></tr>
+            <tr><td><kbd>Delete</kbd></td><td>Remove it. <kbd>Ctrl</kbd>+<kbd>Z</kbd>
+              or the notice's <span class="g-btn">Undo</span> brings it back.</td></tr>
+            <tr><td><kbd>L</kbd></td><td>Start a link from it; arrow to the other
+              end and press <kbd>Enter</kbd>, or <kbd>Esc</kbd> to stop.</td></tr>
+            <tr><td><kbd>Shift</kbd>+arrow</td><td>Move the box 10px.</td></tr>
+            <tr><td><kbd>F2</kbd></td><td>Rename it in place.</td></tr>
+            <tr><td><kbd>Shift</kbd>+<kbd>F10</kbd></td><td>Its menu (duplicate,
+              link, unlink, delete).</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Clear the selection, or cancel a link.</td></tr>
+          </tbody>
+        </table>
+        <p>The tabs — Palette and Explorer, Properties and Issues, the diagrams,
+          Settings — move with the arrow keys. On a diagram tab, <kbd>F2</kbd>
+          renames it and <kbd>Delete</kbd> removes the picture (never its
+          components). A screen reader hears what each key did.</p>
         </section>
 
         <section class="g-sec">
@@ -948,6 +1008,9 @@ orgagents compile my.system.yaml --target local</pre>
 
         <section class="g-sec">
         <h2 id="g-trouble">When something does not work</h2>
+        <p>If the page says <em>Can't reach the designer's server</em>, nothing
+          answered at all: the container is stopped or still starting. Start it
+          and press <span class="g-btn">Try again</span>.</p>
         <table class="g-table">
           <thead><tr><th>Symptom</th><th>What to check</th></tr></thead>
           <tbody>
@@ -1194,7 +1257,7 @@ orgagents compile my.system.yaml --target local</pre>
 <dialog id="settings-dialog" class="dialog settings-dialog" aria-labelledby="settings-title">
   <div class="settings-head">
     <h3 id="settings-title">Settings</h3>
-    <button type="button" class="icon-btn settings-close" aria-label="Close">&#x2715;</button>
+    <button type="button" class="icon-btn settings-close" aria-label="Close"><span aria-hidden="true">&#x2715;</span></button>
   </div>
   <div class="settings-tabs" role="tablist">
     <button type="button" role="tab" data-tab="prefs">Appearance &amp; canvas</button>
@@ -1210,12 +1273,23 @@ orgagents compile my.system.yaml --target local</pre>
     <span id="issue-number" class="issue-number"></span>
     <span id="issue-severity" class="issue-severity"></span>
     <button type="button" id="btn-issue-close" class="icon-btn"
-      aria-label="Close">&#x2715;</button>
+      aria-label="Close"><span aria-hidden="true">&#x2715;</span></button>
   </div>
   <h3 id="issue-title"></h3>
   <div id="issue-body"></div>
 </dialog>
 
+<!-- Announcements for what changes on the canvas without a focus move. -->
+<div id="sr-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+<!-- Shown in place of an endless "connecting…" when the API cannot be
+     reached, with the one thing a person can do about it. -->
+<div id="offline" class="offline" role="alert" hidden>
+  <strong>Can't reach the designer's server.</strong>
+  <span id="offline-detail">Nothing on this page can load until it answers.</span>
+  <button type="button" id="btn-offline-retry" class="primary">Try again</button>
+</div>
+<div id="toasts" class="toasts" role="region" aria-label="Notifications"></div>
+<script src="ui.js"></script>
 <script src="app.js"></script>
 <script src="canvas.js"></script>
 <div id="ctx-menu" hidden></div>
