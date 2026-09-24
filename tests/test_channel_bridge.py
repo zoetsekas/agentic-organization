@@ -505,13 +505,13 @@ def test_refusals_are_raised_rather_than_dropped(service):
 def test_an_approval_must_name_who_may_answer(ledger):
     with pytest.raises(ValueError):
         ledger.open(agent_id=AGENT, session_id="s", channel_id=CHANNEL,
-                    question="?", expected_approvers=[], encoding="utf-8")
+                    question="?", expected_approvers=[])
 
 
 def test_an_approval_must_expire(ledger):
     with pytest.raises(ValueError):
         ledger.open(agent_id=AGENT, session_id="s", channel_id=CHANNEL, question="?",
-                    expected_approvers=[APPROVER], expires_in_minutes=0, encoding="utf-8")
+                    expected_approvers=[APPROVER], expires_in_minutes=0)
 
 
 def test_unanswered_requests_expire_on_a_sweep(service):

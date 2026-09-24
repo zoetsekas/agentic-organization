@@ -100,7 +100,7 @@ class ChannelBridgeConformance:
             channel_id=CHANNEL,
             question="Post the September close?",
             expected_approvers=[APPROVER],
-         encoding="utf-8")
+        )
         bridge.open_approval(req)
         return req
 
@@ -151,7 +151,7 @@ class ChannelBridgeConformance:
         req = ledger.open(
             agent_id=AGENT, session_id="ses", channel_id=CHANNEL,
             question="Release the payment run?", expected_approvers=[APPROVER],
-         encoding="utf-8")
+        )
         assert bridge.open_approval(req).id
 
     def test_a_click_correlates_back_to_its_request(self, bridge, ledger, request_):
