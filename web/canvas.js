@@ -5110,7 +5110,10 @@ async function openIssueCode(finding) {
       ...(entry.refs || []).map((r) => el("span", { class: "issue-ref" }, r))));
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+/* Guarded like the rest of this file's top level: the placement tests load
+   canvas.js under node, where there is no document, and an unguarded listener
+   here threw on load and failed CI. */
+if (typeof document !== "undefined") document.addEventListener("DOMContentLoaded", () => {
   $("#btn-issue-close")?.addEventListener("click", () => $("#issue-dialog").close());
   /* A click on the backdrop lands on the dialog element itself. */
   $("#issue-dialog")?.addEventListener("click", (e) => {
