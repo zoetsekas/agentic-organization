@@ -82,11 +82,11 @@ def test_unsupported_spec_version_is_refused():
 
 
 def _mutate(text: str, old: str, new: str) -> SystemSpec:
-    return load_spec_text(EXAMPLE.read_text().replace(old, new, 1))
+    return load_spec_text(EXAMPLE.read_text(encoding="utf-8").replace(old, new, 1))
 
 
 def test_leader_must_be_a_member():
-    spec = _mutate(EXAMPLE.read_text(), "  leader: cfo", "  leader: ceo")
+    spec = _mutate(EXAMPLE.read_text(encoding="utf-8"), "  leader: cfo", "  leader: ceo")
     codes = {f.code for f in validate_spec(spec)}
     assert "leader_not_member" in codes
 
@@ -121,7 +121,7 @@ def test_narrowing_is_applied_and_egress_dropped_on_isolated_class():
 
 
 def test_wildcard_grants_are_fatal_in_production():
-    text = EXAMPLE.read_text().replace(
+    text = EXAMPLE.read_text(encoding="utf-8").replace(
         "  environment: development", "  environment: production"
     )
     findings = validate_spec(load_spec_text(text))

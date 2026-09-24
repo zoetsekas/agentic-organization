@@ -414,7 +414,7 @@ def test_no_generated_conformance_report_claims_asynchronous_delegation():
     reports = list(root.glob("examples/**/CONFORMANCE.md"))
     assert reports, "no generated conformance reports to check"
     for report in reports:
-        text = report.read_text()
+        text = report.read_text(encoding="utf-8")
         for claim in ("assign(", "gather(", "max_parallel_subagents"):
             assert claim not in text, f"{report} claims {claim}"
 

@@ -138,7 +138,7 @@ def test_no_protocol_name_appears_in_the_spec_layer():
     offenders = [
         path.name
         for path in spec_dir.rglob("*.py")
-        if A2A_PROTOCOL in path.read_text().lower()
+        if A2A_PROTOCOL in path.read_text(encoding="utf-8").lower()
     ]
     assert offenders == []
 

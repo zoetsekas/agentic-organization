@@ -22,7 +22,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 @pytest.fixture(scope="module")
 def canvas_js() -> str:
-    return (ROOT / "web" / "canvas.js").read_text()
+    return (ROOT / "web" / "canvas.js").read_text(encoding="utf-8")
 
 
 def body_of(source: str, name: str) -> str:

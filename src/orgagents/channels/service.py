@@ -125,7 +125,7 @@ class ChannelService:
             expected_approvers=expected_approvers,
             expires_in_minutes=expires_in_minutes,
             moment=moment,
-        )
+         encoding="utf-8")
         posted = self.bridge.open_approval(request)
         request.post_id = posted.id
         return request

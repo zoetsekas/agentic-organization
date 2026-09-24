@@ -167,6 +167,7 @@ def running():
                         configure_logs=False)
     load_system(platform, ir)
     yield platform
+    platform.close()  # Windows will not delete the open database file.
     tmp.cleanup()
 
 

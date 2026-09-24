@@ -34,7 +34,7 @@ def binding():
 def test_no_target_imports_the_spec_package():
     """Targets consume the IR only, so they cannot re-derive a permission."""
     for path in TARGETS_DIR.glob("*.py"):
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             module = (
                 node.module
@@ -122,7 +122,7 @@ def test_registry_exposes_infrastructure_targets_and_a_platform_target():
 def test_local_target_output(tmp_path, spec, binding):
     result = compile_system(spec, targets=["local"], out_dir=tmp_path,
                             binding=binding)[0]
-    compose = yaml.safe_load((result.out_dir / "docker-compose.yaml").read_text())
+    compose = yaml.safe_load((result.out_dir / "docker-compose.yaml").read_text(encoding="utf-8"))
     services = compose["services"]
     assert "agent-analyst" in services and "designer" in services
     # An isolated environment gets a gateway-less network (ADR-0009/0011).
@@ -143,7 +143,7 @@ def test_generated_output_contains_no_secret_values(tmp_path, spec, binding):
     for result in results:
         for gf in result.files:
             assert not credential.search(gf.content), f"credential in {gf.path}"
-    env = (results[0].out_dir / ".env.example").read_text()
+    env = (results[0].out_dir / ".env.example").read_text(encoding="utf-8")
     assert "WAREHOUSE_DSN=" in env
     assert all(line.endswith("=") for line in env.splitlines()
                if "=" in line and not line.startswith("#"))
@@ -152,7 +152,7 @@ def test_generated_output_contains_no_secret_values(tmp_path, spec, binding):
 def test_terraform_target_emits_one_identity_per_agent(tmp_path, spec, binding):
     result = compile_system(spec, targets=["terraform:gcp"], out_dir=tmp_path,
                             binding=binding)[0]
-    iam = (result.out_dir / "iam.tf").read_text()
+    iam = (result.out_dir / "iam.tf").read_text(encoding="utf-8")
     accounts = re.findall(r'resource "google_service_account" "(\w+)"', iam)
     assert sorted(accounts) == sorted(a.id for a in result.ir.agents)
 
@@ -175,7 +175,7 @@ def test_mapping_report_accounts_for_every_permission(tmp_path, spec, binding):
     for target in ("terraform:gcp", "terraform:aws", "terraform:azure"):
         result = compile_system(spec, targets=[target], out_dir=tmp_path / target[-3:],
                                 binding=binding)[0]
-        report = (result.out_dir / "MAPPING.md").read_text()
+        report = (result.out_dir / "MAPPING.md").read_text(encoding="utf-8")
         for agent in result.ir.agents:
             for perm in agent.permissions:
                 assert f"`{perm.key()}`" in report, f"{perm.key()} missing from {target}"
@@ -194,34 +194,34 @@ def test_binding_selects_the_runtime_adapter(tmp_path, spec, binding):
 
 def test_regeneration_is_idempotent(tmp_path, spec, binding):
     first = compile_system(spec, targets=["local"], out_dir=tmp_path, binding=binding)[0]
-    before = json.loads((first.out_dir / "manifest.json").read_text())
+    before = json.loads((first.out_dir / "manifest.json").read_text(encoding="utf-8"))
     compile_system(spec, targets=["local"], out_dir=tmp_path, binding=binding)
-    after = json.loads((first.out_dir / "manifest.json").read_text())
+    after = json.loads((first.out_dir / "manifest.json").read_text(encoding="utf-8"))
     assert before == after
 
 
 def test_modified_generated_file_blocks_regeneration(tmp_path, spec, binding):
     result = compile_system(spec, targets=["local"], out_dir=tmp_path, binding=binding)[0]
     makefile = result.out_dir / "Makefile"
-    makefile.write_text(makefile.read_text() + "\n# hand edit\n")
+    makefile.write_text(makefile.read_text(encoding="utf-8") + "\n# hand edit\n", encoding="utf-8")
     with pytest.raises(CompileError, match="modified since it was generated"):
         compile_system(spec, targets=["local"], out_dir=tmp_path, binding=binding)
     compile_system(spec, targets=["local"], out_dir=tmp_path, binding=binding, force=True)
-    assert "# hand edit" not in makefile.read_text()
+    assert "# hand edit" not in makefile.read_text(encoding="utf-8")
 
 
 def test_overlays_survive_regeneration(tmp_path, spec, binding):
     result = compile_system(spec, targets=["local"], out_dir=tmp_path, binding=binding)[0]
     overlay = result.out_dir / "overlays" / "extra.tf"
     overlay.parent.mkdir(exist_ok=True)
-    overlay.write_text("# mine\n")
+    overlay.write_text("# mine\n", encoding="utf-8")
     compile_system(spec, targets=["local"], out_dir=tmp_path, binding=binding)
-    assert overlay.read_text() == "# mine\n"
+    assert overlay.read_text(encoding="utf-8") == "# mine\n"
 
 
 def test_generated_files_carry_a_provenance_header(tmp_path, spec, binding):
     result = compile_system(spec, targets=["local"], out_dir=tmp_path, binding=binding)[0]
-    compose = (result.out_dir / "docker-compose.yaml").read_text()
+    compose = (result.out_dir / "docker-compose.yaml").read_text(encoding="utf-8")
     assert "Generated by orgagents" in compose and "overlays/" in compose
 
 
@@ -320,7 +320,7 @@ def test_declared_flows_widen_delegation_only_when_they_delegate(spec, binding):
 def test_local_target_emits_scheduler_and_channel_bridges(tmp_path, spec, binding):
     result = compile_system(spec, targets=["local"], out_dir=tmp_path,
                             binding=binding)[0]
-    compose = yaml.safe_load((result.out_dir / "docker-compose.yaml").read_text())
+    compose = yaml.safe_load((result.out_dir / "docker-compose.yaml").read_text(encoding="utf-8"))
     services = compose["services"]
     assert "scheduler" in services
     assert "channel-finance_approvals" in services
@@ -338,7 +338,7 @@ def test_local_target_emits_scheduler_and_channel_bridges(tmp_path, spec, bindin
 def test_registry_report_inventories_the_fleet(tmp_path, spec, binding):
     result = compile_system(spec, targets=["local"], out_dir=tmp_path,
                             binding=binding)[0]
-    registry = (result.out_dir / "REGISTRY.md").read_text()
+    registry = (result.out_dir / "REGISTRY.md").read_text(encoding="utf-8")
     for agent in result.ir.agents:
         assert f"`{agent.id}`" in registry
         if agent.human:
@@ -352,8 +352,8 @@ def test_terraform_targets_emit_triggers_and_channels(tmp_path, spec, binding):
     for target in ("terraform:gcp", "terraform:aws", "terraform:azure"):
         result = compile_system(spec, targets=[target], out_dir=tmp_path / target[-3:],
                                 binding=binding)[0]
-        triggers = (result.out_dir / "triggers.tf").read_text()
-        channels = (result.out_dir / "channels.tf").read_text()
+        triggers = (result.out_dir / "triggers.tf").read_text(encoding="utf-8")
+        channels = (result.out_dir / "channels.tf").read_text(encoding="utf-8")
         assert "trigger-weekday_flash_report" in triggers
         # A scheduled run uses the agent's identity, not the scheduler's.
         assert "service_account" in triggers
@@ -364,7 +364,7 @@ def test_terraform_targets_emit_triggers_and_channels(tmp_path, spec, binding):
 def test_scheduler_holds_no_credentials_of_its_own(tmp_path, spec, binding):
     result = compile_system(spec, targets=["local"], out_dir=tmp_path,
                             binding=binding)[0]
-    compose = yaml.safe_load((result.out_dir / "docker-compose.yaml").read_text())
+    compose = yaml.safe_load((result.out_dir / "docker-compose.yaml").read_text(encoding="utf-8"))
     env = compose["services"]["scheduler"]["environment"]
     assert not any(key.endswith("_DSN") or key.endswith("_TOKEN") for key in env)
 

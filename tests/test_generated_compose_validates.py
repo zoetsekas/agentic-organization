@@ -72,7 +72,7 @@ def test_every_service_pins_an_image_or_builds_one(generated):
     import yaml
 
     for path in _compose_files(generated):
-        doc = yaml.safe_load(path.read_text()) or {}
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for name, service in (doc.get("services") or {}).items():
             image = service.get("image")
             if image is None:

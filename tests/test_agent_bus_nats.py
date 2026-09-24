@@ -66,7 +66,11 @@ def _wait_port(port: int, timeout: float = 20) -> bool:
 def _docker_ok() -> bool:
     if shutil.which("docker") is None:
         return False
-    return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
+    # A Windows-containers daemon (GitHub's windows-latest) answers `docker
+    # info` but cannot run the Linux nats image.
+    probe = subprocess.run(["docker", "info", "--format", "{{.OSType}}"],
+                           capture_output=True, text=True)
+    return probe.returncode == 0 and probe.stdout.strip() == "linux"
 
 
 @pytest.fixture(scope="module")

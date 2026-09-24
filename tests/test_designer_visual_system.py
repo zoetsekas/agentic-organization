@@ -21,22 +21,22 @@ HEX = re.compile(r"#[0-9A-Fa-f]{3,8}\b")
 
 @pytest.fixture(scope="module")
 def css() -> str:
-    return (BUNDLE / "styles.css").read_text()
+    return (BUNDLE / "styles.css").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def index_html() -> str:
-    return (BUNDLE / "index.html").read_text()
+    return (BUNDLE / "index.html").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def app_js() -> str:
-    return (BUNDLE / "app.js").read_text()
+    return (BUNDLE / "app.js").read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def canvas_js() -> str:
-    return (BUNDLE / "canvas.js").read_text()
+    return (BUNDLE / "canvas.js").read_text(encoding="utf-8")
 
 
 def _root_block(css: str) -> str:

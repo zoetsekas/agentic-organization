@@ -46,7 +46,7 @@ def main() -> dict:
     register_builtin_targets()
 
     banner("1", "Load and migrate")
-    spec, changes = load_spec_text_with_migration(SPEC.read_text())
+    spec, changes = load_spec_text_with_migration(SPEC.read_text(encoding="utf-8"))
     binding = load_binding(str(BINDING))
     policy = load_platform_policy(str(POLICY))
     print(f"  '{spec.metadata.name}' at spec_version {spec.metadata.spec_version}; "
@@ -130,6 +130,9 @@ def main() -> dict:
             result = platform.runtime.run(aid, "Carry out your next task.")
             ran[aid] = result.state.value
             print(f"  {aid}: {result.state.value}")
+        # The store holds the database open, and Windows will not delete an
+        # open file: close it before the temporary directory is removed.
+        platform.close()
 
     banner("✓", "Designed, validated, gated, compiled to three targets, and run.")
     return {

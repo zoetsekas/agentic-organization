@@ -85,7 +85,7 @@ def test_the_catalogue_and_diagrams_are_current():
     """docs/metamodel/scenarios* are generated; regenerate with
     `orgagents metamodel scenarios`."""
     docs = ROOT / "docs" / "metamodel"
-    assert (docs / "scenarios.md").read_text() == catalogue()
+    assert (docs / "scenarios.md").read_text(encoding="utf-8") == catalogue()
     for sc in SCENARIOS:
-        assert (docs / "scenarios" / f"{sc.id}.puml").read_text() == \
+        assert (docs / "scenarios" / f"{sc.id}.puml").read_text(encoding="utf-8") == \
             to_object_diagram(play(sc)), sc.id

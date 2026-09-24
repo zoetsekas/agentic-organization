@@ -16,7 +16,7 @@ def _directory(tmp_path, contact: str, status: str) -> str:
     path.write_text(json.dumps(
         {"people": [{"contact": contact, "status": status,
                      "display_name": "Priya Raman"}]}
-    ))
+    ), encoding="utf-8")
     return str(path)
 
 

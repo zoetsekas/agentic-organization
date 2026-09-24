@@ -131,7 +131,8 @@ def test_the_readme_sends_a_reader_to_the_conformance_report_first(emitted):
 
 def test_the_target_does_not_import_the_spec_package():
     """The rule every target follows: permissions resolve once, in the IR."""
-    source = (ROOT / "src" / "orgagents" / "compiler" / "targets" / "maf.py").read_text()
+    source = (ROOT / "src" / "orgagents" / "compiler" / "targets" / "maf.py").read_text(
+        encoding="utf-8")
     assert "orgagents.spec" not in source
     assert "from ...spec" not in source
 

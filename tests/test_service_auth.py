@@ -222,7 +222,7 @@ def test_a_signed_release_grants_once_and_is_audited(worker_client):
     assert r.status_code == 200 and r.json()["approval"]["approver"] == "p_coo"
     assert client.post("/approve", headers=AUTH, json=body).status_code == 403  # replay
     assert platform.harness.approvals.consume("ap_agent", "pay", ARGS)
-    logged = [json.loads(line)["event"] for line in audit.read_text().splitlines()]
+    logged = [json.loads(line)["event"] for line in audit.read_text(encoding="utf-8").splitlines()]
     assert logged == ["approval_granted", "approval_consumed"]
     assert client.get("/audit", headers=AUTH).json()["events"][0]["approver"] == "p_coo"
 

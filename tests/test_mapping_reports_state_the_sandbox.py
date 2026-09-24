@@ -25,7 +25,7 @@ def reports(tmp_path_factory) -> dict[str, str]:
     for target in TARGETS:
         target_dir = out / target.replace(":", "-")
         compile_system(spec, targets=[target], out_dir=target_dir, binding=binding)
-        found[target] = next(target_dir.rglob("MAPPING.md")).read_text()
+        found[target] = next(target_dir.rglob("MAPPING.md")).read_text(encoding="utf-8")
     return found
 
 

@@ -45,7 +45,8 @@ def client(app) -> TestClient:
 @pytest.fixture()
 def system(client) -> str:
     spec = yaml.safe_load(
-        (ROOT / "examples" / "northwind" / "northwind.finance.system.yaml").read_text()
+        (ROOT / "examples" / "northwind" / "northwind.finance.system.yaml")
+        .read_text(encoding="utf-8")
     )
     ws = client.post("/api/designer/workspaces", json={"name": "ws"},
                      headers=ALICE).json()
@@ -250,14 +251,14 @@ def test_the_bundle_reaches_both_halves_of_the_path():
     generally; these assert the specific shape, because a publish path whose
     refusal never reaches a person is the failure mode that matters.
     """
-    canvas_js = (ROOT / "web" / "canvas.js").read_text()
+    canvas_js = (ROOT / "web" / "canvas.js").read_text(encoding="utf-8")
     assert "/preflight`" in canvas_js
     assert "/publish`" in canvas_js
     assert "function renderPublishVerdict" in canvas_js
 
 
 def test_the_refusal_is_rendered_rather_than_a_status_code():
-    canvas_js = (ROOT / "web" / "canvas.js").read_text()
+    canvas_js = (ROOT / "web" / "canvas.js").read_text(encoding="utf-8")
     # A 422 carries the gate's verdict; the handler must show it.
     assert "detail?.verdict" in canvas_js
     assert "renderPublishVerdict(detail.verdict)" in canvas_js
@@ -265,12 +266,12 @@ def test_the_refusal_is_rendered_rather_than_a_status_code():
 
 def test_the_request_button_needs_the_permission_and_a_clean_verdict():
     """A clean preflight is not authority to publish."""
-    canvas_js = (ROOT / "web" / "canvas.js").read_text()
+    canvas_js = (ROOT / "web" / "canvas.js").read_text(encoding="utf-8")
     assert 'canvas.permissions.includes("system.publish")' in canvas_js
 
 
 def test_the_bar_says_who_deploys():
     """The plane split, on the surface rather than only in an ADR."""
-    index_html = (ROOT / "web" / "index.html").read_text()
+    index_html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
     assert "designer requests" in index_html
     assert "requested" in index_html

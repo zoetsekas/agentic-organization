@@ -70,7 +70,7 @@ def test_providers_satisfy_the_protocol():
 def test_no_provider_name_appears_in_the_spec_layer():
     names = ["container", "microvm_sbx", "openshell", "target_native", "sbx"]
     for path in SPEC_DIR.rglob("*.py"):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         for name in names:
             assert name not in text, f"{name} leaked into spec layer file {path}"
 

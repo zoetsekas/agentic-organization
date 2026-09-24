@@ -345,7 +345,7 @@ def test_no_generated_conformance_report_claims_succession():
     reports = list(root.glob("examples/**/CONFORMANCE.md"))
     assert reports
     for report in reports:
-        text = report.read_text()
+        text = report.read_text(encoding="utf-8")
         for claim in ("successor", "stands in", "acting_for"):
             assert claim not in text, f"{report} claims {claim}"
 

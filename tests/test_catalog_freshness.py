@@ -61,7 +61,7 @@ def _payload(**figures):
 
 def _file_source(tmp_path, payload):
     path = tmp_path / "figures.json"
-    path.write_text(json.dumps(payload))
+    path.write_text(json.dumps(payload), encoding="utf-8")
     return FileFigureSource(path)
 
 

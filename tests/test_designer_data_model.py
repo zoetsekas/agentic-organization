@@ -104,7 +104,7 @@ def test_the_layout_has_no_stored_edges():
     """
     assert not hasattr(dm, "CanvasEdge")
     assert "edges" not in dm.Layout.model_fields
-    canvas_js = (ROOT / "web" / "canvas.js").read_text()
+    canvas_js = (ROOT / "web" / "canvas.js").read_text(encoding="utf-8")
     assert "derivedEdges" in canvas_js, "something must still draw the edges"
 
 
@@ -120,7 +120,7 @@ def test_the_viewport_is_restored_rather_than_only_stored(tmp_path):
     # It moved onto the diagram when a design gained more than one of them:
     # where you were looking is a property of the picture, not of the design.
     assert "viewport" in dm.Diagram.model_fields
-    canvas_js = (ROOT / "web" / "canvas.js").read_text()
+    canvas_js = (ROOT / "web" / "canvas.js").read_text(encoding="utf-8")
     assert "function restoreViewport" in canvas_js
     assert "function rememberViewport" in canvas_js
     assert "scrollLeft = Number(view.x)" in canvas_js
@@ -145,7 +145,7 @@ def test_the_viewport_is_restored_rather_than_only_stored(tmp_path):
 
 def test_scrolling_is_not_an_edit():
     """It must not mark the design dirty or take a revision."""
-    canvas_js = (ROOT / "web" / "canvas.js").read_text()
+    canvas_js = (ROOT / "web" / "canvas.js").read_text(encoding="utf-8")
     remember = canvas_js.split("function rememberViewport")[1].split("\n}")[0]
     assert "markDirty" not in remember
     assert "saveSystem" not in remember

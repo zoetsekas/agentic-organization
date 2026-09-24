@@ -21,10 +21,10 @@ from orgagents.store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
 ADR = (ROOT / "docs" / "decisions"
-       / "ADR-0053-the-infrastructure-images-each-plane-runs-on.md").read_text()
+       / "ADR-0053-the-infrastructure-images-each-plane-runs-on.md").read_text(encoding="utf-8")
 LOCK_PATH = ROOT / "docker" / "images.lock"
 FABRIC_PATH = ROOT / "docker" / "compose" / "fabric.yml"
-FABRIC = yaml.safe_load(FABRIC_PATH.read_text())
+FABRIC = yaml.safe_load(FABRIC_PATH.read_text(encoding="utf-8"))
 IMAGE_DIR = ROOT / "docker" / "images"
 FIRST_PARTY = ("orgagents-designer", "orgagents-fabric", "orgagents-command",
                "orgagents-runtime")
@@ -55,7 +55,7 @@ def _adr_repositories() -> set[str]:
 
 def _lock_records() -> list[tuple[str, str, str]]:
     records = []
-    for line in LOCK_PATH.read_text().splitlines():
+    for line in LOCK_PATH.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -112,13 +112,13 @@ def test_redis_is_optional_because_the_postgres_path_works_without_it():
 
 
 def test_vault_is_labelled_as_a_dev_convenience_not_a_secret_store():
-    text = FABRIC_PATH.read_text()
+    text = FABRIC_PATH.read_text(encoding="utf-8")
     assert "-dev" in " ".join(FABRIC["services"]["vault"]["command"])
     assert "NOT a secret store" in text
 
 
 def test_the_fabric_services_we_build_are_built_here_and_health_checked():
-    api = (ROOT / "src" / "orgagents" / "api.py").read_text()
+    api = (ROOT / "src" / "orgagents" / "api.py").read_text(encoding="utf-8")
     assert '@app.get("/healthz")' in api
     for name in ("fabric", "command"):
         service = FABRIC["services"][name]
@@ -173,7 +173,7 @@ def test_the_lock_file_holds_no_invented_digest():
 
 
 def test_the_lock_file_documents_its_own_format_and_names_the_resolver():
-    text = LOCK_PATH.read_text()
+    text = LOCK_PATH.read_text(encoding="utf-8")
     assert "FORMAT" in text and "UNRESOLVED" in text
     resolver = ROOT / "docker" / "resolve-images.sh"
     assert resolver.exists() and "resolve-images.sh" in text
@@ -239,9 +239,9 @@ def test_sandboxes_are_built_not_run(tenant_compose):
 # -- the images we build ---------------------------------------------------
 
 
-IMAGES = {name: (IMAGE_DIR / name / "Dockerfile").read_text()
+IMAGES = {name: (IMAGE_DIR / name / "Dockerfile").read_text(encoding="utf-8")
           for name in ("fabric", "command", "runtime")}
-ENTRYPOINTS = {name: (IMAGE_DIR / name / "entrypoint.sh").read_text()
+ENTRYPOINTS = {name: (IMAGE_DIR / name / "entrypoint.sh").read_text(encoding="utf-8")
                for name in ("fabric", "command", "runtime")}
 
 
@@ -260,7 +260,7 @@ def test_no_image_we_build_runs_as_root(name):
 
 @pytest.mark.parametrize("name", sorted(IMAGES))
 def test_every_healthcheck_hits_a_route_the_app_serves(name):
-    api = (ROOT / "src" / "orgagents" / "api.py").read_text()
+    api = (ROOT / "src" / "orgagents" / "api.py").read_text(encoding="utf-8")
     assert '@app.get("/healthz")' in api
     assert "HEALTHCHECK" in IMAGES[name] and "/healthz" in IMAGES[name]
 
@@ -282,7 +282,7 @@ def test_no_entrypoint_assumes_an_installed_console_script(name):
 
 @pytest.mark.parametrize("name", sorted(ENTRYPOINTS))
 def test_every_entrypoint_only_uses_flags_the_cli_accepts(name):
-    cli = (ROOT / "src" / "orgagents" / "cli.py").read_text()
+    cli = (ROOT / "src" / "orgagents" / "cli.py").read_text(encoding="utf-8")
     for flag in re.findall(r"--[a-z][a-z-]+", ENTRYPOINTS[name]):
         assert f'"{flag}"' in cli, f"{name} passes {flag}, which the CLI does not define"
 

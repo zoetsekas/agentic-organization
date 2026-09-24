@@ -76,7 +76,7 @@ def test_loader_reports_whether_it_migrated():
     _, changes = load_spec_text_with_migration(LEGACY_1_0)
     assert changes
 
-    _, none = load_spec_text_with_migration(EXAMPLE.read_text())
+    _, none = load_spec_text_with_migration(EXAMPLE.read_text(encoding="utf-8"))
     assert none == []
 
 
@@ -104,7 +104,7 @@ def test_migrated_document_round_trips_through_dump():
 
 
 def test_example_still_loads_unchanged():
-    spec, changes = load_spec_text_with_migration(EXAMPLE.read_text())
+    spec, changes = load_spec_text_with_migration(EXAMPLE.read_text(encoding="utf-8"))
     assert changes == []
     assert spec.metadata.spec_version == CURRENT
 
@@ -136,7 +136,7 @@ def test_schema_is_json_serializable():
 
 def test_schema_accepts_the_worked_example():
     schema = system_spec_schema()
-    document = json.loads(json.dumps(yaml.safe_load(EXAMPLE.read_text())))
+    document = json.loads(json.dumps(yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))))
 
     jsonschema = pytest.importorskip(
         "jsonschema", reason="validated structurally instead"
@@ -150,6 +150,6 @@ def test_schema_accepts_the_worked_example():
 def test_schema_covers_every_top_level_block_of_the_example():
     """Structural stand-in for validation when `jsonschema` is absent."""
     schema = system_spec_schema()
-    document = yaml.safe_load(EXAMPLE.read_text())
+    document = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
     unknown = set(document) - set(schema["properties"])
     assert not unknown, unknown

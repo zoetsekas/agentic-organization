@@ -172,7 +172,7 @@ def test_the_canvas_reads_the_nodes_through_one_accessor():
     import pathlib
 
     canvas_js = (pathlib.Path(__file__).resolve().parents[1]
-                 / "web" / "canvas.js").read_text()
+                 / "web" / "canvas.js").read_text(encoding="utf-8")
     assert "function layoutNodes()" in canvas_js
     # `layout` inside a function is the *diagram*; reaching through the
     # record to a `nodes` that no longer exists is the thing to keep out.

@@ -84,7 +84,7 @@ def _service_binding(**kw) -> WorkflowBinding:
 def test_no_engine_name_appears_in_the_spec_layer():
     offenders = []
     for path in SPEC_DIR.rglob("*.py"):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         for name in VENDOR_ENGINES:
             # Word-bounded: `langchain_deepagents` is a runtime *adapter*
             # name, which ADR-0013 already allows in the binding.
@@ -323,7 +323,7 @@ def load_binding_with_langflow():
 
 
 def _compose(generated) -> dict:
-    return yaml.safe_load((generated / "docker-compose.yaml").read_text())
+    return yaml.safe_load((generated / "docker-compose.yaml").read_text(encoding="utf-8"))
 
 
 def test_the_local_stack_ships_a_pinned_tenant_scoped_langflow_service(generated):
@@ -352,7 +352,7 @@ def test_the_langflow_service_holds_its_own_secret_and_no_agent_credential(gener
         if k.endswith(("_TOKEN", "_KEY")) and k != "LANGFLOW_SECRET_KEY"
     }
     assert not (agent_secrets & set(service["environment"]))
-    assert "LANGFLOW_SECRET_KEY=" in (generated / ".env.example").read_text()
+    assert "LANGFLOW_SECRET_KEY=" in (generated / ".env.example").read_text(encoding="utf-8")
 
 
 def test_a_no_network_agent_shares_no_network_with_the_engine(generated):
@@ -369,7 +369,7 @@ def test_a_no_network_agent_shares_no_network_with_the_engine(generated):
 
 
 def test_the_generated_readme_states_the_sandbox_caveat(generated):
-    readme = (generated / "README.md").read_text()
+    readme = (generated / "README.md").read_text(encoding="utf-8")
     assert "outside the agent's sandbox" in readme
     assert "langflow" in readme
     assert "network: none" in readme

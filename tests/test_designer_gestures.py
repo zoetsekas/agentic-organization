@@ -163,7 +163,7 @@ def test_a_request_the_model_cannot_read_is_422(client):
 def test_the_specification_is_served_and_current(client):
     served = client.get("/api/designer/gestures").json()["gestures"]
     assert len(served) == len(gestures())
-    assert (ROOT / "docs" / "designer" / "gestures.md").read_text() == \
+    assert (ROOT / "docs" / "designer" / "gestures.md").read_text(encoding="utf-8") == \
         catalogue()
 
 
