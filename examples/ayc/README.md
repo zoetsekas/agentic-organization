@@ -64,7 +64,8 @@ credential, which tool, and whether it was refused.
 - **Five mock systems**, each on an internal network of its own that only the
   agents holding a capability on it join. The buyer's container cannot route to
   accounting; accounts payable's cannot route to Fishbowl.
-- The tenant's Postgres, NATS, SeaweedFS artifact store, OpenTelemetry
+- The tenant's Postgres, NATS (one user per agent; `bus-init` creates the
+  stream and consumers, then exits), SeaweedFS artifact store, OpenTelemetry
   collector and designer, as the local target generates them.
 - `memory` and `scheduler` are parked (profile `parked`): the first has no
   command yet, and the second would run agents outside their own containers.
@@ -88,6 +89,50 @@ separations forbid:
 `end_to_end_local.py` walks exactly this path — reorder, approval, purchase
 order, receipt, supplier invoice, payment — and checks each refusal. It resets
 the mocks to their seed first, so it can be run again.
+
+### Agents talking to agents (ADR-0117)
+
+Agents reach each other over the tenant's **NATS JetStream**, each as its own
+broker user, and only along edges the design declares: a leader to its team,
+declared interaction flows (`consult`/`notify`/`escalate` let an agent *message*,
+only `delegate` lets it hand work over), a member to the agent it reports to,
+`oversees`/`serves` unit links between unit leaders, and a live mission. The
+edges are compiled into each agent's `agents/<id>.json` (`links`) and into
+`generated/local/nats/nats.conf`, so **the sender's worker, the broker and the
+receiver's worker each refuse the rest**. Every agent holds three tools:
+
+```text
+call send_message {"to_agent": "coo_agent", "text": "stock of AYC-CH-001 is low"}
+call delegate {"to_agent": "buyer_agent", "task": "review stock of AYC-CH-001"}
+then call check_delegation {"handle": "$last.handle", "wait_s": 60}
+```
+
+`delegate` returns a handle at once; `check_delegation` collects the answer. A
+`then call` line is a later turn of the stub model, and `"$last.handle"` is the
+previous turn's result. A delegated task's `inputs.script` lines become the
+next agent's script, so a chain can be driven from one message:
+
+```bash
+.venv/Scripts/python examples/ayc/local_stack.py e2e-messaging
+```
+
+walks the CEO delegating "review stock of AYC-CH-001" to the COO, who delegates
+it to the buyer; the buyer's attempt to message accounts receivable (no edge) is
+refused by its own worker, then by the broker when published by hand from its
+container, then by accounts receivable when published by an identity the broker
+lets through; and the buyer asking the COO to have payables pay is refused on
+separation `purchasing_and_payment` — at the COO's delegation, and at payables'
+payment tool. In the chat, a reply that delegated or messaged shows its
+**agent-to-agent hops**: every worker's part of the one trace.
+
+A second copy of the stack runs beside the first with a project and ports of its
+own (and images named after the project, so the first copy's are not re-tagged):
+
+```bash
+.venv/Scripts/python examples/ayc/local_stack.py --project ayc-msg --port-base 19000 up
+.venv/Scripts/python examples/ayc/local_stack.py --project ayc-msg --port-base 19000 e2e-messaging
+docker compose -p ayc-msg down -v
+```
 
 ### Purchase-to-pay as a governed workflow (ADR-0110)
 

@@ -48,13 +48,22 @@ services:
   nats:
     image: nats:2.15.0-alpine
     command:
-    - --jetstream
-    - --store_dir
-    - /data
-    - --name
-    - bus
-    - --http_port
-    - '8222'
+    - -c
+    - /etc/nats/nats.conf
+    environment:
+      ORGAGENTS_BUS_ADMIN_PASSWORD: ${ORGAGENTS_BUS_ADMIN_PASSWORD}
+      ORGAGENTS_BUS_PASSWORD_CEO_AGENT: ${ORGAGENTS_BUS_PASSWORD_CEO_AGENT}
+      ORGAGENTS_BUS_PASSWORD_COO_AGENT: ${ORGAGENTS_BUS_PASSWORD_COO_AGENT}
+      ORGAGENTS_BUS_PASSWORD_BUYER_AGENT: ${ORGAGENTS_BUS_PASSWORD_BUYER_AGENT}
+      ORGAGENTS_BUS_PASSWORD_WAREHOUSE_AGENT: ${ORGAGENTS_BUS_PASSWORD_WAREHOUSE_AGENT}
+      ORGAGENTS_BUS_PASSWORD_INVENTORY_AGENT: ${ORGAGENTS_BUS_PASSWORD_INVENTORY_AGENT}
+      ORGAGENTS_BUS_PASSWORD_AP_AGENT: ${ORGAGENTS_BUS_PASSWORD_AP_AGENT}
+      ORGAGENTS_BUS_PASSWORD_AR_AGENT: ${ORGAGENTS_BUS_PASSWORD_AR_AGENT}
+      ORGAGENTS_BUS_PASSWORD_SOFTWARE_AGENT: ${ORGAGENTS_BUS_PASSWORD_SOFTWARE_AGENT}
+      ORGAGENTS_BUS_PASSWORD_CGO_AGENT: ${ORGAGENTS_BUS_PASSWORD_CGO_AGENT}
+      ORGAGENTS_BUS_PASSWORD_ECOMMERCE_AGENT: ${ORGAGENTS_BUS_PASSWORD_ECOMMERCE_AGENT}
+      ORGAGENTS_BUS_PASSWORD_CS_AGENT: ${ORGAGENTS_BUS_PASSWORD_CS_AGENT}
+      ORGAGENTS_BUS_PASSWORD_MARKETING_AGENT: ${ORGAGENTS_BUS_PASSWORD_MARKETING_AGENT}
     healthcheck:
       test:
       - CMD
@@ -68,9 +77,40 @@ services:
     - control
     volumes:
     - bus-data:/data
+    - ./nats/nats.conf:/etc/nats/nats.conf:ro
     labels:
       org.agentic.subject_prefix: orgagents.local
       org.agentic.tenant: ''
+  bus-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ayc/platform:1.4.0
+    command:
+    - orgagents
+    - bus-init
+    - --ir
+    - /app/system.ir.json
+    environment:
+      ORGAGENTS_BUS_URL: nats://nats:4222
+      ORGAGENTS_BUS_ADMIN_USER: orgagents_bus_admin
+      ORGAGENTS_BUS_ADMIN_PASSWORD: ${ORGAGENTS_BUS_ADMIN_PASSWORD}
+    networks:
+    - control
+    depends_on:
+      nats:
+        condition: service_healthy
+    restart: 'no'
+    healthcheck:
+      disable: true
+    read_only: true
+    cap_drop: &id001
+    - ALL
+    security_opt: &id002
+    - no-new-privileges:true
+    pids_limit: 256
+    tmpfs:
+    - /tmp
   designer:
     build:
       context: .
@@ -104,9 +144,11 @@ services:
       ORGAGENTS_MANIFEST: /app/agents/ceo_agent.json
       ORGAGENTS_ADAPTER: langchain_deepagents
       OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:4317
-      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-in_process}
+      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-nats}
       ORGAGENTS_BUS_URL: nats://nats:4222
       ORGAGENTS_BUS_SUBJECT_PREFIX: orgagents.local
+      ORGAGENTS_BUS_USER: ceo_agent
+      ORGAGENTS_BUS_PASSWORD: ${ORGAGENTS_BUS_PASSWORD_CEO_AGENT}
       ORGAGENTS_WORKER_TOKEN: ${ORGAGENTS_WORKER_TOKEN_CEO_AGENT}
       ORGAGENTS_APPROVAL_PUBLIC_KEYS: ${ORGAGENTS_APPROVAL_PUBLIC_KEYS}
       ORGAGENTS_STATE_DIR: /var/lib/orgagents
@@ -117,8 +159,12 @@ services:
     - control
     - isolated
     depends_on:
-    - state
-    - nats
+      state:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      bus-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -126,10 +172,8 @@ services:
           memory: 256M
           pids: 256
     read_only: true
-    cap_drop: &id001
-    - ALL
-    security_opt: &id002
-    - no-new-privileges:true
+    cap_drop: *id001
+    security_opt: *id002
     tmpfs:
     - /tmp
     labels:
@@ -152,9 +196,11 @@ services:
       ORGAGENTS_MANIFEST: /app/agents/coo_agent.json
       ORGAGENTS_ADAPTER: langchain_deepagents
       OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:4317
-      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-in_process}
+      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-nats}
       ORGAGENTS_BUS_URL: nats://nats:4222
       ORGAGENTS_BUS_SUBJECT_PREFIX: orgagents.local
+      ORGAGENTS_BUS_USER: coo_agent
+      ORGAGENTS_BUS_PASSWORD: ${ORGAGENTS_BUS_PASSWORD_COO_AGENT}
       ORGAGENTS_WORKER_TOKEN: ${ORGAGENTS_WORKER_TOKEN_COO_AGENT}
       ORGAGENTS_APPROVAL_PUBLIC_KEYS: ${ORGAGENTS_APPROVAL_PUBLIC_KEYS}
       ORGAGENTS_STATE_DIR: /var/lib/orgagents
@@ -165,8 +211,12 @@ services:
     - control
     - isolated
     depends_on:
-    - state
-    - nats
+      state:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      bus-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -198,9 +248,11 @@ services:
       ORGAGENTS_MANIFEST: /app/agents/buyer_agent.json
       ORGAGENTS_ADAPTER: langchain_deepagents
       OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:4317
-      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-in_process}
+      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-nats}
       ORGAGENTS_BUS_URL: nats://nats:4222
       ORGAGENTS_BUS_SUBJECT_PREFIX: orgagents.local
+      ORGAGENTS_BUS_USER: buyer_agent
+      ORGAGENTS_BUS_PASSWORD: ${ORGAGENTS_BUS_PASSWORD_BUYER_AGENT}
       ORGAGENTS_WORKER_TOKEN: ${ORGAGENTS_WORKER_TOKEN_BUYER_AGENT}
       ORGAGENTS_APPROVAL_PUBLIC_KEYS: ${ORGAGENTS_APPROVAL_PUBLIC_KEYS}
       ORGAGENTS_STATE_DIR: /var/lib/orgagents
@@ -216,8 +268,12 @@ services:
     - place-purchasing--warehouse_ops
     - srv-fishbowl
     depends_on:
-    - state
-    - nats
+      state:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      bus-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -249,9 +305,11 @@ services:
       ORGAGENTS_MANIFEST: /app/agents/warehouse_agent.json
       ORGAGENTS_ADAPTER: langchain_deepagents
       OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:4317
-      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-in_process}
+      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-nats}
       ORGAGENTS_BUS_URL: nats://nats:4222
       ORGAGENTS_BUS_SUBJECT_PREFIX: orgagents.local
+      ORGAGENTS_BUS_USER: warehouse_agent
+      ORGAGENTS_BUS_PASSWORD: ${ORGAGENTS_BUS_PASSWORD_WAREHOUSE_AGENT}
       ORGAGENTS_WORKER_TOKEN: ${ORGAGENTS_WORKER_TOKEN_WAREHOUSE_AGENT}
       ORGAGENTS_APPROVAL_PUBLIC_KEYS: ${ORGAGENTS_APPROVAL_PUBLIC_KEYS}
       ORGAGENTS_STATE_DIR: /var/lib/orgagents
@@ -267,8 +325,12 @@ services:
     - srv-fishbowl
     - srv-shopify
     depends_on:
-    - state
-    - nats
+      state:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      bus-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -300,9 +362,11 @@ services:
       ORGAGENTS_MANIFEST: /app/agents/inventory_agent.json
       ORGAGENTS_ADAPTER: langchain_deepagents
       OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:4317
-      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-in_process}
+      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-nats}
       ORGAGENTS_BUS_URL: nats://nats:4222
       ORGAGENTS_BUS_SUBJECT_PREFIX: orgagents.local
+      ORGAGENTS_BUS_USER: inventory_agent
+      ORGAGENTS_BUS_PASSWORD: ${ORGAGENTS_BUS_PASSWORD_INVENTORY_AGENT}
       ORGAGENTS_WORKER_TOKEN: ${ORGAGENTS_WORKER_TOKEN_INVENTORY_AGENT}
       ORGAGENTS_APPROVAL_PUBLIC_KEYS: ${ORGAGENTS_APPROVAL_PUBLIC_KEYS}
       ORGAGENTS_STATE_DIR: /var/lib/orgagents
@@ -317,8 +381,12 @@ services:
     - place-inventory_audit--warehouse_ops
     - srv-fishbowl
     depends_on:
-    - state
-    - nats
+      state:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      bus-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -350,9 +418,11 @@ services:
       ORGAGENTS_MANIFEST: /app/agents/ap_agent.json
       ORGAGENTS_ADAPTER: langchain_deepagents
       OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:4317
-      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-in_process}
+      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-nats}
       ORGAGENTS_BUS_URL: nats://nats:4222
       ORGAGENTS_BUS_SUBJECT_PREFIX: orgagents.local
+      ORGAGENTS_BUS_USER: ap_agent
+      ORGAGENTS_BUS_PASSWORD: ${ORGAGENTS_BUS_PASSWORD_AP_AGENT}
       ORGAGENTS_WORKER_TOKEN: ${ORGAGENTS_WORKER_TOKEN_AP_AGENT}
       ORGAGENTS_APPROVAL_PUBLIC_KEYS: ${ORGAGENTS_APPROVAL_PUBLIC_KEYS}
       ORGAGENTS_STATE_DIR: /var/lib/orgagents
@@ -365,8 +435,12 @@ services:
     - place-finance--finance_ops
     - srv-accounting
     depends_on:
-    - state
-    - nats
+      state:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      bus-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -398,9 +472,11 @@ services:
       ORGAGENTS_MANIFEST: /app/agents/ar_agent.json
       ORGAGENTS_ADAPTER: langchain_deepagents
       OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:4317
-      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-in_process}
+      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-nats}
       ORGAGENTS_BUS_URL: nats://nats:4222
       ORGAGENTS_BUS_SUBJECT_PREFIX: orgagents.local
+      ORGAGENTS_BUS_USER: ar_agent
+      ORGAGENTS_BUS_PASSWORD: ${ORGAGENTS_BUS_PASSWORD_AR_AGENT}
       ORGAGENTS_WORKER_TOKEN: ${ORGAGENTS_WORKER_TOKEN_AR_AGENT}
       ORGAGENTS_APPROVAL_PUBLIC_KEYS: ${ORGAGENTS_APPROVAL_PUBLIC_KEYS}
       ORGAGENTS_STATE_DIR: /var/lib/orgagents
@@ -413,8 +489,12 @@ services:
     - place-finance--finance_ops
     - srv-accounting
     depends_on:
-    - state
-    - nats
+      state:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      bus-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -446,9 +526,11 @@ services:
       ORGAGENTS_MANIFEST: /app/agents/software_agent.json
       ORGAGENTS_ADAPTER: langchain_deepagents
       OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:4317
-      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-in_process}
+      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-nats}
       ORGAGENTS_BUS_URL: nats://nats:4222
       ORGAGENTS_BUS_SUBJECT_PREFIX: orgagents.local
+      ORGAGENTS_BUS_USER: software_agent
+      ORGAGENTS_BUS_PASSWORD: ${ORGAGENTS_BUS_PASSWORD_SOFTWARE_AGENT}
       ORGAGENTS_WORKER_TOKEN: ${ORGAGENTS_WORKER_TOKEN_SOFTWARE_AGENT}
       ORGAGENTS_APPROVAL_PUBLIC_KEYS: ${ORGAGENTS_APPROVAL_PUBLIC_KEYS}
       ORGAGENTS_STATE_DIR: /var/lib/orgagents
@@ -461,8 +543,12 @@ services:
     - place-it--build
     - srv-deploy_pipeline
     depends_on:
-    - state
-    - nats
+      state:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      bus-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -494,9 +580,11 @@ services:
       ORGAGENTS_MANIFEST: /app/agents/cgo_agent.json
       ORGAGENTS_ADAPTER: langchain_deepagents
       OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:4317
-      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-in_process}
+      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-nats}
       ORGAGENTS_BUS_URL: nats://nats:4222
       ORGAGENTS_BUS_SUBJECT_PREFIX: orgagents.local
+      ORGAGENTS_BUS_USER: cgo_agent
+      ORGAGENTS_BUS_PASSWORD: ${ORGAGENTS_BUS_PASSWORD_CGO_AGENT}
       ORGAGENTS_WORKER_TOKEN: ${ORGAGENTS_WORKER_TOKEN_CGO_AGENT}
       ORGAGENTS_APPROVAL_PUBLIC_KEYS: ${ORGAGENTS_APPROVAL_PUBLIC_KEYS}
       ORGAGENTS_STATE_DIR: /var/lib/orgagents
@@ -507,8 +595,12 @@ services:
     - control
     - isolated
     depends_on:
-    - state
-    - nats
+      state:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      bus-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -540,9 +632,11 @@ services:
       ORGAGENTS_MANIFEST: /app/agents/ecommerce_agent.json
       ORGAGENTS_ADAPTER: langchain_deepagents
       OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:4317
-      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-in_process}
+      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-nats}
       ORGAGENTS_BUS_URL: nats://nats:4222
       ORGAGENTS_BUS_SUBJECT_PREFIX: orgagents.local
+      ORGAGENTS_BUS_USER: ecommerce_agent
+      ORGAGENTS_BUS_PASSWORD: ${ORGAGENTS_BUS_PASSWORD_ECOMMERCE_AGENT}
       ORGAGENTS_WORKER_TOKEN: ${ORGAGENTS_WORKER_TOKEN_ECOMMERCE_AGENT}
       ORGAGENTS_APPROVAL_PUBLIC_KEYS: ${ORGAGENTS_APPROVAL_PUBLIC_KEYS}
       ORGAGENTS_STATE_DIR: /var/lib/orgagents
@@ -559,8 +653,12 @@ services:
     - srv-fishbowl
     - srv-shopify
     depends_on:
-    - state
-    - nats
+      state:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      bus-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -592,9 +690,11 @@ services:
       ORGAGENTS_MANIFEST: /app/agents/cs_agent.json
       ORGAGENTS_ADAPTER: langchain_deepagents
       OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:4317
-      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-in_process}
+      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-nats}
       ORGAGENTS_BUS_URL: nats://nats:4222
       ORGAGENTS_BUS_SUBJECT_PREFIX: orgagents.local
+      ORGAGENTS_BUS_USER: cs_agent
+      ORGAGENTS_BUS_PASSWORD: ${ORGAGENTS_BUS_PASSWORD_CS_AGENT}
       ORGAGENTS_WORKER_TOKEN: ${ORGAGENTS_WORKER_TOKEN_CS_AGENT}
       ORGAGENTS_APPROVAL_PUBLIC_KEYS: ${ORGAGENTS_APPROVAL_PUBLIC_KEYS}
       ORGAGENTS_STATE_DIR: /var/lib/orgagents
@@ -608,8 +708,12 @@ services:
     - place-finance--finance_ops
     - srv-shopify
     depends_on:
-    - state
-    - nats
+      state:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      bus-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:
@@ -641,9 +745,11 @@ services:
       ORGAGENTS_MANIFEST: /app/agents/marketing_agent.json
       ORGAGENTS_ADAPTER: langchain_deepagents
       OTEL_EXPORTER_OTLP_ENDPOINT: http://telemetry:4317
-      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-in_process}
+      ORGAGENTS_BUS: ${ORGAGENTS_BUS:-nats}
       ORGAGENTS_BUS_URL: nats://nats:4222
       ORGAGENTS_BUS_SUBJECT_PREFIX: orgagents.local
+      ORGAGENTS_BUS_USER: marketing_agent
+      ORGAGENTS_BUS_PASSWORD: ${ORGAGENTS_BUS_PASSWORD_MARKETING_AGENT}
       ORGAGENTS_WORKER_TOKEN: ${ORGAGENTS_WORKER_TOKEN_MARKETING_AGENT}
       ORGAGENTS_APPROVAL_PUBLIC_KEYS: ${ORGAGENTS_APPROVAL_PUBLIC_KEYS}
       ORGAGENTS_STATE_DIR: /var/lib/orgagents
@@ -659,8 +765,12 @@ services:
     - srv-cms
     - srv-shopify
     depends_on:
-    - state
-    - nats
+      state:
+        condition: service_started
+      nats:
+        condition: service_healthy
+      bus-init:
+        condition: service_completed_successfully
     deploy:
       resources:
         limits:

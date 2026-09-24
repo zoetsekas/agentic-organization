@@ -435,5 +435,96 @@
     "on_budget_breach": "throttle",
     "lifecycle_stage": "development"
   },
-  "system_prompt": "You are buyer.\nRaises purchase orders and receives goods in Fishbowl.\n\n## Your instructions\nRaise a purchase order against demand and the stock in Fishbowl, not against a hunch. You receive goods against the order; you do not pay the invoice \u2014 that is Finance, so a fake supplier cannot be both ordered from and paid by you.\n\n## Accountability\n- Raise purchase orders and receive goods against them in Fishbowl.  _(role: buyer)_\n\n## Organization\n- Team: AYC / Operations / Purchasing\n- Leader of: purchasing\n- Reports to: coo_agent\n- May delegate to: no one\n- Escalates to: coo_agent\n\n## The people you answer to\n- Katy (Buyer) \u2014 owner, katy@ayc.example\n- Clark (Chief Operating Officer) \u2014 approver, clark@ayc.example\n- Always seek approval before: goods_receiving, purchase_ordering\n\n## Shared operating principles\n- The stock number in Fishbowl and the listing on Shopify tell one story; keep them the same one.  _(from organization)_\n- A control you route around is a control you do not have.  _(from organization)_\n\n## Boundaries enforced on you\n- no_pii_outbound: data_class \u2192 block\n- no_cost_price_outbound: data_class \u2192 block\n- no_credentials_out: secrets \u2192 block\n- screen_inbound_messages: prompt_injection \u2192 escalate\n  These are enforced outside you. Do not attempt to work around one; say what you needed instead.\n\n## Operating rules\n- Prefer delegating to a team member whose role covers the task.\n- Use an encoded workflow for any process that must be auditable.\n- Prefer a sub-agent for a bounded task you can describe as a tool.\n- You may not widen your own access; ask your leader instead."
+  "system_prompt": "You are buyer.\nRaises purchase orders and receives goods in Fishbowl.\n\n## Your instructions\nRaise a purchase order against demand and the stock in Fishbowl, not against a hunch. You receive goods against the order; you do not pay the invoice \u2014 that is Finance, so a fake supplier cannot be both ordered from and paid by you.\n\n## Accountability\n- Raise purchase orders and receive goods against them in Fishbowl.  _(role: buyer)_\n\n## Organization\n- Team: AYC / Operations / Purchasing\n- Leader of: purchasing\n- Reports to: coo_agent\n- May delegate to: no one\n- Escalates to: coo_agent\n\n## The people you answer to\n- Katy (Buyer) \u2014 owner, katy@ayc.example\n- Clark (Chief Operating Officer) \u2014 approver, clark@ayc.example\n- Always seek approval before: goods_receiving, purchase_ordering\n\n## Shared operating principles\n- The stock number in Fishbowl and the listing on Shopify tell one story; keep them the same one.  _(from organization)_\n- A control you route around is a control you do not have.  _(from organization)_\n\n## Boundaries enforced on you\n- no_pii_outbound: data_class \u2192 block\n- no_cost_price_outbound: data_class \u2192 block\n- no_credentials_out: secrets \u2192 block\n- screen_inbound_messages: prompt_injection \u2192 escalate\n  These are enforced outside you. Do not attempt to work around one; say what you needed instead.\n\n## Operating rules\n- Prefer delegating to a team member whose role covers the task.\n- Use an encoded workflow for any process that must be auditable.\n- Prefer a sub-agent for a bounded task you can describe as a tool.\n- You may not widen your own access; ask your leader instead.",
+  "links": {
+    "agent": "buyer_agent",
+    "subject_prefix": "orgagents.local",
+    "stream": "ORGAGENTS_LOCAL",
+    "consumer": "agent_buyer_agent",
+    "user": "buyer_agent",
+    "inbox_prefix": "_INBOX_buyer_agent",
+    "max_depth": 3,
+    "outbound": {
+      "ap_agent": {
+        "grants": [
+          {
+            "kind": "message",
+            "via": "flow:notify"
+          }
+        ]
+      },
+      "coo_agent": {
+        "grants": [
+          {
+            "kind": "message",
+            "via": "reports_to"
+          }
+        ]
+      }
+    },
+    "inbound": {
+      "ap_agent": {
+        "grants": [
+          {
+            "kind": "message",
+            "via": "unit_link:oversees:finance->purchasing"
+          }
+        ]
+      },
+      "coo_agent": {
+        "grants": [
+          {
+            "kind": "delegate",
+            "via": "leads:operations"
+          }
+        ]
+      }
+    },
+    "separations": [
+      {
+        "id": "purchasing_and_payment",
+        "decisions": [
+          "raise_po",
+          "pay_invoice"
+        ],
+        "reason": "A buyer who both raises the purchase order and pays the invoice can pay a supplier that does not exist. Purchasing raises; Finance pays."
+      },
+      {
+        "id": "inventory_and_fulfillment",
+        "decisions": [
+          "adjust_inventory",
+          "fulfill_order"
+        ],
+        "reason": "Whoever ships the goods must not also adjust the count, or shrinkage disappears into an \"adjustment\". The cycle count is independent of the dock."
+      },
+      {
+        "id": "refund_and_receivable",
+        "decisions": [
+          "issue_refund",
+          "record_receivable"
+        ],
+        "reason": "Issuing a refund and clearing the receivable it should offset, in one hand, is how money leaves without a trail."
+      }
+    ],
+    "separated_holdings": {
+      "buyer_agent": [
+        "raise_po"
+      ],
+      "warehouse_agent": [
+        "fulfill_order"
+      ],
+      "inventory_agent": [
+        "adjust_inventory"
+      ],
+      "ap_agent": [
+        "pay_invoice"
+      ],
+      "ar_agent": [
+        "record_receivable"
+      ],
+      "cs_agent": [
+        "issue_refund"
+      ]
+    }
+  }
 }

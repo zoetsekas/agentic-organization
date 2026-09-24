@@ -249,11 +249,21 @@ def attach_bus(platform: Any, agent_id: str, links: dict[str, Any], *,
         for name in ("assign", "check", "gather", "read_inbox"):
             tools.pop(name, None)
         tools.update(messenger.tools(ctx))
+        current.hop = ctx
+        return tools
+
+    def guard(agent: Any, session_id: str, tools: dict[str, Any]) -> dict[str, Any]:
+        # After the policy wrapper, so a separated call is refused before it
+        # can even stop for approval: no approver can release it.
+        ctx = getattr(current, "hop", None)
+        if agent.id != agent_id or ctx is None:
+            return tools
         return separation_guard(
             policy, ctx, lambda n: platform.harness.decision_class(agent, n), tools,
             record=messenger.record)
 
     platform.runtime.tool_hooks.append(hook)
+    platform.runtime.tool_guards.append(guard)
     if transport is None:
         messenger.transport = connect_from_env(policy, dict(env if env is not None
                                                             else os.environ),

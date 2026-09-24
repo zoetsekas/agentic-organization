@@ -154,6 +154,7 @@ class AgentRuntime:
         # delegation chain it is running for (ADR-0117). A hook can add,
         # replace or remove; it can never get around `guarded`.
         self.tool_hooks: list[Callable[[Agent, str, dict[str, Any]], dict[str, Any]]] = []
+        self.tool_guards: list[Callable[[Agent, str, dict[str, Any]], dict[str, Any]]] = []
 
     def _by_priority(self, handles: list[str]) -> list[str]:
         """Handles, most important first, stably.
@@ -675,6 +676,11 @@ class AgentRuntime:
         # here. Without this the mandate and approval gates bind only callers
         # that were already going through the front door (ADR-0067 rule 5).
         tools = self.harness.guarded(agent, tools)
+        # Refusals that must come before everything else, approval included:
+        # a call a separation forbids to this run is not one a person can
+        # release (ADR-0117). They can only take a tool away, never add one.
+        for guard in self.tool_guards:
+            tools = {k: v for k, v in guard(agent, session.id, tools).items() if k in tools}
 
         adapter_cls = adapter_for(agent)
         adapter: RuntimeAdapter = adapter_cls(

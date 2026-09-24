@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import http.cookiejar
 import json
+import os
 import subprocess
 import sys
 import urllib.error
@@ -61,14 +62,16 @@ def _utf8_console() -> None:
         except (AttributeError, ValueError):
             pass
 
-CHAT = "http://127.0.0.1:18080"
+#: Which copy of the stack: `local_stack.py --project/--port-base` sets these.
+PROJECT = os.environ.get("AYC_PROJECT", "ayc-local")
+BASE = int(os.environ.get("AYC_PORT_BASE", "18000"))
+CHAT = f"http://127.0.0.1:{BASE + 80}"
 ENV = Path(__file__).resolve().parent / "generated" / "local" / ".env"
 #: One browser: the chat's session cookie lives here.
 BROWSER = urllib.request.build_opener(
     urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-MOCK = {"shopify": 18101, "fishbowl": 18102, "accounting": 18103,
-        "cms": 18104, "deploy_pipeline": 18105}
-PROJECT = "ayc-local"
+MOCK = {"shopify": BASE + 101, "fishbowl": BASE + 102, "accounting": BASE + 103,
+        "cms": BASE + 104, "deploy_pipeline": BASE + 105}
 
 failures: list[str] = []
 

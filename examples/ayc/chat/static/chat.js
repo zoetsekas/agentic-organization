@@ -193,6 +193,34 @@ function renderCall(agentId, c) {
   return node;
 }
 
+// Agent-to-agent hops (ADR-0117): what every worker recorded under this
+// reply's trace, stitched together by the chat backend.
+const BUS_TOOLS = new Set(["delegate", "send_message", "check_delegation"]);
+const HOP_LABEL = {
+  bus_sent: "sent", bus_received: "received", bus_task_done: "finished",
+  bus_reply_sent: "answered", bus_reply_received: "got answer",
+  bus_refused_local: "refused by sender", bus_refused_inbound: "refused by receiver",
+  bus_refused_broker: "refused by broker", bus_refused_separation: "refused: separation",
+  bus_send_failed: "send failed",
+};
+
+function renderHops(hops) {
+  if (!hops || !hops.length) return null;
+  return el("details", { class: "hops", open: "" },
+    el("summary", {}, `Agent-to-agent hops (${hops.length})`),
+    el("ol", {}, ...hops.map((h) => {
+      const refused = h.event.startsWith("bus_refused") || h.event === "bus_send_failed";
+      const peer = h.to ? `→ ${h.to}` : h.frm ? `← ${h.frm}` : "";
+      const what = h.kind ? `${h.kind}` : h.tool ? `tool ${h.tool}` : "";
+      const tail = h.reason || h.state || h.text || "";
+      return el("li", { class: refused ? "hop refused" : "hop" },
+        el("span", { class: "hop-agent" }, h.agent),
+        el("span", { class: "hop-event" }, HOP_LABEL[h.event] || h.event),
+        el("span", { class: "hop-peer" }, `${what} ${peer}`.trim()),
+        tail ? el("span", { class: "hop-why" }, String(tail).slice(0, 240)) : null);
+    })));
+}
+
 function renderLog() {
   const box = $("log");
   const id = state.current;
@@ -204,7 +232,8 @@ function renderLog() {
     return el("div", { class: "msg" },
       el("div", { class: "who" }, `${a ? a.name : id} · ${m.state}${m.session ? " · " + m.session : ""}`),
       el("div", { class: "body" }, m.text || "(no reply)"),
-      ...(m.calls || []).map((c) => renderCall(id, c)));
+      ...(m.calls || []).map((c) => renderCall(id, c)),
+      renderHops(m.hops));
   }));
   box.scrollTop = box.scrollHeight;
 }
@@ -214,8 +243,14 @@ async function send(id, text) {
   button.disabled = true;
   try {
     const reply = await api("/api/chat", { agent: id, message: text });
-    push(id, { kind: "agent", text: reply.error ? `${reply.output || ""}\n${reply.error}`.trim() : reply.output,
-               calls: reply.tool_calls, state: reply.state, session: reply.session_id });
+    const entry = { kind: "agent", text: reply.error ? `${reply.output || ""}\n${reply.error}`.trim() : reply.output,
+                    calls: reply.tool_calls, state: reply.state, session: reply.session_id };
+    if (reply.trace_id && (reply.tool_calls || []).some((c) => BUS_TOOLS.has(c.tool))) {
+      try {
+        entry.hops = (await api(`/api/trace/${encodeURIComponent(reply.trace_id)}`)).hops;
+      } catch (e) { /* the reply stands without its trace */ }
+    }
+    push(id, entry);
   } catch (e) {
     push(id, { kind: "error", text: e.message });
   } finally {

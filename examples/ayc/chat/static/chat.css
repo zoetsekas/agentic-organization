@@ -134,3 +134,12 @@ input.ctl { height: var(--ctl-h); width: 170px; font-size: var(--t-small); }
   .roster { max-height: 200px; border-right: 0; border-bottom: 1px solid var(--line); }
   .bar-note { display: none; }
 }
+
+/* Agent-to-agent hops (ADR-0117) */
+.hops { margin-top: var(--s3); border: 1px dashed var(--line); border-radius: var(--r); background: var(--panel); }
+.hops summary { cursor: pointer; padding: var(--s3) var(--s4); font: var(--t-micro) var(--font-mono); text-transform: uppercase; letter-spacing: .06em; }
+.hops ol { margin: 0; padding: 0 var(--s4) var(--s3) calc(var(--s4) + 1.2em); }
+.hop { display: flex; flex-wrap: wrap; gap: var(--s3); padding: 2px 0; font: var(--t-small) var(--font-mono); }
+.hop .hop-agent { font-weight: 500; }
+.hop .hop-why { color: var(--muted, inherit); flex-basis: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
+.hop.refused .hop-event { color: var(--clay-ink); }

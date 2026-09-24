@@ -12,7 +12,11 @@
 #   2. Adds the chat window (examples/ayc/chat), on `control` only: it can ask
 #      an agent to act and cannot reach a system to act for one.
 #   3. Moves the host ports off 8000, which the designer already uses on
-#      this machine, and publishes every port on 127.0.0.1 only (ADR-0114);
+#      this machine, and publishes every port on 127.0.0.1 only (ADR-0114).
+#      Each port is `${AYC_PORT_<NAME>:-default}`, and the images the overlay
+#      builds are named under `${AYC_IMAGE_PREFIX:-ayc-local}`, so a second
+#      copy of the stack (`local_stack.py --project ayc-msg --port-base 19000`)
+#      can run beside this one without touching its ports or its images;
 #      telemetry is not published at all. The fabric uses 4317 here; the
 #      fabric already use on this machine.
 #   4. Swaps the flow engine for the mock of its run API (ADR-0110).
@@ -29,7 +33,7 @@
 x-mock: &mock
   build:
     context: ../../mocks
-  image: ayc-local/mock-system:dev
+  image: ${AYC_IMAGE_PREFIX:-ayc-local}/mock-system:dev
   command: ["python", "server.py"]
   # Hardened like the agents (ADR-0114): the mocks keep their state in memory.
   read_only: true
@@ -41,7 +45,7 @@ x-mock: &mock
 services:
   designer:
     ports: !override
-      - "127.0.0.1:18000:8000"
+      - "127.0.0.1:${AYC_PORT_DESIGNER:-18000}:8000"
 
   memory:
     profiles: [parked]
@@ -53,31 +57,31 @@ services:
     environment:
       MOCK_SYSTEM: shopify
     networks: [srv-shopify, mocks-admin]
-    ports: ["127.0.0.1:18101:8080"]
+    ports: ["127.0.0.1:${AYC_PORT_SHOPIFY:-18101}:8080"]
   mcp-fishbowl:
     <<: *mock
     environment:
       MOCK_SYSTEM: fishbowl
     networks: [srv-fishbowl, mocks-admin]
-    ports: ["127.0.0.1:18102:8080"]
+    ports: ["127.0.0.1:${AYC_PORT_FISHBOWL:-18102}:8080"]
   mcp-accounting:
     <<: *mock
     environment:
       MOCK_SYSTEM: accounting
     networks: [srv-accounting, mocks-admin]
-    ports: ["127.0.0.1:18103:8080"]
+    ports: ["127.0.0.1:${AYC_PORT_ACCOUNTING:-18103}:8080"]
   mcp-cms:
     <<: *mock
     environment:
       MOCK_SYSTEM: cms
     networks: [srv-cms, mocks-admin]
-    ports: ["127.0.0.1:18104:8080"]
+    ports: ["127.0.0.1:${AYC_PORT_CMS:-18104}:8080"]
   mcp-deploy_pipeline:
     <<: *mock
     environment:
       MOCK_SYSTEM: deploy_pipeline
     networks: [srv-deploy_pipeline, mocks-admin]
-    ports: ["127.0.0.1:18105:8080"]
+    ports: ["127.0.0.1:${AYC_PORT_DEPLOY_PIPELINE:-18105}:8080"]
 
   # The tenant's flow engine (ADR-0056, ADR-0110), swapped for the mock of its
   # run API so a workstation need not pull the engine's image. It stays on
@@ -94,7 +98,7 @@ services:
       egress:
         aliases: [flows.internal]
       mocks-admin: {}
-    ports: ["127.0.0.1:17860:7860"]
+    ports: ["127.0.0.1:${AYC_PORT_LANGFLOW:-17860}:7860"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7860/healthz', timeout=2).status == 200 else 1)"]
       interval: 10s
@@ -104,12 +108,12 @@ services:
   chat:
     build:
       context: ../../chat
-    image: ayc-local/chat:dev
+    image: ${AYC_IMAGE_PREFIX:-ayc-local}/chat:dev
     environment:
       CHAT_IR: /app/system.ir.json
       CHAT_WORKER_URL: "http://agent-{agent}:8000"
       CHAT_SYSTEM_LINKS: >-
-        shopify=http://127.0.0.1:18101/state,fishbowl=http://127.0.0.1:18102/state,accounting=http://127.0.0.1:18103/state,cms=http://127.0.0.1:18104/state,deploy_pipeline=http://127.0.0.1:18105/state
+        shopify=http://127.0.0.1:${AYC_PORT_SHOPIFY:-18101}/state,fishbowl=http://127.0.0.1:${AYC_PORT_FISHBOWL:-18102}/state,accounting=http://127.0.0.1:${AYC_PORT_ACCOUNTING:-18103}/state,cms=http://127.0.0.1:${AYC_PORT_CMS:-18104}/state,deploy_pipeline=http://127.0.0.1:${AYC_PORT_DEPLOY_PIPELINE:-18105}/state
       # The issuer of approvals and the caller of every worker (ADR-0114):
       # the Ed25519 private key approvals are signed with (the only copy --
       # workers get the public key), each worker's service token, and each
@@ -143,7 +147,7 @@ services:
     # `control` to reach the workers; `ingress` because a published port
     # needs a network with a gateway, and `control` has none (ADR-0114).
     networks: [control, ingress]
-    ports: ["127.0.0.1:18080:8080"]
+    ports: ["127.0.0.1:${AYC_PORT_CHAT:-18080}:8080"]
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]

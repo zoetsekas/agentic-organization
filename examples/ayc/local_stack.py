@@ -3,6 +3,9 @@
 
     python examples/ayc/local_stack.py up        # env + compile + wheel + build + start
     python examples/ayc/local_stack.py e2e       # the purchase-to-pay scenario
+    python examples/ayc/local_stack.py e2e-messaging   # agents delegating over NATS
+    python examples/ayc/local_stack.py --project ayc-msg --port-base 19000 up
+                                                 # a second copy beside the first
     python examples/ayc/local_stack.py ps
     python examples/ayc/local_stack.py down      # stop (add --volumes to wipe)
     python examples/ayc/local_stack.py rotate-approval-key   # new issuer key
@@ -46,6 +49,27 @@ AYC = ROOT / "examples" / "ayc"
 OUT = AYC / "generated"
 STACK = OUT / "local"
 PROJECT = os.environ.get("AYC_PROJECT", "ayc-local")
+
+#: Host ports, by what they publish, relative to a base (default 18000). A
+#: second copy of the stack runs beside the first with `--project` and
+#: `--port-base`; the overlay reads these as `${AYC_PORT_<NAME>}`.
+PORT_BASE = int(os.environ.get("AYC_PORT_BASE", "18000"))
+PORT_OFFSETS = {"DESIGNER": 0, "CHAT": 80, "SHOPIFY": 101, "FISHBOWL": 102,
+                "ACCOUNTING": 103, "CMS": 104, "DEPLOY_PIPELINE": 105, "LANGFLOW": -140}
+
+
+def ports(base: int) -> dict[str, int]:
+    return {name: base + off for name, off in PORT_OFFSETS.items()}
+
+
+def stack_env(project: str, base: int) -> dict[str, str]:
+    """What compose needs to run this copy: its ports, and an image prefix of
+    its own unless it is the default stack, so building one copy never
+    re-tags the images another is running."""
+    env = {f"AYC_PORT_{k}": str(v) for k, v in ports(base).items()}
+    if project != "ayc-local":
+        env["AYC_IMAGE_PREFIX"] = project
+    return env
 
 #: Names the stack needs values for. Values are generated per checkout, into
 #: a `.env` git ignores; nothing here is a real credential for anything.
@@ -115,6 +139,9 @@ def per_stack_names(ir: dict) -> list[str]:
     """Names that depend on the design (ADR-0114): a service token per worker
     and a sign-in passcode per person the chat may sign in."""
     return ([f"ORGAGENTS_WORKER_TOKEN_{_suffix(a['id'])}" for a in ir["agents"]]
+            # Each agent's broker password, and the bus operator's (ADR-0117).
+            + [f"ORGAGENTS_BUS_PASSWORD_{_suffix(a['id'])}" for a in ir["agents"]]
+            + ["ORGAGENTS_BUS_ADMIN_PASSWORD"]
             + [f"CHAT_PASSCODE_{_suffix(p['id'])}" for p in ir.get("people", [])])
 
 
@@ -127,8 +154,13 @@ def compose(*args: str, check: bool = True, **kw) -> subprocess.CompletedProcess
     files = ["-f", "docker-compose.yaml"]
     for overlay in sorted((STACK / "overlays").glob("*.y*ml")):
         files += ["-f", f"overlays/{overlay.name}"]
+    # More compose files for this copy only (e.g. image names of its own),
+    # from outside the tree: AYC_COMPOSE_EXTRA, os.pathsep-separated.
+    for extra in filter(None, os.environ.get("AYC_COMPOSE_EXTRA", "").split(os.pathsep)):
+        files += ["-f", extra]
+    env = {**os.environ, **stack_env(PROJECT, PORT_BASE)}
     return run("docker", "compose", "-p", PROJECT, *files, *args, cwd=STACK,
-               check=check, **kw)
+               check=check, env=env, **kw)
 
 
 def cmd_env(_: argparse.Namespace) -> None:
@@ -211,18 +243,41 @@ def cmd_up(args: argparse.Namespace) -> None:
     # After the compile, so a newly designed agent or person gets its values.
     cmd_env(args)
     cmd_wheel(args)
-    compose("up", "-d", "--build", "--remove-orphans", "--wait", "--wait-timeout", "900")
+    waited = compose("up", "-d", "--build", "--remove-orphans", "--wait",
+                     "--wait-timeout", "900", check=False)
+    if waited.returncode != 0:
+        # `--wait` counts a one-shot that has finished (bus-init, ADR-0117)
+        # as a failure when it is recreated; what matters is that it exited 0
+        # and everything else is up.
+        import time
+
+        deadline, bad = time.time() + 900, ["no containers"]
+        while time.time() < deadline:
+            out = compose("ps", "-a", "--format", "json", capture_output=True, text=True)
+            rows = [json.loads(x) for x in out.stdout.splitlines()
+                    if x.strip().startswith("{")]
+            bad = [r["Service"] for r in rows
+                   if (r["Service"] == "bus-init" and r.get("ExitCode") != 0)
+                   or (r["Service"] != "bus-init" and (
+                       r.get("State") != "running"
+                       or r.get("Health") not in ("", None, "healthy")))]
+            if rows and not bad:
+                break
+            time.sleep(5)
+        else:
+            raise SystemExit(f"the stack did not come up: {', '.join(bad)}")
     compose("ps")
-    print("""
-AYC is up (project '%s'), on this machine only (127.0.0.1):
-  chat with any agent      http://127.0.0.1:18080/
-  tenant designer/API      http://127.0.0.1:18000/ui/
-  mock Shopify state       http://127.0.0.1:18101/state
-  mock Fishbowl state      http://127.0.0.1:18102/state
-  mock accounting state    http://127.0.0.1:18103/state
-  mock CMS state           http://127.0.0.1:18104/state
-  mock deploy pipeline     http://127.0.0.1:18105/state
-""" % PROJECT)
+    p = ports(PORT_BASE)
+    print(f"""
+AYC is up (project '{PROJECT}'), on this machine only (127.0.0.1):
+  chat with any agent      http://127.0.0.1:{p['CHAT']}/
+  tenant designer/API      http://127.0.0.1:{p['DESIGNER']}/ui/
+  mock Shopify state       http://127.0.0.1:{p['SHOPIFY']}/state
+  mock Fishbowl state      http://127.0.0.1:{p['FISHBOWL']}/state
+  mock accounting state    http://127.0.0.1:{p['ACCOUNTING']}/state
+  mock CMS state           http://127.0.0.1:{p['CMS']}/state
+  mock deploy pipeline     http://127.0.0.1:{p['DEPLOY_PIPELINE']}/state
+""")
     cmd_passcodes(args)
 
 
@@ -234,14 +289,28 @@ def cmd_ps(_: argparse.Namespace) -> None:
     compose("ps")
 
 
+def _script_env() -> dict[str, str]:
+    return {**os.environ, "AYC_PROJECT": PROJECT, "AYC_PORT_BASE": str(PORT_BASE)}
+
+
 def cmd_e2e(_: argparse.Namespace) -> None:
-    run(sys.executable, str(AYC / "end_to_end_local.py"))
+    run(sys.executable, str(AYC / "end_to_end_local.py"), env=_script_env())
+
+
+def cmd_e2e_messaging(_: argparse.Namespace) -> None:
+    run(sys.executable, str(AYC / "end_to_end_messaging.py"), env=_script_env())
 
 
 def main() -> int:
+    global PROJECT, PORT_BASE
     _utf8_console()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--project", default=PROJECT,
+                    help="Compose project name (default ayc-local, or $AYC_PROJECT)")
+    ap.add_argument("--port-base", type=int, default=PORT_BASE,
+                    help="host port base: designer on it, chat on +80, mocks on "
+                         "+101..+105 (default 18000, or $AYC_PORT_BASE)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("env", help="write generated/local/.env with fresh local values")
     sub.add_parser("generate", help="compile AYC for the local target")
@@ -258,9 +327,13 @@ def main() -> int:
     rot.add_argument("--keep", type=int, default=1,
                      help="how many previous public keys workers still trust (default 1)")
     sub.add_parser("e2e", help="run the purchase-to-pay scenario against it")
+    sub.add_parser("e2e-messaging",
+                   help="run the agent-to-agent delegation scenario against it")
     args = ap.parse_args()
+    PROJECT, PORT_BASE = args.project, args.port_base
     {"env": cmd_env, "generate": cmd_generate, "wheel": cmd_wheel, "up": cmd_up,
      "down": cmd_down, "ps": cmd_ps, "e2e": cmd_e2e,
+     "e2e-messaging": cmd_e2e_messaging,
      "passcodes": cmd_passcodes, "rotate-approval-key": cmd_rotate}[args.cmd](args)
     return 0
 
