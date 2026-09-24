@@ -3991,6 +3991,10 @@
      "nullable": false,
      "type": "bigint"
     },
+    "schema_ref": {
+     "nullable": true,
+     "type": "text"
+    },
     "scope": {
      "nullable": false,
      "type": "text"
