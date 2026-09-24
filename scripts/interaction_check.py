@@ -730,7 +730,7 @@ async def main() -> None:
           const target = classes[1];
           const before = target.id;
           // What a person does in the form: type an id another component has.
-          try { d.renameComponent("data_class", before, classes[0].id); }
+          try { d.renameComponent("policy", before, classes[0].id); }
           catch (e) { return { refused: true, why: e.message }; }
           return { refused: false, now: target.id };
         }""")

@@ -4063,6 +4063,15 @@ function seedFor(kind, id) {
   const seed = { name: nextName(kind, id) };
   if (kind === "subagent") Object.assign(seed, { kind: "research" });
   if (kind === "memory_namespace") Object.assign(seed, { scope: "private" });
+  if (kind === "policy") {
+    /* `effect` is required, so a rule dropped without one was refused by the
+       model and the palette's Policy rule could not be placed at all. A new
+       rule matches everything until it is narrowed, so it starts as a deny:
+       failing closed, and saying so, beats a fresh allow-all grant. */
+    Object.assign(seed, { effect: "deny",
+      description: "New rule: denies everything until its actions, resources "
+        + "and subjects are narrowed." });
+  }
   if (kind === "evaluation") {
     // No `applies_to` would apply it to every agent — a wider claim than a
     // drop on a canvas means (ADR-0102).
