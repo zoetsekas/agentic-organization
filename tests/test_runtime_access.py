@@ -98,7 +98,10 @@ def _own_nodes(fn):
 def test_no_route_reads_an_identity_header_itself():
     """Only `principal` (which hands the request to the authenticator) may
     declare a header parameter or read `request.headers`."""
-    tree = ast.parse(API.read_text(encoding="utf-8"))
+    # `api.py` and every router in `routes/`: the routes live in both.
+    sources = [API, *sorted((API.parent / "routes").glob("*.py"))]
+    tree = ast.Module(body=[n for p in sources for n in ast.parse(
+        p.read_text(encoding="utf-8")).body], type_ignores=[])
     offenders = []
     for fn in ast.walk(tree):
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
