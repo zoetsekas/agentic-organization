@@ -2,7 +2,7 @@
 id: ADR-0112
 title: Everything the platform models is in a UML profile, and there is one profile per concern
 status: Accepted
-version: 1.0.0
+version: 1.1.0
 date: 2026-09-23
 updated: 2026-09-23
 deciders: [Platform Architecture]
@@ -12,7 +12,8 @@ scope: [spec, compiler, targets, ui, docs]
 workstreams: [WS-032]
 supersedes: []
 superseded_by: []
-related: [ADR-0004, ADR-0034, ADR-0085, ADR-0099, ADR-0101, ADR-0102, ADR-0103, ADR-0104, ADR-0110, ADR-0111]
+related: [ADR-0004, ADR-0034, ADR-0085, ADR-0099, ADR-0101, ADR-0102, ADR-0103, ADR-0104, ADR-0110, ADR-0111, ADR-0113]
+amends: [ADR-0101]
 tags: [uml, metamodel, profile, completeness, binding, deployment]
 ---
 
@@ -84,7 +85,15 @@ is checkable: every class and enumeration reachable from `SystemSpec` or
    | **Deployment** | Binding, Server, Target, Runtime, Infrastructure, and one binding per spec concern | every profile above; nothing imports it |
 
    A stereotype belongs to exactly one profile. A relationship belongs to the
-   profile of its owning end. An import cycle is an error.
+   profile that declares it, and both of its ends must be visible from there
+   — declared in that profile or in one it imports, directly or through an
+   import (UML package import is public, so transitive). *(1.1.0: this
+   replaces "the profile of its owning end", which cannot hold when the
+   owning end is in a profile that does not import the other end: an agent's
+   `data_dependencies` is stored on the agent, in Organisation, but names a
+   DataClass, in Data. The association is owned by the Data profile, as UML
+   lets a package own an association whose ends are classifiers elsewhere.)*
+   An import cycle is an error.
 6. **Diagrams are views of profiles.** Each diagram aspect (ADR-0100) names
    the profiles it draws from: Organisation draws Organisation, Authority and
    Access; Process draws Process; Data draws Data (ADR-0111); a new
@@ -92,6 +101,20 @@ is checkable: every class and enumeration reachable from `SystemSpec` or
    of the profiles the open diagram draws.
 7. **Layout stays out.** Where a box sits is diagram interchange, not model
    (ADR-0034), and is not part of any profile.
+8. **The profile is the source of truth for meaning** *(1.1.0; amends
+   ADR-0101)*. Three artefacts describe the model, and an architecture review
+   asked which one wins. The answer:
+
+   | Artefact | Role | Written by |
+   |---|---|---|
+   | The UML profiles (`orgagents/metamodel/*.py`) | **Authoritative** for what the model means: its types, relationships, relationship kinds, multiplicities, owning ends and enumeration literals | people |
+   | `spec/model.py`, `spec/binding.py` (Pydantic) | The **Python realisation** of the profile: parsing, defaults, validation messages. Held equal to the profile by the completeness test *in both directions* — every class, enumeration and field of the models is declared in the profile, and every declaration names a class, literal or field the models have, with a matching type and multiplicity | people, in the same change as the profile |
+   | `docs/metamodel/*.puml` and the profile reference `docs/metamodel/<profile>.md` | **Generated** from the profile (`orgagents metamodel docs`); never hand-edited. A test fails when the committed output is stale | the generator |
+
+   Where the profile and `model.py` disagree, the build fails; the fix is
+   decided by what the model *should* mean, which the profile states, and
+   `model.py` follows. The profile is **not** generated from Pydantic (see
+   *Alternatives*), and the diagrams are never an input.
 
 ## Scope
 `orgagents.metamodel` (split into a package of profiles), the link rules and
@@ -127,6 +150,18 @@ profiles with no behaviour change; add the completeness test with the current
 gap as an explicit, shrinking allow-list; close the gap concern by concern
 (Authority and Data first, because they carry restrictions; Deployment last);
 remove the allow-list.
+
+### Milestones *(1.1.0)*
+
+| # | Milestone | Entry criteria | Exit criteria |
+|---|---|---|---|
+| M1 | **Split, no behaviour change** | ADR-0110 Milestone 1 merged; `link_rules()` output captured to a committed snapshot *before* any code moves | `metamodel/` is a package of the nine profile modules; every existing import from `orgagents.metamodel` works unchanged; the link rules equal the snapshot (same rules, same order for every pair of kinds); profile integrity tests pass; full suite green |
+| M2 | **Completeness enforced** | M1 exit | The completeness test walks every class and enumeration reachable from `SystemSpec` and `Binding`, checks each is declared in exactly one profile and each field is a declared property or relationship end with a matching type; the current gap is an explicit allow-list the test also refuses to let grow *or* go stale (an entry that is now declared fails until removed); full suite green |
+| M3 | **Authority and Data declared** | M2 exit | No Authority or Data class, field or enumeration on the allow-list: `Mandate`, `Permission`, `ControlEnforcement`, `CapabilityConstraint`, `DataRelation` (as the four ADR-0111 relationships), `DataDependency`'s attributes, `ArtifactStore`, and their enumerations are declared; every declared enumeration's literals equal the Python enum's (test) |
+| M4 | **Spec profiles complete** | M3 exit | Core, Organisation, Access, Knowledge, Process and Assurance have no allow-list entries; every spec enumeration is a UML Enumeration |
+| M5 | **Generated reference** | M2 exit (may run alongside M3–M4) | `orgagents metamodel docs` writes one page per profile (stereotypes, DataTypes, enumerations, relationships, class diagram) and regenerates the `.puml` files; a test fails when the committed output is stale; the metamodel API reports each stereotype's profile |
+| M6 | **Deployment declared; allow-list removed** | M4 exit | The binding's classes are declared in the Deployment profile as UML deployment; the allow-list is empty and deleted; the Verification section below holds |
+| M7 | **Designer by profile** | M5 exit | The palette is grouped by profile, each diagram aspect names its profiles, and a Deployment aspect draws the AYC binding |
 
 ## Timeline
 After ADR-0110 Milestone 1. ADR-0111 (data relations and the Data diagram)
@@ -173,4 +208,5 @@ Deployment diagram for the AYC binding.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.1.0 | 2026-09-23 | Decision 8: the UML profile is authoritative for meaning, `model.py` is its Python realisation held equal by the completeness test in both directions, and `docs/metamodel` is generated from the profile (amends ADR-0101). A relationship belongs to the profile that declares it and must see both ends. Milestones with entry and exit criteria. |
 | 1.0.0 | 2026-09-23 | Accepted. |
