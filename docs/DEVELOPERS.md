@@ -96,7 +96,7 @@ Extras: `dev` (pytest, httpx, jsonschema), `client` (httpx, for
 | Path | What lives there |
 |---|---|
 | `src/orgagents/spec/` | The System Spec (`model.py`), bindings, loader/migrations, the validator (`validate.py`), the issue catalog (`issue_catalog.yaml`, `issue_codes.py`) |
-| `src/orgagents/metamodel/` | The UML profile (`__init__.py`: stereotypes, relationships), constraints, **model operations** (`operations.py`), scenarios, the spec→IR transformation trace |
+| `src/orgagents/metamodel/` | The UML profiles, one module per concern (`core.py` … `deployment.py`, in the UML subset of `uml.py`, assembled by `__init__.py`), the completeness check (`completeness.py`), the generated reference (`reference.py`), constraints, **model operations** (`operations.py`), scenarios, the spec→IR transformation trace |
 | `src/orgagents/compiler/` | IR (`ir.py`), the engine, the target registry (`base.py`), `targets/` (local, langgraph, adk, maf, terraform, template), IR diff |
 | `src/orgagents/runtime/` | Adapters per framework, workflow engines registry (`engines.py`), the worker a generated container runs |
 | `src/orgagents/designer/` | `DesignerService`, RBAC for people (`rbac.py`), auth (`auth.py`), repositories, locks and merge, audit, gestures, layout |
@@ -138,17 +138,35 @@ Extras: `dev` (pytest, httpx, jsonschema), `client` (httpx, for
 
 ### Add a stereotype or a relationship to the profile
 
-1. Add the field to the spec model in `src/orgagents/spec/model.py`.
-2. Declare it in `src/orgagents/metamodel/__init__.py`: a `Stereotype(...)` in
-   `STEREOTYPES` (name `«Kind»`, `kind`, the `MetaClass` it extends, the
-   `collection` it lives in, the spec `model` class) and/or a
-   `Relationship(...)` in `RELATIONSHIPS` (source, target, UML kind,
-   multiplicities, `field`).
-3. Regenerate the diagrams: `orgagents metamodel diagram` (writes
-   `docs/metamodel/*.puml`), and `orgagents metamodel scenarios`.
-4. Run `tests/test_metamodel.py`, `test_designer_palette_coverage.py` and
-   `test_designer_covers_the_model.py` — they hold the palette, link rules and
-   canvas to the profile.
+The UML profiles are the source of truth for what the model means
+(ADR-0112 §8); `spec/model.py` and `spec/binding.py` are their Python
+realisation. Every class, enumeration and field of the models must be
+declared in exactly one profile, and `tests/test_metamodel_completeness.py`
+fails the build otherwise — in both directions (an undeclared field, or a
+declaration the models contradict).
+
+1. Decide which profile the concept belongs to — `core`, `organisation`,
+   `authority`, `access`, `data`, `knowledge`, `process`, `assurance` or
+   `deployment` (the binding) in `src/orgagents/metamodel/` — and declare it
+   there: a `Stereotype(...)` for a thing with identity (name `«Kind»`,
+   `kind`, the `MetaClass` it extends, the `collection` it lives in, the spec
+   `model` class, `palette=False` if the palette does not offer it), a
+   `DataType(...)` for a value, an `Enumeration(...)` with its literals, a
+   `Relationship(...)` for every field holding ids (source, target, UML kind,
+   multiplicities, `field`), and `props(owner, "name: Type [mult] -- doc")`
+   for every field holding a value.
+2. Put a relationship or property in a profile that sees both ends: the
+   declaring profile or one it imports (`test_metamodel_profiles.py` checks,
+   and that imports stay acyclic and nothing imports Deployment).
+3. Add the field to `src/orgagents/spec/model.py` (or `binding.py`).
+4. Regenerate: `orgagents metamodel docs` (the profile reference
+   `docs/metamodel/<profile>.md` and the `.puml` diagrams — never edit them by
+   hand), `orgagents metamodel scenarios`, `orgagents metamodel
+   transformation` and `orgagents designer gestures`.
+5. Run `tests/test_metamodel*.py`, `test_transformation.py`,
+   `test_designer_palette_coverage.py` and `test_designer_covers_the_model.py`
+   — they hold the models, the palette, link rules, trace and canvas to the
+   profiles.
 
 ### Add a validator rule and an issue code
 
@@ -344,5 +362,6 @@ Add to `claude_desktop_config.json` (Settings → Developer → Edit config):
 - Commit subjects say what the change does for a user, with the ADR in
   parentheses: `Canvas filters by relationship kind; side panels resize (ADR-0105)`.
 - Regenerate what is generated in the same commit: `docs/api/openapi.json`
-  (`orgagents api schema`), `docs/metamodel/*` (`orgagents metamodel
+  (`orgagents api schema`), `docs/metamodel/*` (`orgagents metamodel docs`,
+  `orgagents metamodel
   diagram`), the record indexes.

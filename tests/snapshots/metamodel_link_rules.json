@@ -1,0 +1,1724 @@
+{
+ "link_rules": [
+  {
+   "bidirectional": false,
+   "draw": "edge",
+   "field": "teams",
+   "help": "the target becomes a sub-team of the source. Authority and permissions narrow downward from here (ADR-0008, ADR-0065)",
+   "key": "",
+   "label": "contains",
+   "multiplicity": [
+    "0..1",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "contains",
+   "shape": "part",
+   "source": "team",
+   "target": "team",
+   "uml": "composition",
+   "writes": "team.teams"
+  },
+  {
+   "bidirectional": false,
+   "draw": "edge",
+   "field": "members",
+   "help": "an agent belongs to exactly one team, which is what bounds what it may hold",
+   "key": "",
+   "label": "has member",
+   "multiplicity": [
+    "1",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "member",
+   "shape": "part",
+   "source": "team",
+   "target": "agent",
+   "uml": "composition",
+   "writes": "team.members"
+  },
+  {
+   "bidirectional": false,
+   "draw": "edge",
+   "field": "subagents",
+   "help": "a tool-shaped worker this agent may call (ADR-0027)",
+   "key": "",
+   "label": "uses",
+   "multiplicity": [
+    "1",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "uses",
+   "shape": "part",
+   "source": "agent",
+   "target": "subagent",
+   "uml": "composition",
+   "writes": "agent.subagents"
+  },
+  {
+   "bidirectional": false,
+   "draw": "nest",
+   "field": "environments",
+   "help": "the sandbox class this agent runs in; one of several (ADR-0082). Drop an agent into an environment's box to deploy it",
+   "key": "environment",
+   "label": "runs in",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "runs in",
+   "shape": "ref_objects",
+   "source": "agent",
+   "target": "environment",
+   "uml": "deployment",
+   "writes": "agent.environments"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "knowledge",
+   "help": "grounding material this worker may consult",
+   "key": "",
+   "label": "consults",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "consults",
+   "shape": "refs",
+   "source": "agent",
+   "target": "knowledge",
+   "uml": "association",
+   "writes": "agent.knowledge"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "knowledge",
+   "help": "grounding material this worker may consult",
+   "key": "",
+   "label": "consults",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "consults",
+   "shape": "refs",
+   "source": "subagent",
+   "target": "knowledge",
+   "uml": "association",
+   "writes": "subagent.knowledge"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "capabilities",
+   "help": "what this worker may do",
+   "key": "",
+   "label": "provides",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "provides",
+   "shape": "refs",
+   "source": "agent",
+   "target": "capability",
+   "uml": "realization",
+   "writes": "agent.capabilities"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "capabilities",
+   "help": "what this worker may do",
+   "key": "",
+   "label": "provides",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "provides",
+   "shape": "refs",
+   "source": "subagent",
+   "target": "capability",
+   "uml": "realization",
+   "writes": "subagent.capabilities"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "roles",
+   "help": "a role the whole unit plays: it grants every member, and the members of its sub-teams (ADR-0007)",
+   "key": "role",
+   "label": "plays",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "plays",
+   "shape": "ref_objects",
+   "source": "team",
+   "target": "role",
+   "uml": "association",
+   "writes": "team.roles"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "roles",
+   "help": "a role and the capabilities it grants",
+   "key": "role",
+   "label": "plays",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "plays",
+   "shape": "ref_objects",
+   "source": "agent",
+   "target": "role",
+   "uml": "association",
+   "writes": "agent.roles"
+  },
+  {
+   "bidirectional": true,
+   "draw": "inline",
+   "field": "skills",
+   "help": "a named competence this agent may exercise. Shared freely: declaring it on a second agent does not take it from the first",
+   "key": "",
+   "label": "holds",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "holds",
+   "shape": "refs",
+   "source": "agent",
+   "target": "skill",
+   "uml": "association",
+   "writes": "agent.skills"
+  },
+  {
+   "bidirectional": true,
+   "draw": "inline",
+   "field": "plugins",
+   "help": "a packaged extension this agent loads",
+   "key": "",
+   "label": "holds",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "holds",
+   "shape": "refs",
+   "source": "agent",
+   "target": "plugin",
+   "uml": "association",
+   "writes": "agent.plugins"
+  },
+  {
+   "bidirectional": true,
+   "draw": "inline",
+   "field": "tools",
+   "help": "a tool this agent may call. A tool held by one agent is drawn inside it; one held by several is drawn shared",
+   "key": "",
+   "label": "holds",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "holds",
+   "shape": "refs",
+   "source": "agent",
+   "target": "tool",
+   "uml": "usage",
+   "writes": "agent.tools"
+  },
+  {
+   "bidirectional": true,
+   "draw": "inline",
+   "field": "tools",
+   "help": "a tool this agent may call. A tool held by one agent is drawn inside it; one held by several is drawn shared",
+   "key": "",
+   "label": "holds",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "holds",
+   "shape": "refs",
+   "source": "subagent",
+   "target": "tool",
+   "uml": "usage",
+   "writes": "subagent.tools"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "endpoints",
+   "help": "an external agent this one may call",
+   "key": "",
+   "label": "calls",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "calls",
+   "shape": "refs",
+   "source": "agent",
+   "target": "endpoint",
+   "uml": "usage",
+   "writes": "agent.endpoints"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "workflows",
+   "help": "an encoded process this agent may invoke",
+   "key": "",
+   "label": "runs",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "runs",
+   "shape": "refs",
+   "source": "agent",
+   "target": "workflow",
+   "uml": "usage",
+   "writes": "agent.workflows"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "produces_data",
+   "help": "data this agent produces (ADR-0099)",
+   "key": "",
+   "label": "produces",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "produces",
+   "shape": "refs",
+   "source": "agent",
+   "target": "data_class",
+   "uml": "association",
+   "writes": "agent.produces_data"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "data_dependencies",
+   "help": "data this agent relies on, with freshness (ADR-0099)",
+   "key": "data_class",
+   "label": "relies on",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "relies on",
+   "shape": "ref_objects",
+   "source": "agent",
+   "target": "data_class",
+   "uml": "association",
+   "writes": "agent.data_dependencies"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "humans",
+   "help": "a human counterpart (ADR-0026)",
+   "key": "person",
+   "label": "paired with",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "paired with",
+   "shape": "ref_objects",
+   "source": "agent",
+   "target": "person",
+   "uml": "association",
+   "writes": "agent.humans"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "guardrails",
+   "help": "",
+   "key": "",
+   "label": "guarded by",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "guarded by",
+   "shape": "refs",
+   "source": "agent",
+   "target": "guardrail",
+   "uml": "association",
+   "writes": "agent.guardrails"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "output_contract",
+   "help": "",
+   "key": "",
+   "label": "returns",
+   "multiplicity": [
+    "0..*",
+    "0..1"
+   ],
+   "owner": "source",
+   "relationship": "returns",
+   "shape": "ref",
+   "source": "agent",
+   "target": "output_contract",
+   "uml": "association",
+   "writes": "agent.output_contract"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "output_contract",
+   "help": "",
+   "key": "",
+   "label": "returns",
+   "multiplicity": [
+    "0..*",
+    "0..1"
+   ],
+   "owner": "source",
+   "relationship": "returns",
+   "shape": "ref",
+   "source": "subagent",
+   "target": "output_contract",
+   "uml": "association",
+   "writes": "subagent.output_contract"
+  },
+  {
+   "bidirectional": false,
+   "draw": "edge",
+   "field": "interaction_flows",
+   "help": "a declared, directional interaction (ADR-0024). Two agents are not otherwise connected: membership is what puts them in an organisation, not a line between them",
+   "key": "",
+   "kinds": [
+    "delegate",
+    "consult",
+    "notify",
+    "escalate"
+   ],
+   "label": "may\u2026",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "flow",
+   "shape": "record",
+   "source": "agent",
+   "target": "agent",
+   "uml": "association",
+   "writes": "interaction_flows"
+  },
+  {
+   "bidirectional": false,
+   "draw": "edge",
+   "field": "unit_links",
+   "help": "a relationship that is not containment: oversight, escalation or a shared service. It grants nothing, narrows nothing and inherits nothing \u2014 an overseer that sits inside what it oversees is refused (ADR-0081)",
+   "key": "",
+   "kinds": [
+    "oversees",
+    "escalates_to",
+    "serves",
+    "partners_with"
+   ],
+   "label": "is associated with",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "association",
+   "shape": "record",
+   "source": "team",
+   "target": "team",
+   "uml": "association",
+   "writes": "unit_links"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "agent",
+   "help": "unattended work: the trigger wakes this agent (ADR-0018)",
+   "key": "",
+   "label": "fires",
+   "multiplicity": [
+    "0..*",
+    "1"
+   ],
+   "owner": "source",
+   "relationship": "fires",
+   "shape": "ref",
+   "source": "trigger",
+   "target": "agent",
+   "uml": "association",
+   "writes": "trigger.agent"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "workflow",
+   "help": "",
+   "key": "",
+   "label": "starts",
+   "multiplicity": [
+    "0..*",
+    "0..1"
+   ],
+   "owner": "source",
+   "relationship": "starts",
+   "shape": "ref",
+   "source": "trigger",
+   "target": "workflow",
+   "uml": "association",
+   "writes": "trigger.workflow"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "capabilities",
+   "help": "",
+   "key": "",
+   "label": "grants",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "grants",
+   "shape": "refs",
+   "source": "role",
+   "target": "capability",
+   "uml": "association",
+   "writes": "role.capabilities"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "data_classes",
+   "help": "",
+   "key": "",
+   "label": "reaches",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "reaches",
+   "shape": "refs",
+   "source": "capability",
+   "target": "data_class",
+   "uml": "association",
+   "writes": "capability.data_classes"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "data_classes",
+   "help": "",
+   "key": "",
+   "label": "contains",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "contains",
+   "shape": "refs",
+   "source": "knowledge",
+   "target": "data_class",
+   "uml": "association",
+   "writes": "knowledge.data_classes"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "data_classes",
+   "help": "",
+   "key": "",
+   "label": "stores",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "stores",
+   "shape": "refs",
+   "source": "memory_namespace",
+   "target": "data_class",
+   "uml": "association",
+   "writes": "memory_namespace.data_classes"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "data_classes",
+   "help": "",
+   "key": "",
+   "label": "protects",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "protects",
+   "shape": "refs",
+   "source": "guardrail",
+   "target": "data_class",
+   "uml": "association",
+   "writes": "guardrail.data_classes"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "send_data_classes",
+   "help": "",
+   "key": "",
+   "label": "may receive",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "may receive",
+   "shape": "refs",
+   "source": "endpoint",
+   "target": "data_class",
+   "uml": "association",
+   "writes": "endpoint.send_data_classes"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "requires_capabilities",
+   "help": "",
+   "key": "",
+   "label": "requires",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "requires",
+   "shape": "refs",
+   "source": "skill",
+   "target": "capability",
+   "uml": "usage",
+   "writes": "skill.requires_capabilities"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "requires_capabilities",
+   "help": "",
+   "key": "",
+   "label": "requires",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "requires",
+   "shape": "refs",
+   "source": "plugin",
+   "target": "capability",
+   "uml": "usage",
+   "writes": "plugin.requires_capabilities"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "provides_skills",
+   "help": "",
+   "key": "",
+   "label": "provides",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "provides",
+   "shape": "refs",
+   "source": "plugin",
+   "target": "skill",
+   "uml": "association",
+   "writes": "plugin.provides_skills"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "provides_tools",
+   "help": "",
+   "key": "",
+   "label": "provides",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "provides",
+   "shape": "refs",
+   "source": "plugin",
+   "target": "tool",
+   "uml": "association",
+   "writes": "plugin.provides_tools"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "decisions",
+   "help": "",
+   "key": "",
+   "label": "keeps apart",
+   "multiplicity": [
+    "0..*",
+    "2..*"
+   ],
+   "owner": "source",
+   "relationship": "keeps apart",
+   "shape": "refs",
+   "source": "separation",
+   "target": "decision",
+   "uml": "association",
+   "writes": "separation.decisions"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "applies_to",
+   "help": "",
+   "key": "",
+   "label": "evaluates",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "evaluates",
+   "shape": "refs",
+   "source": "evaluation",
+   "target": "agent",
+   "uml": "association",
+   "writes": "evaluation.applies_to"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "members",
+   "help": "",
+   "key": "",
+   "label": "includes",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "includes",
+   "shape": "refs",
+   "source": "channel",
+   "target": "agent",
+   "uml": "association",
+   "writes": "channel.members"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "members",
+   "help": "",
+   "key": "",
+   "label": "includes",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "includes",
+   "shape": "refs",
+   "source": "mission",
+   "target": "agent",
+   "uml": "association",
+   "writes": "mission.members"
+  },
+  {
+   "bidirectional": false,
+   "draw": "nest",
+   "field": "environments",
+   "help": "a sandbox this sub-agent runs in; one of its parent's",
+   "key": "",
+   "label": "runs in",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "runs in",
+   "shape": "refs",
+   "source": "subagent",
+   "target": "environment",
+   "uml": "deployment",
+   "writes": "subagent.environments"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "subjects",
+   "help": "who the rule is about: agents, teams or roles, by id",
+   "key": "",
+   "label": "applies to",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "applies to",
+   "shape": "refs",
+   "source": "policy",
+   "target": "agent",
+   "uml": "association",
+   "writes": "policy.subjects"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "subjects",
+   "help": "who the rule is about: agents, teams or roles, by id",
+   "key": "",
+   "label": "applies to",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "applies to",
+   "shape": "refs",
+   "source": "policy",
+   "target": "team",
+   "uml": "association",
+   "writes": "policy.subjects"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "subjects",
+   "help": "who the rule is about: agents, teams or roles, by id",
+   "key": "",
+   "label": "applies to",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "applies to",
+   "shape": "refs",
+   "source": "policy",
+   "target": "role",
+   "uml": "association",
+   "writes": "policy.subjects"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "resources",
+   "help": "what the rule allows or denies acting on",
+   "key": "",
+   "label": "governs",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "governs",
+   "shape": "refs",
+   "source": "policy",
+   "target": "data_class",
+   "uml": "association",
+   "writes": "policy.resources"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "resources",
+   "help": "what the rule allows or denies acting on",
+   "key": "",
+   "label": "governs",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "governs",
+   "shape": "refs",
+   "source": "policy",
+   "target": "capability",
+   "uml": "association",
+   "writes": "policy.resources"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "resources",
+   "help": "what the rule allows or denies acting on",
+   "key": "",
+   "label": "governs",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "governs",
+   "shape": "refs",
+   "source": "policy",
+   "target": "agent",
+   "uml": "association",
+   "writes": "policy.resources"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "resources",
+   "help": "what the rule allows or denies acting on",
+   "key": "",
+   "label": "governs",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "governs",
+   "shape": "refs",
+   "source": "policy",
+   "target": "team",
+   "uml": "association",
+   "writes": "policy.resources"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "resources",
+   "help": "what the rule allows or denies acting on",
+   "key": "",
+   "label": "governs",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "governs",
+   "shape": "refs",
+   "source": "policy",
+   "target": "workflow",
+   "uml": "association",
+   "writes": "policy.resources"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "resources",
+   "help": "what the rule allows or denies acting on",
+   "key": "",
+   "label": "governs",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "governs",
+   "shape": "refs",
+   "source": "policy",
+   "target": "environment",
+   "uml": "association",
+   "writes": "policy.resources"
+  },
+  {
+   "bidirectional": true,
+   "draw": "edge",
+   "field": "resources",
+   "help": "what the rule allows or denies acting on",
+   "key": "",
+   "label": "governs",
+   "multiplicity": [
+    "0..*",
+    "0..*"
+   ],
+   "owner": "source",
+   "relationship": "governs",
+   "shape": "refs",
+   "source": "policy",
+   "target": "channel",
+   "uml": "association",
+   "writes": "policy.resources"
+  }
+ ],
+ "relationships": [
+  [
+   "organization",
+   "team",
+   "generalization",
+   "",
+   ""
+  ],
+  [
+   "agent",
+   "worker",
+   "generalization",
+   "",
+   ""
+  ],
+  [
+   "subagent",
+   "worker",
+   "generalization",
+   "",
+   ""
+  ],
+  [
+   "team",
+   "team",
+   "composition",
+   "contains",
+   "teams"
+  ],
+  [
+   "team",
+   "agent",
+   "composition",
+   "member",
+   "members"
+  ],
+  [
+   "agent",
+   "subagent",
+   "composition",
+   "uses",
+   "subagents"
+  ],
+  [
+   "agent",
+   "environment",
+   "deployment",
+   "runs in",
+   "environments"
+  ],
+  [
+   "worker",
+   "knowledge",
+   "association",
+   "consults",
+   "knowledge"
+  ],
+  [
+   "worker",
+   "capability",
+   "realization",
+   "provides",
+   "capabilities"
+  ],
+  [
+   "team",
+   "role",
+   "association",
+   "plays",
+   "roles"
+  ],
+  [
+   "agent",
+   "role",
+   "association",
+   "plays",
+   "roles"
+  ],
+  [
+   "agent",
+   "skill",
+   "association",
+   "holds",
+   "skills"
+  ],
+  [
+   "agent",
+   "plugin",
+   "association",
+   "holds",
+   "plugins"
+  ],
+  [
+   "worker",
+   "tool",
+   "usage",
+   "holds",
+   "tools"
+  ],
+  [
+   "agent",
+   "endpoint",
+   "usage",
+   "calls",
+   "endpoints"
+  ],
+  [
+   "agent",
+   "workflow",
+   "usage",
+   "runs",
+   "workflows"
+  ],
+  [
+   "agent",
+   "data_class",
+   "association",
+   "produces",
+   "produces_data"
+  ],
+  [
+   "agent",
+   "data_class",
+   "association",
+   "relies on",
+   "data_dependencies"
+  ],
+  [
+   "agent",
+   "person",
+   "association",
+   "paired with",
+   "humans"
+  ],
+  [
+   "agent",
+   "guardrail",
+   "association",
+   "guarded by",
+   "guardrails"
+  ],
+  [
+   "worker",
+   "output_contract",
+   "association",
+   "returns",
+   "output_contract"
+  ],
+  [
+   "agent",
+   "agent",
+   "association",
+   "successor",
+   "successor"
+  ],
+  [
+   "team",
+   "agent",
+   "association",
+   "leads",
+   "leader"
+  ],
+  [
+   "agent",
+   "agent",
+   "association",
+   "flow",
+   "interaction_flows"
+  ],
+  [
+   "team",
+   "team",
+   "association",
+   "unit link",
+   "unit_links"
+  ],
+  [
+   "trigger",
+   "agent",
+   "association",
+   "fires",
+   "agent"
+  ],
+  [
+   "trigger",
+   "workflow",
+   "association",
+   "starts",
+   "workflow"
+  ],
+  [
+   "role",
+   "capability",
+   "association",
+   "grants",
+   "capabilities"
+  ],
+  [
+   "capability",
+   "data_class",
+   "association",
+   "reaches",
+   "data_classes"
+  ],
+  [
+   "knowledge",
+   "data_class",
+   "association",
+   "contains",
+   "data_classes"
+  ],
+  [
+   "memory_namespace",
+   "data_class",
+   "association",
+   "stores",
+   "data_classes"
+  ],
+  [
+   "guardrail",
+   "data_class",
+   "association",
+   "protects",
+   "data_classes"
+  ],
+  [
+   "endpoint",
+   "data_class",
+   "association",
+   "may receive",
+   "send_data_classes"
+  ],
+  [
+   "skill",
+   "capability",
+   "usage",
+   "requires",
+   "requires_capabilities"
+  ],
+  [
+   "plugin",
+   "capability",
+   "usage",
+   "requires",
+   "requires_capabilities"
+  ],
+  [
+   "plugin",
+   "skill",
+   "association",
+   "provides",
+   "provides_skills"
+  ],
+  [
+   "plugin",
+   "tool",
+   "association",
+   "provides",
+   "provides_tools"
+  ],
+  [
+   "separation",
+   "decision",
+   "association",
+   "keeps apart",
+   "decisions"
+  ],
+  [
+   "evaluation",
+   "agent",
+   "association",
+   "evaluates",
+   "applies_to"
+  ],
+  [
+   "channel",
+   "agent",
+   "association",
+   "includes",
+   "members"
+  ],
+  [
+   "mission",
+   "agent",
+   "association",
+   "includes",
+   "members"
+  ],
+  [
+   "subagent",
+   "environment",
+   "deployment",
+   "runs in",
+   "environments"
+  ],
+  [
+   "capability",
+   "wrappable",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "subagent",
+   "wrappable",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "workflow",
+   "wrappable",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "endpoint",
+   "wrappable",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "tool",
+   "wrappable",
+   "association",
+   "wraps",
+   "wraps"
+  ],
+  [
+   "agent",
+   "principal",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "team",
+   "principal",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "role",
+   "principal",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "data_class",
+   "resource",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "capability",
+   "resource",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "agent",
+   "resource",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "team",
+   "resource",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "workflow",
+   "resource",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "environment",
+   "resource",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "channel",
+   "resource",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "policy",
+   "principal",
+   "association",
+   "applies to",
+   "subjects"
+  ],
+  [
+   "policy",
+   "resource",
+   "association",
+   "governs",
+   "resources"
+  ],
+  [
+   "workflow",
+   "action",
+   "composition",
+   "step",
+   "graph.nodes"
+  ],
+  [
+   "workflow",
+   "control_flow",
+   "composition",
+   "edge",
+   "graph.edges"
+  ],
+  [
+   "control_flow",
+   "action",
+   "association",
+   "from",
+   "source"
+  ],
+  [
+   "control_flow",
+   "action",
+   "association",
+   "to",
+   "target"
+  ],
+  [
+   "tool",
+   "callable",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "capability",
+   "callable",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "action",
+   "callable",
+   "usage",
+   "calls",
+   "tool"
+  ],
+  [
+   "action",
+   "agent",
+   "association",
+   "delegates to",
+   "agent"
+  ],
+  [
+   "action",
+   "workflow",
+   "association",
+   "invokes",
+   "workflow"
+  ],
+  [
+   "agent",
+   "step_owner",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "team",
+   "step_owner",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "person",
+   "step_owner",
+   "realization",
+   "",
+   ""
+  ],
+  [
+   "action",
+   "step_owner",
+   "association",
+   "owned by",
+   "owner"
+  ],
+  [
+   "action",
+   "person",
+   "association",
+   "approved by",
+   "person"
+  ],
+  [
+   "action",
+   "role",
+   "association",
+   "approved by role",
+   "role"
+  ],
+  [
+   "workflow",
+   "callable",
+   "usage",
+   "interface calls",
+   "interface.tools"
+  ],
+  [
+   "workflow",
+   "endpoint",
+   "usage",
+   "interface reaches",
+   "interface.endpoints"
+  ],
+  [
+   "workflow",
+   "data_class",
+   "association",
+   "receives",
+   "interface.receives_data_classes"
+  ],
+  [
+   "workflow",
+   "data_class",
+   "association",
+   "returns",
+   "interface.returns_data_classes"
+  ],
+  [
+   "system",
+   "organization",
+   "composition",
+   "owns",
+   "organization"
+  ],
+  [
+   "organization",
+   "skill",
+   "composition",
+   "owns",
+   "skills"
+  ],
+  [
+   "organization",
+   "plugin",
+   "composition",
+   "owns",
+   "plugins"
+  ],
+  [
+   "organization",
+   "tool",
+   "composition",
+   "owns",
+   "tools"
+  ],
+  [
+   "organization",
+   "person",
+   "composition",
+   "owns",
+   "people"
+  ],
+  [
+   "organization",
+   "role",
+   "composition",
+   "owns",
+   "role_definitions"
+  ],
+  [
+   "organization",
+   "decision",
+   "composition",
+   "owns",
+   "decisions"
+  ],
+  [
+   "organization",
+   "separation",
+   "composition",
+   "owns",
+   "separations"
+  ],
+  [
+   "organization",
+   "policy",
+   "composition",
+   "owns",
+   "policies"
+  ],
+  [
+   "organization",
+   "capability",
+   "composition",
+   "owns",
+   "capabilities"
+  ],
+  [
+   "organization",
+   "data_class",
+   "composition",
+   "owns",
+   "data_classes"
+  ],
+  [
+   "organization",
+   "environment",
+   "composition",
+   "owns",
+   "environments"
+  ],
+  [
+   "organization",
+   "endpoint",
+   "composition",
+   "owns",
+   "endpoints"
+  ],
+  [
+   "organization",
+   "mission",
+   "composition",
+   "owns",
+   "missions"
+  ],
+  [
+   "organization",
+   "workflow",
+   "composition",
+   "owns",
+   "workflows"
+  ],
+  [
+   "organization",
+   "trigger",
+   "composition",
+   "owns",
+   "triggers"
+  ],
+  [
+   "organization",
+   "channel",
+   "composition",
+   "owns",
+   "channels"
+  ],
+  [
+   "organization",
+   "knowledge",
+   "composition",
+   "owns",
+   "knowledge"
+  ],
+  [
+   "organization",
+   "memory_namespace",
+   "composition",
+   "owns",
+   "memory.namespaces"
+  ],
+  [
+   "organization",
+   "guardrail",
+   "composition",
+   "owns",
+   "guardrails"
+  ],
+  [
+   "organization",
+   "output_contract",
+   "composition",
+   "owns",
+   "output_contracts"
+  ],
+  [
+   "system",
+   "evaluation",
+   "composition",
+   "owns",
+   "lifecycle.evaluations"
+  ]
+ ],
+ "stereotypes": [
+  "organization",
+  "team",
+  "agent",
+  "subagent",
+  "worker",
+  "principal",
+  "resource",
+  "callable",
+  "wrappable",
+  "action",
+  "control_flow",
+  "step_owner",
+  "skill",
+  "plugin",
+  "tool",
+  "person",
+  "role",
+  "decision",
+  "separation",
+  "policy",
+  "capability",
+  "data_class",
+  "environment",
+  "endpoint",
+  "mission",
+  "workflow",
+  "trigger",
+  "channel",
+  "knowledge",
+  "memory_namespace",
+  "guardrail",
+  "output_contract",
+  "evaluation",
+  "note",
+  "system"
+ ]
+}

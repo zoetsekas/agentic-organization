@@ -24,571 +24,97 @@ rename the rules that grew before it.
 
 `link_rules()` derives the designer's link table from this module, so the
 canvas, the API and the tests read one declaration.
+
+The profile is split by concern (ADR-0112): `core`, `organisation`,
+`authority`, `access`, `data`, `knowledge`, `process`, `assurance` and
+`deployment`, each declaring its stereotypes, DataTypes, Enumerations,
+relationships and imports, written in the UML subset of `uml`. This module
+assembles them; `PROFILE` is the union of the spec profiles, so no caller
+moves. The profiles are authoritative for what the model means; `spec.model`
+is its Python realisation, held equal to it by
+`tests/test_metamodel_completeness.py`.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, Optional
 
-from ..spec import model as _spec
+from . import (access, assurance, authority, core, data, deployment,
+               knowledge, organisation, process)
+from .core import SYSTEM_OWNED
+from .uml import (DataType, Draw, Enumeration, MetaClass, Profile, Property,
+                  Relationship, RelKind, Shape, Stereotype)
 
-
-# --------------------------------------------------------------------------
-# UML — the subset in use
-# --------------------------------------------------------------------------
-
-
-class MetaClass(str, Enum):
-    """The UML metaclasses the profile extends."""
-
-    CLASS = "Class"
-    #: A Class with `isActive = true`: it has its own thread of control. The
-    #: precise UML reading of an agent.
-    ACTIVE_CLASS = "Class {isActive}"
-    COMPONENT = "Component"
-    INTERFACE = "Interface"
-    ACTOR = "Actor"
-    ARTIFACT = "Artifact"
-    NODE = "Node"
-    EXECUTION_ENVIRONMENT = "ExecutionEnvironment"
-    DATA_TYPE = "DataType"
-    ACTIVITY = "Activity"
-    EVENT = "Event"
-    CONSTRAINT = "Constraint"
-    COMMENT = "Comment"
-    #: The root: a Model is a Package that owns everything in one system.
-    MODEL = "Model"
-    #: An Association that is also a Class: a link with attributes of its own
-    #: (a flow's kind, a role assignment's withheld capabilities).
-    ASSOCIATION_CLASS = "AssociationClass"
-    #: The configuration of one Deployment (UML 19.3): a sandbox override.
-    DEPLOYMENT_SPECIFICATION = "DeploymentSpecification"
-    #: A step of an Activity that does something: calls a tool, an agent, a
-    #: workflow, evaluates an expression, or waits for a person.
-    ACTION = "Action"
-    #: An edge of an Activity: control passes from one node to the next.
-    CONTROL_FLOW = "ControlFlow"
-    #: A closed set of literals typing a property (ADR-0112).
-    ENUMERATION = "Enumeration"
-
-
-class RelKind(str, Enum):
-    """UML's relationship kinds, as the platform uses them."""
-
-    #: The part's lifetime is the whole's; it lives inside the whole in the
-    #: spec. Linking or dropping *moves* it.
-    COMPOSITION = "composition"
-    #: Shared aggregation. Declared for completeness of the kinds; the profile
-    #: uses association instead, because UML leaves shared aggregation's
-    #: semantics to the modeller and a kind with no agreed meaning decides
-    #: nothing.
-    AGGREGATION = "aggregation"
-    #: A reference: the target stands on its own and many may point at it.
-    ASSOCIATION = "association"
-    #: One element relies on another.
-    DEPENDENCY = "dependency"
-    #: A dependency where one uses the other to do its work.
-    USAGE = "usage"
-    #: An artifact runs on a node or execution environment — an agent in a
-    #: sandbox. Drawn as nesting.
-    DEPLOYMENT = "deployment"
-    #: One element provides what another specifies.
-    REALIZATION = "realization"
-    GENERALIZATION = "generalization"
-
-
-class Shape(str, Enum):
-    """How a relationship is stored in the spec. Decides how a link writes it."""
-
-    #: A list of owned objects: `team.members`. Linking moves the part.
-    PART = "part"
-    #: A single id: `trigger.agent`.
-    REF = "ref"
-    #: A list of ids: `agent.knowledge`.
-    REFS = "refs"
-    #: A list of objects keyed by an id: `agent.environments` holds
-    #: `{environment: id, ...}`. `key` names the id field.
-    REF_OBJECTS = "ref_objects"
-    #: A top-level list of `{source, target, kind}` records:
-    #: `interaction_flows`, `unit_links`.
-    RECORD = "record"
-
-
-class Draw(str, Enum):
-    """How the canvas presents a relationship."""
-
-    EDGE = "edge"
-    #: The target is drawn *inside* the source's box.
-    NEST = "nest"
-    #: Drawn inside the owner's box as a chip while only one owner holds it,
-    #: and as an edge once shared — the existing held-component behaviour.
-    INLINE = "inline"
-    #: Not drawn as its own mark; shown in Properties.
-    NONE = "none"
-
-
-@dataclass(frozen=True)
-class Stereotype:
-    """One of the platform's kinds, extending one UML metaclass."""
-
-    name: str              # «Agent»
-    kind: str              # the palette kind, "agent"
-    extends: MetaClass
-    #: Where instances live in the spec: a SystemSpec collection, or a path
-    #: for nested ones. Empty for kinds that live inside another (agents live
-    #: in teams).
-    collection: str = ""
-    #: The spec model class, by name, whose fields relationships may name.
-    model: str = ""
-    doc: str = ""
-    #: `{isAbstract}`: never instantiated itself, only through a
-    #: specialisation (Worker) or a realisation (Principal, Resource).
-    abstract: bool = False
-
-
-@dataclass(frozen=True)
-class Relationship:
-    """A UML relationship between two stereotypes, and where it lives.
-
-    `owner` is the end whose spec object holds the field. For most, the source;
-    an association can be drawn from either end, and writes the same field.
-    """
-
-    source: str            # palette kind
-    target: str            # palette kind
-    kind: RelKind
-    #: The relationship's stereotype, shown on the edge: «consults», «member».
-    stereotype: str
-    field: str
-    shape: Shape
-    owner: str = "source"
-    key: str = ""          # for REF_OBJECTS: the id field in each object
-    #: Multiplicity at the source and target ends, UML notation.
-    source_mult: str = "0..*"
-    target_mult: str = "0..*"
-    draw: Draw = Draw.EDGE
-    #: May a person draw it on the canvas? False for ones set another way —
-    #: team leadership is set from the agent's Properties.
-    linkable: bool = True
-    #: The word the designer used before this module, kept so every existing
-    #: canvas code path still recognises its rule.
-    legacy: str = ""
-    help: str = ""
-    #: A closed vocabulary the link must choose from when drawn — a flow's
-    #: kind, a unit link's kind. Read from the spec's own enums.
-    choices: tuple[str, ...] = ()
-    #: The verb shown on the canvas when it reads better than the stereotype.
-    display: str = ""
-    #: When the link carries attributes of its own, the UML AssociationClass
-    #: (or, for a Deployment, the DeploymentSpecification) that types it, by
-    #: spec model name. The YAML object in the list *is* the link instance.
-    association_class: str = ""
-    #: A UML constraint on the relationship, in OCL-ish text: `{subsets
-    #: members}`, `{ordered}`.
-    constraint: str = ""
-
-    @property
-    def label(self) -> str:
-        return self.display or self.stereotype
-
-    def owner_kind(self) -> str:
-        return self.source if self.owner == "source" else self.target
-
-
-@dataclass(frozen=True)
-class Property:
-    """A UML Property holding a value, not a reference: an attribute of a
-    stereotype or of a DataType, with its type and multiplicity (ADR-0112).
-    A field that holds another element's id is a Relationship instead."""
-
-    owner: str             # a stereotype's kind, or a DataType's name
-    name: str              # the spec field
-    type: str              # a UML primitive, an Enumeration or a DataType
-    multiplicity: str = "1"
-    doc: str = ""
-
-
-@dataclass(frozen=True)
-class Enumeration:
-    """A UML Enumeration: a closed vocabulary with its literals, declared in
-    the profile so a property typed by it is typed in the model and not only
-    in Python (ADR-0112). `model` names the spec enum it must equal."""
-
-    name: str
-    model: str
-    literals: tuple[str, ...]
-    doc: str = ""
-    #: What a literal is in UML, where it is one of UML's own concepts: a
-    #: `fork` step is a ForkNode.
-    uml: tuple[tuple[str, str], ...] = ()
-
-
-@dataclass(frozen=True)
-class DataType:
-    """A UML DataType: a value with no identity of its own, owned by the
-    element it describes (ADR-0112). Its value properties are `Property`
-    declarations; its references are relationships from its owner through
-    a dotted field (`interface.tools`)."""
-
-    name: str
-    model: str
-    doc: str = ""
-
-
-@dataclass
-class Profile:
-    name: str
-    stereotypes: list[Stereotype] = field(default_factory=list)
-    relationships: list[Relationship] = field(default_factory=list)
-    enumerations: list[Enumeration] = field(default_factory=list)
-    datatypes: list[DataType] = field(default_factory=list)
-    properties: list[Property] = field(default_factory=list)
-
-    def enumeration(self, name: str) -> Optional[Enumeration]:
-        return next((e for e in self.enumerations if e.name == name), None)
-
-    def stereotype(self, kind: str) -> Optional[Stereotype]:
-        return next((s for s in self.stereotypes if s.kind == kind), None)
-
-
-# --------------------------------------------------------------------------
-# The OrgAgents profile
-# --------------------------------------------------------------------------
-
-S = Stereotype
-MC = MetaClass
-
-STEREOTYPES = [
-    S("Organization", "organization", MC.COMPONENT, "organization",
-      "Organization",
-      "The root unit of one organisation. A Team by generalisation; exactly "
-      "one per System."),
-    S("Team", "team", MC.COMPONENT, "", "Team",
-      "A unit of the organisation; owns its members and sub-teams."),
-    S("Agent", "agent", MC.ACTIVE_CLASS, "", "AgentSpec",
-      "An active class: it has its own thread of control."),
-    S("SubAgent", "subagent", MC.CLASS, "", "SubAgentSpec",
-      "A tool-shaped worker owned by the agent that calls it (ADR-0027)."),
-    S("Worker", "worker", MC.CLASS, "", "Worker",
-      "What an agent and a sub-agent share. Neither is a kind of the other "
-      "(ADR-0102).", abstract=True),
-    S("Principal", "principal", MC.INTERFACE, "", "",
-      "Anything a policy can be about: an agent, a team, a role.",
-      abstract=True),
-    S("Resource", "resource", MC.INTERFACE, "", "",
-      "Anything a permission or policy can govern (ADR-0008).",
-      abstract=True),
-    S("Callable", "callable", MC.INTERFACE, "", "",
-      "Anything a workflow step may call as a tool: a declared Tool, or a "
-      "Capability (and its operations, `capability__operation`).",
-      abstract=True),
-    S("Wrappable", "wrappable", MC.INTERFACE, "", "",
-      "What a Tool may wrap: a Capability, a SubAgent, a Workflow or an "
-      "Endpoint (ADR-0029).", abstract=True),
-    S("Action", "action", MC.ACTION, "", "ActivityNode",
-      "A step of a workflow (ADR-0102)."),
-    S("ControlFlow", "control_flow", MC.CONTROL_FLOW, "", "ControlFlow",
-      "An edge between two steps of a workflow."),
-    S("StepOwner", "step_owner", MC.INTERFACE, "", "",
-      "Whoever may own a workflow step: an agent, a team or a person "
-      "(ADR-0110).", abstract=True),
-    S("Skill", "skill", MC.ARTIFACT, "skills", "SkillSpec"),
-    S("Plugin", "plugin", MC.COMPONENT, "plugins", "PluginSpec"),
-    S("Tool", "tool", MC.INTERFACE, "tools", "ToolSpec"),
-    S("Person", "person", MC.ACTOR, "people", "Person"),
-    S("Role", "role", MC.CLASS, "role_definitions", "Role"),
-    S("Decision", "decision", MC.DATA_TYPE, "decisions", "DecisionClass"),
-    S("Separation", "separation", MC.CONSTRAINT, "separations",
-      "SeparationRule"),
-    S("Policy", "policy", MC.CONSTRAINT, "policies", "PolicyRule"),
-    S("Capability", "capability", MC.INTERFACE, "capabilities", "Capability",
-      "What may be done; an agent that has it provides the interface."),
-    S("DataClass", "data_class", MC.DATA_TYPE, "data_classes", "DataClass"),
-    S("Environment", "environment", MC.EXECUTION_ENVIRONMENT, "environments",
-      "EnvironmentClass",
-      "A sandbox class. Agents are deployed into it (ADR-0082)."),
-    S("Endpoint", "endpoint", MC.INTERFACE, "endpoints", "AgentEndpoint"),
-    S("Mission", "mission", MC.COMPONENT, "missions", "Mission"),
-    S("Workflow", "workflow", MC.ACTIVITY, "workflows", "WorkflowSpec"),
-    S("Trigger", "trigger", MC.EVENT, "triggers", "TriggerSpec"),
-    S("Channel", "channel", MC.CLASS, "channels", "ChannelSpec"),
-    S("Knowledge", "knowledge", MC.ARTIFACT, "knowledge", "KnowledgeSource"),
-    S("MemoryNamespace", "memory_namespace", MC.ARTIFACT, "memory.namespaces",
-      "MemoryNamespace"),
-    S("Guardrail", "guardrail", MC.CONSTRAINT, "guardrails", "Guardrail"),
-    S("OutputContract", "output_contract", MC.CONSTRAINT, "output_contracts",
-      "OutputContract"),
-    S("Evaluation", "evaluation", MC.CONSTRAINT, "lifecycle.evaluations",
-      "EvaluationCase"),
-    S("Note", "note", MC.COMMENT, "", ""),
-    S("System", "system", MC.MODEL, "", "SystemSpec",
-      "The Model: one organisation design, owning every element in it."),
+__all__ = [
+    "MetaClass", "RelKind", "Shape", "Draw", "Stereotype", "Relationship",
+    "Property", "Enumeration", "DataType", "Profile",
+    "PROFILE", "PROFILES", "SPEC_PROFILES", "STEREOTYPES", "RELATIONSHIPS",
+    "ENUMERATIONS", "DATATYPES", "PROPERTIES", "NON_PALETTE", "SYSTEM_OWNED",
+    "profile_of", "specialisations", "link_rules", "describe",
+    "palette_profiles",
+    "to_plantuml", "to_plantuml_profile", "to_plantuml_ownership",
 ]
+
+
+# --------------------------------------------------------------------------
+# The profiles, one per concern (ADR-0112)
+# --------------------------------------------------------------------------
+
+def _owns(profile: Profile) -> None:
+    """Ownership: the System owns one Organization, which owns every
+    top-level element. Each `owns` composition belongs to the profile of the
+    element owned, which imports Core and Organisation and so sees both
+    ends."""
+    profile.relationships += [
+        Relationship(
+            "system" if st.collection in SYSTEM_OWNED else "organization",
+            st.kind, RelKind.COMPOSITION, "owns", st.collection, Shape.PART,
+            source_mult="1",
+            target_mult="1" if st.kind == "organization" else "0..*",
+            linkable=False, draw=Draw.NONE)
+        for st in profile.stereotypes
+        if st.collection and st.kind != "system"
+    ]
+
+
+#: The spec profiles, in import order. Deployment is not among them: the
+#: spec profiles never see the binding (ADR-0004).
+SPEC_PROFILES: list[Profile] = [
+    m.PROFILE for m in (core, organisation, authority, access, data,
+                        knowledge, process, assurance)
+]
+for _p in SPEC_PROFILES:
+    _owns(_p)
+
+#: Every profile, the Deployment profile last.
+PROFILES: list[Profile] = [*SPEC_PROFILES, deployment.PROFILE]
+
+STEREOTYPES = [s for p in SPEC_PROFILES for s in p.stereotypes]
+RELATIONSHIPS = [r for p in SPEC_PROFILES for r in p.relationships]
+ENUMERATIONS = [e for p in SPEC_PROFILES for e in p.enumerations]
+DATATYPES = [d for p in SPEC_PROFILES for d in p.datatypes]
+PROPERTIES = [pr for p in SPEC_PROFILES for pr in p.properties]
 
 #: Stereotypes that are not palette kinds.
-NON_PALETTE = {"system", "organization", "worker", "principal", "resource",
-               "callable", "wrappable",
-               "action", "control_flow", "step_owner"}
+NON_PALETTE = {s.kind for s in STEREOTYPES if not s.palette}
 
-R = Relationship
-K = RelKind
-SH = Shape
-
-RELATIONSHIPS = [
-    # -- composition: the part lives in the whole --------------------------
-    # -- generalisation: the organisation is the root team ------------------
-    R("organization", "team", K.GENERALIZATION, "", "", SH.REF,
-      linkable=False, draw=Draw.NONE,
-      help="an Organization is a Team: it has a leader, members and "
-           "sub-teams, and is the one unit with no parent"),
-    R("agent", "worker", K.GENERALIZATION, "", "", SH.REF,
-      linkable=False, draw=Draw.NONE),
-    R("subagent", "worker", K.GENERALIZATION, "", "", SH.REF,
-      linkable=False, draw=Draw.NONE),
-
-    R("team", "team", K.COMPOSITION, "contains", "teams", SH.PART,
-      source_mult="0..1", legacy="contains",
-      help="the target becomes a sub-team of the source. Authority and "
-           "permissions narrow downward from here (ADR-0008, ADR-0065)"),
-    R("team", "agent", K.COMPOSITION, "member", "members", SH.PART,
-      source_mult="1", legacy="member", display="has member",
-      help="an agent belongs to exactly one team, which is what bounds what "
-           "it may hold"),
-    R("agent", "subagent", K.COMPOSITION, "uses", "subagents", SH.PART,
-      source_mult="1", legacy="uses",
-      help="a tool-shaped worker this agent may call (ADR-0027)"),
-
-    # -- deployment: an agent runs in a sandbox -----------------------------
-    R("agent", "environment", K.DEPLOYMENT, "runs in", "environments",
-      SH.REF_OBJECTS, key="environment", draw=Draw.NEST,
-      association_class="EnvironmentOverride",
-      help="the sandbox class this agent runs in; one of several "
-           "(ADR-0082). Drop an agent into an environment's box to deploy it"),
-
-    # -- associations an agent owns -----------------------------------------
-    R("worker", "knowledge", K.ASSOCIATION, "consults", "knowledge", SH.REFS,
-      help="grounding material this worker may consult"),
-    R("worker", "capability", K.REALIZATION, "provides", "capabilities",
-      SH.REFS, help="what this worker may do"),
-    R("team", "role", K.ASSOCIATION, "plays", "roles", SH.REF_OBJECTS,
-      key="role", association_class="RoleAssignment",
-      help="a role the whole unit plays: it grants every member, and the "
-           "members of its sub-teams (ADR-0007)"),
-    R("agent", "role", K.ASSOCIATION, "plays", "roles", SH.REF_OBJECTS,
-      key="role", association_class="RoleAssignment", help="a role and the capabilities it grants"),
-    R("agent", "skill", K.ASSOCIATION, "holds", "skills", SH.REFS,
-      draw=Draw.INLINE, legacy="holds",
-      help="a named competence this agent may exercise. Shared freely: "
-           "declaring it on a second agent does not take it from the first"),
-    R("agent", "plugin", K.ASSOCIATION, "holds", "plugins", SH.REFS,
-      draw=Draw.INLINE, legacy="holds",
-      help="a packaged extension this agent loads"),
-    R("worker", "tool", K.USAGE, "holds", "tools", SH.REFS,
-      draw=Draw.INLINE, legacy="holds",
-      help="a tool this agent may call. A tool held by one agent is drawn "
-           "inside it; one held by several is drawn shared"),
-    R("agent", "endpoint", K.USAGE, "calls", "endpoints", SH.REFS,
-      help="an external agent this one may call"),
-    R("agent", "workflow", K.USAGE, "runs", "workflows", SH.REFS,
-      help="an encoded process this agent may invoke"),
-    R("agent", "data_class", K.ASSOCIATION, "produces", "produces_data",
-      SH.REFS, help="data this agent produces (ADR-0099)"),
-    R("agent", "data_class", K.ASSOCIATION, "relies on", "data_dependencies",
-      SH.REF_OBJECTS, key="data_class", association_class="DataDependency",
-      help="data this agent relies on, with freshness (ADR-0099)"),
-    R("agent", "person", K.ASSOCIATION, "paired with", "humans",
-      SH.REF_OBJECTS, key="person", association_class="HumanCounterpart",
-      help="a human counterpart (ADR-0026)"),
-    R("agent", "guardrail", K.ASSOCIATION, "guarded by", "guardrails", SH.REFS),
-    R("worker", "output_contract", K.ASSOCIATION, "returns", "output_contract",
-      SH.REF, target_mult="0..1"),
-    R("agent", "agent", K.ASSOCIATION, "successor", "successor", SH.REF,
-      target_mult="0..1", linkable=False,
-      help="who stands in when this agent cannot run (ADR-0094); set in "
-           "Properties"),
-    R("team", "agent", K.ASSOCIATION, "leads", "leader", SH.REF,
-      source_mult="0..1", target_mult="0..1", linkable=False,
-      constraint="{subsets members}",
-      help="set from the agent's Properties"),
-
-    # -- dependencies between agents and work -------------------------------
-    R("agent", "agent", K.ASSOCIATION, "flow", "interaction_flows", SH.RECORD,
-      legacy="flow", display="may…", association_class="InteractionFlow",
-      choices=tuple(k.value for k in _spec.FlowKind),
-      help="a declared, directional interaction (ADR-0024). Two agents are "
-           "not otherwise connected: membership is what puts them in an "
-           "organisation, not a line between them"),
-    R("team", "team", K.ASSOCIATION, "unit link", "unit_links", SH.RECORD,
-      legacy="association", display="is associated with",
-      association_class="UnitLink",
-      choices=tuple(k.value for k in _spec.UnitLinkKind),
-      help="a relationship that is not containment: oversight, escalation or "
-           "a shared service. It grants nothing, narrows nothing and inherits "
-           "nothing — an overseer that sits inside what it oversees is "
-           "refused (ADR-0081)"),
-    R("trigger", "agent", K.ASSOCIATION, "fires", "agent", SH.REF,
-      owner="source", target_mult="1", legacy="fires",
-      help="unattended work: the trigger wakes this agent (ADR-0018)"),
-    R("trigger", "workflow", K.ASSOCIATION, "starts", "workflow", SH.REF,
-      target_mult="0..1"),
-
-    # -- what the building blocks reach -------------------------------------
-    R("role", "capability", K.ASSOCIATION, "grants", "capabilities", SH.REFS),
-    R("capability", "data_class", K.ASSOCIATION, "reaches", "data_classes",
-      SH.REFS),
-    R("knowledge", "data_class", K.ASSOCIATION, "contains", "data_classes",
-      SH.REFS),
-    R("memory_namespace", "data_class", K.ASSOCIATION, "stores",
-      "data_classes", SH.REFS),
-    R("guardrail", "data_class", K.ASSOCIATION, "protects", "data_classes",
-      SH.REFS),
-    R("endpoint", "data_class", K.ASSOCIATION, "may receive",
-      "send_data_classes", SH.REFS),
-    R("skill", "capability", K.USAGE, "requires",
-      "requires_capabilities", SH.REFS),
-    R("plugin", "capability", K.USAGE, "requires",
-      "requires_capabilities", SH.REFS),
-    R("plugin", "skill", K.ASSOCIATION, "provides", "provides_skills", SH.REFS),
-    R("plugin", "tool", K.ASSOCIATION, "provides", "provides_tools", SH.REFS),
-    R("separation", "decision", K.ASSOCIATION, "keeps apart", "decisions",
-      SH.REFS, target_mult="2..*"),
-    R("evaluation", "agent", K.ASSOCIATION, "evaluates", "applies_to", SH.REFS),
-    R("channel", "agent", K.ASSOCIATION, "includes", "members", SH.REFS),
-    R("mission", "agent", K.ASSOCIATION, "includes", "members", SH.REFS),
-    R("subagent", "environment", K.DEPLOYMENT, "runs in", "environments",
-      SH.REFS, draw=Draw.NEST,
-      constraint="{subsets parent.environments}",
-      help="a sandbox this sub-agent runs in; one of its parent's"),
-    # A sub-agent is called like a tool by being *wrapped* by one — not by
-    # being one: `agent.tools` holds Tool ids, never sub-agents (ADR-0027).
-    *[R(k, "wrappable", K.REALIZATION, "", "", SH.REF, linkable=False,
-        draw=Draw.NONE) for k in ("capability", "subagent", "workflow",
-                                  "endpoint")],
-    R("tool", "wrappable", K.ASSOCIATION, "wraps", "wraps", SH.REF,
-      target_mult="1", linkable=False, draw=Draw.NONE,
-      constraint="{kind given by wraps_kind}",
-      help="what the tool names and narrows (ADR-0029)"),
-
-    # -- what a policy is about (ADR-0008) ------------------------------------
-    *[R(k, "principal", K.REALIZATION, "", "", SH.REF, linkable=False,
-        draw=Draw.NONE) for k in ("agent", "team", "role")],
-    *[R(k, "resource", K.REALIZATION, "", "", SH.REF, linkable=False,
-        draw=Draw.NONE) for k in ("data_class", "capability", "agent", "team",
-                                  "workflow", "environment", "channel")],
-    R("policy", "principal", K.ASSOCIATION, "applies to", "subjects", SH.REFS,
-      constraint="{'*' = every principal}",
-      help="who the rule is about: agents, teams or roles, by id"),
-    R("policy", "resource", K.ASSOCIATION, "governs", "resources", SH.REFS,
-      constraint="{kind given by resource_kinds; '*' = every}",
-      help="what the rule allows or denies acting on"),
-
-    # -- a workflow is an Activity (ADR-0102) ---------------------------------
-    R("workflow", "action", K.COMPOSITION, "step", "graph.nodes", SH.PART,
-      source_mult="1", linkable=False, draw=Draw.NONE),
-    R("workflow", "control_flow", K.COMPOSITION, "edge", "graph.edges",
-      SH.PART, source_mult="1", linkable=False, draw=Draw.NONE),
-    R("control_flow", "action", K.ASSOCIATION, "from", "source", SH.REF,
-      target_mult="1", linkable=False, draw=Draw.NONE),
-    R("control_flow", "action", K.ASSOCIATION, "to", "target", SH.REF,
-      target_mult="0..1", linkable=False, draw=Draw.NONE,
-      constraint="{'END' = the ActivityFinalNode}"),
-    *[R(k, "callable", K.REALIZATION, "", "", SH.REF, linkable=False,
-        draw=Draw.NONE) for k in ("tool", "capability")],
-    R("action", "callable", K.USAGE, "calls", "tool", SH.REF,
-      target_mult="0..1", linkable=False, draw=Draw.NONE,
-      constraint="{kind = tool; 'c__op' = operation op of c}"),
-    R("action", "agent", K.ASSOCIATION, "delegates to", "agent", SH.REF,
-      target_mult="0..1", linkable=False, draw=Draw.NONE,
-      constraint="{kind = agent}"),
-    R("action", "workflow", K.ASSOCIATION, "invokes", "workflow", SH.REF,
-      target_mult="0..1", linkable=False, draw=Draw.NONE,
-      constraint="{kind = workflow}"),
-
-    # -- the governed workflow and its seam to an engine (ADR-0110) ----------
-    *[R(k, "step_owner", K.REALIZATION, "", "", SH.REF, linkable=False,
-        draw=Draw.NONE) for k in ("agent", "team", "person")],
-    R("action", "step_owner", K.ASSOCIATION, "owned by", "owner", SH.REF,
-      target_mult="0..1", linkable=False, draw=Draw.NONE,
-      constraint="{an agent step defaults to its agent}",
-      help="who does the step: an agent, a team or a person"),
-    R("action", "person", K.ASSOCIATION, "approved by", "person", SH.REF,
-      target_mult="0..1", linkable=False, draw=Draw.NONE,
-      constraint="{kind = human}"),
-    R("action", "role", K.ASSOCIATION, "approved by role", "role", SH.REF,
-      target_mult="0..1", linkable=False, draw=Draw.NONE,
-      constraint="{kind = human}"),
-    R("workflow", "callable", K.USAGE, "interface calls", "interface.tools",
-      SH.REFS, linkable=False, draw=Draw.NONE,
-      constraint="{'c__op' = operation op of c}",
-      help="what an external body calls; the calling step's owner must hold it"),
-    R("workflow", "endpoint", K.USAGE, "interface reaches",
-      "interface.endpoints", SH.REFS, linkable=False, draw=Draw.NONE),
-    R("workflow", "data_class", K.ASSOCIATION, "receives",
-      "interface.receives_data_classes", SH.REFS, linkable=False,
-      draw=Draw.NONE,
-      help="data sent to the body; the calling step's owner must hold it"),
-    R("workflow", "data_class", K.ASSOCIATION, "returns",
-      "interface.returns_data_classes", SH.REFS, linkable=False,
-      draw=Draw.NONE),
-]
-
-# -- ownership: the System owns one Organization, which owns its elements --
-#: Collections that stay on the System: how the design is released, not what
-#: the organisation is (ADR-0101).
-SYSTEM_OWNED = {"organization", "lifecycle.evaluations"}
-
-RELATIONSHIPS += [
-    R("system" if st.collection in SYSTEM_OWNED else "organization",
-      st.kind, K.COMPOSITION, "owns", st.collection, SH.PART,
-      source_mult="1",
-      target_mult="1" if st.kind == "organization" else "0..*",
-      linkable=False, draw=Draw.NONE)
-    for st in STEREOTYPES
-    if st.collection and st.kind not in ("system",)
-]
-
-# -- values: enumerations, datatypes and properties (ADR-0112) --------------
-# Declared for what ADR-0110 added to the process model. The rest of the
-# spec's enumerations and value types are ADR-0112's migration, not this one.
-
-ENUMERATIONS = [
-    Enumeration(
-        "ActivityNodeKind", "ActivityNodeKind",
-        ("tool", "agent", "workflow", "transform", "branch", "human",
-         "fork", "join"),
-        "What a workflow step is: which UML ActivityNode it stands for.",
-        uml=(("tool", "CallOperationAction"), ("agent", "CallBehaviorAction"),
-             ("workflow", "CallBehaviorAction"), ("transform", "OpaqueAction"),
-             ("branch", "DecisionNode"), ("human", "AcceptEventAction"),
-             ("fork", "ForkNode"), ("join", "JoinNode"))),
-    Enumeration(
-        "WorkflowBody", "WorkflowBody", ("graph", "external"),
-        "Where a workflow's insides live: drawn here as an Activity, or "
-        "built in an engine the binding names (ADR-0110)."),
-]
-
-DATATYPES = [
-    DataType("WorkflowInterface", "WorkflowInterface",
-             "The seam between a governed workflow and a body built in an "
-             "engine: what goes in and out, what it calls and which data it "
-             "touches. Its references are the workflow's `interface calls`, "
-             "`interface reaches`, `receives` and `returns` (ADR-0110)."),
-]
-
-PROPERTIES = [
-    Property("action", "kind", "ActivityNodeKind", "1"),
-    Property("workflow", "body", "WorkflowBody", "1",
-             "graph unless the body is built in an engine"),
-    Property("workflow", "interface", "WorkflowInterface", "1",
-             "composite: the workflow owns its interface"),
-    Property("WorkflowInterface", "inputs", "String", "0..*"),
-    Property("WorkflowInterface", "outputs", "String", "0..*"),
-]
-
+#: The assembled spec profile: every spec profile's declarations, as one
+#: Profile, which is what the link rules, constraints, operations and the
+#: transformation read.
 PROFILE = Profile(name="OrgAgents", stereotypes=STEREOTYPES,
                   relationships=RELATIONSHIPS, enumerations=ENUMERATIONS,
                   datatypes=DATATYPES, properties=PROPERTIES)
+
+
+def profile_of(name: str, profiles: Optional[list[Profile]] = None
+               ) -> Optional[Profile]:
+    """The profile that declares an element — a stereotype by kind, a
+    DataType, an Enumeration or an association class by name."""
+    for p in profiles or PROFILES:
+        if name in p.element_names():
+            return p
+    return None
+
+
 
 
 # --------------------------------------------------------------------------
@@ -663,16 +189,46 @@ def link_rules(profile: Profile = PROFILE) -> list[dict[str, Any]]:
         })
     return rules
 
+def _declaring(item: Any, attr: str) -> str:
+    """The name of the profile whose `attr` list holds `item`."""
+    for p in PROFILES:
+        if any(x is item for x in getattr(p, attr)):
+            return p.name
+    return ""
+
+
+def palette_profiles() -> dict[str, str]:
+    """Each palette kind's profile, so the designer can group the palette
+    by profile and show the profiles a diagram draws (ADR-0112 §6)."""
+    return {s.kind: _declaring(s, "stereotypes") for s in PROFILE.stereotypes
+            if s.palette}
+
 
 def describe(profile: Profile = PROFILE) -> dict[str, Any]:
-    """The profile as data, for the API and for anybody reading the model."""
+    """The profile as data, for the API and for anybody reading the model.
+
+    Every element names the profile that declares it (ADR-0112), and
+    `profiles` lists all of them — the Deployment profile included — with
+    their imports and what each declares."""
     return {
         "profile": profile.name,
         "metaclasses": [m.value for m in MetaClass],
         "relationship_kinds": [k.value for k in RelKind],
+        "profiles": [
+            {"name": p.name, "version": p.version, "doc": p.doc,
+             "imports": list(p.imports),
+             "stereotypes": [s.kind for s in p.stereotypes],
+             "palette": [s.kind for s in p.stereotypes if s.palette],
+             "datatypes": [d.name for d in p.datatypes],
+             "enumerations": [e.name for e in p.enumerations],
+             "spec": p.name != "Deployment"}
+            for p in PROFILES
+        ],
         "stereotypes": [
             {"name": f"«{s.name}»", "kind": s.kind, "extends": s.extends.value,
-             "collection": s.collection, "doc": s.doc}
+             "collection": s.collection, "doc": s.doc,
+             "profile": _declaring(s, "stereotypes"),
+             "abstract": s.abstract, "palette": s.palette}
             for s in profile.stereotypes
         ],
         "relationships": [
@@ -682,21 +238,27 @@ def describe(profile: Profile = PROFILE) -> dict[str, Any]:
              "field": f"{r.owner_kind()}.{r.field}", "shape": r.shape.value,
              "draw": r.draw.value, "linkable": r.linkable,
              "association_class": r.association_class,
-             "constraint": r.constraint}
+             "constraint": r.constraint,
+             "profile": _declaring(r, "relationships")}
             for r in profile.relationships
         ],
         "enumerations": [
             {"name": e.name, "literals": list(e.literals), "doc": e.doc,
+             "profile": _declaring(e, "enumerations"),
              **({"uml": dict(e.uml)} if e.uml else {})}
             for e in profile.enumerations
         ],
-        "datatypes": [{"name": d.name, "doc": d.doc} for d in profile.datatypes],
+        "datatypes": [{"name": d.name, "doc": d.doc,
+                       "profile": _declaring(d, "datatypes")}
+                      for d in profile.datatypes],
         "properties": [
             {"owner": p.owner, "name": p.name, "type": p.type,
-             "multiplicity": p.multiplicity}
+             "multiplicity": p.multiplicity,
+             "profile": _declaring(p, "properties")}
             for p in profile.properties
         ],
     }
+
 
 
 # --------------------------------------------------------------------------
@@ -712,30 +274,22 @@ _PUML_ARROW = {
     RelKind.DEPLOYMENT: "..>",
     RelKind.REALIZATION: "..|>",
     RelKind.GENERALIZATION: "--|>",
+    RelKind.ABSTRACTION: "..>",
 }
 
 
 def _cls(kind: str) -> str:
-    return "".join(p.title() for p in kind.split("_"))
+    """A diagram name: a stereotype kind in CamelCase (`data_class` →
+    `DataClass`); a DataType or association class name as it is."""
+    return "".join(p[:1].upper() + p[1:] for p in kind.split("_"))
 
 
-def _attributes(model_name: str, skip: set[str]) -> list[str]:
-    """`name : Type` lines for a spec model's own fields, for a class box."""
-    cls = getattr(_spec, model_name, None)
-    if cls is None:
-        return []
-    out = []
-    for name, f in cls.model_fields.items():
-        if name in skip:
-            continue
-        ann = f.annotation
-        t = (ann.__name__ if isinstance(ann, type) else str(ann))
-        for junk in ("typing.", "orgagents.spec.model.", "<class '", "'>"):
-            t = t.replace(junk, "")
-        t = t.replace("Optional[", "").rstrip("]") + " [0..1]" \
-            if t.startswith("Optional[") else t
-        out.append(f"{name} : {t}")
-    return out
+def _attributes(owner: str, profile: Profile) -> list[str]:
+    """`name : Type [mult]` lines for an owner's declared properties — read
+    from the profile, never from the Python model (ADR-0112 §8)."""
+    return [f"{p.name} : {p.type}"
+            + ("" if p.multiplicity == "1" else f" [{p.multiplicity}]")
+            for p in profile.properties if p.owner == owner]
 
 
 def to_plantuml_profile(profile: Profile = None) -> str:  # type: ignore[assignment]
@@ -780,7 +334,14 @@ def to_plantuml(profile: Profile = None) -> str:  # type: ignore[assignment]
     sys_st = p.stereotype("system")
     out.append(f'package "<<{sys_st.name}>> Model" as SystemModel {{' if sys_st
                else "package Model {")
-    keys = {r.key for r in p.relationships if r.key}
+    def box(head: str, attrs: list[str]) -> None:
+        if not attrs:
+            out.append(f"  {head}")
+            return
+        out.append(f"  {head} {{")
+        out.extend(f"    {a}" for a in attrs)
+        out.append("  }")
+
     for s in p.stereotypes:
         if s.kind == "system":
             continue
@@ -790,16 +351,19 @@ def to_plantuml(profile: Profile = None) -> str:  # type: ignore[assignment]
               MetaClass.DATA_TYPE: "class"}.get(s.extends, "class")
         if s.abstract and kw == "class":
             kw = "abstract class"
-        out.append(f"  {kw} {_cls(s.kind)} {stereo}")
+        box(f"{kw} {_cls(s.kind)} {stereo}", _attributes(s.kind, p))
+    seen: set[str] = set()
     for r in p.relationships:
-        if r.association_class:
+        if r.association_class and r.association_class not in seen:
+            seen.add(r.association_class)
             kind = ("DeploymentSpecification" if r.kind is RelKind.DEPLOYMENT
                     else "AssociationClass")
-            attrs = _attributes(r.association_class,
-                                {"source", "target", r.key})
-            out.append(f"  class {r.association_class} <<{kind}>> {{")
-            out.extend(f"    {a}" for a in attrs)
-            out.append("  }")
+            box(f"class {r.association_class} <<{kind}>>",
+                _attributes(r.association_class, p))
+    for d in p.datatypes:
+        box(f"class {d.name} <<dataType>>", _attributes(d.name, p))
+    for e in p.enumerations:
+        box(f"enum {e.name}", list(e.literals))
     out.append("}")
     out.append("")
     for r in p.relationships:
@@ -822,6 +386,8 @@ def to_plantuml(profile: Profile = None) -> str:  # type: ignore[assignment]
             line = f"{a} ..> {b} : <<use>> {r.stereotype} [{role}]"
         elif r.kind is RelKind.DEPLOYMENT:
             line = f"{a} ..> {b} : <<deploy>> [{role}]"
+        elif r.kind is RelKind.ABSTRACTION:
+            line = f"{a} ..> {b} : <<{r.stereotype}>> [{role}]"
         else:
             line = f"{a} {sm} --> {tm} {b} : {r.stereotype} [{role}]"
         if r.constraint:

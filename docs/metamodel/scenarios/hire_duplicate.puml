@@ -12,8 +12,8 @@ object "acme : Organization" as organization_acme {
   leader = ceo
 }
 object "sandbox : Environment" as environment_sandbox
-object "handbook : Knowledge" as knowledge_handbook
 object "read_ledger : Capability" as capability_read_ledger
+object "handbook : Knowledge" as knowledge_handbook
 object "ap : Team" as team_ap {
   leader = clerk
 }
@@ -23,8 +23,8 @@ object "nightly : Trigger" as trigger_nightly
 organization_acme *-- team_ops : contains
 organization_acme *-- team_risk : contains
 agent_analyst ..> environment_sandbox : runs in
-agent_analyst --> knowledge_handbook : consults
 agent_analyst ..> capability_read_ledger : provides
+agent_analyst --> knowledge_handbook : consults
 team_ops *-- team_ap : contains
 team_ops *-- agent_ops_lead : member
 team_ops *-- agent_analyst : member

@@ -84,6 +84,8 @@ ELEMENTS: list[ElementRule] = [
     E("tool", M.PER_HOLDER, "tools"),
     E("action", M.OWNED, "graph.nodes", "a step of its workflow"),
     E("control_flow", M.OWNED, "graph.edges", "an edge of its workflow"),
+    E("artifact_store", M.COLLECTION, "artifact_stores",
+      "a workspace, carried whole (ADR-0036)"),
     E("note", M.DESIGN_ONLY, "", "a comment on the canvas"),
 ]
 
@@ -124,6 +126,8 @@ LINKS: list[LinkRule] = [
     L("agent", "humans", "humans"),
     L("trigger", "agent", "agent_id"),
     L("agent", "data_dependencies", "data_dependencies"),
+    L("agent", "peers", "delegates_to",
+      doc="a lateral link is someone the agent may delegate to"),
 ]
 
 #: Relationships the IR resolves rather than carries, and how the trace
@@ -140,6 +144,12 @@ RESOLVED_LINKS: dict[tuple[str, str], str] = {
                                    "each holder's skills",
     ("plugin", "provides_tools"): "every tool a plugin provides is among each "
                                   "holder's tools",
+    ("person", "channel"): "not carried: PersonIR holds authority only "
+                           "(ADR-0079), so where a person is reached stays "
+                           "in the design",
+    ("mission", "roles"): "a mission's roles become the permissions it "
+                          "grants each member, intersected with what they "
+                          "already hold (MissionIR.granted_permissions)",
     ("plugin", "requires_capabilities"): "every capability a plugin requires "
                                          "is held by each holder",
 }
@@ -169,7 +179,8 @@ def _ids(value: Any) -> set[str]:
         for v in value:
             out |= _ids(v)
         return out
-    for key in ("id", "environment", "person", "role", "data_class"):
+    for key in ("id", "environment", "person", "role", "data_class",
+                "target"):
         v = getattr(value, key, None)
         if isinstance(v, str) and v:
             return {v}

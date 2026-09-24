@@ -19,10 +19,10 @@ object "nightly : Trigger" as trigger_nightly
 object "ops_lead : Agent" as agent_ops_lead
 organization_acme *-- knowledge_handbook : owns
 agent_analyst ..> environment_sandbox : runs in
-agent_analyst --> knowledge_handbook : consults
 agent_analyst ..> capability_read_ledger : provides
-agent_risk_lead --> knowledge_handbook : consults
+agent_analyst --> knowledge_handbook : consults
 agent_risk_lead ..> capability_read_ledger : provides
+agent_risk_lead --> knowledge_handbook : consults
 team_ops *-- agent_analyst : member
 team_risk *-- agent_risk_lead : member
 team_risk --> agent_risk_lead : leads

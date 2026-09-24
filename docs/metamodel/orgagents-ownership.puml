@@ -4,67 +4,70 @@ hide empty members
 left to right direction
 title OrgAgents ownership — composition from the root (ADR-0101)
 
+class Principal <<Principal>>
+class Resource <<Resource>>
+class System <<System>>
 class Organization <<Organization>>
 class Team <<Team>>
 class Agent <<Agent>>
 class Subagent <<SubAgent>>
 class Worker <<Worker>>
-class Principal <<Principal>>
-class Resource <<Resource>>
-class Callable <<Callable>>
-class Wrappable <<Wrappable>>
-class Action <<Action>>
-class ControlFlow <<ControlFlow>>
-class StepOwner <<StepOwner>>
-class Skill <<Skill>>
-class Plugin <<Plugin>>
-class Tool <<Tool>>
 class Person <<Person>>
 class Role <<Role>>
+class Mission <<Mission>>
 class Decision <<Decision>>
 class Separation <<Separation>>
 class Policy <<Policy>>
+class Callable <<Callable>>
+class Wrappable <<Wrappable>>
 class Capability <<Capability>>
-class DataClass <<DataClass>>
 class Environment <<Environment>>
 class Endpoint <<Endpoint>>
-class Mission <<Mission>>
+class DataClass <<DataClass>>
+class ArtifactStore <<ArtifactStore>>
+class Skill <<Skill>>
+class Plugin <<Plugin>>
+class Tool <<Tool>>
+class Knowledge <<Knowledge>>
+class MemoryNamespace <<MemoryNamespace>>
+class Action <<Action>>
+class ControlFlow <<ControlFlow>>
+class StepOwner <<StepOwner>>
 class Workflow <<Workflow>>
 class Trigger <<Trigger>>
 class Channel <<Channel>>
-class Knowledge <<Knowledge>>
-class MemoryNamespace <<MemoryNamespace>>
 class Guardrail <<Guardrail>>
 class OutputContract <<OutputContract>>
 class Evaluation <<Evaluation>>
-class System <<System>>
 Organization --|> Team
 Agent --|> Worker
 Subagent --|> Worker
 Team "0..1" *-- "0..*" Team : teams
 Team "1" *-- "0..*" Agent : members
 Agent "1" *-- "0..*" Subagent : subagents
-Workflow "1" *-- "0..*" Action : graph.nodes
-Workflow "1" *-- "0..*" ControlFlow : graph.edges
 System "1" *-- "1" Organization : organization
-Organization "1" *-- "0..*" Skill : skills
-Organization "1" *-- "0..*" Plugin : plugins
-Organization "1" *-- "0..*" Tool : tools
 Organization "1" *-- "0..*" Person : people
 Organization "1" *-- "0..*" Role : role_definitions
+Organization "1" *-- "0..*" Mission : missions
 Organization "1" *-- "0..*" Decision : decisions
 Organization "1" *-- "0..*" Separation : separations
 Organization "1" *-- "0..*" Policy : policies
 Organization "1" *-- "0..*" Capability : capabilities
-Organization "1" *-- "0..*" DataClass : data_classes
 Organization "1" *-- "0..*" Environment : environments
 Organization "1" *-- "0..*" Endpoint : endpoints
-Organization "1" *-- "0..*" Mission : missions
+DataClass "0..*" *-- "0..*" DataClass : relations
+Organization "1" *-- "0..*" DataClass : data_classes
+System "1" *-- "0..*" ArtifactStore : artifact_stores
+Organization "1" *-- "0..*" Skill : skills
+Organization "1" *-- "0..*" Plugin : plugins
+Organization "1" *-- "0..*" Tool : tools
+Organization "1" *-- "0..*" Knowledge : knowledge
+Organization "1" *-- "0..*" MemoryNamespace : memory.namespaces
+Workflow "1" *-- "0..*" Action : graph.nodes
+Workflow "1" *-- "0..*" ControlFlow : graph.edges
 Organization "1" *-- "0..*" Workflow : workflows
 Organization "1" *-- "0..*" Trigger : triggers
 Organization "1" *-- "0..*" Channel : channels
-Organization "1" *-- "0..*" Knowledge : knowledge
-Organization "1" *-- "0..*" MemoryNamespace : memory.namespaces
 Organization "1" *-- "0..*" Guardrail : guardrails
 Organization "1" *-- "0..*" OutputContract : output_contracts
 System "1" *-- "0..*" Evaluation : lifecycle.evaluations

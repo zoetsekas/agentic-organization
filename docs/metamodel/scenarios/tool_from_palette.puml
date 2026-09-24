@@ -1,8 +1,8 @@
 @startuml tool_from_palette
 !pragma layout smetana
 title Drop a tool, then say what it wraps
-object "summarise : Tool" as tool_summarise
 object "read_ledger : Capability" as capability_read_ledger
+object "summarise : Tool" as tool_summarise
 object "acme : Organization" as organization_acme {
   leader = ceo
 }
@@ -13,16 +13,16 @@ object "risk_lead : Agent" as agent_risk_lead
 object "briefer : SubAgent" as subagent_briefer {
   capabilities = ['read_ledger']
 }
-object "ledger_lookup : Tool" as tool_ledger_lookup
 object "ledger : DataClass" as data_class_ledger
-organization_acme *-- tool_summarise : owns
+object "ledger_lookup : Tool" as tool_ledger_lookup
 organization_acme *-- capability_read_ledger : owns
+organization_acme *-- tool_summarise : owns
 agent_ceo ..> capability_read_ledger : provides
 agent_analyst ..> capability_read_ledger : provides
 agent_clerk ..> capability_read_ledger : provides
 agent_risk_lead ..> capability_read_ledger : provides
 subagent_briefer ..> capability_read_ledger : provides
+capability_read_ledger --> data_class_ledger : reaches
 tool_ledger_lookup --> capability_read_ledger : wraps
 tool_summarise --> capability_read_ledger : wraps
-capability_read_ledger --> data_class_ledger : reaches
 @enduml

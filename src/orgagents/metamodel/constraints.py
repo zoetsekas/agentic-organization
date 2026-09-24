@@ -73,6 +73,11 @@ def _values(rel: Relationship, obj: Any) -> list[str]:
     if rel.shape is Shape.REF_OBJECTS:
         # An object whose key is empty is not a link: a human counterpart
         # written inline rather than as a reference to a Person.
+        if rel.selector:
+            attr, want = rel.selector
+            value = [v for v in value
+                     if getattr(getattr(v, attr, None), "value",
+                                getattr(v, attr, None)) == want]
         return [k for k in (getattr(v, rel.key, "") for v in value) if k]
     return list(value)
 
