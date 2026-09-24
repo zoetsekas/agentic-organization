@@ -55,6 +55,13 @@ The container binds to `127.0.0.1` only and runs in `none` auth mode — it
 believes the `X-User` header, so it must not be reachable from other machines
 (ADR-0114). `make up`, `make seed`, `make wait`, `make down` wrap the same.
 
+Compose also starts `postgres`, the designer's database (ADR-0113): designs
+are stored in tables generated from the UML profiles. It is not published;
+the designer reaches it on the Compose network. On the first start against a
+volume that holds designs in the older SQLite store, the designer copies them
+into PostgreSQL once (`db migrate-from-sqlite --once`) and leaves the SQLite
+file as it was.
+
 ### A virtual environment
 
 ```bash
@@ -64,8 +71,15 @@ python -m venv .venv
 .venv/Scripts/orgagents serve --port 8000      # the API + UI from source
 ```
 
-Extras: `dev` (pytest, httpx, jsonschema), `client` (httpx, for
+Extras: `dev` (pytest, httpx, jsonschema, SQLAlchemy, psycopg), `postgres`
+(SQLAlchemy and psycopg 3, for the relational store), `client` (httpx, for
 `orgagents.client`), `mcp` (the MCP SDK), `langgraph`, `openai`, `anthropic`.
+
+Without `ORGAGENTS_DATABASE_URL` a source checkout keeps designs in the
+SQLite document store (`relational` falls back to it), which is what most
+tests use. To run against PostgreSQL, point it at one:
+`ORGAGENTS_DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/orgagents`;
+migrations are applied on start (`orgagents db migrate` applies them by hand).
 
 ### Windows notes
 
@@ -99,7 +113,9 @@ Extras: `dev` (pytest, httpx, jsonschema), `client` (httpx, for
 | `src/orgagents/metamodel/` | The UML profiles, one module per concern (`core.py` … `deployment.py`, in the UML subset of `uml.py`, assembled by `__init__.py`), the completeness check (`completeness.py`), the generated reference (`reference.py`), constraints, **model operations** (`operations.py`), scenarios, the spec→IR transformation trace |
 | `src/orgagents/compiler/` | IR (`ir.py`), the engine, the target registry (`base.py`), `targets/` (local, langgraph, adk, maf, terraform, template), IR diff |
 | `src/orgagents/runtime/` | Adapters per framework, workflow engines registry (`engines.py`), the worker a generated container runs |
-| `src/orgagents/designer/` | `DesignerService`, RBAC for people (`rbac.py`), auth (`auth.py`), repositories, locks and merge, audit, gestures, layout |
+| `src/orgagents/designer/` | `DesignerService`, RBAC for people (`rbac.py`), auth (`auth.py`), repositories (memory, filesystem, SQLite documents, `PostgresRepository`), locks and merge, audit, gestures, layout |
+| `src/orgagents/persistence/` | The model in PostgreSQL (ADR-0113): `relational.py` generates the schema from the profiles, `mapper.py` writes and reads rows, `store.py` runs them over SQLAlchemy Core + psycopg, `queries.py` the ADR's queries, `migrations/` the committed forward-only migrations, `sqlite_import.py` the move from the SQLite store |
+| `src/orgagents/spec/exchange.py` | Typed YAML/JSON: every element names its UML type (ADR-0113) |
 | `src/orgagents/fabric/` | Tenants, deployments, quotas, operator RBAC — the command centre's backend |
 | `src/orgagents/api.py` | The FastAPI app: every route |
 | `src/orgagents/api_contract.py` | Tags, `/api/v1`, the OpenAPI export (ADR-0115) |
@@ -109,6 +125,7 @@ Extras: `dev` (pytest, httpx, jsonschema), `client` (httpx, for
 | `examples/` | Worked designs; `examples/ayc/` runs end to end in Docker |
 | `docs/decisions/`, `docs/workstreams/` | ADRs and workstream records (indexes are generated) |
 | `docs/api/openapi.json` | The committed public API schema |
+| `docs/api/typed-exchange.schema.json` | The JSON Schema of the typed exchange format (generated) |
 | `scripts/` | Browser checks (Playwright) and the smoke test |
 | `tests/` | pytest; UI source tests read `web/*.js` as text |
 
@@ -141,6 +158,22 @@ Extras: `dev` (pytest, httpx, jsonschema), `client` (httpx, for
 - **Designer** — workspaces, designs (stored as "systems"), revisions,
   optimistic concurrency with merge (ADR-0033), people-RBAC (ADR-0032), audit
   (ADR-0043), publish as a *request* to the fabric (ADR-0049).
+- **Relational store** — in PostgreSQL, one schema per UML profile and a
+  table per stereotype (`organisation.agent`, `authority.mandate__decisions`,
+  `deployment.server`), generated from the profiles, never written by hand
+  (ADR-0113). A save is a revision: a `core.revision` row and a snapshot of
+  every row under it. Every element is also in `core.element` (id, UML type,
+  profile). A reference keeps the id as written and the row it resolves to
+  (`data_class`, `data_class__row`). A draft the model refuses is kept whole
+  on its revision. The questions the schema must answer (Q1–Q5) are in the
+  ADR and in `persistence/queries.py`; `orgagents db query q1 model=<id>
+  x=order_data` runs one.
+- **Typed exchange** — `orgagents export` writes a spec or binding with
+  `type: <Profile>::<Name>` on every element (`Organisation::Agent`,
+  `Authority::Mandate`) and the root `type: Core::Model` with its profile
+  versions; `orgagents import` and every loader check a present type against
+  its position (OA-3002..3004) and accept untyped files as before. The
+  designer exports at `GET /api/designer/systems/{id}/export?format=yaml|json`.
 
 ## 5. How to…
 
@@ -175,6 +208,31 @@ declaration the models contradict).
    `test_designer_palette_coverage.py` and `test_designer_covers_the_model.py`
    — they hold the models, the palette, link rules, trace and canvas to the
    profiles.
+
+### Change the relational schema
+
+You do not write DDL. The schema follows the profiles (ADR-0113), so a
+stereotype, property or relationship added by the recipe above is already in
+`orgagents.persistence.relational.structure()`; what remains is the
+migration that takes an existing database there:
+
+1. `orgagents db generate-migration "<what changed>"` — diffs
+   `persistence/migrations/schema.json` (what the committed migrations
+   produce) with the structure the profiles generate now, and writes the next
+   `NNNN_<name>.sql` plus the new `schema.json`. Nothing to do prints
+   "no change".
+2. Read the SQL. A new column on an existing table is added nullable when it
+   has no default (older revisions have no value for it); a dropped field
+   drops its column. Migrations are forward-only: never edit a committed
+   one — `apply` refuses a file whose checksum changed.
+3. Commit both files. `tests/test_persistence_schema.py` fails while a
+   migration is pending, and (with Docker) checks that applying every
+   committed migration yields exactly the generated DDL.
+4. If the change touches a table a query in ADR-0113 reads, run
+   `tests/test_persistence_queries.py` — a broken query is a breaking change
+   to the ADR.
+
+`orgagents db ddl` prints the whole schema.
 
 ### Add a validator rule and an issue code
 
@@ -357,6 +415,7 @@ Add to `claude_desktop_config.json` (Settings → Developer → Edit config):
 | Bus | edges, broker permissions, refusals, separation across a chain (fake transport); the same against a real `nats-server` | `pytest -q tests/test_agent_bus.py tests/test_agent_bus_nats.py` (the second needs `nats-server` on PATH or Docker; skipped otherwise) |
 | Agent-to-agent end to end | CEO → COO → buyer over NATS in Docker | `examples/ayc/local_stack.py e2e-messaging` |
 | Smoke | build, start, run one agent | `make smoke` |
+| PostgreSQL | every example round-trips through the tables to identical typed YAML/JSON, the ADR-0113 queries against Python oracles, migrations reproduce the DDL, optimistic versions under concurrent writers, the SQLite → PostgreSQL move, and the designer repository suite (`postgres` parameter) | `pytest -q tests/test_persistence_*.py tests/test_designer.py tests/test_designer_audit.py` — starts `postgres` from `docker/images.lock` in Docker on a random 127.0.0.1 port; skipped, with the reason, where Docker or the `postgres` extra is missing. `ORGAGENTS_TEST_DATABASE_URL` uses an existing server instead. Never run against SQLite. |
 
 ## 9. ADRs and commits
 

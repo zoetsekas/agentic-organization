@@ -29,12 +29,48 @@ ORGAGENTS_SEED=1 docker compose up --build   # with the demo organization
 Seeding is opt-in and only ever runs when the database file does not exist, so
 a restart never overwrites or duplicates what is in the volume.
 
+### The designer's database
+
+Designs, their revisions, workspaces, locks and the audit log are stored in
+PostgreSQL, the `postgres` service beside the designer (ADR-0113), in tables
+generated from the UML profiles — one PostgreSQL schema per profile. The
+platform's own records (catalog, fabric, sessions) stay in the SQLite file
+`ORGAGENTS_DB` names.
+
+| Choice | Why |
+|---|---|
+| `postgres:16-alpine` by digest | The digest in `docker/images.lock` (ADR-0053); `tests/test_docker_assets.py` holds the two equal. |
+| Not published | Only the designer, on the Compose network, reaches it (ADR-0114). To look inside: `docker compose exec postgres psql -U orgagents orgagents`. |
+| `user: "70:70"`, `cap_drop: [ALL]`, `read_only`, `no-new-privileges` | It runs as the image's own `postgres` user, so it needs no capability to switch users or chown; only the volume and two tmpfs (`/tmp`, `/var/run/postgresql`) are writable. |
+| `designer-postgres` volume | The data outlives the container. `docker compose down -v` deletes it. |
+| Health check over TCP | `pg_isready -h 127.0.0.1`: the temporary server `initdb` runs on a socket does not count as ready, so the designer does not start against it. |
+| Migrations at start | The designer applies the committed forward-only migrations it lacks (`persistence/migrations`, under an advisory lock) before serving. |
+
+**Existing designs.** On its first start with `ORGAGENTS_DATABASE_URL` set
+and a SQLite store in the volume, the entrypoint runs
+`orgagents db migrate-from-sqlite /data/designer.db --once`: it reads a copy
+of the SQLite file (with its WAL), writes every workspace, design and
+revision into PostgreSQL, reads each revision back and compares it with its
+source, and records the import so it never runs twice. The SQLite file is
+not changed and stays as a backup. A revision whose spec holds keys the
+current model no longer reads is stored whole rather than normalised, so
+nothing is lost. To run it by hand:
+
+```bash
+docker compose run --rm designer db migrate-from-sqlite /data/designer.db
+docker compose run --rm designer db query q4 t=Organisation::Agent
+docker compose run --rm designer export --system <id> --format json
+```
+
+Set `ORGAGENTS_POSTGRES_PASSWORD` before the first start to use a password
+other than the default; it is fixed when the volume is created.
+
 | Choice | Why |
 |---|---|
 | `python:3.11-slim`, two stages | Dependencies resolve from `pyproject.toml` alone, so that layer rebuilds only when the metadata changes. |
 | Non-root `designer` user (uid 10001), no login shell | The app writes to one directory; nothing needs an identity that can log in. |
 | `PYTHONPATH=/app/src` with the source tree kept | `api.py` resolves the web assets relative to its own file (`parents[2]/web`), so the UI is only found when the on-disk layout matches the repo. |
-| `/data` volume | The SQLite database is the only mutable state. |
+| `/data` volume | The platform's SQLite database; the designs are in the `postgres` service's volume. |
 | Healthcheck calls `/healthz` | A port check would call a process that is up but broken "healthy". |
 | `scheduler` service behind a profile | It runs declared triggers unattended. That should be something you asked for. |
 
@@ -43,6 +79,8 @@ Configuration:
 | Variable | Default | Notes |
 |---|---|---|
 | `ORGAGENTS_DB` | `/data/designer.db` | Keep it under `/data` or it lands on the container layer. |
+| `ORGAGENTS_DATABASE_URL` | set by Compose to the `postgres` service | Where designs are stored (ADR-0113). Unset, the designer keeps them in the SQLite store instead. |
+| `ORGAGENTS_POSTGRES_PASSWORD` | `orgagents` | The database password, used by both services; set before the first start. |
 | `ORGAGENTS_BASE_URL` | `http://localhost:8000` | Session URLs are handed to humans, so this must be the address *they* can reach. |
 | `ORGAGENTS_PORT` / `ORGAGENTS_HOST` | `8000` / `0.0.0.0` | |
 | `ORGAGENTS_SEED` | `0` | `1` seeds the demo org on first start only. |

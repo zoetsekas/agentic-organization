@@ -204,7 +204,10 @@ Decision 1's table, as generated (`orgagents.persistence.relational`):
 - **Primitives and enumerations.** Multi-valued primitives are PostgreSQL
   arrays; an enumeration is `text` with a `CHECK` against its literals (an
   array one with `<@`), and every enumeration has a reader table
-  (`<schema>.enum_<name>`). `Map` and `Any` are `jsonb`.
+  (`<schema>.enum_<name>`). `Map` and `Any` are `json`, not `jsonb` as
+  Decision 2 first said: `jsonb` reorders an object's keys, and the round
+  trip (Decision 6) is the contract. A reader casts (`labels::jsonb`) to
+  query inside one; drafts and layouts are `json` for the same reason.
 - **Written-as-is parts.** The activity graph (`_AsWritten`, ADR-0110) keeps
   which fields were written and its extra keys (`fields_set`, `extra`), so a
   workflow round-trips to the same document.
@@ -230,6 +233,16 @@ Decision 1's table, as generated (`orgagents.persistence.relational`):
   from the SQLite document store into PostgreSQL, reading the SQLite file
   only. The container runs it once on first start against the volume's
   `designer.db` (recorded in `designer.imports`, so never twice).
+- **Scoped ids.** Some ids are unique only inside their owner (a server in
+  its target, a step in its workflow). When an id names several elements of
+  the kinds a reference may point at, the one nearest the reference in the
+  ownership tree is its row; a tie leaves the row empty.
+- **Not yet built (1.1.0).** The designer UI's *Export…* action and typed
+  files in its Import dialog are served by the API
+  (`GET /api/designer/systems/{id}/export`, `POST /api/designer/import`)
+  but not yet wired into `web/`. The example files are not rewritten with
+  types: untyped input is valid, and `orgagents export` produces the typed
+  form on demand.
 
 ## Scope
 Designer persistence (a new `relational` backend replacing the document-body
