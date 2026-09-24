@@ -12,8 +12,8 @@ object "ops : Team" as team_ops {
 }
 object "analyst : Agent" as agent_analyst
 organization_acme *-- role_payer : owns
-agent_ops_lead ..> environment_secure : runs in
 agent_ops_lead --> role_payer : plays
+agent_ops_lead ..> environment_secure : runs in
 team_ops *-- agent_ops_lead : member
 team_ops --> agent_ops_lead : leads
 agent_ops_lead --> agent_analyst : delegate

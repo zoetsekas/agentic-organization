@@ -3,21 +3,21 @@
 title Name a successor, and refuse an agent as its own
 object "ops_lead : Agent" as agent_ops_lead
 object "analyst : Agent" as agent_analyst
-object "secure : Environment" as environment_secure
 object "payer : Role" as role_payer
+object "secure : Environment" as environment_secure
 object "sandbox : Environment" as environment_sandbox
-object "handbook : Knowledge" as knowledge_handbook
 object "read_ledger : Capability" as capability_read_ledger
+object "handbook : Knowledge" as knowledge_handbook
 object "ops : Team" as team_ops {
   leader = ops_lead
 }
 object "nightly : Trigger" as trigger_nightly
-agent_ops_lead ..> environment_secure : runs in
 agent_ops_lead --> role_payer : plays
 agent_ops_lead --> agent_analyst : successor
+agent_ops_lead ..> environment_secure : runs in
 agent_analyst ..> environment_sandbox : runs in
-agent_analyst --> knowledge_handbook : consults
 agent_analyst ..> capability_read_ledger : provides
+agent_analyst --> knowledge_handbook : consults
 team_ops *-- agent_ops_lead : member
 team_ops *-- agent_analyst : member
 team_ops --> agent_ops_lead : leads

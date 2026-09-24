@@ -6,8 +6,8 @@ object "four_eyes : Separation" as separation_four_eyes
 object "acme : Organization" as organization_acme {
   leader = ceo
 }
-object "secure : Environment" as environment_secure
 object "payer : Role" as role_payer
+object "secure : Environment" as environment_secure
 object "ops : Team" as team_ops {
   leader = ops_lead
 }
@@ -15,8 +15,8 @@ object "approve_payment : Decision" as decision_approve_payment
 object "release_payment : Decision" as decision_release_payment
 object "analyst : Agent" as agent_analyst
 organization_acme *-- separation_four_eyes : owns
-agent_ops_lead ..> environment_secure : runs in
 agent_ops_lead --> role_payer : plays
+agent_ops_lead ..> environment_secure : runs in
 team_ops *-- agent_ops_lead : member
 team_ops --> agent_ops_lead : leads
 separation_four_eyes --> decision_approve_payment : keeps apart

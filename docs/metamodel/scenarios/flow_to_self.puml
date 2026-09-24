@@ -3,16 +3,16 @@
 title A flow from an agent to itself
 object "analyst : Agent" as agent_analyst
 object "sandbox : Environment" as environment_sandbox
-object "handbook : Knowledge" as knowledge_handbook
 object "read_ledger : Capability" as capability_read_ledger
+object "handbook : Knowledge" as knowledge_handbook
 object "ops : Team" as team_ops {
   leader = ops_lead
 }
 object "nightly : Trigger" as trigger_nightly
 object "ops_lead : Agent" as agent_ops_lead
 agent_analyst ..> environment_sandbox : runs in
-agent_analyst --> knowledge_handbook : consults
 agent_analyst ..> capability_read_ledger : provides
+agent_analyst --> knowledge_handbook : consults
 team_ops *-- agent_analyst : member
 trigger_nightly --> agent_analyst : fires
 agent_ops_lead --> agent_analyst : delegate

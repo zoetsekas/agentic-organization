@@ -9,8 +9,8 @@ object "acme : Organization" as organization_acme {
 }
 object "ceo : Agent" as agent_ceo
 object "ops_lead : Agent" as agent_ops_lead
-object "handbook : Knowledge" as knowledge_handbook
 object "read_ledger : Capability" as capability_read_ledger
+object "handbook : Knowledge" as knowledge_handbook
 object "ops : Team" as team_ops {
   leader = ops_lead
 }
@@ -20,8 +20,8 @@ organization_acme *-- environment_secure : owns
 agent_ceo ..> environment_secure : runs in
 agent_ops_lead ..> environment_secure : runs in
 agent_analyst ..> environment_secure : runs in\n{network: none}
-agent_analyst --> knowledge_handbook : consults
 agent_analyst ..> capability_read_ledger : provides
+agent_analyst --> knowledge_handbook : consults
 team_ops *-- agent_analyst : member
 trigger_nightly --> agent_analyst : fires
 agent_ops_lead --> agent_analyst : delegate
