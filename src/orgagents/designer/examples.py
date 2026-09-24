@@ -170,6 +170,23 @@ def initial_layout(spec: dict[str, Any]) -> Layout:
         id=MAIN_DIAGRAM, name="Organisation", nodes=nodes)})
 
 
+def _example_binding(path: Any, spec: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """The binding an example ships, so the designer can say which engine runs
+    each workflow and link out to it (ADR-0110): the workstation binding
+    beside the spec when there is one, else the one the spec's deployment
+    names. None when it ships neither; the design still loads."""
+    stem = path.name.replace(".system.yaml", "")
+    named = ((spec.get("deployment") or {}).get("binding") or "")
+    for candidate in (path.with_name(f"{stem}.local.binding.yaml"),
+                      path.with_name(named.rsplit("/", 1)[-1]) if named else None):
+        if candidate is not None and candidate.is_file():
+            try:
+                return yaml.safe_load(candidate.read_text(encoding="utf-8")) or None
+            except yaml.YAMLError:
+                return None
+    return None
+
+
 def load_example(designer: Any, principal: Any, example_id: str, *,
                  workspace_id: str = "", name: str = "") -> dict[str, Any]:
     """Create a design from a shipped example, laid out, and return it.
@@ -195,6 +212,7 @@ def load_example(designer: Any, principal: Any, example_id: str, *,
         principal, workspace_id=workspace_id, name=title,
         description=example.description or f"The {example.id} example",
         spec=spec, layout=initial_layout(spec),
+        binding=_example_binding(example.path, spec),
     )
     return {
         "example": example.summary(),

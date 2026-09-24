@@ -49,6 +49,28 @@ class AuditAction(str, Enum):
     WORKSPACE_DELETE = "workspace.delete"
     SYSTEM_IMPORT = "system.import"
     AUDIT_READ = "audit.read"
+    # The running platform and the catalogs (ADR-0116). Mutations are recorded
+    # allowed or denied; reads only when denied.
+    RUNTIME_READ = "runtime.read"
+    RUNTIME_RUN = "runtime.run"
+    RUNTIME_RESUME = "runtime.resume"
+    AGENT_CREATE = "runtime.agent.create"
+    AGENT_UPDATE = "runtime.agent.update"
+    AGENT_DELETE = "runtime.agent.delete"
+    ORG_UNIT_CREATE = "runtime.org_unit.create"
+    SANDBOX_TEMPLATE_PUBLISH = "runtime.sandbox_template.publish"
+    OPS_ACK = "ops.ack"
+    CATALOG_READ = "catalog.read"
+    CATALOG_PUBLISH = "catalog.publish"
+    CATALOG_EDIT = "catalog.edit"
+    CATALOG_AMEND = "catalog.amend"
+    CATALOG_SEND_BACK = "catalog.send_back"
+    CATALOG_RETIRE = "catalog.retire"
+    CATALOG_DELETE = "catalog.delete"
+    CATALOG_REVIEW = "catalog.review"
+    CATALOG_ENTITLE = "catalog.entitle"
+    CATALOG_INSTALL = "catalog.install"
+    CATALOG_RATE = "catalog.rate"
     # Authentication happens before any of the above, and its failures leave no
     # other trace (ADR-0047). Successes are not logged: they are every request.
     AUTH_FAILED = "auth.failed"

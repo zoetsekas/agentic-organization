@@ -464,9 +464,12 @@ def _switch_to_oidc(client, jwks, **settings_extra):
     return app
 
 
-def test_the_api_defaults_to_trusted_proxy_mode_and_says_so(client):
+def test_the_api_defaults_to_single_user_local_mode_and_says_so(client):
+    # `none`, not `trusted_proxy`: with no proxy in front, the old default
+    # believed any caller's X-User (ADR-0114). `none` still reads the header,
+    # and says it is single-user local.
     settings = client.get("/api/designer/settings").json()
-    assert settings["auth_mode"] == "trusted_proxy"
+    assert settings["auth_mode"] == "none"
     assert client.get("/api/designer/whoami",
                       headers={"X-User": "alice"}).json()["user_id"] == "alice"
 

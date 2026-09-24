@@ -161,6 +161,7 @@ class InProcessEngine:
         agent_caller: Optional[Callable[[str, dict], Any]] = None,
         human_caller: Optional[Callable[[str, dict], Any]] = None,
         workflows: Optional[dict[str, WorkflowRef]] = None,
+        workflow_caller: Optional[Callable[[str, dict, dict], Any]] = None,
         max_steps: int = 100,
     ) -> WorkflowResult:
         engine = WorkflowEngine(
@@ -168,6 +169,7 @@ class InProcessEngine:
             agent_caller=agent_caller,
             human_caller=human_caller,
             workflows=workflows,
+            workflow_caller=workflow_caller,
         )
         return engine.run(ref, state or {}, max_steps=max_steps)
 

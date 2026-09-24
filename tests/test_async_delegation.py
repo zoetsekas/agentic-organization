@@ -25,14 +25,24 @@ def _tools(platform, agent_id, session_id):
 
 
 def _settled(platform, handle, timeout=10.0):
-    """Wait for a child session to reach a terminal state."""
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        state = platform.sessions.get(handle).state
-        if state in (SessionState.COMPLETED, SessionState.FAILED):
-            return state
-        time.sleep(0.01)
-    raise AssertionError(f"handle {handle} never settled")
+    """Wait for a child's worker to finish, and return the child's state.
+
+    Waits on the worker's future, not by polling the session: the session
+    turns COMPLETED a moment before the future carries the output, and a test
+    that raced into that gap under load read an empty result (the old
+    flakiness of the lapsed-grant test). The future is the event itself; the
+    timeout is only a guard against a hang.
+    """
+    with platform.runtime._assign_lock:
+        assignment = platform.runtime._assignments[handle]
+    try:
+        assignment.future.result(timeout=timeout)
+    except Exception as e:  # noqa: BLE001 - a failed run is still settled
+        if type(e).__name__ == "TimeoutError":
+            raise AssertionError(f"handle {handle} never settled") from e
+    state = platform.sessions.get(handle).state
+    assert state in (SessionState.COMPLETED, SessionState.FAILED), state
+    return state
 
 
 # -- rule: the authority model does not move --------------------------------
@@ -128,6 +138,30 @@ def test_a_lapsed_mission_grant_does_not_strand_the_work(platform):
     collected = [e for e in platform.sessions.events(session.id)
                  if e.type == "delegation_collected"]
     assert collected and collected[0].payload["authority_lapsed"] is True
+
+
+def test_a_completed_child_is_not_settled_until_its_result_is_in_hand(platform):
+    """The gap the lapsed-grant test used to fall into, held open on purpose:
+    the store says COMPLETED, the worker's future has not resolved. `check`
+    must not collect (and so lose) an empty result in that gap."""
+    from concurrent.futures import Future
+
+    cfo = platform.org.agent("agt_cfo")
+    session = platform.sessions.create(cfo.id)
+    tools = _tools(platform, cfo.id, session.id)
+    handle = tools["assign"]("agt_fin_analyst", "Reconcile.")["handle"]
+    _settled(platform, handle)
+    assignment = platform.runtime._assignments[handle]
+    real = assignment.future.result()
+    assignment.future = Future()          # the worker has not handed over yet
+
+    early = tools["check"](handle)
+    assert early["state"] == SessionState.COMPLETED.value
+    assert early["settled"] is False and "output" not in early
+
+    assignment.future.set_result(real)
+    late = tools["check"](handle)
+    assert late["settled"] and late["ok"] and late["output"] == real.output
 
 
 # -- rule 2: depth is a property of the tree --------------------------------

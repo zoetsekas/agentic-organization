@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -46,6 +46,20 @@ from .platform import Platform
 from .store import PLUGINS, SKILLS, WORKFLOWS
 
 WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+
+
+class _RevalidatedStaticFiles(StaticFiles):
+    """The UI bundle, served so a browser asks again before reusing it.
+
+    The scripts are loaded without a version in their URL, so a heuristic cache
+    kept serving the old canvas against a rebuilt API. `no-cache` still lets the
+    browser keep a copy; it just revalidates it by ETag, which is a 304.
+    """
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Any:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 class CatalogEditRequest(BaseModel):
@@ -177,53 +191,289 @@ def create_app(
     app = FastAPI(title="Organizational Agentic System", version="0.1.0")
     app.state.platform = platform
 
+    # -- designer: workspaces, systems, canvas, locks (ADR-0031/0032/0033) --
+
+    from .designer import (
+        DesignerError,
+        DesignerService,
+        Layout,
+        LockConflict,
+        Member,
+        PermissionDenied,
+        Principal,
+        SystemStatus,
+        UserRole,
+        build_repository,
+    )
+    from .designer.audit import AuditOutcome as DesignerAuditOutcome
+    from .designer.auth import AuthError, Authenticator, verifier_from_settings
+    from .designer.models import DesignerSettings
+
+    designer_settings = DesignerSettings(
+        persistence=os.environ.get("ORGAGENTS_DESIGNER_STORE", "relational"),  # type: ignore[arg-type]
+        storage_path=os.environ.get("ORGAGENTS_DESIGNER_PATH", "./designer-data"),
+        # `none` (single-user local) unless a mode is asked for (ADR-0114).
+        # The default used to be `trusted_proxy`, which with no proxy in front
+        # meant any caller's X-User was believed; that mode now has to be
+        # asked for *and* told how to recognise its proxy.
+        auth_mode=os.environ.get("ORGAGENTS_DESIGNER_AUTH", "none"),  # type: ignore[arg-type]
+        oidc_issuer=os.environ.get("ORGAGENTS_OIDC_ISSUER", ""),
+        oidc_audiences=[a for a in os.environ.get(
+            "ORGAGENTS_OIDC_AUDIENCE", "").split(",") if a],
+        oidc_jwks_uri=os.environ.get("ORGAGENTS_OIDC_JWKS_URI", ""),
+    )
+    designer = DesignerService(
+        build_repository(designer_settings, platform.store), designer_settings
+    )
+    app.state.designer = designer
+
+    # One authenticator per app, holding the JWKS cache so keys are fetched
+    # once rather than per request. Tests and air-gapped installs replace its
+    # `verifier` with one over a local key set.
+    designer_auth = Authenticator(
+        designer_settings, verifier=verifier_from_settings(designer_settings),
+        audit=designer.audit,
+        proxy_secret=os.environ.get("ORGAGENTS_PROXY_SECRET", ""),
+        proxy_sources=[s.strip() for s in os.environ.get(
+            "ORGAGENTS_PROXY_SOURCES", "").split(",") if s.strip()],
+        proxy_user_header=os.environ.get("ORGAGENTS_PROXY_USER_HEADER", ""),
+        proxy_name_header=os.environ.get("ORGAGENTS_PROXY_NAME_HEADER", ""),
+        proxy_email_header=os.environ.get("ORGAGENTS_PROXY_EMAIL_HEADER", ""),
+    )
+    # Refuses to start trusted-proxy mode with no way to tell the proxy apart.
+    designer_auth.require_proxy_guard()
+    app.state.designer_auth = designer_auth
+
+    def principal(
+        request: Request,
+        authorization: str = Header(default=""),
+        x_user: str = Header(default="anonymous"),
+        x_user_name: str = Header(default=""),
+        x_user_email: str = Header(default=""),
+        x_orgagents_proxy_secret: str = Header(default=""),
+    ) -> Principal:
+        """Identity per the configured `auth_mode` (ADR-0047).
+
+        In `oidc` mode this is a verified bearer token and the X-User header is
+        ignored entirely; in `trusted_proxy` mode it is the header, which is
+        only as good as the proxy. Either way the service never trusts a
+        client-sent role. A failure here is a 401 — `_guard` owns the 403.
+        """
+        try:
+            # The X-User parameters above document the `none`-mode headers;
+            # which headers are actually read is the authenticator's call
+            # (trusted_proxy reads only the ones its proxy sets, ADR-0114).
+            auth = app.state.designer_auth
+            return auth.authenticate(
+                authorization=authorization,
+                **auth.identity_headers(request.headers),
+                proxy_secret_header=x_orgagents_proxy_secret,
+                client_host=request.client.host if request.client else "",
+            )
+        except AuthError as e:
+            raise HTTPException(401, str(e)) from e
+
+    def _guard(fn, *args, **kwargs):
+        from .designer.service import FieldErrors
+        try:
+            return fn(*args, **kwargs)
+        except FieldErrors as e:
+            # Named per field, so a form can put each message under its own
+            # field (ADR-0106).
+            raise HTTPException(422, {"message": str(e),
+                                      "fields": e.fields}) from e
+        except PermissionDenied as e:
+            raise HTTPException(403, str(e)) from e
+        except LockConflict as e:
+            raise HTTPException(
+                409, {"error": str(e), "lock": e.lock.model_dump(mode="json")}
+            ) from e
+        except ValueError as e:
+            # A value the model refuses is the caller's mistake, not a missing
+            # thing: 422 with the reason, never a 500 from a store.
+            raise HTTPException(422, str(e)) from e
+        except DesignerError as e:
+            raise HTTPException(404, str(e)) from e
+
+    # -- runtime and catalog access (ADR-0116) -----------------------------
+    #
+    # Every route below takes the caller from `principal` -- the one
+    # authenticator -- and asks `RuntimeAccess` what they may do. No route
+    # reads an identity header itself (a test holds this file to that).
+
+    from .fabric import rbac as fabric_rbac
+    from .fabric.rbac import OperatorRegistry
+    from .runtime_access import (
+        CATALOG_DELETE,
+        CATALOG_ENTITLE,
+        CATALOG_PUBLISH,
+        CATALOG_READ,
+        CATALOG_REVIEW,
+        OPS_ACK,
+        RUNTIME_MANAGE,
+        RUNTIME_READ,
+        RUNTIME_RESUME,
+        RUNTIME_RUN,
+        Grants,
+        RuntimeAccess,
+    )
+    from .designer.audit import AuditAction as DesignerAuditAction
+
+    # Created here rather than with the rest of the fabric below, because the
+    # runtime's operator grants are read from the same registry (ADR-0116).
+    fabric_operators = OperatorRegistry(
+        platform.store,
+        bootstrap=fabric_rbac.parse_bootstrap(
+            os.environ.get("ORGAGENTS_FABRIC_OPERATORS", "")
+        ),
+    )
+    runtime_access = RuntimeAccess(
+        designer, fabric_operators,
+        local_user=os.environ.get("ORGAGENTS_LOCAL_USER", "anonymous"),
+    )
+    app.state.runtime_access = runtime_access
+
+    def caller(user: Principal = Depends(principal)) -> Grants:
+        """The authenticated caller with what they may do in the runtime."""
+        return runtime_access.grants(user)
+
+    def _record(g: Grants, action: DesignerAuditAction,
+                outcome: DesignerAuditOutcome, *, permission: str,
+                workspace_id: Optional[str], reason: str = "",
+                detail: Optional[dict[str, Any]] = None) -> None:
+        designer.audit.record(
+            action, g.principal, outcome=outcome,
+            workspace_id=workspace_id or "", permission=permission,
+            reason=reason, detail=detail or {},
+        )
+
+    def _authorize(g: Grants, permission: str, workspace_id: Optional[str],
+                   action: DesignerAuditAction, *, anywhere: bool = False,
+                   detail: Optional[dict[str, Any]] = None) -> None:
+        """Deny by default, and write the refusal down before raising it."""
+        ok = g.anywhere(permission) if anywhere else g.allows(permission, workspace_id)
+        if not ok:
+            reason = (f"{g.principal.label} does not hold '{permission}' anywhere"
+                      if anywhere else g.reason(permission, workspace_id))
+            _record(g, action, DesignerAuditOutcome.DENIED, permission=permission,
+                    workspace_id=workspace_id, reason=reason, detail=detail)
+            raise HTTPException(403, reason)
+
+    def _allowed(g: Grants, action: DesignerAuditAction, permission: str,
+                 workspace_id: Optional[str],
+                 detail: Optional[dict[str, Any]] = None) -> None:
+        _record(g, action, DesignerAuditOutcome.SUCCESS, permission=permission,
+                workspace_id=workspace_id, detail=detail)
+
+    def _scope_of_agent_id(agent_id: str) -> Optional[str]:
+        agent = platform.org.agent(agent_id)
+        return runtime_access.workspace_of_agent(agent) if agent else None
+
+    def _visible_agent_ids(g: Grants) -> set[str]:
+        return {a.id for a in platform.org.agents()
+                if g.allows(RUNTIME_READ, runtime_access.workspace_of_agent(a))}
+
+    def _require_read_anywhere(g: Grants) -> None:
+        _authorize(g, RUNTIME_READ, None, DesignerAuditAction.RUNTIME_READ,
+                   anywhere=True)
+
+    def _read_catalog(g: Grants) -> None:
+        _authorize(g, CATALOG_READ, None, DesignerAuditAction.CATALOG_READ,
+                   anywhere=True)
+
+    def _acting_as(g: Grants, claimed: str) -> str:
+        """Who a run or a resume is recorded against: the authenticated
+        caller, never a name in the body. An MCP server's `mcp:<user>` label
+        is kept when `<user>` is the caller (ADR-0115)."""
+        me = g.principal.user_id
+        return claimed if claimed in (me, f"mcp:{me}") else me
+
     # -- org ---------------------------------------------------------------
 
     @app.get("/api/org/units")
-    def list_units() -> list[dict]:
+    def list_units(g: Grants = Depends(caller)) -> list[dict]:
+        _require_read_anywhere(g)
         return [u.model_dump() for u in platform.org.units()]
 
     @app.post("/api/org/units")
-    def create_unit(unit: OrgUnit) -> dict:
-        return platform.org.add_unit(unit).model_dump()
+    def create_unit(unit: OrgUnit, g: Grants = Depends(caller)) -> dict:
+        _authorize(g, RUNTIME_MANAGE, None, DesignerAuditAction.ORG_UNIT_CREATE,
+                   detail={"org_unit": unit.id})
+        saved = platform.org.add_unit(unit)
+        _allowed(g, DesignerAuditAction.ORG_UNIT_CREATE, RUNTIME_MANAGE, None,
+                 {"org_unit": saved.id})
+        return saved.model_dump()
 
     @app.get("/api/org/tree")
-    def org_tree(root: Optional[str] = None) -> list[dict]:
-        return platform.org.to_tree(root)
+    def org_tree(root: Optional[str] = None,
+                 g: Grants = Depends(caller)) -> list[dict]:
+        _require_read_anywhere(g)
+        visible = _visible_agent_ids(g)
+        return platform.org.to_tree(
+            root, agents=[a for a in platform.org.agents() if a.id in visible])
 
     # -- agents ------------------------------------------------------------
 
+    def _readable_agent(g: Grants, agent_id: str) -> Agent:
+        agent = platform.org.agent(agent_id)
+        if agent is None:
+            raise HTTPException(404, "agent not found")
+        _authorize(g, RUNTIME_READ, runtime_access.workspace_of_agent(agent),
+                   DesignerAuditAction.RUNTIME_READ, detail={"agent": agent_id})
+        return agent
+
     @app.get("/api/agents")
-    def list_agents(org_unit_id: Optional[str] = None) -> list[dict]:
-        return [a.model_dump() for a in platform.org.agents(org_unit_id)]
+    def list_agents(org_unit_id: Optional[str] = None,
+                    g: Grants = Depends(caller)) -> list[dict]:
+        _require_read_anywhere(g)
+        return [a.model_dump() for a in platform.org.agents(org_unit_id)
+                if g.allows(RUNTIME_READ, runtime_access.workspace_of_agent(a))]
 
     @app.post("/api/agents")
-    def create_agent(agent: Agent) -> dict:
-        return platform.org.add_agent(agent).model_dump()
+    def create_agent(agent: Agent, g: Grants = Depends(caller)) -> dict:
+        scope = runtime_access.workspace_of_agent(agent)
+        _authorize(g, RUNTIME_MANAGE, scope, DesignerAuditAction.AGENT_CREATE,
+                   detail={"agent": agent.id})
+        saved = platform.org.add_agent(agent)
+        _allowed(g, DesignerAuditAction.AGENT_CREATE, RUNTIME_MANAGE, scope,
+                 {"agent": saved.id})
+        return saved.model_dump()
 
     @app.get("/api/agents/{agent_id}")
-    def get_agent(agent_id: str) -> dict:
-        agent = platform.org.agent(agent_id)
-        if agent is None:
-            raise HTTPException(404, "agent not found")
-        return agent.model_dump()
+    def get_agent(agent_id: str, g: Grants = Depends(caller)) -> dict:
+        return _readable_agent(g, agent_id).model_dump()
 
     @app.put("/api/agents/{agent_id}")
-    def update_agent(agent_id: str, agent: Agent) -> dict:
-        if platform.org.agent(agent_id) is None:
+    def update_agent(agent_id: str, agent: Agent,
+                     g: Grants = Depends(caller)) -> dict:
+        existing = platform.org.agent(agent_id)
+        if existing is None:
             raise HTTPException(404, "agent not found")
+        # Both where it is and where it would go: moving an agent into a
+        # workspace is managing that workspace's runtime too.
+        for scope in {runtime_access.workspace_of_agent(existing),
+                      runtime_access.workspace_of_agent(agent)}:
+            _authorize(g, RUNTIME_MANAGE, scope, DesignerAuditAction.AGENT_UPDATE,
+                       detail={"agent": agent_id})
         agent.id = agent_id
-        return platform.org.add_agent(agent).model_dump()
+        saved = platform.org.add_agent(agent)
+        _allowed(g, DesignerAuditAction.AGENT_UPDATE, RUNTIME_MANAGE,
+                 runtime_access.workspace_of_agent(saved), {"agent": agent_id})
+        return saved.model_dump()
 
     @app.delete("/api/agents/{agent_id}")
-    def delete_agent(agent_id: str) -> dict:
-        return {"deleted": platform.store.delete("agents", agent_id)}
+    def delete_agent(agent_id: str, g: Grants = Depends(caller)) -> dict:
+        scope = _scope_of_agent_id(agent_id)
+        _authorize(g, RUNTIME_MANAGE, scope, DesignerAuditAction.AGENT_DELETE,
+                   detail={"agent": agent_id})
+        deleted = platform.store.delete("agents", agent_id)
+        _allowed(g, DesignerAuditAction.AGENT_DELETE, RUNTIME_MANAGE, scope,
+                 {"agent": agent_id, "deleted": deleted})
+        return {"deleted": deleted}
 
     @app.get("/api/agents/{agent_id}/harness")
-    def agent_harness(agent_id: str) -> dict:
-        agent = platform.org.agent(agent_id)
-        if agent is None:
-            raise HTTPException(404, "agent not found")
+    def agent_harness(agent_id: str, g: Grants = Depends(caller)) -> dict:
+        agent = _readable_agent(g, agent_id)
         return {
             "harness": agent.harness.model_dump(),
             "system_prompt": platform.harness.system_prompt(agent),
@@ -235,14 +485,26 @@ def create_app(
         }
 
     @app.post("/api/agents/{agent_id}/run")
-    def run_agent(agent_id: str, req: RunRequest) -> dict:
+    def run_agent(agent_id: str, req: RunRequest,
+                  g: Grants = Depends(caller)) -> dict:
+        agent = platform.org.agent(agent_id)
+        if agent is None:
+            raise HTTPException(404, f"agent not found: {agent_id}")
+        scope = runtime_access.workspace_of_agent(agent)
+        _authorize(g, RUNTIME_RUN, scope, DesignerAuditAction.RUNTIME_RUN,
+                   detail={"agent": agent_id})
+        if req.session_id:
+            _session_scope_check(g, req.session_id, RUNTIME_RUN,
+                                 DesignerAuditAction.RUNTIME_RUN)
         try:
             result = platform.runtime.run(
                 agent_id, req.prompt, session_id=req.session_id,
-                created_by=req.created_by,
+                created_by=_acting_as(g, req.created_by),
             )
         except KeyError as e:
             raise HTTPException(404, str(e)) from e
+        _allowed(g, DesignerAuditAction.RUNTIME_RUN, RUNTIME_RUN, scope,
+                 {"agent": agent_id, "session": result.session_id})
         return {
             "session_id": result.session_id,
             "session_url": result.session_url,
@@ -254,44 +516,77 @@ def create_app(
 
     # -- sessions ----------------------------------------------------------
 
-    @app.get("/api/sessions")
-    def list_sessions(agent_id: Optional[str] = None, limit: int = 100) -> list[dict]:
-        return [
-            s.model_dump() | {"url": platform.sessions.url(s.id)}
-            for s in platform.sessions.list(agent_id, limit)
-        ]
-
-    @app.get("/api/sessions/{session_id}")
-    def get_session(session_id: str) -> dict:
+    def _session_scope_check(g: Grants, session_id: str, permission: str,
+                             action: DesignerAuditAction) -> Optional[str]:
         s = platform.sessions.get(session_id)
         if s is None:
             raise HTTPException(404, "session not found")
+        scope = _scope_of_agent_id(s.agent_id)
+        _authorize(g, permission, scope, action,
+                   detail={"session": session_id, "agent": s.agent_id})
+        return scope
+
+    @app.get("/api/sessions")
+    def list_sessions(agent_id: Optional[str] = None, limit: int = 100,
+                      g: Grants = Depends(caller)) -> list[dict]:
+        _require_read_anywhere(g)
+        if agent_id:
+            _authorize(g, RUNTIME_READ, _scope_of_agent_id(agent_id),
+                       DesignerAuditAction.RUNTIME_READ, detail={"agent": agent_id})
+        scopes: dict[str, Optional[str]] = {}
+        out = []
+        for s in platform.sessions.list(agent_id, limit):
+            if s.agent_id not in scopes:
+                scopes[s.agent_id] = _scope_of_agent_id(s.agent_id)
+            if g.allows(RUNTIME_READ, scopes[s.agent_id]):
+                out.append(s.model_dump() | {"url": platform.sessions.url(s.id)})
+        return out
+
+    @app.get("/api/sessions/{session_id}")
+    def get_session(session_id: str, g: Grants = Depends(caller)) -> dict:
+        _session_scope_check(g, session_id, RUNTIME_READ,
+                             DesignerAuditAction.RUNTIME_READ)
+        s = platform.sessions.get(session_id)
         return s.model_dump() | {"url": platform.sessions.url(session_id)}
 
     @app.get("/api/sessions/{session_id}/events")
-    def session_events(session_id: str, limit: int = 500) -> list[dict]:
+    def session_events(session_id: str, limit: int = 500,
+                       g: Grants = Depends(caller)) -> list[dict]:
+        _session_scope_check(g, session_id, RUNTIME_READ,
+                             DesignerAuditAction.RUNTIME_READ)
         return [e.model_dump() for e in platform.sessions.events(session_id, limit)]
 
     @app.get("/api/sessions/{session_id}/trace")
-    def session_trace(session_id: str) -> dict:
+    def session_trace(session_id: str, g: Grants = Depends(caller)) -> dict:
+        _session_scope_check(g, session_id, RUNTIME_READ,
+                             DesignerAuditAction.RUNTIME_READ)
         trace = platform.sessions.trace(session_id)
         if not trace:
             raise HTTPException(404, "session not found")
         return trace
 
     @app.post("/api/sessions/{session_id}/resume")
-    def resume_session(session_id: str, req: ResumeRequest) -> dict:
+    def resume_session(session_id: str, req: ResumeRequest,
+                       g: Grants = Depends(caller)) -> dict:
+        scope = _session_scope_check(g, session_id, RUNTIME_RESUME,
+                                     DesignerAuditAction.RUNTIME_RESUME)
         try:
-            r = platform.runtime.resume(session_id, req.response, req.actor)
+            r = platform.runtime.resume(session_id, req.response,
+                                        _acting_as(g, req.actor))
         except KeyError as e:
             raise HTTPException(404, str(e)) from e
+        _allowed(g, DesignerAuditAction.RUNTIME_RESUME, RUNTIME_RESUME, scope,
+                 {"session": session_id})
         return {"output": r.output, "state": r.state.value, "session_url": r.session_url}
 
     @app.get("/sessions/{session_id}")
     def session_page(session_id: str) -> Any:
-        """Human-addressable session URL; the UI deep-links to it."""
-        if platform.sessions.get(session_id) is None:
-            raise HTTPException(404, "session not found")
+        """Human-addressable session URL; the UI deep-links to it.
+
+        A browser following a link carries no bearer token, so this does not
+        look the session up: it says nothing about whether it exists, and the
+        UI's authenticated read decides what is shown (ADR-0116).
+        """
         return RedirectResponse(f"/ui/#/sessions/{session_id}")
 
     # -- catalog / marketplace --------------------------------------------
@@ -304,7 +599,9 @@ def create_app(
         groups: Optional[list[str]] = Query(default=None),
         sort: str = "recent",
         limit: int = 50,
+        g: Grants = Depends(caller),
     ) -> list[dict]:
+        _read_catalog(g)
         entries = platform.catalog.search(
             q, kind=kind or None, tags=tags or None, viewer_groups=groups,  # type: ignore[arg-type]
             sort=sort, limit=limit,
@@ -315,48 +612,70 @@ def create_app(
         ]
 
     @app.get("/api/catalog/stats")
-    def catalog_stats() -> dict:
+    def catalog_stats(g: Grants = Depends(caller)) -> dict:
+        _read_catalog(g)
         return platform.catalog.stats()
 
     @app.get("/api/catalog/{entry_id}")
-    def catalog_detail(entry_id: str) -> dict:
+    def catalog_detail(entry_id: str, g: Grants = Depends(caller)) -> dict:
+        _read_catalog(g)
         detail = platform.catalog.detail(entry_id)
         if detail is None:
             raise HTTPException(404, "catalog entry not found")
         return detail
 
     @app.post("/api/catalog/publish")
-    def publish(req: PublishRequest) -> dict:
+    def publish(req: PublishRequest, g: Grants = Depends(caller)) -> dict:
+        detail = {"kind": req.kind, "ref": req.ref_id}
+        _authorize(g, CATALOG_PUBLISH, None, DesignerAuditAction.CATALOG_PUBLISH,
+                   anywhere=True, detail=detail)
         try:
             entry = platform.catalog.publish(
-                req.kind, req.ref_id, owner=req.owner, tags=req.tags,  # type: ignore[arg-type]
-                visibility=req.visibility, groups=req.groups,
+                req.kind, req.ref_id, owner=req.owner or g.principal.user_id,  # type: ignore[arg-type]
+                tags=req.tags, visibility=req.visibility, groups=req.groups,
             )
         except (KeyError, ValueError) as e:
             raise HTTPException(400, str(e)) from e
+        _allowed(g, DesignerAuditAction.CATALOG_PUBLISH, CATALOG_PUBLISH, None,
+                 detail | {"entry": entry.id})
         return entry.model_dump()
 
     @app.post("/api/catalog/{entry_id}/install")
-    def install(entry_id: str, req: InstallRequest) -> dict:
+    def install(entry_id: str, req: InstallRequest,
+                g: Grants = Depends(caller)) -> dict:
+        # Installing changes what an agent can do: managing that agent.
+        scope = _scope_of_agent_id(req.agent_id)
+        detail = {"entry": entry_id, "agent": req.agent_id}
+        _authorize(g, RUNTIME_MANAGE, scope, DesignerAuditAction.CATALOG_INSTALL,
+                   detail=detail)
         try:
-            return platform.catalog.install(entry_id, req.agent_id)
+            result = platform.catalog.install(entry_id, req.agent_id)
         except PermissionError as e:
             raise HTTPException(403, str(e)) from e
         except (KeyError, ValueError) as e:
             raise HTTPException(400, str(e)) from e
+        _allowed(g, DesignerAuditAction.CATALOG_INSTALL, RUNTIME_MANAGE, scope,
+                 detail)
+        return result
 
     @app.post("/api/catalog/{entry_id}/rate")
-    def rate(entry_id: str, stars: float) -> dict:
+    def rate(entry_id: str, stars: float, g: Grants = Depends(caller)) -> dict:
+        _authorize(g, CATALOG_READ, None, DesignerAuditAction.CATALOG_RATE,
+                   anywhere=True, detail={"entry": entry_id})
         try:
-            return platform.catalog.rate(entry_id, stars).model_dump()
+            rated = platform.catalog.rate(entry_id, stars).model_dump()
         except (KeyError, ValueError) as e:
             raise HTTPException(400, str(e)) from e
+        _allowed(g, DesignerAuditAction.CATALOG_RATE, CATALOG_READ, None,
+                 {"entry": entry_id, "stars": stars})
+        return rated
 
     # -- designer component palette ---------------------------------------
 
     @app.get("/api/components")
-    def components() -> dict:
+    def components(g: Grants = Depends(caller)) -> dict:
         """Everything the designer canvas can place."""
+        _read_catalog(g)
         return {
             "runtimes": [
                 {"id": r.value, "name": r.name.replace("_", " ").title()} for r in Runtime
@@ -394,38 +713,67 @@ def create_app(
         }
 
     @app.get("/api/components/sandbox_templates")
-    def sandbox_templates() -> list[dict]:
+    def sandbox_templates(g: Grants = Depends(caller)) -> list[dict]:
+        _read_catalog(g)
         return [t.model_dump() for t in platform.sandboxes.templates()]
 
     @app.post("/api/components/sandbox_templates")
-    def publish_template(template: SandboxTemplate) -> dict:
-        return platform.sandboxes.publish(template).model_dump()
+    def publish_template(template: SandboxTemplate,
+                         g: Grants = Depends(caller)) -> dict:
+        _authorize(g, RUNTIME_MANAGE, None,
+                   DesignerAuditAction.SANDBOX_TEMPLATE_PUBLISH,
+                   detail={"template": template.id})
+        saved = platform.sandboxes.publish(template)
+        _allowed(g, DesignerAuditAction.SANDBOX_TEMPLATE_PUBLISH, RUNTIME_MANAGE,
+                 None, {"template": saved.id})
+        return saved.model_dump()
 
     # -- operations --------------------------------------------------------
 
     @app.get("/api/ops/metrics")
-    def metrics() -> dict:
-        return platform.obs.metrics()
+    def metrics(g: Grants = Depends(caller)) -> dict:
+        _require_read_anywhere(g)
+        if g.allows(RUNTIME_READ, None):
+            return platform.obs.metrics()
+        # Scoped to the agents of the caller's workspaces: totals over
+        # somebody else's sessions are somebody else's data.
+        return platform.obs.metrics(agent_ids=_visible_agent_ids(g))
 
     @app.get("/api/ops/alerts")
-    def alerts(include_acknowledged: bool = False) -> list[dict]:
+    def alerts(include_acknowledged: bool = False,
+               g: Grants = Depends(caller)) -> list[dict]:
+        _require_read_anywhere(g)
         platform.obs.evaluate_alerts()
-        return [a.model_dump() for a in platform.obs.alerts(include_acknowledged)]
+        # An alert about no agent is about the installation.
+        return [a.model_dump() for a in platform.obs.alerts(include_acknowledged)
+                if g.allows(RUNTIME_READ,
+                            _scope_of_agent_id(a.agent_id) if a.agent_id else None)]
 
     @app.post("/api/ops/alerts/{alert_id}/ack")
-    def ack_alert(alert_id: str) -> dict:
+    def ack_alert(alert_id: str, g: Grants = Depends(caller)) -> dict:
+        existing = next((a for a in platform.obs.alerts(True) if a.id == alert_id),
+                        None)
+        if existing is None:
+            raise HTTPException(404, "alert not found")
+        scope = _scope_of_agent_id(existing.agent_id) if existing.agent_id else None
+        _authorize(g, OPS_ACK, scope, DesignerAuditAction.OPS_ACK,
+                   detail={"alert": alert_id})
         a = platform.obs.acknowledge(alert_id)
         if a is None:
             raise HTTPException(404, "alert not found")
+        _allowed(g, DesignerAuditAction.OPS_ACK, OPS_ACK, scope, {"alert": alert_id})
         return a.model_dump()
 
     @app.get("/api/ops/health/{agent_id}")
-    def agent_health(agent_id: str) -> dict:
+    def agent_health(agent_id: str, g: Grants = Depends(caller)) -> dict:
+        _authorize(g, RUNTIME_READ, _scope_of_agent_id(agent_id),
+                   DesignerAuditAction.RUNTIME_READ, detail={"agent": agent_id})
         return platform.obs.agent_health(agent_id)
 
     @app.get("/healthz")
     def healthz() -> dict:
-        return {"status": "ok", "agents": platform.store.count("agents")}
+        """Liveness, for probes: public, and so it says nothing more."""
+        return {"status": "ok"}
 
     # -- platform catalog (ADR-0041) --------------------------------------
 
@@ -449,7 +797,9 @@ def create_app(
         groups: Optional[list[str]] = Query(default=None),
         environment: str = "development",
         selectable_only: bool = False,
+        g: Grants = Depends(caller),
     ) -> list[dict]:
+        _read_catalog(g)
         entries = catalog_service.search(
             q, kind=CatalogKind(kind) if kind else None,
             status=ApprovalStatus(status) if status else None,
@@ -459,11 +809,13 @@ def create_app(
         return [e.model_dump(mode="json") for e in entries]
 
     @app.get("/api/catalogs/stats")
-    def catalogs_stats() -> dict:
+    def catalogs_stats(g: Grants = Depends(caller)) -> dict:
+        _read_catalog(g)
         return catalog_service.stats()
 
     @app.get("/api/catalogs/kinds")
-    def catalogs_kinds() -> list[dict]:
+    def catalogs_kinds(g: Grants = Depends(caller)) -> list[dict]:
+        _read_catalog(g)
         return [
             {"id": k.value, "label": k.value.replace("_", " ").title(),
              "count": len(catalog_service.list(k)),
@@ -474,92 +826,109 @@ def create_app(
         ]
 
     @app.get("/api/catalogs/{entry_id}")
-    def catalogs_detail(entry_id: str) -> dict:
+    def catalogs_detail(entry_id: str, g: Grants = Depends(caller)) -> dict:
+        _read_catalog(g)
         try:
             return catalog_service.describe(entry_id)
         except Exception as e:
             raise HTTPException(404, str(e)) from e
 
+    def _catalog_act(g: Grants, permission: str, action: DesignerAuditAction,
+                     entry_id: str, fn, *, anywhere: bool = False) -> dict:
+        """Authorize, act, and record either way. The actor handed to the
+        catalog service is the authenticated caller's id, nothing else."""
+        detail = {"entry": entry_id}
+        _authorize(g, permission, None, action, anywhere=anywhere, detail=detail)
+        try:
+            result = fn(g.principal.user_id)
+        except HTTPException:
+            raise
+        except Exception as e:
+            _record(g, action, DesignerAuditOutcome.FAILED, permission=permission,
+                    workspace_id=None, reason=str(e), detail=detail)
+            raise HTTPException(400, str(e)) from e
+        _allowed(g, action, permission, None, detail)
+        return result
+
     @app.post("/api/catalogs")
     def catalogs_publish(entry: PlatformCatalogEntry,
-                         x_user: str = Header(default="anonymous")) -> dict:
-        return catalog_service.publish(entry, actor=x_user).model_dump(mode="json")
+                         g: Grants = Depends(caller)) -> dict:
+        return _catalog_act(
+            g, CATALOG_PUBLISH, DesignerAuditAction.CATALOG_PUBLISH, entry.id,
+            lambda me: catalog_service.publish(entry, actor=me).model_dump(mode="json"),
+            anywhere=True)
 
     @app.patch("/api/catalogs/{entry_id}")
     def catalogs_update(entry_id: str, req: CatalogEditRequest,
-                        x_user: str = Header(default="anonymous")) -> dict:
-        try:
-            return catalog_service.update(
-                entry_id, req.model_dump(exclude={"note"}), actor=x_user,
-                note=req.note).model_dump(mode="json")
-        except Exception as e:
-            raise HTTPException(400, str(e)) from e
+                        g: Grants = Depends(caller)) -> dict:
+        return _catalog_act(
+            g, CATALOG_PUBLISH, DesignerAuditAction.CATALOG_EDIT, entry_id,
+            lambda me: catalog_service.update(
+                entry_id, req.model_dump(exclude={"note"}), actor=me,
+                note=req.note).model_dump(mode="json"),
+            anywhere=True)
 
     @app.post("/api/catalogs/{entry_id}/amend")
     def catalogs_amend(entry_id: str, req: CatalogAmendRequest,
-                       x_user: str = Header(default="anonymous")) -> dict:
-        try:
-            return catalog_service.amend(
-                entry_id, req.model_dump(exclude={"note"}), actor=x_user,
-                note=req.note).model_dump(mode="json")
-        except Exception as e:
-            # The service's own message names both ways forward; rewriting it
-            # here would lose them.
-            raise HTTPException(400, str(e)) from e
+                       g: Grants = Depends(caller)) -> dict:
+        # The service's own refusal names both ways forward; it is passed on
+        # as the 400's detail unchanged.
+        return _catalog_act(
+            g, CATALOG_PUBLISH, DesignerAuditAction.CATALOG_AMEND, entry_id,
+            lambda me: catalog_service.amend(
+                entry_id, req.model_dump(exclude={"note"}), actor=me,
+                note=req.note).model_dump(mode="json"),
+            anywhere=True)
 
     @app.post("/api/catalogs/{entry_id}/send_back")
     def catalogs_send_back(entry_id: str, req: CatalogSendBackRequest,
-                           x_user: str = Header(default="anonymous")) -> dict:
-        try:
-            return catalog_service.send_back(
-                entry_id, actor=x_user, note=req.note).model_dump(mode="json")
-        except Exception as e:
-            raise HTTPException(400, str(e)) from e
+                           g: Grants = Depends(caller)) -> dict:
+        return _catalog_act(
+            g, CATALOG_REVIEW, DesignerAuditAction.CATALOG_SEND_BACK, entry_id,
+            lambda me: catalog_service.send_back(
+                entry_id, actor=me, note=req.note).model_dump(mode="json"))
 
     @app.post("/api/catalogs/{entry_id}/retire")
     def catalogs_retire(entry_id: str, superseded_by: str = "",
                         force: bool = False,
-                        x_user: str = Header(default="anonymous")) -> dict:
-        try:
-            return catalog_service.retire(
-                entry_id, reviewer=x_user, superseded_by=superseded_by or None,
-                force=force).model_dump(mode="json")
-        except Exception as e:
-            raise HTTPException(400, str(e)) from e
+                        g: Grants = Depends(caller)) -> dict:
+        return _catalog_act(
+            g, CATALOG_REVIEW, DesignerAuditAction.CATALOG_RETIRE, entry_id,
+            lambda me: catalog_service.retire(
+                entry_id, reviewer=me, superseded_by=superseded_by or None,
+                force=force).model_dump(mode="json"))
 
     @app.delete("/api/catalogs/{entry_id}")
-    def catalogs_delete(entry_id: str,
-                        x_user: str = Header(default="anonymous")) -> dict:
-        try:
-            return {"deleted": catalog_service.delete(entry_id, actor=x_user)}
-        except Exception as e:
-            raise HTTPException(400, str(e)) from e
+    def catalogs_delete(entry_id: str, g: Grants = Depends(caller)) -> dict:
+        return _catalog_act(
+            g, CATALOG_DELETE, DesignerAuditAction.CATALOG_DELETE, entry_id,
+            lambda me: {"deleted": catalog_service.delete(entry_id, actor=me)})
 
     @app.post("/api/catalogs/{entry_id}/review")
     def catalogs_review(entry_id: str, status: str, note: str = "",
-                        x_user: str = Header(default="anonymous")) -> dict:
-        try:
-            return catalog_service.review(
-                entry_id, ApprovalStatus(status), reviewer=x_user, note=note
-            ).model_dump(mode="json")
-        except Exception as e:
-            raise HTTPException(400, str(e)) from e
+                        g: Grants = Depends(caller)) -> dict:
+        return _catalog_act(
+            g, CATALOG_REVIEW, DesignerAuditAction.CATALOG_REVIEW, entry_id,
+            lambda me: catalog_service.review(
+                entry_id, ApprovalStatus(status), reviewer=me, note=note
+            ).model_dump(mode="json"))
 
     @app.post("/api/catalogs/{entry_id}/entitle")
     def catalogs_entitle(entry_id: str, entitlement: PlatformEntitlement,
-                         x_user: str = Header(default="anonymous")) -> dict:
-        try:
-            return catalog_service.entitle(
-                entry_id, entitlement, actor=x_user).model_dump(mode="json")
-        except Exception as e:
-            raise HTTPException(400, str(e)) from e
+                         g: Grants = Depends(caller)) -> dict:
+        return _catalog_act(
+            g, CATALOG_ENTITLE, DesignerAuditAction.CATALOG_ENTITLE, entry_id,
+            lambda me: catalog_service.entitle(
+                entry_id, entitlement, actor=me).model_dump(mode="json"))
 
     @app.post("/api/catalogs/models/permitted")
     def catalogs_permitted_models(policy: dict[str, Any],
-                                  environment: str = "development") -> list[dict]:
+                                  environment: str = "development",
+                                  g: Grants = Depends(caller)) -> list[dict]:
         """Which catalogued models an agent's policy permits, cheapest first."""
         from .spec.model import ModelPolicy
 
+        _read_catalog(g)
         permitted = catalog_service.permitted_models(
             ModelPolicy.model_validate(policy), environment=environment)
         return [
@@ -568,89 +937,22 @@ def create_app(
             for e in permitted
         ]
 
-    # -- designer: workspaces, systems, canvas, locks (ADR-0031/0032/0033) --
+    @app.get("/api/designer/issue-codes")
+    def issue_codes() -> Any:
+        """Every numbered issue code with its explanation, in number order."""
+        from .spec.issue_codes import catalog
+        return sorted(catalog().values(), key=lambda e: e["number"])
 
-    from .designer import (
-        DesignerError,
-        DesignerService,
-        Layout,
-        LockConflict,
-        Member,
-        PermissionDenied,
-        Principal,
-        SystemStatus,
-        UserRole,
-        build_repository,
-    )
-    from .designer.audit import AuditOutcome as DesignerAuditOutcome
-    from .designer.auth import AuthError, Authenticator, verifier_from_settings
-    from .designer.models import DesignerSettings
-
-    designer_settings = DesignerSettings(
-        persistence=os.environ.get("ORGAGENTS_DESIGNER_STORE", "relational"),  # type: ignore[arg-type]
-        storage_path=os.environ.get("ORGAGENTS_DESIGNER_PATH", "./designer-data"),
-        auth_mode=os.environ.get("ORGAGENTS_DESIGNER_AUTH", "trusted_proxy"),  # type: ignore[arg-type]
-        oidc_issuer=os.environ.get("ORGAGENTS_OIDC_ISSUER", ""),
-        oidc_audiences=[a for a in os.environ.get(
-            "ORGAGENTS_OIDC_AUDIENCE", "").split(",") if a],
-        oidc_jwks_uri=os.environ.get("ORGAGENTS_OIDC_JWKS_URI", ""),
-    )
-    designer = DesignerService(
-        build_repository(designer_settings, platform.store), designer_settings
-    )
-    app.state.designer = designer
-
-    # One authenticator per app, holding the JWKS cache so keys are fetched
-    # once rather than per request. Tests and air-gapped installs replace its
-    # `verifier` with one over a local key set.
-    designer_auth = Authenticator(
-        designer_settings, verifier=verifier_from_settings(designer_settings),
-        audit=designer.audit,
-    )
-    app.state.designer_auth = designer_auth
-
-    def principal(
-        authorization: str = Header(default=""),
-        x_user: str = Header(default="anonymous"),
-        x_user_name: str = Header(default=""),
-        x_user_email: str = Header(default=""),
-    ) -> Principal:
-        """Identity per the configured `auth_mode` (ADR-0047).
-
-        In `oidc` mode this is a verified bearer token and the X-User header is
-        ignored entirely; in `trusted_proxy` mode it is the header, which is
-        only as good as the proxy. Either way the service never trusts a
-        client-sent role. A failure here is a 401 — `_guard` owns the 403.
-        """
-        try:
-            return app.state.designer_auth.authenticate(
-                authorization=authorization, user_header=x_user,
-                name_header=x_user_name, email_header=x_user_email,
-            )
-        except AuthError as e:
-            raise HTTPException(401, str(e)) from e
-
-    def _guard(fn, *args, **kwargs):
-        from .designer.service import FieldErrors
-        try:
-            return fn(*args, **kwargs)
-        except FieldErrors as e:
-            # Named per field, so a form can put each message under its own
-            # field (ADR-0106).
-            raise HTTPException(422, {"message": str(e),
-                                      "fields": e.fields}) from e
-        except PermissionDenied as e:
-            raise HTTPException(403, str(e)) from e
-        except LockConflict as e:
-            raise HTTPException(
-                409, {"error": str(e), "lock": e.lock.model_dump(mode="json")}
-            ) from e
-        except ValueError as e:
-            # A value the model refuses is the caller's mistake, not a missing
-            # thing: 422 with the reason, never a 500 from a store.
-            raise HTTPException(422, str(e)) from e
-        except DesignerError as e:
-            raise HTTPException(404, str(e)) from e
+    @app.get("/api/designer/issue-codes/{code}")
+    def issue_code(code: str) -> Any:
+        """One code's explanation — by name (`possible_escalation`) or number
+        (`OA-1401`)."""
+        from .spec.issue_codes import catalog, lookup
+        entry = next((e for e in catalog().values() if e["id"] == code.upper()),
+                     None) or lookup(code)
+        if entry is None:
+            raise HTTPException(404, f"no issue code {code!r}")
+        return entry
 
     @app.get("/api/designer/whoami")
     def designer_whoami(user: Principal = Depends(principal)) -> dict:
@@ -921,6 +1223,37 @@ def create_app(
                 for agent_id, v in verdicts.items()
             }
         }
+
+    @app.get("/api/designer/systems/{system_id}/workflow-engines")
+    def designer_workflow_engines(system_id: str,
+                                  user: Principal = Depends(principal)) -> dict:
+        """Which engine runs each workflow, from the binding the design was
+        saved with (ADR-0110). Reads only.
+
+        The designer draws the governed workflow; a step whose body lives in
+        an engine shows that engine and links out to it (*Open in*), and this
+        is where it learns both. A design saved with no binding has none to
+        report, and says so rather than guessing a default.
+        """
+        from .designer.service import stored_target_binding
+        from .runtime.engines import UnknownEngine, engine as engine_of
+
+        _raw, binding, _version = _guard(designer.spec_at, user, system_id)
+        bound = stored_target_binding(binding)
+        if bound is None:
+            return {"target": None, "workflows": {}}
+        out: dict[str, Any] = {}
+        for wb in bound.workflows:
+            try:
+                mode = engine_of(wb.engine).mode.value
+            except UnknownEngine:
+                mode = "unknown"
+            out[wb.workflow or "*"] = {
+                "engine": wb.engine, "mode": mode, "flow": wb.flow,
+                "editor_url": wb.editor_url or None,
+                "send_data_classes": list(wb.send_data_classes),
+            }
+        return {"target": bound.target, "workflows": out}
 
     @app.get("/api/designer/systems/{system_id}/authority")
     def designer_authority(system_id: str,
@@ -1351,7 +1684,8 @@ def create_app(
 
         nodes = [
             LayoutNode(id=str(n["id"]), parent=n.get("parent") or None,
-                       label=str(n.get("label") or ""))
+                       label=str(n.get("label") or ""),
+                       lane=str(n.get("lane") or ""))
             for n in body.get("nodes", []) if n.get("id")
         ]
         edges = [
@@ -1369,6 +1703,7 @@ def create_app(
             "algorithm": result.algorithm,
             "positions": result.positions,
             "notes": result.notes,
+            "lanes": result.lanes,
             "width": result.width,
             "height": result.height,
         }
@@ -1439,12 +1774,7 @@ def create_app(
     fabric_health = HealthService(platform.store, fabric_deployments,
                                   fabric_health_backend)
     fabric_audit = FabricAuditLog(platform.store)
-    fabric_operators = OperatorRegistry(
-        platform.store,
-        bootstrap=fabric_rbac.parse_bootstrap(
-            os.environ.get("ORGAGENTS_FABRIC_OPERATORS", "")
-        ),
-    )
+    # `fabric_operators` was created with the runtime's access model above.
     app.state.fabric = {
         "tenants": fabric_tenants,
         "deployments": fabric_deployments,
@@ -1998,20 +2328,25 @@ def create_app(
     # -- UI ----------------------------------------------------------------
 
     if WEB_DIR.is_dir():
-        app.mount("/ui", StaticFiles(directory=str(WEB_DIR), html=True), name="ui")
+        app.mount("/ui", _RevalidatedStaticFiles(directory=str(WEB_DIR), html=True),
+                  name="ui")
 
         # The command centre is its own application, not a tab in the designer
         # (ADR-0051): a separate bundle at a separate path, over this API.
         if (WEB_DIR / "command").is_dir():
             app.mount("/command",
-                      StaticFiles(directory=str(WEB_DIR / "command"), html=True),
+                      _RevalidatedStaticFiles(directory=str(WEB_DIR / "command"),
+                                              html=True),
                       name="command")
 
         @app.get("/")
         def index() -> Any:
             return RedirectResponse("/ui/")
 
-    return app
+    # Tags, the /api/v1 aliases and the API description (ADR-0115). Last, so
+    # it sees every route registered above.
+    from .api_contract import apply_contract
+    return apply_contract(app)
 
 
 # What the canvas can place, and the form each component needs (ADR-0034).
@@ -2518,6 +2853,18 @@ PALETTE: dict[str, Any] = {
                               "allowed and bounded (ADR-0096)"},
                      {"name": "interrupt_before", "type": "list",
                       "help": "step ids to pause at for a person"},
+                     {"name": "body", "type": "enum",
+                      "options": ["graph", "external"],
+                      "help": "graph: the steps are drawn here. external: "
+                              "the insides are built in an engine the "
+                              "binding names, and only the interface below "
+                              "is held here (ADR-0110)"},
+                     {"name": "interface", "type": "interface",
+                      "help": "what goes in and out, what it calls, and the "
+                              "data classes it receives and returns. A step "
+                              "that calls this workflow is checked against "
+                              "it: its owner must hold what it calls and the "
+                              "data it is sent (ADR-0110)"},
                  ]},
                 {"kind": "note", "label": "Note", "icon": "✎",
                  "fields": [{"name": "note", "type": "text"}]},

@@ -158,7 +158,7 @@ def test_an_empty_diagram_lays_out_to_nothing():
 # -- the properties every algorithm owes ------------------------------------
 
 
-@pytest.mark.parametrize("name", ["tree", "layered", "grid"])
+@pytest.mark.parametrize("name", ["tree", "layered", "grid", "lanes"])
 def test_every_layout_is_deterministic(name, org_nodes):
     """A diagram that moved every time somebody opened it would be unusable."""
     edges = [LayoutEdge("ceo", "cfo"), LayoutEdge("cfo", "ap")]
@@ -167,7 +167,7 @@ def test_every_layout_is_deterministic(name, org_nodes):
     assert first.positions == second.positions
 
 
-@pytest.mark.parametrize("name", ["tree", "layered", "grid"])
+@pytest.mark.parametrize("name", ["tree", "layered", "grid", "lanes"])
 def test_every_layout_places_every_node(name, org_nodes):
     result = arrange(org_nodes, [], algorithm=name)
     assert set(result.positions) == {n.id for n in org_nodes}
@@ -177,7 +177,7 @@ def test_the_default_follows_what_the_diagram_is():
     """A process is a flow and an organisation is a hierarchy; defaulting
     either to the other produces a picture that argues with the model."""
     assert arrange([LayoutNode("a")], kind="organisation").algorithm == "tree"
-    assert arrange([LayoutNode("a")], kind="process").algorithm == "layered"
+    assert arrange([LayoutNode("a")], kind="process").algorithm == "lanes"
 
 
 def test_an_unknown_algorithm_names_the_ones_that_exist():
@@ -242,3 +242,43 @@ def test_a_process_diagram_stores_no_edges():
     from orgagents.designer.models import Diagram
 
     assert "edges" not in Diagram.model_fields
+
+
+# -- lanes: a governed process, one swimlane per owner (ADR-0110) -------------
+
+def _p2p():
+    nodes = [LayoutNode("raise", lane="purchasing"), LayoutNode("approve", lane="operations"),
+             LayoutNode("fork"), LayoutNode("receive", lane="purchasing"),
+             LayoutNode("capture", lane="finance"), LayoutNode("join"),
+             LayoutNode("pay", lane="finance")]
+    edges = [LayoutEdge(s, t) for s, t in [
+        ("raise", "approve"), ("approve", "fork"), ("fork", "receive"),
+        ("fork", "capture"), ("receive", "join"), ("capture", "join"),
+        ("join", "pay"), ("pay", "raise")]]
+    return nodes, edges
+
+
+def test_lanes_put_each_step_in_its_owners_lane_in_the_order_first_reached():
+    result = arrange(*_p2p(), algorithm="lanes")
+    assert [b["id"] for b in result.lanes] == ["purchasing", "operations", "finance"]
+    band = {s: b for b in result.lanes for s in b["steps"]}
+    # A fork sits with the step that leads to it; a join with its first branch.
+    assert band["fork"]["id"] == "operations" and band["join"]["id"] == "purchasing"
+    for step, pos in result.positions.items():
+        b = band[step]
+        assert b["y"] <= pos["y"] and pos["y"] + NODE_H <= b["y"] + b["height"]
+
+
+def test_lanes_flow_left_to_right_and_a_loop_back_is_not_ranked():
+    result = arrange(*_p2p(), algorithm="lanes")
+    x = {k: v["x"] for k, v in result.positions.items()}
+    assert x["raise"] < x["approve"] < x["fork"] < x["receive"] == x["capture"] < x["join"] < x["pay"]
+    assert any("'pay' → 'raise' is a loop back" in n for n in result.notes)
+
+
+def test_lanes_never_overlap_two_steps():
+    result = arrange(*_p2p(), algorithm="lanes")
+    boxes = list(result.positions.values())
+    for i, a in enumerate(boxes):
+        for b in boxes[i + 1:]:
+            assert abs(a["x"] - b["x"]) >= NODE_W or abs(a["y"] - b["y"]) >= NODE_H

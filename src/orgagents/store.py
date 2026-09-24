@@ -68,11 +68,17 @@ class Store:
             self._conn.commit()
         return obj
 
+    # Reads take the lock too. The one connection is shared across threads
+    # (`check_same_thread=False`), and sqlite3 does not serialise a cursor
+    # being stepped on one thread while another executes: an assigned child
+    # running on a worker while its leader reads the store came back as
+    # `InterfaceError: bad parameter or other API misuse`, or as an empty body
+    # that failed to parse -- a failure that only showed under load.
     def get(self, collection: str, oid: str, model: Type[T]) -> Optional[T]:
-        cur = self._conn.execute(
-            "SELECT body FROM documents WHERE collection=? AND id=?", (collection, oid)
-        )
-        row = cur.fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT body FROM documents WHERE collection=? AND id=?",
+                (collection, oid)).fetchone()
         return model.model_validate_json(row["body"]) if row else None
 
     def list(
@@ -91,9 +97,9 @@ class Store:
             args.append(parent)
         sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
         args += [limit, offset]
-        return [
-            model.model_validate_json(r["body"]) for r in self._conn.execute(sql, args)
-        ]
+        with self._lock:
+            rows = self._conn.execute(sql, args).fetchall()
+        return [model.model_validate_json(r["body"]) for r in rows]
 
     def delete(self, collection: str, oid: str) -> bool:
         with self._lock:
@@ -105,17 +111,19 @@ class Store:
 
     def search(self, collection: str, model: Type[T], q: str, limit: int = 100) -> list[T]:
         """Substring search across the serialized document."""
-        rows = self._conn.execute(
-            "SELECT body FROM documents WHERE collection=? AND body LIKE ? LIMIT ?",
-            (collection, f"%{q}%", limit),
-        )
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT body FROM documents WHERE collection=? AND body LIKE ? LIMIT ?",
+                (collection, f"%{q}%", limit),
+            ).fetchall()
         return [model.model_validate_json(r["body"]) for r in rows]
 
     def count(self, collection: str) -> int:
-        cur = self._conn.execute(
-            "SELECT COUNT(*) AS n FROM documents WHERE collection=?", (collection,)
-        )
-        return int(cur.fetchone()["n"])
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS n FROM documents WHERE collection=?", (collection,)
+            ).fetchone()
+        return int(row["n"])
 
     # -- convenience -------------------------------------------------------
 
@@ -124,10 +132,10 @@ class Store:
             self.put(collection, o)
 
     def raw(self, collection: str, oid: str) -> Optional[dict[str, Any]]:
-        cur = self._conn.execute(
-            "SELECT body FROM documents WHERE collection=? AND id=?", (collection, oid)
-        )
-        row = cur.fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT body FROM documents WHERE collection=? AND id=?",
+                (collection, oid)).fetchone()
         return json.loads(row["body"]) if row else None
 
     def close(self) -> None:

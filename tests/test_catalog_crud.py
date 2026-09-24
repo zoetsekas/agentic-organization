@@ -47,7 +47,14 @@ def entry(service) -> CatalogEntry:
 
 
 @pytest.fixture()
-def client(tmp_path) -> TestClient:
+def client(tmp_path, monkeypatch) -> TestClient:
+    # alice and bob act on the platform catalog as named people, so they need
+    # a grant that reaches it (ADR-0116): fabric admins. Unnamed requests are
+    # the `none`-mode local user, who holds everything.
+    monkeypatch.setenv("ORGAGENTS_DESIGNER_PATH", str(tmp_path / "designer"))
+    monkeypatch.delenv("ORGAGENTS_DESIGNER_AUTH", raising=False)
+    monkeypatch.setenv("ORGAGENTS_FABRIC_OPERATORS",
+                       "alice=fabric_admin,bob=fabric_admin")
     return TestClient(create_app(str(tmp_path / "api.db")))
 
 

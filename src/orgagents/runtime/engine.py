@@ -16,7 +16,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from datetime import datetime, timezone
 
@@ -1343,7 +1343,14 @@ class AgentRuntime:
                 return {"ok": False, "handle": handle, "settled": True,
                         "state": SessionState.FAILED.value,
                         "error": f"handle {handle} no longer exists"}
-            settled = child.state in TERMINAL_STATES
+            # Terminal in the store is not yet collectable: `run` marks the
+            # child COMPLETED a moment before the worker's future resolves
+            # with the output. Reporting it settled in that gap delivered an
+            # empty result and marked it collected, so it could never be
+            # delivered at all. A handle `gather` gave up on is settled by
+            # that decision, whatever its worker is still doing.
+            settled = child.state in TERMINAL_STATES and (
+                assignment.future.done() or assignment.abandoned)
             out: dict[str, Any] = {
                 "ok": True,
                 "handle": handle,
@@ -1451,6 +1458,7 @@ class AgentRuntime:
                 kind=AgentKind.SUBAGENT,
                 org_unit_id=agent.org_unit_id,
                 manager_agent_id=agent.id,
+                system_id=agent.system_id,
                 human=agent.human,
                 harness=agent.harness.model_copy(deep=True),
                 sandbox=agent.sandbox,
@@ -1514,10 +1522,8 @@ class AgentRuntime:
                 agent_caller=lambda aid, args: self._delegation_tools(
                     agent, session_id
                 )["delegate"](aid, args.get("task", "")),
-                workflows={
-                    w: self.store.get(WORKFLOWS, w, WorkflowRef)
-                    for w in agent.workflow_ids
-                },
+                workflows=self._callable_workflows(agent, ref),
+                workflow_caller=self.external_workflow_caller(agent, session_id),
             )
             self.sessions.log(
                 session_id,
@@ -1551,12 +1557,67 @@ class AgentRuntime:
 
         return {"run_workflow": run_workflow, "list_workflows": list_workflows}
 
+    def _callable_workflows(self, agent: Agent, ref: WorkflowRef) -> dict[str, WorkflowRef]:
+        """The workflows a run may call: the agent's own, and the ones its
+        graph's steps name — a step owned by another agent calls a workflow
+        *that* agent is entitled to, and is checked against it (ADR-0110)."""
+        wanted = set(agent.workflow_ids)
+        wanted |= {n.get("workflow") for n in (ref.graph or {}).get("nodes", [])
+                   if n.get("kind") == "workflow" and n.get("workflow")}
+        out = {}
+        for wid in sorted(wanted):
+            found = self.store.get(WORKFLOWS, wid, WorkflowRef)
+            if found is not None:
+                out[wid] = found
+        return out
+
+    def external_workflow_caller(
+        self, agent: Agent, session_id: str,
+    ) -> Callable[[str, dict, dict], Any]:
+        """How a step reaches a workflow whose body lives in an engine
+        (ADR-0110): through the ADR-0056 invoker, under the step owner's
+        boundary. An out-of-process engine is egress, so tenant, allowlist,
+        data class, credential and approval are all checked before anything
+        leaves, and the reply comes back as untrusted data."""
+
+        def call(workflow_id: str, args: dict, step: dict) -> Any:
+            owner_id = step.get("owner") or ""
+            owner = self.org.agent(owner_id) if owner_id else None
+            caller = owner or agent
+            if owner_id and owner is None and owner_id != agent.id:
+                # A team or a person owns it: the running agent is the hand
+                # that makes the call, and is the boundary checked.
+                caller = agent
+            ref = self.store.get(WORKFLOWS, workflow_id, WorkflowRef)
+            if ref is None:
+                raise KeyError(f"no workflow {workflow_id}")
+            engine = self.workflow_engine_for(caller, workflow_id)
+            if not isinstance(engine, ServiceEngine):
+                raise RuntimeError(
+                    f"workflow '{workflow_id}' is built in an engine, and the "
+                    f"binding runs it in process with '{engine.descriptor.name}', "
+                    "which holds no body for it")
+            classes = tuple((ref.interface or {}).get("receives_data_classes", []))
+            result = self._run_service_workflow(
+                caller, session_id, engine, ref, dict(args or {}),
+                data_classes=classes)
+            if not result.get("ok"):
+                raise RuntimeError(result.get("error") or "refused")
+            return result["state"].get("result")
+
+        return call
+
     def _run_service_workflow(
         self, agent: Agent, session_id: str, engine: ServiceEngine,
         ref: WorkflowRef, inputs: dict[str, Any],
+        data_classes: Optional[tuple[str, ...]] = None,
     ) -> dict[str, Any]:
         """Hand a workflow to another process — which is an egress event."""
-        classes = tuple((agent.memory or {}).get("readable_data_classes", []))
+        # What is sent is what the interface says the body receives; with no
+        # interface, everything the agent may read is assumed to leave.
+        classes = data_classes if data_classes is not None else tuple(
+            (ref.interface or {}).get("receives_data_classes")
+            or (agent.memory or {}).get("readable_data_classes", []))
         call = engine.invoke(ref, inputs, input_data_classes=classes)
         self.sessions.log(
             session_id, "workflow", actor=agent.id,

@@ -29,6 +29,7 @@ from ..models import (
     WorkflowRef,
 )
 from ..store import SANDBOX_TEMPLATES as TEMPLATE_COLLECTION
+from ..spec.binding import WorkflowBinding
 from ..store import WORKFLOWS
 
 _ADAPTERS = {
@@ -117,9 +118,29 @@ def _sandbox_template(env: dict[str, Any], system: str, agent_id: str = "",
     )
 
 
+def _resolved(cb: dict[str, Any], binding: dict[str, Any]) -> dict[str, Any]:
+    """A capability binding with its `server` catalog reference merged in.
+
+    The IR carries the binding as written, so a capability that names a
+    catalog server has no `server_name` or `url` of its own (ADR-0085). The
+    merge rule is the binding model's own, applied here rather than restated.
+    """
+    if not cb.get("server"):
+        return cb
+    from ..spec.binding import TargetBinding
+
+    target = TargetBinding.model_validate(
+        {"target": binding.get("target", ""),
+         "servers": binding.get("servers", []),
+         "capabilities": [cb]})
+    resolved = target.capability_binding(cb["capability"])
+    return resolved.model_dump(mode="json") if resolved else cb
+
+
 def _harness(agent: dict[str, Any], ir: dict[str, Any]) -> Harness:
     binding = ir.get("binding", {})
-    cap_bindings = {c["capability"]: c for c in binding.get("capabilities", [])}
+    cap_bindings = {c["capability"]: _resolved(c, binding)
+                    for c in binding.get("capabilities", [])}
 
     mcp_servers: list[MCPServerRef] = []
     relational: list[RelationalGrant] = []
@@ -141,6 +162,11 @@ def _harness(agent: dict[str, Any], ir: dict[str, Any]) -> Harness:
                 )
             )
         elif bound:
+            # `tools` narrows the mount to the tools this capability is. Without
+            # it every tool on the server is mounted, and a server hosting both
+            # sides of a separation hands each side the other's (ADR-0109).
+            allowed = list((bound.get("options") or {}).get("tools") or [])
+            secret = bound.get("dsn_secret_ref")
             mcp_servers.append(
                 MCPServerRef(
                     name=bound["server_name"],
@@ -148,9 +174,26 @@ def _harness(agent: dict[str, Any], ir: dict[str, Any]) -> Harness:
                     command=bound.get("command"),
                     args=bound.get("args", []),
                     url=bound.get("url"),
+                    secret_refs={"token": secret} if secret else {},
+                    allowed_tools=allowed,
                     read_only=cap.get("action") in ("read", "query"),
                 )
             )
+            # The mounted tool is what a framework actually calls, under its
+            # qualified name. It carries the capability's decision so the
+            # mandate check binds the call itself, not only a lookup by the
+            # capability's own name that no framework ever makes.
+            for tool in allowed:
+                tools.append(
+                    ToolBinding(
+                        name=f"{bound['server_name']}__{tool}",
+                        description=cap.get("description", ""),
+                        source="mcp",
+                        ref=bound["server_name"],
+                        requires_approval=bool(constraints.get("requires_approval")),
+                        decision=cap.get("decision"),
+                    )
+                )
         tools.append(
             ToolBinding(
                 name=cap["id"],
@@ -217,8 +260,13 @@ def load_channels(platform, data: dict[str, Any]) -> list[str]:
     return bound
 
 
-def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
-    """Materialize a compiled system into a running platform instance."""
+def load_system(platform, ir: SystemIR | dict[str, Any], *,
+                system_id: Optional[str] = None) -> dict[str, Any]:
+    """Materialize a compiled system into a running platform instance.
+
+    `system_id` names the designer system the IR was compiled from; agents
+    carry it so the design's workspace scopes who may see them (ADR-0116).
+    """
     data = ir.model_dump(mode="json") if isinstance(ir, SystemIR) else dict(ir)
     system = data["name"].lower().replace(" ", "_")
     # The data contracts an agent declared (ADR-0099). Kept as the IR gave
@@ -257,8 +305,17 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
                 description=wf.get("description", ""),
                 graph=wf.get("graph"),
                 interrupt_before=wf.get("interrupt_before", []),
+                body=wf.get("body") or "graph",
+                interface=wf.get("interface") or {},
             ),
         )
+    # Which engine runs each workflow is the binding's choice (ADR-0056), and
+    # the compiled system carries the binding: a worker that dropped it would
+    # run an external step nowhere (ADR-0110).
+    bound = [WorkflowBinding.model_validate(w)
+             for w in (data.get("binding") or {}).get("workflows", []) or []]
+    if bound and getattr(platform, "runtime", None) is not None:
+        platform.runtime.workflow_bindings = bound
 
     # Separations of duties, which the runtime needs in order to know what a
     # standing-in may *not* confer (ADR-0094 rule 4). Loaded before the agents
@@ -309,6 +366,7 @@ def load_system(platform, ir: SystemIR | dict[str, Any]) -> dict[str, Any]:
                 kind=_kind(agent),
                 description=agent.get("description", ""),
                 org_unit_id=agent.get("team_id"),
+                system_id=system_id,
                 manager_agent_id=agent.get("reports_to"),
                 # Standing reach only: mission peers arrive as grants below,
                 # so a finished mission stops conferring reach on its own.

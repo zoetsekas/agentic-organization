@@ -34,6 +34,9 @@ class LayoutNode:
     id: str
     parent: Optional[str] = None
     label: str = ""
+    #: The swimlane a step belongs to (its owner's), for `lanes`. Empty means
+    #: the step has no owner of its own and sits with the step before it.
+    lane: str = ""
 
 
 @dataclass
@@ -49,6 +52,9 @@ class LayoutResult:
     #: Anything the algorithm could not honour, named rather than silently
     #: worked around.
     notes: list[str] = field(default_factory=list)
+    #: For `lanes`: each lane, top to bottom, with its extent and the steps in
+    #: it. The canvas draws the bands from this.
+    lanes: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def width(self) -> float:
@@ -237,12 +243,122 @@ def grid(nodes: Iterable[LayoutNode], edges: Iterable[LayoutEdge] = (),
     return LayoutResult(positions=positions, algorithm="grid")
 
 
-ALGORITHMS = {"tree": tree, "layered": layered, "grid": grid}
+# --------------------------------------------------------------------------
+# lanes — a governed process, one swimlane per owner (ADR-0110)
+# --------------------------------------------------------------------------
+
+#: Room at the left of every lane for its header.
+LANE_HEADER = 200
+#: Padding inside a lane, above and below its steps.
+LANE_PAD = 28
+#: Between two steps of one lane at one rank: parallel work, stacked.
+LANE_STACK = 24
+#: Between ranks: wider than `layered`, because a decision's arms carry
+#: their condition as a label and it needs somewhere to sit.
+LANE_GAP_X = 110
+
+
+def _ranks(ids: list[str], edges: Iterable[LayoutEdge]
+           ) -> tuple[dict[str, int], set[tuple[str, str]]]:
+    """Longest-path rank from the first node, with loop-back edges found
+    first and left out of the ranking (the same rule `layered` follows)."""
+    known = set(ids)
+    out: dict[str, list[str]] = {i: [] for i in ids}
+    for edge in edges:
+        if edge.source in known and edge.target in known:
+            out[edge.source].append(edge.target)
+    state: dict[str, int] = {}
+    back: set[tuple[str, str]] = set()
+
+    def visit(node_id: str) -> None:
+        state[node_id] = 1
+        for target in out[node_id]:
+            if state.get(target) == 1:
+                back.add((node_id, target))
+            elif state.get(target) is None:
+                visit(target)
+        state[node_id] = 2
+
+    for node_id in ids:
+        if state.get(node_id) is None:
+            visit(node_id)
+    rank = {i: 0 for i in ids}
+    forward = [(s, t) for s in ids for t in out[s] if (s, t) not in back]
+    for _ in range(len(ids) + 1):
+        changed = False
+        for source, target in forward:
+            if rank[target] < rank[source] + 1:
+                rank[target] = rank[source] + 1
+                changed = True
+        if not changed:
+            break
+    return rank, back
+
+
+def lanes(nodes: Iterable[LayoutNode], edges: Iterable[LayoutEdge]) -> LayoutResult:
+    """Flow left to right, one horizontal lane per owner, in the order the
+    process first reaches them.
+
+    A step with no owner of its own — a fork, a join, a branch — sits in the
+    lane of the step that leads to it, so the bar that splits the work is
+    drawn beside the work it splits. Two steps of one lane at the same rank
+    are parallel work and are stacked, never overlapped.
+    """
+    items = _ordered(nodes)
+    ids = [n.id for n in items]
+    edges = list(edges)
+    rank, back = _ranks(ids, edges)
+    position = {i: n for n, i in enumerate(ids)}
+    by_rank = sorted(ids, key=lambda i: (rank[i], position[i]))
+
+    preds: dict[str, list[str]] = {i: [] for i in ids}
+    succs: dict[str, list[str]] = {i: [] for i in ids}
+    for e in edges:
+        if e.source in preds and e.target in preds and (e.source, e.target) not in back:
+            preds[e.target].append(e.source)
+            succs[e.source].append(e.target)
+    lane = {n.id: n.lane for n in items}
+    for node_id in by_rank:                      # inherit from what leads here
+        if not lane[node_id]:
+            lane[node_id] = next((lane[p] for p in preds[node_id] if lane[p]), "")
+    for node_id in reversed(by_rank):            # ...or from what follows
+        if not lane[node_id]:
+            lane[node_id] = next((lane[s] for s in succs[node_id] if lane[s]), "")
+    order: list[str] = []
+    for node_id in by_rank:
+        if lane[node_id] not in order:
+            order.append(lane[node_id])
+
+    positions: dict[str, dict[str, float]] = {}
+    bands: list[dict[str, Any]] = []
+    top = 0.0
+    for key in order:
+        members = [i for i in by_rank if lane[i] == key]
+        stacks: dict[int, int] = {}
+        depth = 1
+        for node_id in members:
+            slot = stacks.get(rank[node_id], 0)
+            stacks[rank[node_id]] = slot + 1
+            depth = max(depth, slot + 1)
+            positions[node_id] = {
+                "x": LANE_HEADER + rank[node_id] * (NODE_W + LANE_GAP_X),
+                "y": top + LANE_PAD + slot * (NODE_H + LANE_STACK),
+            }
+        height = 2 * LANE_PAD + depth * NODE_H + (depth - 1) * LANE_STACK
+        bands.append({"id": key, "y": top, "height": height, "steps": members})
+        top += height
+    notes = [f"'{s}' → '{t}' is a loop back and was not ranked"
+             for s, t in sorted(back)]
+    return LayoutResult(positions=positions, algorithm="lanes", notes=notes,
+                        lanes=bands)
+
+
+ALGORITHMS = {"tree": tree, "layered": layered, "grid": grid, "lanes": lanes}
 
 #: What each diagram kind gets when nobody says. A process is a flow and an
 #: organisation is a hierarchy, and defaulting either to the other produces a
 #: picture that argues with the model.
-DEFAULT_ALGORITHM = {"organisation": "tree", "process": "layered"}
+DEFAULT_ALGORITHM = {"organisation": "tree", "process": "lanes"}
 
 
 def arrange(nodes: Iterable[LayoutNode], edges: Iterable[LayoutEdge] = (),

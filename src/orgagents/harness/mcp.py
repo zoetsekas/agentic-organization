@@ -46,6 +46,8 @@ class MCPToolProxy:
         self.name = name
         self.fn = fn
         self.read_only = read_only
+        self.input_schema: Optional[dict[str, Any]] = None
+        self.description = ""
 
     @property
     def qualified_name(self) -> str:
@@ -110,8 +112,34 @@ class MCPRegistry:
 
                 return call
 
-            proxies.append(MCPToolProxy(ref.name, name, make(name), ref.read_only))
+            proxy = MCPToolProxy(ref.name, name, make(name), ref.read_only)
+            # What the server says the tool takes, so a framework shows the
+            # model real parameters rather than `**kwargs`.
+            schema = getattr(t, "inputSchema", None) or (
+                t.get("inputSchema") if isinstance(t, dict) else None)
+            proxy.input_schema = schema
+            proxy.description = getattr(t, "description", None) or (
+                t.get("description", "") if isinstance(t, dict) else "")
+            proxies.append(proxy)
         return proxies
+
+    def mount_http(self, ref: MCPServerRef, *, token: Optional[str] = None,
+                   agent_id: str = "") -> "HttpMCPClient":
+        """Mount a streamable-HTTP server with no third-party client (ADR-0109).
+
+        Several capabilities may land on one server under different
+        credentials — that is how a separation survives a shared system
+        (ADR-0071) — so one client per server carries a token *per tool*, and
+        each call presents the credential of the capability it belongs to.
+        """
+        if not ref.url:
+            raise ValueError(f"http server '{ref.name}' declares no url")
+        client = self._remote.get(ref.name)
+        if not isinstance(client, HttpMCPClient):
+            client = HttpMCPClient(ref.url, agent_id=agent_id)
+            self.register_remote(ref.name, client)
+        client.grant(ref.allowed_tools, token)
+        return client
 
     def mount_langchain(self, ref: MCPServerRef) -> None:
         """Mount a server over `langchain-mcp-adapters`' transport.
@@ -211,3 +239,116 @@ class LangChainMCPClient:
         if tool is None:
             raise KeyError(f"MCP server '{self.ref.name}' exposes no tool '{name}'")
         return tool.invoke(kwargs)
+
+
+# --------------------------------------------------------------------------
+# A dependency-free streamable-HTTP client
+# --------------------------------------------------------------------------
+
+
+class MCPCallError(RuntimeError):
+    """The server answered a JSON-RPC error rather than a result."""
+
+
+class HttpMCPClient:
+    """MCP over streamable HTTP, speaking JSON-RPC with the standard library.
+
+    The production path is `langchain-mcp-adapters`; this exists so a runtime
+    with no LangChain installed, and the workstation stack, can still reach an
+    HTTP MCP server (ADR-0109). It implements the part of the transport a tool
+    call needs — `initialize`, `tools/list`, `tools/call`, the session header,
+    and a response sent either as JSON or as a single SSE event — and nothing
+    else: no server-initiated requests, no resumption.
+
+    Every request carries the calling agent's id, and the call's credential if
+    its capability has one, so the system on the other end can tell two hands
+    apart the way the phase gate assumed it could.
+    """
+
+    def __init__(self, url: str, *, agent_id: str = "", timeout: float = 30.0) -> None:
+        self.url = url
+        self.agent_id = agent_id
+        self.timeout = timeout
+        self._tokens: dict[str, str] = {}
+        self._default_token: Optional[str] = None
+        self._session: Optional[str] = None
+        self._ids = 0
+
+    def grant(self, tools: list[str], token: Optional[str]) -> None:
+        if not token:
+            return
+        if not tools:
+            self._default_token = token
+        for tool in tools:
+            self._tokens[tool] = token
+
+    def _post(self, payload: dict[str, Any], token: Optional[str] = None) -> Any:
+        import json
+        import urllib.request
+
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        if self._session:
+            headers["Mcp-Session-Id"] = self._session
+        if self.agent_id:
+            headers["X-Orgagents-Agent"] = self.agent_id
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = urllib.request.Request(
+            self.url, data=json.dumps(payload).encode(), headers=headers,
+            method="POST")
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            self._session = response.headers.get("Mcp-Session-Id") or self._session
+            body = response.read().decode()
+            kind = response.headers.get("Content-Type", "")
+        if "id" not in payload or not body.strip():
+            return None
+        if kind.startswith("text/event-stream"):
+            data = [line[5:].strip() for line in body.splitlines()
+                    if line.startswith("data:")]
+            body = data[-1] if data else "{}"
+        message = json.loads(body)
+        if "error" in message:
+            raise MCPCallError(message["error"].get("message", str(message["error"])))
+        return message.get("result")
+
+    def _rpc(self, method: str, params: dict[str, Any],
+             token: Optional[str] = None) -> Any:
+        if self._session is None and method != "initialize":
+            self._initialize()
+        self._ids += 1
+        return self._post({"jsonrpc": "2.0", "id": self._ids, "method": method,
+                           "params": params}, token)
+
+    def _initialize(self) -> None:
+        self._ids += 1
+        self._post({"jsonrpc": "2.0", "id": self._ids, "method": "initialize",
+                    "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                               "clientInfo": {"name": "orgagents",
+                                              "version": "0.1.0"}}})
+        self._session = self._session or ""
+        self._post({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+    def list_tools(self) -> list[dict[str, Any]]:
+        return list((self._rpc("tools/list", {}) or {}).get("tools", []))
+
+    def call_tool(self, name: str, kwargs: dict[str, Any]) -> Any:
+        import json
+
+        token = self._tokens.get(name, self._default_token)
+        result = self._rpc("tools/call", {"name": name, "arguments": kwargs}, token) or {}
+        text = "\n".join(c.get("text", "") for c in result.get("content", [])
+                         if c.get("type") == "text")
+        data = result.get("structuredContent")
+        if data is None:
+            try:
+                data = json.loads(text) if text else {}
+            except ValueError:
+                data = {"text": text}
+        if result.get("isError"):
+            if isinstance(data, dict) and "error" in data:
+                return {**data, "ok": False}
+            return {"ok": False, "error": text or "the server refused the call"}
+        return data

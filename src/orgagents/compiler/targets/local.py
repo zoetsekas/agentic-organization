@@ -124,6 +124,61 @@ SERVICE_ENGINE_IMAGES = {
     "langflow": "langflowai/langflow:1.12.2",
 }
 
+#: What every container that runs an agent's work gets (ADR-0114): an image
+#: filesystem it cannot change, no Linux capabilities, no way to gain
+#: privilege through a setuid binary, and a bounded process count. Anything
+#: that has to be written goes to a tmpfs named per service.
+CONTAINER_HARDENING: dict[str, Any] = {
+    "read_only": True,
+    "cap_drop": ["ALL"],
+    "security_opt": ["no-new-privileges:true"],
+    "pids_limit": 256,
+}
+
+#: Host ports are published on the loopback address only (ADR-0114). A local
+#: stack is for the person at this machine; publishing on every interface put
+#: the designer and the workers' neighbours on whatever network the laptop
+#: had joined.
+PUBLISH_HOST = "127.0.0.1"
+
+
+def env_suffix(agent_id: str) -> str:
+    """`buyer_agent` -> `BUYER_AGENT`: the per-agent part of a variable name."""
+    return "".join(c if c.isalnum() else "_" for c in agent_id).upper()
+
+
+def worker_token_ref(agent_id: str) -> str:
+    """The variable holding one worker's service token (ADR-0114)."""
+    return f"ORGAGENTS_WORKER_TOKEN_{env_suffix(agent_id)}"
+
+
+#: The variable holding the approval issuer's public keys (`kid:key,...`).
+#: Public: every worker is given the same list and can verify with it, but
+#: none can sign (ADR-0114 v1.1). The private key is the issuer's alone.
+APPROVAL_PUBLIC_KEYS_REF = "ORGAGENTS_APPROVAL_PUBLIC_KEYS"
+
+#: Where a worker keeps what must outlive a restart -- the nonces of releases
+#: it has used, and its audit log. A named volume per agent; the rest of the
+#: root filesystem stays read-only.
+WORKER_STATE_DIR = "/var/lib/orgagents"
+
+
+WHEELS_README = """# wheels/
+
+Anything here is installed into the runtime image **before** `requirements.txt`
+and wins over any package index. It is how a stack is built from an orgagents
+checkout that is not published anywhere:
+
+```bash
+pip wheel /path/to/orgagents-checkout --no-deps -w wheels/
+docker compose build
+```
+
+Built wheels are ignored by git: they are a build input, not source. The
+Dockerfiles copy `wheel[s]`, a pattern, so a checkout where this folder does
+not exist at all still builds from the package index alone.
+"""
+
 
 class LocalTarget:
     id = "local"
@@ -139,7 +194,7 @@ class LocalTarget:
                          ".env.example",
                          "system.ir.json", "agents/*.json", "triggers.json",
                          "channels.json", "memory.json", "REGISTRY.md",
-                         "run_local.py", "README.md"],
+                         "run_local.py", "README.md", "wheels/README.md"],
             "caveats": ["Compose approximates network policy and cannot represent "
                         "cloud IAM; local runs do not verify those controls.",
                         "Tenant isolation on one host is a Compose project with "
@@ -171,6 +226,9 @@ class LocalTarget:
             GeneratedFile("Dockerfile", self._runtime_dockerfile(ir)).with_header(ir),
             GeneratedFile(".dockerignore", self._dockerignore()),
             GeneratedFile("requirements.txt", self._requirements(ir)),
+            GeneratedFile("wheels/README.md", WHEELS_README),
+            # A built wheel is a build input, not source: never committed.
+            GeneratedFile("wheels/.gitignore", "*.whl\n"),
         ] + [
             GeneratedFile(f"docker/Dockerfile.{env.id}",
                           self._environment_dockerfile(ir, env)).with_header(ir)
@@ -258,7 +316,24 @@ class LocalTarget:
         return out
 
     def _networks(self, ir: SystemIR) -> dict[str, Any]:
-        networks: dict[str, Any] = {ir.qualified("control"): {}}
+        # `control` carries the platform's own traffic — state, bus,
+        # telemetry, the workers' HTTP — and none of it needs the internet, so
+        # it has no gateway (ADR-0114). Anything that does need out is on
+        # `egress` as well; anything a person reaches from the host is on
+        # `ingress` as well.
+        networks: dict[str, Any] = {
+            ir.qualified("control"): {"internal": True},
+            # A published port needs a network with a gateway, and Docker
+            # gives an internal network none. This one takes the published
+            # ports and nothing else, and no agent joins it. Masquerading is
+            # off, which on a Linux engine means a container on it can be
+            # reached from the host and cannot reach out; Docker Desktop's VM
+            # networking still routes it out, so there it is a narrowing, not
+            # a barrier (ADR-0114 says so).
+            ir.qualified("ingress"): {
+                "driver_opts": {"com.docker.network.bridge.enable_ip_masquerade": "false"},
+            },
+        }
         # Channel bridges always need egress to reach the chat provider.
         if (
             any(c.human_facing for c in ir.channels)
@@ -280,6 +355,10 @@ class LocalTarget:
         # placement's network, and not otherwise.
         for placement in self._placements(ir):
             networks[self._placement_network(ir, placement.id)] = {"internal": True}
+        # One internal network per backing system (ADR-0109), joined only by
+        # the system and the agents holding a capability bound to it.
+        for server in self._servers(ir):
+            networks[self._server_network(ir, server)] = {"internal": True}
         return networks
 
     def _used_environments(self, ir: SystemIR) -> list[Any]:
@@ -359,17 +438,23 @@ RUN apt-get update \\
  && apt-get install -y --no-install-recommends ca-certificates curl \\
  && rm -rf /var/lib/apt/lists/*
 
-# The platform itself. Point this at your own package index or wheel in a
-# regulated build; nothing here reaches the public internet at run time.
-COPY requirements.txt ./
-RUN pip install -r requirements.txt
+# The platform itself. A wheel dropped in wheels/ is installed first and wins
+# over any index (`pip wheel <orgagents checkout> --no-deps -w wheels/`), which
+# is how a checkout that is not published anywhere gets built; otherwise point
+# this at your own package index. Nothing here reaches the public internet at
+# run time.
+# `wheel[s]` is a pattern, so a checkout with no wheels/ folder still builds.
+COPY requirements.txt wheel[s] /wheels/
+RUN if ls /wheels/*.whl >/dev/null 2>&1; then pip install /wheels/*.whl; fi \\
+ && pip install --find-links /wheels -r /wheels/requirements.txt
 
 COPY agents/ /app/agents/
 COPY triggers.json channels.json memory.json system.ir.json /app/
 
 # Never run as root: the sandbox boundary is the platform's, not the image's.
 RUN useradd --create-home --uid 10001 agent \\
- && chown -R agent:agent /app
+ && mkdir -p /var/lib/orgagents \\
+ && chown -R agent:agent /app /var/lib/orgagents
 USER agent
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \\
@@ -447,8 +532,9 @@ CMD ["orgagents", "serve", "--host", "0.0.0.0"]
             "open": "Egress is unrestricted — review whether this is intended.",
         }[env.network.value]
         if runnable:
-            body = """COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+            body = """COPY requirements.txt wheel[s] /wheels/
+RUN if ls /wheels/*.whl >/dev/null 2>&1; then pip install --no-cache-dir /wheels/*.whl; fi \\
+ && pip install --no-cache-dir --find-links /wheels -r /wheels/requirements.txt
 
 COPY agents/ /app/agents/
 COPY system.ir.json /app/system.ir.json
@@ -507,6 +593,13 @@ WORKDIR /workspace
         networks.extend(
             self._placement_network(ir, pid) for pid in agent.reaches
         )
+        # And each backing system it holds a capability on — no other
+        # (ADR-0109). Reach between placements is standing structure; reach
+        # into a system is a grant, and only a grant.
+        networks.extend(
+            self._server_network(ir, server)
+            for server in self._agent_servers(ir, agent)
+        )
         service: dict[str, Any] = {
             # The agent process runs on the platform runtime image; the
             # environment class is the image its *code execution* happens in
@@ -527,11 +620,27 @@ WORKDIR /workspace
                 "ORGAGENTS_BUS": "${ORGAGENTS_BUS:-in_process}",
                 "ORGAGENTS_BUS_URL": "nats://nats:4222",
                 "ORGAGENTS_BUS_SUBJECT_PREFIX": self._subjects(ir).prefix,
+                # This worker's own service token (no agent is given
+                # another's, so reaching a neighbour's port is not being able
+                # to make it act), and the issuer's *public* keys it verifies
+                # a person's signed approval with: it can check a release and
+                # never mint one (ADR-0114).
+                "ORGAGENTS_WORKER_TOKEN": f"${{{worker_token_ref(agent.id)}}}",
+                "ORGAGENTS_APPROVAL_PUBLIC_KEYS": f"${{{APPROVAL_PUBLIC_KEYS_REF}}}",
+                "ORGAGENTS_STATE_DIR": WORKER_STATE_DIR,
             },
-            "volumes": ["./agents:/app/agents:ro"],
+            "volumes": ["./agents:/app/agents:ro",
+                        f"{ir.qualified(f'agent-state-{agent.id}')}:{WORKER_STATE_DIR}"],
             "networks": networks,
             "depends_on": ["state", "nats"],
-            "deploy": {"resources": {"limits": limits}},
+            # The process bound goes with the other limits: Compose refuses a
+            # service that sets `pids_limit` beside `deploy.resources.limits`.
+            "deploy": {"resources": {"limits": {
+                **limits, "pids": CONTAINER_HARDENING["pids_limit"]}}},
+            # Scratch in /tmp; used nonces and the audit log on the state
+            # volume, so a restart forgets neither (ADR-0114).
+            **{k: v for k, v in CONTAINER_HARDENING.items() if k != "pids_limit"},
+            "tmpfs": ["/tmp"],
             "labels": {
                 # The tenant is on the object itself, so an operator reading a
                 # running container can tell whose it is without the manifest.
@@ -546,6 +655,10 @@ WORKDIR /workspace
             },
         }
         for ref in (agent.identity.secret_refs if agent.identity else []):
+            service["environment"][ref] = f"${{{ref}}}"
+        # The credential of each capability it holds on a backing system, by
+        # name; the worker presents it per call (ADR-0109).
+        for ref in self._agent_server_secrets(ir, agent):
             service["environment"][ref] = f"${{{ref}}}"
         return service
 
@@ -641,6 +754,10 @@ WORKDIR /workspace
                     "org.agentic.co_resident": ",".join(placement.agents),
                 },
             }
+            # Code runs here, so it gets the same hardening as the agent,
+            # with its workspace as the one writable place (ADR-0114).
+            service.update(CONTAINER_HARDENING)
+            service["tmpfs"] = ["/tmp", "/workspace:mode=1777"]
             if posture == "none":
                 # No networks at all, not an internal one: a zero-network
                 # sandbox that can still resolve its neighbours is not one.
@@ -681,24 +798,39 @@ WORKDIR /workspace
                 },
                 "networks": [ir.qualified("control")],
                 "volumes": [f'{ir.qualified("state-data")}:/var/lib/postgresql/data'],
+                # Each infrastructure service says when it is ready, so
+                # `up --wait` means ready and not merely started (ADR-0109).
+                "healthcheck": {
+                    "test": ["CMD-SHELL", "pg_isready -U postgres -d orgagents"],
+                    "interval": "10s", "timeout": "3s", "retries": 5,
+                },
             },
+            # Agents export to it over `control`; its OTLP port is not
+            # published, so nothing off this stack can write spans into it
+            # (ADR-0114).
             "telemetry": {
                 "image": OTEL_COLLECTOR_IMAGE,
                 "networks": [ir.qualified("control")],
-                "ports": ["4317:4317"],
             },
             # The artifact workspace large tool output is offloaded to
             # (ADR-0036). This tenant's own instance on this tenant's own
             # volume; ADR-0053 rejects a shared bucket with a prefix per tenant.
             "artifacts": {
                 "image": ARTIFACTS_IMAGE,
-                "command": ["server", "/data", "--console-address", ":9001"],
+                # SeaweedFS's own flags. The MinIO-style `server /data
+                # --console-address` this used to say is not a command SeaweedFS
+                # knows, so the workspace exited on start (ADR-0109).
+                "command": ["server", "-dir=/data", "-s3"],
                 "environment": {
                     "MINIO_ROOT_USER": "${ARTIFACTS_USER}",
                     "MINIO_ROOT_PASSWORD": "${ARTIFACTS_PASSWORD}",
                 },
                 "networks": [ir.qualified("control")],
                 "volumes": [f'{ir.qualified("artifacts-data")}:/data'],
+                "healthcheck": {
+                    "test": ["CMD", "wget", "-qO-", "http://127.0.0.1:9333/cluster/status"],
+                    "interval": "10s", "timeout": "3s", "retries": 5,
+                },
             },
             # The asynchronous transport between agent containers (ADR-0059).
             # JetStream is on so a channel that declares durability has
@@ -707,7 +839,14 @@ WORKDIR /workspace
             "nats": {
                 "image": BUS_IMAGE,
                 "command": ["--jetstream", "--store_dir", "/data",
-                            "--name", ir.qualified("bus")],
+                            "--name", ir.qualified("bus"),
+                            # The monitoring port, for the health check only;
+                            # it is not published.
+                            "--http_port", "8222"],
+                "healthcheck": {
+                    "test": ["CMD", "wget", "-qO-", "http://127.0.0.1:8222/healthz"],
+                    "interval": "10s", "timeout": "3s", "retries": 5,
+                },
                 "networks": [ir.qualified("control")],
                 "volumes": [f'{ir.qualified("bus-data")}:/data'],
                 "labels": {
@@ -722,8 +861,11 @@ WORKDIR /workspace
                 "build": {"context": ".", "dockerfile": "Dockerfile"},
                 "image": f"{ir.name}/platform:{ir.spec_version}",
                 "command": ["orgagents", "serve", "--host", "0.0.0.0"],
-                "ports": ["8000:8000"],
-                "networks": [ir.qualified("control")],
+                # Single-user local, said out loud, and reachable from this
+                # machine only (ADR-0114).
+                "environment": {"ORGAGENTS_DESIGNER_AUTH": "none"},
+                "ports": [f"{PUBLISH_HOST}:8000:8000"],
+                "networks": [ir.qualified("control"), ir.qualified("ingress")],
                 "depends_on": ["state"],
             },
         }
@@ -787,6 +929,11 @@ WORKDIR /workspace
         for channel in ir.channels:
             if not channel.human_facing:
                 continue
+            # `internal` is the platform's own inbox: there is no workspace to
+            # bridge to and no credential to hold, so a bridge would be a
+            # container with nothing to do (ADR-0109).
+            if channel.provider == "internal":
+                continue
             env = {
                 "ORGAGENTS_CHANNEL": channel.id,
                 "ORGAGENTS_PROVIDER": channel.provider,
@@ -809,22 +956,7 @@ WORKDIR /workspace
                     "org.agentic.purposes": ",".join(channel.purposes),
                 },
             }
-        for cap in ir.capabilities:
-            binding = ir.binding.capability_binding(cap.id)
-            if binding is None:
-                continue
-            services[f"mcp-{binding.server_name}"] = {
-                "build": {"context": ".", "dockerfile": "Dockerfile"},
-                "image": binding.options.get("image", f"{ir.name}/platform:{ir.spec_version}"),
-                "command": [binding.command or "serve", *binding.args],
-                "environment": (
-                    {binding.dsn_secret_ref: f"${{{binding.dsn_secret_ref}}}"}
-                    if binding.dsn_secret_ref
-                    else {}
-                ),
-                "networks": [ir.qualified("control")],
-                "labels": {"org.agentic.capability": cap.id},
-            }
+        services.update(self._server_services(ir))
         return yaml.safe_dump(
             {
                 "name": ir.name.lower().replace(" ", "-"),
@@ -834,6 +966,7 @@ WORKDIR /workspace
                     ir.qualified("state-data"): {},
                     ir.qualified("artifacts-data"): {},
                     ir.qualified("bus-data"): {},
+                    **{ir.qualified(f"agent-state-{a.id}"): {} for a in ir.agents},
                     **{
                         ir.qualified(f"{wb.engine}-data"): {}
                         for wb in self._service_engines(ir)
@@ -858,6 +991,76 @@ WORKDIR /workspace
             sort_keys=False,
             width=100,
         )
+
+    # -- backing systems (ADR-0109) -----------------------------------------
+
+    def _servers(self, ir: SystemIR) -> dict[str, list[Any]]:
+        """Each bound server, with the capability bindings that land on it."""
+        out: dict[str, list[Any]] = {}
+        for cap in ir.capabilities:
+            binding = ir.binding.capability_binding(cap.id)
+            if binding is None or not binding.server_name:
+                continue
+            out.setdefault(binding.server_name, []).append(binding)
+        return {k: out[k] for k in sorted(out)}
+
+    def _server_network(self, ir: SystemIR, server: str) -> str:
+        return ir.qualified(f"srv-{server}")
+
+    def _agent_bindings(self, ir: SystemIR, agent) -> list[Any]:
+        out = []
+        for cap in agent.capabilities:
+            binding = ir.binding.capability_binding(cap.id)
+            if binding is not None and binding.server_name:
+                out.append(binding)
+        return out
+
+    def _agent_servers(self, ir: SystemIR, agent) -> list[str]:
+        """The servers an agent holds a capability on — and so may route to."""
+        return sorted({b.server_name for b in self._agent_bindings(ir, agent)})
+
+    def _agent_server_secrets(self, ir: SystemIR, agent) -> list[str]:
+        return sorted({b.dsn_secret_ref for b in self._agent_bindings(ir, agent)
+                       if b.dsn_secret_ref})
+
+    def _server_services(self, ir: SystemIR) -> dict[str, Any]:
+        """One service per backing system, on a network of its own (ADR-0109).
+
+        These used to sit on `control`, which every agent joins, so every agent
+        could route to every system and the placement networks bounded nothing
+        that mattered: a buyer could reach the ledger. Now each server has an
+        internal network that only the agents holding a capability bound to it
+        join. Two sides of a separation bound to different servers are then
+        two networks apart — the barrier the phase gate checked on paper
+        (ADR-0071), as routing.
+
+        One service per *server*, not per capability: before, a server with
+        five capabilities was written five times and kept whichever came last,
+        label and credential included.
+        """
+        out: dict[str, Any] = {}
+        for server, bindings in self._servers(ir).items():
+            first = bindings[0]
+            secrets = sorted({b.dsn_secret_ref for b in bindings if b.dsn_secret_ref})
+            image = next((b.options.get("image") for b in bindings
+                          if b.options.get("image")), None)
+            service: dict[str, Any] = {
+                "image": image or f"{ir.name}/platform:{ir.spec_version}",
+                "command": [first.command or "serve", *first.args],
+                "environment": {ref: f"${{{ref}}}" for ref in secrets},
+                "networks": [self._server_network(ir, server)],
+                "labels": {
+                    "org.agentic.tenant": ir.tenant.id if ir.tenant else "",
+                    "org.agentic.server": server,
+                    "org.agentic.capability": ",".join(
+                        sorted(b.capability for b in bindings)),
+                },
+            }
+            if not image:
+                service = {"build": {"context": ".", "dockerfile": "Dockerfile"},
+                           **service}
+            out[f"mcp-{server}"] = service
+        return out
 
     def _overlays_readme(self, ir: SystemIR) -> str:
         """How to extend *this* target. The mechanism differs per target, so a
@@ -955,6 +1158,8 @@ validate:      ## re-validate the source spec
         refs = sorted(
             {r for a in ir.agents for r in (a.identity.secret_refs if a.identity else [])}
             | {c.bot_identity_ref for c in ir.channels if c.bot_identity_ref}
+            | {b.dsn_secret_ref for bs in self._servers(ir).values() for b in bs
+               if b.dsn_secret_ref}
         )
         lines = [
             "# Secret NAMES only — never commit values (ADR-0015).",
@@ -969,6 +1174,14 @@ validate:      ## re-validate the source spec
             f"{self._engine_secret_ref(wb)}=" for wb in self._service_engines(ir)
         ]
         lines += [f"{ref}=" for ref in refs]
+        # One service token per worker, and the approval issuer's public
+        # keys for all of them (ADR-0114). The matching private key goes to
+        # the issuer only, never into a worker's environment.
+        lines += ["# Approval issuer's public keys, kid:base64url[,kid:...] (ADR-0114).",
+                  f"{APPROVAL_PUBLIC_KEYS_REF}=",
+                  "# Per worker (ADR-0114): its service token."]
+        for agent in ir.agents:
+            lines += [f"{worker_token_ref(agent.id)}="]
         return "\n".join(lines) + "\n"
 
     def _single_process(self, ir: SystemIR) -> str:

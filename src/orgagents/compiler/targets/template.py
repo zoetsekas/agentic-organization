@@ -151,7 +151,7 @@ class TemplateTarget:
         templates = sorted(self.template_dir.rglob(f"*{SUFFIX}"))
         for template in templates:
             relative = template.relative_to(self.template_dir).as_posix()
-            body = template.read_text()
+            body = template.read_text(encoding="utf-8")
             if AGENT_TOKEN in relative:
                 for agent in ir.agents:
                     context = agent_context(ir, agent)

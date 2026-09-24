@@ -17,7 +17,7 @@ def _scheduler_command(args: argparse.Namespace) -> int:
     from .platform import Platform
     from .runtime.scheduler import from_manifest
 
-    manifest = json.loads(Path(args.manifest).read_text())
+    manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
     platform = Platform(args.sched_db, configure_logs=False)
 
     def runner(trigger, now):
@@ -68,7 +68,7 @@ def _spec_language_command(args: argparse.Namespace) -> int:
     if not args.path:
         print("error: spec migrate needs a path")
         return 2
-    source = Path(args.path).read_text()
+    source = Path(args.path).read_text(encoding="utf-8")
     data = yaml.safe_load(source) or {}
     declared = str((data.get("metadata") or {}).get("spec_version", CURRENT))
     try:
@@ -202,8 +202,13 @@ def _compiler_command(args: argparse.Namespace) -> int:
 
     if args.cmd == "targets":
         for description in register_builtin_targets().describe_all():
-            print(f"{description['id']:18} {description['title']}")
-            print(f"{'':18} {description['summary']}")
+            # `describe()` is each target's own dict: only `id` is promised.
+            # A target that says what it emits rather than giving a summary
+            # is described by that (the registry's descriptor does the same).
+            summary = description.get("summary") or description.get("emits", "")
+            print(f"{description['id']:18} {description.get('title', description['id'])}")
+            if summary:
+                print(f"{'':18} {summary}")
             for caveat in description.get("caveats", []):
                 print(f"{'':18} ! {caveat}")
         return 0
@@ -434,7 +439,7 @@ def _catalogs_add(service, args: argparse.Namespace) -> int:
     from .catalogs import CatalogEntry, CatalogKind
 
     if args.file:
-        payload = _json.loads(Path(args.file).read_text())
+        payload = _json.loads(Path(args.file).read_text(encoding="utf-8"))
         entries = payload if isinstance(payload, list) else [payload]
         published = [service.publish(CatalogEntry.model_validate(e),
                                      actor=args.actor) for e in entries]
@@ -823,7 +828,7 @@ def _examples_command(args) -> int:
             who, args.name or path.stem.removesuffix(".system")).id
         try:
             record = designer.import_system(
-                who, workspace_id=workspace, text=path.read_text(),
+                who, workspace_id=workspace, text=path.read_text(encoding="utf-8"),
                 filename=path.name, name=args.name)
         except FieldErrors as e:
             print(f"refused: {e}")
@@ -847,6 +852,12 @@ def _examples_command(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Output carries arrows and dashes; a console whose code page cannot show
+    # them (cp1252 on Windows) gets a '?' rather than a traceback after the
+    # work is already done.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     parser = argparse.ArgumentParser(prog="orgagents")
     parser.add_argument("--db", default="orgagents.db")
     parser.add_argument("--base-url", default="http://localhost:8000")
@@ -857,6 +868,14 @@ def main(argv: list[str] | None = None) -> int:
     p_serve = sub.add_parser("serve", help="run the API and designer UI")
     p_serve.add_argument("--host", default="127.0.0.1")
     p_serve.add_argument("--port", type=int, default=8000)
+
+    # The command every generated agent container runs (ADR-0109).
+    p_work = sub.add_parser("worker", help="run one compiled agent as a service")
+    p_work.add_argument("agent_id")
+    p_work.add_argument("--ir", default="/app/system.ir.json",
+                        help="the compiled system (system.ir.json)")
+    p_work.add_argument("--host", default="0.0.0.0")
+    p_work.add_argument("--port", type=int, default=8000)
 
     p_prov = sub.add_parser(
         "providers",
@@ -1056,7 +1075,33 @@ def main(argv: list[str] | None = None) -> int:
     p_ds.add_argument("action", choices=["gestures"])
     p_ds.add_argument("--out", default="docs/designer")
 
+    # The public contract (ADR-0115): the OpenAPI document, and MCP servers
+    # that act through it as a named designer user.
+    p_api = sub.add_parser("api", help="the public HTTP API contract")
+    p_api.add_argument("action", choices=["schema"],
+                       help="schema: write the OpenAPI document")
+    p_api.add_argument("--out", default="",
+                       help="default docs/api/openapi.json; '-' prints it")
+    p_mcp = sub.add_parser("mcp", help="run an MCP server (needs the 'mcp' extra)")
+    from .mcp_server import add_arguments as _mcp_arguments
+    _mcp_arguments(p_mcp)
+
     args = parser.parse_args(argv)
+
+    if args.cmd == "api":
+        from .api_contract import SCHEMA_PATH, schema_text
+        if args.out == "-":
+            sys.stdout.write(schema_text())
+            return 0
+        out = Path(args.out) if args.out else SCHEMA_PATH
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(schema_text(), encoding="utf-8", newline="\n")
+        print(f"wrote {out}")
+        return 0
+
+    if args.cmd == "mcp":
+        from .mcp_server import main as _mcp_main
+        return _mcp_main(args)
 
     if args.cmd == "designer":
         from .designer.gestures import catalogue
@@ -1147,6 +1192,13 @@ def main(argv: list[str] | None = None) -> int:
 
         uvicorn.run(create_app(args.db, args.base_url), host=args.host, port=args.port)
         return 0
+
+    if args.cmd == "worker":
+        from .runtime.worker import serve as serve_worker
+
+        db = args.db if args.db != "orgagents.db" else ""
+        return serve_worker(args.agent_id, host=args.host, port=args.port,
+                            ir_path=args.ir, db=db)
 
     if args.cmd == "providers":
         return _providers_command(args)

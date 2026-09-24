@@ -572,6 +572,17 @@ def _groups_of(payload: Mapping[str, Any], claim: str) -> tuple[str, ...]:
     return ()
 
 
+#: The identity headers trusted-proxy mode reads unless configured otherwise
+#: (ORGAGENTS_PROXY_USER_HEADER / _NAME_HEADER / _EMAIL_HEADER). X-User stays
+#: the default so a proxy (or the platform client) that sets X-User keeps
+#: working; a deployment behind a forward-auth service names the headers that
+#: service returns, as docker/compose/fabric.yml does. Whatever the names, the
+#: proxy MUST strip them from client requests before it sets them.
+DEFAULT_PROXY_USER_HEADER = "X-User"
+DEFAULT_PROXY_NAME_HEADER = "X-User-Name"
+DEFAULT_PROXY_EMAIL_HEADER = "X-User-Email"
+
+
 class Authenticator:
     """Resolves the principal for a request, per the configured `auth_mode`.
 
@@ -584,20 +595,84 @@ class Authenticator:
     def __init__(self, settings: DesignerSettings, *,
                  verifier: Optional[TokenVerifier] = None,
                  mapping: Optional[GroupRoleMapping] = None,
-                 audit: Optional[AuditLog] = None) -> None:
+                 audit: Optional[AuditLog] = None,
+                 proxy_secret: str = "",
+                 proxy_sources: Optional[list[str]] = None,
+                 proxy_user_header: str = "",
+                 proxy_name_header: str = "",
+                 proxy_email_header: str = "") -> None:
         self.settings = settings
         self.verifier = verifier
         self.mapping = mapping if mapping is not None else GroupRoleMapping.from_config(
             settings.oidc_group_roles
         )
         self.audit = audit
+        # How trusted-proxy mode knows a request came *through* the proxy
+        # (ADR-0114): a secret header only the proxy sets, or the proxy's
+        # source addresses, or both. Without either, X-User is a header
+        # anybody who can reach the port may set.
+        self.proxy_secret = proxy_secret
+        self.proxy_sources = list(proxy_sources or [])
+        # Which headers carry identity in trusted-proxy mode (ADR-0114). They
+        # must be headers the proxy *sets from its authentication* (a
+        # forward-auth response) and strips from every client request first;
+        # the fabric compose uses oauth2-proxy's X-Auth-Request-*. No other
+        # identity header is read -- X-User included, when it is not the
+        # configured one -- so a client header that slips past is ignored.
+        self.proxy_user_header = proxy_user_header or DEFAULT_PROXY_USER_HEADER
+        self.proxy_name_header = proxy_name_header or DEFAULT_PROXY_NAME_HEADER
+        self.proxy_email_header = proxy_email_header or DEFAULT_PROXY_EMAIL_HEADER
 
-    # The header names are fixed here rather than configurable: a deployment
-    # that can rewrite header names can also rewrite values, so making them
-    # settings would add configuration without adding safety.
+    def identity_headers(self, headers: Any) -> dict[str, str]:
+        """The user/name/email header values this mode reads, as keyword
+        arguments for `authenticate`. `headers` is a case-insensitive mapping
+        (Starlette's). In `trusted_proxy` mode only the configured names are
+        read; otherwise the conventional X-User family is."""
+        def get(name: str) -> str:
+            return str(headers.get(name, "") or "")
+        if self.settings.auth_mode == "trusted_proxy":
+            return {"user_header": get(self.proxy_user_header),
+                    "name_header": get(self.proxy_name_header),
+                    "email_header": get(self.proxy_email_header)}
+        return {"user_header": get("X-User") or "anonymous",
+                "name_header": get("X-User-Name"),
+                "email_header": get("X-User-Email")}
+
+    def require_proxy_guard(self) -> None:
+        """Refuse to run trusted-proxy mode with nothing to tell the proxy
+        from anybody else. Called at startup, so the mistake stops the
+        designer rather than silently trusting every caller."""
+        if self.settings.auth_mode == "trusted_proxy" and not (
+                self.proxy_secret or self.proxy_sources):
+            raise AuthConfigurationError(
+                "auth_mode is 'trusted_proxy' but neither ORGAGENTS_PROXY_SECRET "
+                "nor ORGAGENTS_PROXY_SOURCES is set, so any caller could claim "
+                "any identity in X-User; configure one, or use 'oidc', or "
+                "'none' for single-user local use")
+
+    def _from_proxy(self, proxy_secret_header: str, client_host: str) -> bool:
+        import hmac
+        import ipaddress
+
+        if self.proxy_secret and not hmac.compare_digest(
+                (proxy_secret_header or "").encode(), self.proxy_secret.encode()):
+            return False
+        if self.proxy_sources:
+            try:
+                addr = ipaddress.ip_address(client_host)
+            except ValueError:
+                return False
+            return any(addr in ipaddress.ip_network(s, strict=False)
+                       for s in self.proxy_sources)
+        return True
+
+    # In trusted-proxy mode the header names are configurable (ADR-0114): the
+    # designer reads exactly the header the proxy's authentication sets, not a
+    # conventional name a client might also send.
     def authenticate(self, *, authorization: str = "", user_header: str = "",
                      name_header: str = "", email_header: str = "",
-                     nonce: Optional[str] = None) -> AuthenticatedPrincipal:
+                     nonce: Optional[str] = None, proxy_secret_header: str = "",
+                     client_host: str = "") -> AuthenticatedPrincipal:
         mode = self.settings.auth_mode
         try:
             if mode == "oidc":
@@ -608,6 +683,11 @@ class Authenticator:
                     display_name=name_header or user_header or "anonymous",
                     email=email_header, auth_mode="none",
                 )
+            if (self.proxy_secret or self.proxy_sources) and not self._from_proxy(
+                    proxy_secret_header, client_host):
+                raise MissingCredentials(
+                    "trusted-proxy mode accepts identity only from the proxy, "
+                    "and this request did not come through it")
             return self._authenticate_proxy(user_header, name_header, email_header)
         except AuthError as exc:
             self._record_failure(exc, mode, user_header)
@@ -617,7 +697,7 @@ class Authenticator:
                             email_header: str) -> AuthenticatedPrincipal:
         if not user_header:
             raise MissingCredentials(
-                "trusted-proxy mode expects the proxy to set X-User"
+                f"trusted-proxy mode expects the proxy to set {self.proxy_user_header}"
             )
         return AuthenticatedPrincipal(
             user_id=user_header, display_name=name_header or user_header,

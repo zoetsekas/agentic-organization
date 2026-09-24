@@ -17,12 +17,14 @@ budget.
 """
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from ..models import Agent, Runtime
 from ..plugins import ProviderDescriptor, Registry
+from .stub_model import chat_model_for
 
 
 class BudgetExceeded(RuntimeError):
@@ -133,6 +135,76 @@ def _langchain_tokens(result: Any) -> int:
     return total
 
 
+def _open_schema(fn: Callable[..., Any], StructuredTool: Any) -> dict[str, Any]:
+    """The JSON schema a framework should show for one of our tools.
+
+    Every tool the runtime hands a framework is a `guarded` wrapper taking
+    ``**kwargs``, and an MCP proxy is ``**kwargs`` too. Inferred from that
+    signature, LangChain builds a schema with no fields and **drops every
+    argument** on the way in — a model's call arrives empty and the mandate
+    condition that needed `amount` refuses it. So the schema comes from what
+    the tool really takes: an MCP server's own `inputSchema`, else the wrapped
+    function's signature; and it stays open to extra fields either way, so an
+    argument is never silently lost (ADR-0109).
+    """
+    inner = fn
+    while hasattr(inner, "guarded_fn"):
+        inner = inner.guarded_fn
+    schema = getattr(inner, "input_schema", None)
+    if not isinstance(schema, dict):
+        schema = {"type": "object", "properties": {}}
+        try:
+            probe = StructuredTool.from_function(func=inner, name="probe")
+            derived = probe.args_schema.model_json_schema()
+            props = derived.get("properties", {})
+            if set(props) != {"kwargs"}:
+                schema = {"type": "object", "properties": props,
+                          "required": derived.get("required", [])}
+        except Exception:                                 # noqa: BLE001
+            pass
+    return {**schema, "additionalProperties": True}
+
+
+def langchain_tools(tools: dict[str, Callable[..., Any]], StructuredTool: Any) -> list[Any]:
+    """Our toolset as LangChain tools that pass their arguments through."""
+    out = []
+    for name, fn in tools.items():
+        inner = fn
+        while hasattr(inner, "guarded_fn"):
+            inner = inner.guarded_fn
+        description = (getattr(inner, "description", "") or fn.__doc__
+                       or inner.__doc__ or name).strip()
+        out.append(StructuredTool(name=name, description=description, func=fn,
+                                  args_schema=_open_schema(fn, StructuredTool)))
+    return out
+
+
+def langchain_tool_calls(result: Any) -> list[dict[str, Any]]:
+    """Each tool call a LangChain run made, with what came back.
+
+    Paired by call id, so a caller — the chat window, a scenario, an auditor —
+    sees the refusal a mandate produced next to the call that earned it.
+    """
+    messages = (result or {}).get("messages", []) or []
+    outcomes = {getattr(m, "tool_call_id", None): m for m in messages
+                if getattr(m, "type", "") == "tool"}
+    calls = []
+    for m in messages:
+        for call in getattr(m, "tool_calls", None) or []:
+            answer = outcomes.get(call.get("id"))
+            content = getattr(answer, "content", None)
+            try:
+                parsed = json.loads(content) if isinstance(content, str) else content
+            except ValueError:
+                parsed = content
+            ok = (answer is not None
+                  and getattr(answer, "status", "success") != "error"
+                  and not (isinstance(parsed, dict) and parsed.get("ok") is False))
+            calls.append({"tool": call.get("name"), "arguments": call.get("args"),
+                          "ok": ok, "result": parsed})
+    return calls
+
+
 def _openai_tokens(result: Any) -> int:
     usage = getattr(getattr(result, "context_wrapper", None), "usage", None)
     return int(getattr(usage, "total_tokens", 0) or 0)
@@ -205,10 +277,7 @@ class DeepAgentsAdapter(RuntimeAdapter):
         from deepagents import create_deep_agent  # type: ignore
         from langchain_core.tools import StructuredTool  # type: ignore
 
-        tools = [
-            StructuredTool.from_function(func=fn, name=name)
-            for name, fn in self.tools.items()
-        ]
+        tools = langchain_tools(self.tools, StructuredTool)
         from deepagents import FilesystemPermission  # type: ignore
         from langchain.agents.middleware import ModelCallLimitMiddleware  # type: ignore
 
@@ -238,7 +307,7 @@ class DeepAgentsAdapter(RuntimeAdapter):
 
     def model(self) -> Any:
         spec = self.agent.harness.model
-        return f"{spec.provider}:{spec.model}"
+        return chat_model_for(spec.provider, spec.model, self.agent.name)
 
     def _run(self, prompt: str, history: Optional[list[dict]] = None) -> TurnOutput:
         graph = self._build()
@@ -249,7 +318,8 @@ class DeepAgentsAdapter(RuntimeAdapter):
         )
         msgs = result.get("messages", [])
         text = getattr(msgs[-1], "content", "") if msgs else ""
-        return TurnOutput(text=text, tokens=_langchain_tokens(result), raw=result)
+        return TurnOutput(text=text, tool_calls=langchain_tool_calls(result),
+                          tokens=_langchain_tokens(result), raw=result)
 
 
 class OpenAIAgentsAdapter(RuntimeAdapter):
@@ -309,16 +379,13 @@ class LangGraphAdapter(RuntimeAdapter):
 
     def model(self) -> Any:
         spec = self.agent.harness.model
-        return f"{spec.provider}:{spec.model}"
+        return chat_model_for(spec.provider, spec.model, self.agent.name)
 
     def _run(self, prompt: str, history: Optional[list[dict]] = None) -> TurnOutput:
         from langchain_core.tools import StructuredTool  # type: ignore
         from langgraph.prebuilt import create_react_agent  # type: ignore
 
-        tools = [
-            StructuredTool.from_function(func=fn, name=name)
-            for name, fn in self.tools.items()
-        ]
+        tools = langchain_tools(self.tools, StructuredTool)
         graph = create_react_agent(self.model(), tools, prompt=self.system_prompt)
         result = graph.invoke(
             {"messages": (history or []) + [("user", prompt)]},
@@ -327,6 +394,7 @@ class LangGraphAdapter(RuntimeAdapter):
         msgs = result.get("messages", [])
         return TurnOutput(
             text=getattr(msgs[-1], "content", ""),
+            tool_calls=langchain_tool_calls(result),
             tokens=_langchain_tokens(result),
             raw=result,
         )

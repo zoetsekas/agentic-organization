@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ..spec.loader import load_spec_text
-from ..spec.validate import Finding, validate_spec
+from ..spec.issue_codes import lookup as lookup_issue
+from ..spec.validate import Finding, validate_spec, workflow_binding_findings
 from ..spec.model import org_collection
 from .audit import AuditAction, AuditEvent, AuditLog, AuditOutcome
 from .locks import LockConflict, LockManager
@@ -433,13 +434,14 @@ class DesignerService:
 
     def create_system(self, principal: Principal, *, workspace_id: str, name: str,
                       description: str = "", spec: Optional[dict[str, Any]] = None,
-                      layout: Optional[Layout] = None) -> SystemRecord:
+                      layout: Optional[Layout] = None,
+                      binding: Optional[dict[str, Any]] = None) -> SystemRecord:
         workspace = self._workspace(workspace_id)
         self._require(workspace, principal, CREATE, AuditAction.SYSTEM_CREATE)
         record = SystemRecord(
             workspace_id=workspace_id, name=name, description=description,
             spec=spec or _starter_spec(name), layout=layout or Layout(),
-            created_by=principal.user_id,
+            created_by=principal.user_id, binding=binding,
         )
         saved = self.repository.save_system(record, expected_version=None,
                                             author=principal.user_id,
@@ -830,6 +832,11 @@ class DesignerService:
                                 message=f"{type(e).__name__}: {e}")]
         else:
             findings = list(validate_spec(spec))
+            # Whether an external workflow reaches an engine is the binding's
+            # to say (ADR-0110); a design saved with one is judged by it.
+            bound = stored_target_binding(record.binding)
+            if bound is not None:
+                findings += workflow_binding_findings(spec, bound)
         return {
             "ok": not any(f.severity == "error" for f in findings),
             "errors": [str(f) for f in findings if f.severity == "error"],
@@ -837,11 +844,31 @@ class DesignerService:
             "findings": [
                 {"severity": f.severity, "code": f.code, "where": f.where,
                  "message": f.message,
-                 "component": _component_at(record.spec, f.where)}
+                 "component": _component_at(record.spec, f.where),
+                 **_issue_ref(f.code)}
                 for f in findings
             ],
         }
 
+
+
+def stored_target_binding(binding: Any) -> Any:
+    """The target binding a design was saved with, or None when it has none
+    the model accepts. The designer stores one target's binding per revision."""
+    from ..spec.binding import TargetBinding
+
+    if isinstance(binding, dict) and isinstance(binding.get("targets"), list):
+        # A whole binding document (the pre-flight's shape): the workstation
+        # target when there is one, since that is what the designer runs.
+        targets = [t for t in binding["targets"] if isinstance(t, dict)]
+        binding = next((t for t in targets if t.get("target") == "local"),
+                       targets[0] if targets else None)
+    if not isinstance(binding, dict) or not binding.get("target"):
+        return None
+    try:
+        return TargetBinding.model_validate(binding)
+    except Exception:
+        return None
 
 
 class DiagramKindMismatch(ValueError):
@@ -951,6 +978,12 @@ def _component_at(spec: dict[str, Any], where: str) -> str:
         if isinstance(node, dict) and isinstance(node.get("id"), str):
             return node["id"]
     return ""
+
+
+def _issue_ref(code: str) -> dict[str, Any]:
+    """The catalog's number and title for a code, so a row can quote them."""
+    entry = lookup_issue(code)
+    return {"issue_id": entry["id"], "title": entry.get("title", "")} if entry else {}
 
 
 def _parse_findings(exc: PydanticValidationError,

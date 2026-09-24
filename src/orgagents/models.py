@@ -209,9 +209,9 @@ class ToolBinding(BaseModel):
 
 
 class ModelSpec(BaseModel):
-    provider: Literal["anthropic", "openai", "azure_openai", "bedrock", "vertex"] = (
-        "anthropic"
-    )
+    # `stub` is a deterministic stand-in with no vendor behind it (ADR-0109).
+    provider: Literal["anthropic", "openai", "azure_openai", "bedrock", "vertex",
+                      "stub"] = "anthropic"
     model: str = "claude-opus-5"
     temperature: float = 0.2
     max_tokens: int = 8192
@@ -348,6 +348,10 @@ class WorkflowRef(BaseModel):
     entrypoint: str = ""
     graph: Optional[dict[str, Any]] = None
     input_schema: dict[str, Any] = Field(default_factory=dict)
+    # `external` when the body lives in an engine the binding names; the
+    # interface is then all this platform holds of it (ADR-0110).
+    body: str = "graph"
+    interface: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("graph", mode="before")
     @classmethod
@@ -389,6 +393,10 @@ class Agent(BaseModel):
     kind: AgentKind = AgentKind.INDIVIDUAL
     description: str = ""
     org_unit_id: Optional[str] = None
+    # The design this agent was loaded from (a designer system id). Its
+    # workspace scopes who may see and drive the agent (ADR-0116); unset
+    # means no design owns it and only installation-wide grants reach it.
+    system_id: Optional[str] = None
     # Org hierarchy: who this agent reports to, and who reports to it.
     manager_agent_id: Optional[str] = None
     report_agent_ids: list[str] = Field(default_factory=list)

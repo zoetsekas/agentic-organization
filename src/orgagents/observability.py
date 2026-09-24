@@ -79,9 +79,15 @@ class Observability:
 
     # -- metrics -----------------------------------------------------------
 
-    def metrics(self) -> dict[str, Any]:
+    def metrics(self, agent_ids: Optional[set[str]] = None) -> dict[str, Any]:
+        """Platform metrics; with `agent_ids`, only those agents' sessions
+        and events count (a caller scoped to some workspaces, ADR-0116)."""
         sessions = self.store.list(SESSIONS, AgentSession, limit=5000)
         events = self.store.list(EVENTS, SessionEvent, limit=20000)
+        if agent_ids is not None:
+            sessions = [s for s in sessions if s.agent_id in agent_ids]
+            kept = {s.id for s in sessions}
+            events = [e for e in events if e.session_id in kept]
         by_state = Counter(s.state.value for s in sessions)
         by_type = Counter(e.type for e in events)
         per_agent: dict[str, dict[str, float]] = defaultdict(
@@ -93,7 +99,8 @@ class Observability:
             a["tokens"] += s.token_usage
             a["cost_usd"] += s.cost_usd
         return {
-            "agents": self.store.count(AGENTS),
+            "agents": (self.store.count(AGENTS) if agent_ids is None
+                       else len(agent_ids)),
             "sessions": {
                 "total": len(sessions),
                 "running": by_state.get(SessionState.RUNNING.value, 0),

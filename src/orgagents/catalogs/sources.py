@@ -103,7 +103,7 @@ class FileFigureSource(MappingFigureSource):
 
     def __init__(self, path: str | Path, *, name: str = "") -> None:
         p = Path(path)
-        payload = json.loads(p.read_text())
+        payload = json.loads(p.read_text(encoding="utf-8"))
         super().__init__(name or str(payload.get("source", p.name)), payload)
         self.path = p
 

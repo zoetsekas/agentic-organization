@@ -374,9 +374,11 @@ class OrgChart:
             return None
         return self.agent(a.manager_agent_id)
 
-    def to_tree(self, root_id: Optional[str] = None) -> list[dict]:
-        """Nested dicts for the designer UI's org-chart view."""
-        agents = self.agents()
+    def to_tree(self, root_id: Optional[str] = None,
+                agents: Optional[list[Agent]] = None) -> list[dict]:
+        """Nested dicts for the designer UI's org-chart view; `agents`
+        limits it to the ones a caller may see (ADR-0116)."""
+        agents = self.agents() if agents is None else list(agents)
         by_id = {a.id: a for a in agents}
         children: dict[Optional[str], list[Agent]] = {}
         for a in agents:

@@ -34,6 +34,79 @@ class ToolCallResult:
     meta: dict[str, Any] = field(default_factory=dict)
 
 
+class ApprovalGrants:
+    """Approvals a person has given, each good for exactly one call (ADR-0109).
+
+    The approval gate said "human approval required" and nothing could ever
+    satisfy it: `resume` re-ran the agent with the human's words and the gate
+    refused the same call again. A grant is the missing half, and it is narrow
+    on purpose:
+
+    * it names the agent, the tool **and the arguments** — approving "pay
+      SINV-9 for 2,440" is not approving "pay SINV-9 for 24,400";
+    * it is spent by the call it approves, so a replay needs a second approval;
+    * it expires, because an approval nobody used is a decision nobody made
+      today (the same rule as the channel ledger, ADR-0061);
+    * it is consulted **after** the mandate and the conditions, so an approval
+      can release a call the agent may make and never one it may not. No
+      person's click turns a separated decision into the buyer's.
+    """
+
+    def __init__(self, ttl_seconds: float = 900.0,
+                 audit: Optional[Callable[[str, dict[str, Any]], None]] = None) -> None:
+        self.ttl_seconds = ttl_seconds
+        self._grants: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+        # Every grant, every spend and every lapse is written down (ADR-0114):
+        # a release nobody can later account for is a control nobody can show
+        # was operated. The sink is the worker's audit log; `events` keeps the
+        # recent ones for anyone holding this object.
+        self.audit = audit
+        self.events: list[dict[str, Any]] = []
+
+    def _record(self, event: str, record: dict[str, Any]) -> None:
+        import time
+
+        entry = {"event": event, "ts": time.time(),
+                 **{k: record[k] for k in ("agent", "tool", "arguments", "approver",
+                                           "nonce") if k in record}}
+        self.events.append(entry)
+        del self.events[:-500]
+        if self.audit is not None:
+            self.audit(event, entry)
+
+    @staticmethod
+    def _key(agent_id: str, tool: str, arguments: Optional[dict[str, Any]]) -> tuple:
+        import json
+
+        return (agent_id, tool, json.dumps(arguments or {}, sort_keys=True,
+                                           default=str))
+
+    def grant(self, agent_id: str, tool: str, arguments: Optional[dict[str, Any]],
+              approver: str, *, nonce: str = "") -> dict[str, Any]:
+        import time
+
+        record = {"agent": agent_id, "tool": tool, "arguments": arguments or {},
+                  "approver": approver, "expires": time.time() + self.ttl_seconds}
+        if nonce:
+            record["nonce"] = nonce
+        self._grants.setdefault(self._key(agent_id, tool, arguments), []).append(record)
+        self._record("approval_granted", record)
+        return record
+
+    def consume(self, agent_id: str, tool: str,
+                arguments: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        import time
+
+        pending = self._grants.get(self._key(agent_id, tool, arguments), [])
+        while pending:
+            record = pending.pop(0)
+            if record["expires"] >= time.time():
+                self._record("approval_consumed", record)
+                return record
+            self._record("approval_expired", record)
+        return None
+
+
 class HarnessBuilder:
     """Turns a `Harness` into a name -> callable map for one agent."""
 
@@ -52,6 +125,7 @@ class HarnessBuilder:
         self.sandboxes = sandboxes or SandboxRunner(store)
         # Maps a secret reference to an actual DSN. Defaults to env lookup.
         self.dsn_resolver = dsn_resolver or self._default_dsn_resolver
+        self.approvals = ApprovalGrants()
 
     @staticmethod
     def _default_dsn_resolver(secret_ref: str) -> str:
@@ -370,11 +444,14 @@ class HarnessBuilder:
                 )
 
         if self.requires_approval(agent, tool_name):
+            if self.approvals.consume(agent.id, tool_name, arguments):
+                return None
             return ToolCallResult(
                 tool_name,
                 False,
                 error="human approval required",
                 requires_approval=True,
+                decision=decision,
                 meta={"approver": agent.human.email if agent.human else None},
             )
         return None
@@ -405,6 +482,11 @@ class HarnessBuilder:
 
             guarded_tool.__name__ = getattr(fn, "__name__", name)
             guarded_tool.__doc__ = fn.__doc__
+            # So a framework adapter can read what the tool really takes; the
+            # wrapper's own signature is `**kwargs` and says nothing.
+            # Not `__wrapped__`: typing and inspect follow that into an object
+            # (an MCP proxy) that has no globals, and resolving hints fails.
+            guarded_tool.guarded_fn = fn
             return guarded_tool
 
         return {name: wrap(name, fn) for name, fn in tools.items()}
