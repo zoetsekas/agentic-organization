@@ -1532,6 +1532,111 @@ label.check-row > .hint { flex-basis: 100%; }
   height: 10px; border-radius: var(--r-pill);
   border: 1px solid var(--kind-tool); background: color-mix(in srgb, var(--kind-tool) 20%, var(--raised));
 }
+/* Only the open aspect's row (ADR-0111, ADR-0112 M7). */
+.canvas-legend .lg[data-aspects] { display: none; }
+.canvas-legend[data-aspect="organisation"] .lg[data-aspects~="organisation"],
+.canvas-legend[data-aspect="process"] .lg[data-aspects~="process"],
+.canvas-legend[data-aspect="data"] .lg[data-aspects~="data"],
+.canvas-legend[data-aspect="deployment"] .lg[data-aspects~="deployment"] { display: inline-flex; }
+.canvas-legend .lg-dc i {
+  border: 1px solid var(--line-strong); border-left: 4px solid var(--amber);
+  border-radius: 2px; background: color-mix(in srgb, var(--kind-data-class) 12%, var(--raised));
+}
+.canvas-legend .lg-derive i { height: 0; border-top: 1.5px dashed var(--edge-report); position: relative; }
+.canvas-legend .lg-derive i::after {
+  content: ""; position: absolute; right: -1px; top: -5px; width: 7px; height: 7px;
+  border-top: 1.5px solid var(--edge-report); border-right: 1.5px solid var(--edge-report);
+  transform: rotate(45deg);
+}
+.canvas-legend .lg-part i { height: 0; border-top: 1.5px solid var(--edge-report); position: relative; }
+.canvas-legend .lg-part i::after {
+  content: ""; position: absolute; right: -2px; top: -5px; width: 8px; height: 8px;
+  background: var(--edge-report); transform: rotate(45deg);
+}
+.canvas-legend .lg-assoc i { height: 0; border-top: 1.5px solid var(--edge-peer); }
+.canvas-legend .lg-aclass i {
+  border: 1px solid var(--line-strong); background: var(--panel); border-radius: 2px;
+}
+.canvas-legend .lg-inherit i {
+  height: 10px; border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.canvas-legend .lg-node i {
+  border: 1px solid var(--line-strong); background: var(--raised);
+  box-shadow: 3px -3px 0 -1px var(--raised-2), 3px -3px 0 0 var(--line-strong);
+}
+.canvas-legend .lg-exec i { border: 1px solid var(--kind-environment); border-radius: 3px; background: var(--surface-2); }
+.canvas-legend .lg-artifact i {
+  border: 1px solid var(--line-strong); background: var(--raised);
+  clip-path: polygon(0 0, 75% 0, 100% 30%, 100% 100%, 0 100%);
+}
+
+/* ---- the Data diagram: a UML class diagram (ADR-0111) ----
+   A data class carries its classification on the stripe an agent's uses,
+   its semantics as a stereotype over its name, its restrictions in an
+   attribute compartment, and — the point of the diagram — what it inherits
+   along «derive» and where from. */
+.canvas-surface .node[data-kind="data_class"] {
+  /* Width and style only: the colour is the classification's, set by the
+     data-classification rules above, which this must not override. */
+  border-left-width: 4px; border-left-style: solid; border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--kind-data-class) 7%, var(--raised));
+}
+.canvas-surface .node[data-kind="data_class"] .n-kind { text-transform: none; letter-spacing: .02em; }
+.canvas-surface .node .n-compartment {
+  margin: var(--s2) calc(-1 * var(--s4)) 0; padding: var(--s2) var(--s4) 0;
+  border-top: 1px solid var(--line); display: grid; gap: 2px;
+}
+.canvas-surface .node .n-attr {
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-muted);
+}
+.canvas-surface .node .n-inherit {
+  font-size: var(--t-micro); color: var(--accent-bright);
+  border-left: 2px solid var(--accent); padding-left: 5px; white-space: normal;
+}
+.canvas-surface .node .n-inherit .n-from { font-family: var(--font-mono); color: var(--ink-dim); }
+.canvas-surface .node .n-inherit.dropped { color: var(--clay-ink); border-left-color: var(--clay); }
+.canvas-surface .node .n-inherit.advisory { color: var(--amber-ink); border-left-color: var(--amber); }
+.canvas-surface .node .n-schema {
+  display: inline-block; margin-top: var(--s2); font-family: var(--font-mono);
+  font-size: var(--t-micro); color: var(--accent); text-decoration: underline;
+}
+.canvas-surface .node span.n-schema { text-decoration: none; color: var(--ink-dim); }
+.canvas-edges .uml-label { font: 500 10px var(--font-mono); paint-order: stroke;
+  stroke: var(--ground); stroke-width: 3px; }
+.canvas-edges .assoc-box { fill: var(--panel); stroke: var(--line-strong); }
+.canvas-edges .assoc-name { font: 600 9.5px var(--font-mono); fill: var(--ink-muted); }
+.canvas-edges .assoc-line { font: 500 10px var(--font-mono); fill: var(--ink); }
+
+/* ---- the Deployment diagram: UML deployment (ADR-0112 M7) ----
+   A server and a target are UML nodes (the box with depth); an engine or
+   an environment an execution environment; what is deployed an artifact
+   with its corner folded. */
+.canvas-surface .node[data-kind="server"],
+.canvas-surface .node[data-kind="target"] {
+  box-shadow: 8px -8px 0 -1px var(--raised-2), 8px -8px 0 0 var(--line-strong);
+  margin-top: 8px;
+}
+.canvas-surface .node[data-kind="target"] { border-color: var(--accent); }
+.canvas-surface .node[data-aspect="deployment"][data-kind="environment"],
+.canvas-surface .node[data-kind="engine"] {
+  border: 1.5px solid var(--kind-environment); background: var(--surface-2);
+}
+.canvas-surface .node[data-aspect="deployment"][data-kind="capability"],
+.canvas-surface .node[data-aspect="deployment"][data-kind="workflow"],
+.canvas-surface .node[data-aspect="deployment"][data-kind="channel"],
+.canvas-surface .node[data-aspect="deployment"][data-kind="knowledge"] {
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
+}
+/* A stereotype is printed as UML prints it: «node», not «NODE». */
+.canvas-surface .node[data-aspect="deployment"] .n-kind,
+.canvas-surface .node[data-kind="data_class"] .n-kind {
+  font-size: var(--t-micro); text-transform: none; letter-spacing: .02em;
+}
+.palette .profile-mark { font-family: var(--font-mono); font-weight: 400; color: var(--ink-dim); font-size: var(--t-micro); }
+.palette details.other-profiles > summary { cursor: pointer; font-size: var(--t-small); color: var(--ink-muted); margin-bottom: var(--s2); }
+.diagram-bar .dia-aspect { font-size: var(--t-small); }
+.binding-record { margin-top: var(--s4); }
 
 /* ---- the governed workflow on the process canvas (ADR-0110) ----
    Each step says what kind it is and who owns it. A fork and a join are

@@ -399,6 +399,16 @@ function renderDiagramBar() {
       });
       return pick;
     })()] : []),
+    /* The Data and Deployment aspects draw the whole design, so each has one
+       diagram: the button opens it, adding what the model has gained since
+       (ADR-0111, ADR-0112 M7). */
+    ...["data", "deployment"].map((kind) => el("button", {
+      class: "dia-aspect", "data-aspect": kind,
+      title: `${diagramOfKind(kind) ? "open" : "add"} the ${ASPECTS[kind].label} diagram — `
+        + ASPECTS[kind].help,
+      disabled: readOnly && !diagramOfKind(kind) ? "" : null,
+      onclick: () => openOrAddAspect(kind),
+    }, `${diagramOfKind(kind) ? "" : "+ "}${ASPECTS[kind].label.toLowerCase()}`)),
     /* Arrange. The layout runs on the server, where it is a function from a
        graph to coordinates and can be asserted about; a layout that ran only
        here is the one part of this platform nothing would check (ADR-0100).
@@ -411,6 +421,14 @@ function renderDiagramBar() {
     ...(readOnly ? [] : Object.entries({
       ...(diagram()?.kind === "process"
           ? { lanes: "one lane per owner, the flow left to right (ADR-0110)" } : {}),
+      ...(diagram()?.kind === "data"
+          ? { derivation: "lineage left to right: base before derived, "
+                + "producer before its data, data before who relies on it (ADR-0111)" }
+          : {}),
+      ...(diagram()?.kind === "deployment"
+          ? { deployment: "a column per server or engine, what is deployed on it "
+                + "stacked beneath (ADR-0112)" }
+          : {}),
       tree: "parents over children, depth down the page",
       layered: "ranked by flow; a loop back is drawn, not ranked",
       grid: "reading order, for a set with no structure to honour",
@@ -421,6 +439,9 @@ function renderDiagramBar() {
     })));
   ui.wireTabs(tabs, { label: "Diagrams", panel: () => $("#canvas") });
   if (focusedTab) tabs.querySelector(".dia-tab.active")?.focus();
+  /* The legend shows the rows of the aspect that is open. */
+  const legend = document.querySelector(".canvas-legend");
+  if (legend) legend.dataset.aspect = aspectOf();
 }
 
 /* ------------------------------------------------------------ arranging */
@@ -440,7 +461,24 @@ async function arrangeDiagram(algorithm) {
     for (const sub of team.teams || []) parentOf[sub.id] = team.id;
   }
   const kind = current.kind || "organisation";
-  const edges = kind === "process" ? processEdges(current.root) : [];
+  /* A deployment's containment is the binding's, not the organisation's:
+     a target over its servers and environments, a server over what is
+     deployed on it, an engine over the workflows it runs. */
+  if (kind === "deployment") {
+    for (const key of Object.keys(parentOf)) delete parentOf[key];
+    for (const entry of deploymentModel().nodes.values()) {
+      if (entry.parent) parentOf[entry.id] = entry.parent;
+    }
+  }
+  const edges = kind === "process" ? processEdges(current.root)
+    : kind === "data" ? dataLayoutEdges() : [];
+  /* Declaration order is the layout's tie-break: data classes first, in
+     the order the spec declares them, then the agents. */
+  if (kind === "data") {
+    const order = new Map([...dataClasses().map((d) => d.id),
+                           ...dataAgents().map((a) => a.id)].map((id, i) => [id, i]));
+    nodes.sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9));
+  }
   /* A process is laid out from its entry, and each step carries the lane of
      its owner; a step with no owner of its own sits with what leads to it. */
   const lanes = kind === "process" ? processLanes(current.root) : {};
@@ -459,10 +497,14 @@ async function arrangeDiagram(algorithm) {
         edges,
       }),
     });
+    /* Layouts start at zero; these diagrams keep a margin, so the first
+       column's boxes and a «deploy» label above the top row are not drawn
+       against the canvas's edge. */
+    const pad = kind === "data" || kind === "deployment" ? 40 : 0;
     for (const [id, at] of Object.entries(result.positions || {})) {
       if (!current.nodes[id]) continue;
-      current.nodes[id].x = at.x;
-      current.nodes[id].y = at.y;
+      current.nodes[id].x = at.x + pad;
+      current.nodes[id].y = at.y + pad;
     }
     markDirty(`arranged with ${result.algorithm}`);
     renderCanvas();
@@ -761,6 +803,552 @@ function renderProcessEdges(svg, layout) {
   svg.replaceChildren(...parts);
 }
 
+/* ------------------------------------------ aspects and their profiles
+   (ADR-0100, ADR-0112 M7)
+
+   Every diagram is of one aspect, and each aspect declares the UML profiles
+   it draws: the palette offers only those profiles' stereotypes, grouped by
+   profile, so what can be dropped on a canvas is what that canvas is about.
+   `Core` (the canvas note) is annotation and goes everywhere. */
+const ASPECTS = {
+  organisation: {
+    label: "Organisation", profiles: ["Organisation", "Authority", "Access"],
+    arrange: "tree",
+    help: "who is in the organisation, what they may decide and reach",
+  },
+  process: {
+    label: "Process", profiles: ["Process"], arrange: "lanes",
+    help: "one governed workflow: its steps, owners and flow (ADR-0110)",
+  },
+  data: {
+    label: "Data", profiles: ["Data"], arrange: "derivation",
+    help: "the conceptual data model: classes, lineage, producers and "
+      + "consumers (ADR-0111)",
+  },
+  deployment: {
+    label: "Deployment", profiles: ["Deployment"], arrange: "deployment",
+    help: "the binding: targets, servers and what is deployed on them "
+      + "(ADR-0112)",
+    readOnly: true,
+  },
+};
+
+function aspectOf(d = diagram()) {
+  return ASPECTS[d?.kind] ? d.kind : "organisation";
+}
+
+/* Profiles no aspect draws yet (Knowledge, Assurance, and the Process
+   profile's organisation-level elements). They stay placeable on the
+   Organisation diagram, under a closed "Other profiles" group, until they
+   have a diagram of their own — a stereotype nobody can place is a model
+   the designer does not show (ADR-0111 v1.1.0). */
+function undrawnProfiles() {
+  const drawn = new Set(["Core", ...ASPECTS.organisation.profiles,
+                         ...ASPECTS.data.profiles, ...ASPECTS.deployment.profiles]);
+  const all = new Set(Object.values(canvas.palette?.profiles || {}));
+  return [...all].filter((p) => !drawn.has(p));
+}
+
+/* The one diagram of an aspect a design has, if any. Data and Deployment
+   draw the whole design, so a second one would be the same picture. */
+function diagramOfKind(kind) {
+  return diagramList().find((d) => d.kind === kind) || null;
+}
+
+function openOrAddAspect(kind) {
+  const existing = diagramOfKind(kind);
+  if (kind === "data") return addDataDiagram(existing);
+  if (kind === "deployment") return addDeploymentDiagram(existing);
+  return null;
+}
+
+/* ------------------------------------------- the Data diagram (ADR-0111)
+
+   The conceptual data model as a UML class diagram: every data class, its
+   classification as the stripe an agent's uses (ADR-0080), its semantics as
+   a stereotype; the four relations in their UML notation; the agents that
+   produce and rely on each class, a reliance drawn as the association class
+   it is (fields, freshness). Nothing here is stored but positions: every
+   edge is read from the spec. */
+
+function dataClasses() {
+  return org(spec())?.data_classes || [];
+}
+
+function dataClassById() {
+  return Object.fromEntries(dataClasses().map((d) => [d.id, d]));
+}
+
+/* The agents on a Data diagram: those that produce or rely on a class. */
+function dataAgents() {
+  return allAgents().map(({ agent }) => agent).filter((a) =>
+    (a.produces_data || []).length || (a.data_dependencies || []).length);
+}
+
+/* The link rule for one data-class relation, by its `kind`. */
+function dataRelationRule(kind) {
+  return (canvas.palette?.links || []).find((r) =>
+    r.source === "data_class" && r.target === "data_class"
+    && r.selector && r.selector[1] === kind) || null;
+}
+
+/* UML notation per relation (ADR-0111): «derive» a dashed arrow with an open
+   head at the class derived from; part_of a filled diamond at the whole;
+   the associations plain lines. */
+const DATA_NOTATION = {
+  derived_from: { label: "«derive»", head: "open", dash: "6 4",
+                  stroke: "--edge-report" },
+  part_of: { label: "", head: "diamond", stroke: "--edge-report" },
+  identifies: { label: "«identifies»", head: "", stroke: "--edge-peer" },
+  references: { label: "references", head: "", stroke: "--edge-peer" },
+};
+
+function freshness(seconds) {
+  if (seconds === null || seconds === undefined || seconds === "") return "";
+  const s = Number(seconds);
+  if (s % 86400 === 0) return `≤ ${s / 86400} d`;
+  if (s % 3600 === 0) return `≤ ${s / 3600} h`;
+  if (s % 60 === 0) return `≤ ${s / 60} min`;
+  return `≤ ${s} s`;
+}
+
+function dataEdges() {
+  const out = [];
+  for (const dc of dataClasses()) {
+    for (const r of dc.relations || []) {
+      if (!r?.target) continue;
+      const kind = r.kind || "references";
+      const rule = dataRelationRule(kind);
+      const look = DATA_NOTATION[kind] || DATA_NOTATION.references;
+      out.push({
+        source: dc.id, target: r.target, kind: `rel:relations.${kind}`,
+        uml: rule?.uml || "association", rel: rule?.label || kind,
+        label: look.label, head: look.head, dash: look.dash || "",
+        stroke: look.stroke, relation: kind,
+      });
+    }
+  }
+  for (const agent of dataAgents()) {
+    for (const id of agent.produces_data || []) {
+      out.push({ source: agent.id, target: id, kind: "rel:produces_data",
+                 uml: "association", rel: "produces", label: "produces",
+                 stroke: "--edge-peer" });
+    }
+    for (const dep of agent.data_dependencies || []) {
+      if (!dep?.data_class) continue;
+      /* The association class: the reliance carries attributes of its own,
+         and they are the point of drawing it (ADR-0099). */
+      const fields = (dep.fields || []).length
+        ? dep.fields.join(", ") : "the whole class";
+      const when = [freshness(dep.max_age_seconds), dep.on_stale || "refuse"]
+        .filter(Boolean).join(" · on stale ");
+      out.push({ source: agent.id, target: dep.data_class,
+                 kind: "rel:data_dependencies", uml: "association",
+                 rel: "relies on", label: "relies on", stroke: "--edge-peer",
+                 assocClass: { name: "«DataDependency»",
+                               lines: [fields, when].filter(Boolean),
+                               producer: dep.produced_by || "" } });
+    }
+  }
+  return out;
+}
+
+/* What the layout ranks: base before derived, part before whole, producer
+   before its data, data before who relies on it — so lineage reads left to
+   right. The associations that carry no direction are not ranked. */
+function dataLayoutEdges() {
+  const out = [];
+  for (const e of dataEdges()) {
+    if (e.relation === "derived_from") out.push({ source: e.target, target: e.source });
+    else if (e.relation === "part_of") out.push({ source: e.source, target: e.target });
+    else if (e.kind === "rel:produces_data") out.push({ source: e.source, target: e.target });
+    else if (e.kind === "rel:data_dependencies") out.push({ source: e.target, target: e.source });
+  }
+  return out;
+}
+
+/* A restriction a class inherits along `derived_from`, transitively, with
+   the class it came from — and whether this class says otherwise, which the
+   validator refuses (ADR-0099) and the diagram shows where it happens. */
+const SCOPE_WORDS = { private: "private", protected: "protected", public: "public" };
+
+function inheritedRestrictions(classId) {
+  const byId = dataClassById();
+  const own = byId[classId];
+  if (!own) return [];
+  const out = new Map();
+  const seen = new Set([classId]);
+  const walk = (id) => {
+    for (const r of byId[id]?.relations || []) {
+      if (r?.kind !== "derived_from" || seen.has(r.target)) continue;
+      seen.add(r.target);
+      const src = byId[r.target];
+      if (!src) continue;
+      if (src.may_leave_region === false && !out.has("region")) {
+        out.set("region", { key: "region", text: "stays in its region",
+                            from: src.id, dropped: own.may_leave_region !== false });
+      }
+      if (src.may_appear_in_traces === false && !out.has("traces")) {
+        out.set("traces", { key: "traces", text: "kept out of traces",
+                            from: src.id, dropped: own.may_appear_in_traces !== false });
+      }
+      const srcRank = SCOPE_RANK[src.scope || "private"];
+      const ownRank = SCOPE_RANK[own.scope || "private"];
+      if (srcRank < ownRank && !out.has("scope")) {
+        out.set("scope", { key: "scope",
+                           text: `source is ${SCOPE_WORDS[src.scope || "private"]}`,
+                           from: src.id, dropped: true, advisory: true });
+      }
+      walk(r.target);
+    }
+  };
+  walk(classId);
+  return [...out.values()];
+}
+
+/* The data class's face: the compartments of a UML class. */
+function dataClassBody(dc) {
+  const rows = [];
+  if (dc.may_leave_region === false) rows.push(el("div", { class: "n-attr" }, "may_leave_region = false"));
+  if (dc.may_appear_in_traces === false) rows.push(el("div", { class: "n-attr" }, "may_appear_in_traces = false"));
+  if (dc.retention_days) rows.push(el("div", { class: "n-attr" }, `retention_days = ${dc.retention_days}`));
+  for (const r of inheritedRestrictions(dc.id)) {
+    rows.push(el("div", {
+      class: `n-inherit${r.dropped ? " dropped" : ""}${r.advisory ? " advisory" : ""}`,
+      "data-restriction": r.key,
+      title: r.dropped && !r.advisory
+        ? `${dc.id} is derived from ${r.from}, which is ${r.text.replace("stays", "must stay")}, `
+          + "and says otherwise: the validator refuses this (ADR-0099)"
+        : `inherited along «derive» from ${r.from} (ADR-0099)`,
+    }, `⇠ ${r.text} `, el("span", { class: "n-from" }, `from ${r.from}`)));
+  }
+  const out = rows.length ? [el("div", { class: "n-compartment" }, ...rows)] : [];
+  if (dc.schema_ref) {
+    /* A pointer, not a promise: shown as a link out when it is one, and as
+       the catalogue id it is otherwise (ADR-0111). */
+    const url = /^https?:\/\//i.test(dc.schema_ref);
+    const link = url
+      ? el("a", { class: "n-schema", href: dc.schema_ref, target: "_blank",
+                  rel: "noopener noreferrer",
+                  title: `the schema lives at ${dc.schema_ref} — a pointer; nothing here reads it` },
+           "schema ↗")
+      : el("span", { class: "n-schema", title: "a data-catalogue id; nothing here reads it" },
+           `schema: ${dc.schema_ref}`);
+    if (url) {
+      link.addEventListener("pointerdown", (e) => e.stopPropagation());
+      link.addEventListener("click", (e) => e.stopPropagation());
+    }
+    out.push(link);
+  }
+  return out;
+}
+
+function addDataDiagram(existing = null) {
+  const layout = canvas.record?.layout;
+  if (!layout) return null;
+  const d = existing || {
+    id: newDiagramId(), name: "Data", kind: "data", root: "", nodes: {},
+    viewport: { x: 0, y: 0, zoom: 1 }, updated_at: new Date().toISOString(),
+  };
+  /* Opening it again adds what the model has gained since, and nothing
+     else: a class declared elsewhere shows up here, positions stay put. */
+  let added = 0;
+  const put = (id, kind) => {
+    if (d.nodes[id]) return;
+    d.nodes[id] = { id, kind, x: 40, y: 40 + added * 110, width: 200, height: 90,
+                    collapsed: false, note: "" };
+    added += 1;
+  };
+  dataClasses().forEach((dc) => put(dc.id, "data_class"));
+  dataAgents().forEach((a) => put(a.id, "agent"));
+  layout.diagrams[d.id] = d;
+  if (!existing) markDirty("added the Data diagram");
+  else if (added) markDirty(`added ${added} to the Data diagram`);
+  openDiagram(d.id);
+  if (!existing || added) arrangeDiagram("derivation");
+  return d;
+}
+
+/* ------------------------------- the Deployment diagram (ADR-0112 M7)
+
+   The binding drawn as UML deployment: a target, the servers it declares as
+   nodes, each capability deployed on the server that realises it, the
+   environments and engines as execution environments, and the workflows an
+   engine runs. Read-only: the binding is a document of its own (ADR-0110),
+   and a design carries one only when it came from an example that ships
+   one. Without one the diagram says so rather than drawing a guess. */
+
+function bindingTargets() {
+  const b = canvas.record?.binding;
+  if (!b || typeof b !== "object") return [];
+  if (Array.isArray(b.targets)) return b.targets.filter((t) => t && typeof t === "object");
+  return b.target ? [b] : [];
+}
+
+/* Kinds the Deployment profile draws that are not spec components. */
+const BINDING_KINDS = {
+  target: { kind: "target", label: "Target", icon: "⌂", stereo: "«deployment spec»", fields: [] },
+  server: { kind: "server", label: "Server", icon: "▣", stereo: "«node»", fields: [] },
+  engine: { kind: "engine", label: "Engine", icon: "⚙", stereo: "«executionEnvironment»", fields: [] },
+};
+
+/* Every box and edge of the binding, keyed by node id. A capability's id is
+   its own, so its Properties are the capability's; a second target's are
+   prefixed, so two targets binding one capability are two boxes. */
+function deploymentModel() {
+  /* Computed once per binding object: every node's title, subtitle and
+     signature asks for it, and the binding only changes when a design is
+     opened. */
+  const binding = canvas.record?.binding || null;
+  if (canvas.deploymentCache?.binding === binding) return canvas.deploymentCache.model;
+  const model = buildDeploymentModel();
+  canvas.deploymentCache = { binding, model };
+  return model;
+}
+
+function buildDeploymentModel() {
+  const nodes = new Map();
+  const edges = [];
+  bindingTargets().forEach((t, index) => {
+    const name = t.target || `target_${index + 1}`;
+    const pre = index ? `${name}:` : "";
+    const tid = `target:${name}`;
+    const put = (id, kind, parent, record, extra = {}) => {
+      if (!nodes.has(id)) nodes.set(id, { id, kind, parent, record, target: name, ...extra });
+    };
+    put(tid, "target", null, t);
+    for (const s of t.servers || []) {
+      if (!s?.id) continue;
+      put(`server:${pre}${s.id}`, "server", tid, s);
+      edges.push({ source: tid, target: `server:${pre}${s.id}`, kind: "binding:server",
+                   uml: "composition", rel: "declares server", head: "diamond-start",
+                   stroke: "--edge-report" });
+    }
+    for (const c of t.capabilities || []) {
+      if (!c?.capability) continue;
+      const host = c.server ? `server:${pre}${c.server}` : tid;
+      put(`${pre}${c.capability}`, "capability", host, c, { specId: c.capability });
+      edges.push({ source: `${pre}${c.capability}`, target: host, kind: "binding:deploy",
+                   uml: "deployment", rel: c.server ? "deployed on" : "mounts its own server",
+                   label: "«deploy»", head: "open", dash: "6 4",
+                   stroke: "--edge-report" });
+    }
+    for (const e of t.environments || []) {
+      if (!e?.environment) continue;
+      put(`${pre}${e.environment}`, "environment", tid, e, { specId: e.environment });
+      edges.push({ source: tid, target: `${pre}${e.environment}`, kind: "binding:env",
+                   uml: "composition", rel: "provides environment", head: "diamond-start",
+                   stroke: "--edge-report" });
+    }
+    for (const w of t.workflows || []) {
+      const engine = w?.engine || "native";
+      const eid = `engine:${pre}${engine}`;
+      put(eid, "engine", tid, { engine, mode: w.mode, endpoint: w.endpoint });
+      if (!edges.some((x) => x.source === tid && x.target === eid)) {
+        edges.push({ source: tid, target: eid, kind: "binding:engine",
+                     uml: "composition", rel: "runs engine", head: "diamond-start",
+                     stroke: "--edge-report" });
+      }
+      const wid = `${pre}${w.workflow || "*"}`;
+      put(wid, "workflow", eid, w, { specId: w.workflow || "" });
+      edges.push({ source: wid, target: eid, kind: "binding:workflow",
+                   uml: "deployment", rel: "runs in engine", label: "«deploy»",
+                   head: "open", dash: "6 4", stroke: "--edge-report" });
+    }
+    for (const [list, key, kind] of [["channels", "channel", "channel"],
+                                     ["knowledge", "knowledge", "knowledge"]]) {
+      for (const b of t[list] || []) {
+        if (!b?.[key]) continue;
+        put(`${pre}${b[key]}`, kind, tid, b, { specId: b[key] });
+        edges.push({ source: `${pre}${b[key]}`, target: tid, kind: `binding:${kind}`,
+                     uml: "deployment", rel: `binds ${kind}`, label: "«deploy»",
+                     head: "open", dash: "6 4", stroke: "--edge-report" });
+      }
+    }
+  });
+  return { nodes, edges };
+}
+
+function deploymentSubtitle(entry) {
+  const r = entry?.record || {};
+  switch (entry?.kind) {
+    case "target": return [r.runtime?.adapter, r.model?.provider && `model ${r.model.provider}`,
+                           r.infrastructure?.provider].filter(Boolean).join(" · ");
+    case "server": return [r.kind, r.transport, r.url || r.command].filter(Boolean).join(" · ");
+    case "engine": return [r.mode, r.endpoint].filter(Boolean).join(" · ");
+    case "capability": return [r.server ? `on ${r.server}` : "its own server",
+                               r.dsn_secret_ref || r.secret_ref].filter(Boolean).join(" · ");
+    case "environment": return [r.image, r.cpu && `${r.cpu} cpu`, r.memory].filter(Boolean).join(" · ");
+    case "workflow": return [r.flow && `flow ${r.flow}`, r.mode].filter(Boolean).join(" · ");
+    case "channel": case "knowledge": return [r.provider, r.address || r.location].filter(Boolean).join(" · ");
+    default: return "";
+  }
+}
+
+function addDeploymentDiagram(existing = null) {
+  const layout = canvas.record?.layout;
+  if (!layout) return null;
+  const d = existing || {
+    id: newDiagramId(), name: "Deployment", kind: "deployment", root: "", nodes: {},
+    viewport: { x: 0, y: 0, zoom: 1 }, updated_at: new Date().toISOString(),
+  };
+  let added = 0;
+  for (const entry of deploymentModel().nodes.values()) {
+    if (d.nodes[entry.id]) continue;
+    d.nodes[entry.id] = { id: entry.id, kind: entry.kind, x: 40, y: 40 + added * 110,
+                          width: 200, height: 90, collapsed: false, note: "" };
+    added += 1;
+  }
+  layout.diagrams[d.id] = d;
+  if (!existing) markDirty("added the Deployment diagram");
+  else if (added) markDirty(`added ${added} to the Deployment diagram`);
+  openDiagram(d.id);
+  if (added) arrangeDiagram("deployment");
+  return d;
+}
+
+/* ------------------------------------ edges drawn in UML notation
+   The Data and Deployment diagrams draw each edge with its UML ends: an
+   open arrowhead, a filled diamond at a whole, and an association class
+   hung off the middle of the line it qualifies. */
+
+/* A node's box as drawn, measured where it can be. */
+function nodeBox(node) {
+  return stepBox(node);
+}
+
+/* Left to right (Data): leave the source on the side facing the target. */
+function lrGeometry(a, b) {
+  const s = nodeBox(a), t = nodeBox(b);
+  let x1, y1, x2, y2, horizontal = true;
+  if (t.x >= s.x + s.w - 10) { x1 = s.x + s.w; y1 = s.cy; x2 = t.x; y2 = t.cy; }
+  else if (s.x >= t.x + t.w - 10) { x1 = s.x; y1 = s.cy; x2 = t.x + t.w; y2 = t.cy; }
+  else {
+    horizontal = false;
+    x1 = s.cx; x2 = t.cx;
+    if (t.y >= s.y) { y1 = s.y + s.h; y2 = t.y; } else { y1 = s.y; y2 = t.y + t.h; }
+  }
+  const bend = Math.max(30, Math.abs(horizontal ? x2 - x1 : y2 - y1) / 2);
+  const d = horizontal
+    ? `M ${x1} ${y1} C ${x1 + Math.sign(x2 - x1) * bend} ${y1}, ${x2 - Math.sign(x2 - x1) * bend} ${y2}, ${x2} ${y2}`
+    : `M ${x1} ${y1} C ${x1} ${y1 + Math.sign(y2 - y1) * bend}, ${x2} ${y2 - Math.sign(y2 - y1) * bend}, ${x2} ${y2}`;
+  return { d, labelX: (x1 + x2) / 2, labelY: (y1 + y2) / 2 - 6 };
+}
+
+/* Top to bottom (Deployment): from the facing edges of the two boxes. */
+function tbGeometry(a, b) {
+  const s = nodeBox(a), t = nodeBox(b);
+  /* An artifact stacked under the node it is deployed on (the `deployment`
+     layout indents it): routed along a bus down the node's left side, so
+     the arrow to the node never crosses the artifacts stacked above it. */
+  if (t.y + t.h <= s.y && s.x > t.x && s.x < t.x + t.w) {
+    const bus = t.x + 16;
+    return { d: `M ${s.x} ${s.cy} L ${bus} ${s.cy} L ${bus} ${t.y + t.h}`,
+             labelX: (bus + s.x) / 2 + 4, labelY: s.cy - 5 };
+  }
+  const down = t.cy >= s.cy;
+  const x1 = s.cx, y1 = down ? s.y + s.h : s.y;
+  const x2 = t.cx, y2 = down ? t.y : t.y + t.h;
+  const mid = (y1 + y2) / 2;
+  return { d: `M ${x1} ${y1} C ${x1} ${mid}, ${x2} ${mid}, ${x2} ${y2}`,
+           labelX: (x1 + x2) / 2, labelY: mid - 4 };
+}
+
+function geometryFor(kind, a, b) {
+  if (kind === "data") return lrGeometry(a, b);
+  if (kind === "deployment") return tbGeometry(a, b);
+  return edgeGeometry(a, b);
+}
+
+/* One marker per head and colour: an SVG marker cannot take its colour from
+   the line it ends (not portably), so each colour has its own. */
+const UML_MARKER_COLOURS = ["--edge-report", "--edge-peer"];
+
+function umlMarkers(mk) {
+  const defs = mk("defs", {});
+  for (const colour of UML_MARKER_COLOURS) {
+    const c = `var(${colour})`;
+    const tag = colour.replace("--", "");
+    const open = mk("marker", { id: `um-open-${tag}`, viewBox: "0 0 12 12", refX: "11",
+                                refY: "6", markerWidth: "10", markerHeight: "10",
+                                orient: "auto-start-reverse", markerUnits: "userSpaceOnUse" });
+    open.appendChild(mk("path", { d: "M1,1 L11,6 L1,11", fill: "none", "stroke-width": "1.5" },
+                        { stroke: c }));
+    const diamond = mk("marker", { id: `um-diamond-${tag}`, viewBox: "0 0 20 10", refX: "19",
+                                   refY: "5", markerWidth: "18", markerHeight: "9",
+                                   orient: "auto-start-reverse", markerUnits: "userSpaceOnUse" });
+    diamond.appendChild(mk("path", { d: "M1,5 L10,1 L19,5 L10,9 z" }, { fill: c, stroke: c }));
+    defs.append(open, diamond);
+  }
+  return defs;
+}
+
+/* An edge's label: a word, or — for an association class — a small class
+   box hung off the line by a dashed tether, as UML draws one. */
+function umlLabel(mk, edge, x, y) {
+  if (!edge.assocClass) {
+    if (!edge.label) return null;
+    return mk("text", { x, y, "text-anchor": "middle", class: "edge-label uml-label" },
+              { fill: `var(${edge.stroke || "--ink-muted"})` }, edge.label);
+  }
+  const g = mk("g", { class: "assoc-class", "data-source": edge.source,
+                      "data-target": edge.target });
+  const lines = [edge.assocClass.name, ...edge.assocClass.lines];
+  const width = Math.max(...lines.map((l) => l.length)) * 6 + 16;
+  const height = 8 + lines.length * 13;
+  g.appendChild(mk("path", { d: "M 0 0 L 0 16", "stroke-dasharray": "3 3", fill: "none",
+                             class: "assoc-tether" }, { stroke: "var(--ink-dim)" }));
+  g.appendChild(mk("rect", { x: -width / 2, y: 16, width, height, rx: 3,
+                             class: "assoc-box" }));
+  lines.forEach((line, i) => g.appendChild(mk("text", {
+    x: 0, y: 28 + i * 13, "text-anchor": "middle",
+    class: i ? "assoc-line" : "assoc-name",
+  }, {}, line)));
+  g.appendChild(mk("title", {}, {}, `${edge.source} relies on ${edge.target}: `
+    + edge.assocClass.lines.join("; ")
+    + (edge.assocClass.producer ? `; produced by ${edge.assocClass.producer}` : "")));
+  placeEdgeLabel(g, x, y + 6);
+  return g;
+}
+
+function placeEdgeLabel(label, x, y) {
+  if (!label) return;
+  if (label.tagName === "g") label.setAttribute("transform", `translate(${x} ${y})`);
+  else { label.setAttribute("x", String(x)); label.setAttribute("y", String(y)); }
+}
+
+function renderUmlEdges(svg, layout) {
+  const ns = "http://www.w3.org/2000/svg";
+  const mk = (tag, attrs, styles = {}, text) => {
+    const n = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    Object.assign(n.style, styles);
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  const parts = [umlMarkers(mk)];
+  for (const edge of derivedEdges().filter(edgeShown)) {
+    const a = layout.nodes[edge.source], b = layout.nodes[edge.target];
+    if (!a || !b) continue;
+    const { d, labelX, labelY } = geometryFor(layout.kind, a, b);
+    const tag = (edge.stroke || "--edge-peer").replace("--", "");
+    const path = mk("path", {
+      d, fill: "none", "stroke-width": "1.5", class: "uml-edge",
+      "data-source": edge.source, "data-target": edge.target,
+      "data-uml": edge.uml || "", "data-rel": edge.rel || "",
+      ...(edge.dash ? { "stroke-dasharray": edge.dash } : {}),
+      ...(edge.head === "open" ? { "marker-end": `url(#um-open-${tag})` } : {}),
+      ...(edge.head === "diamond" ? { "marker-end": `url(#um-diamond-${tag})` } : {}),
+      ...(edge.head === "diamond-start" ? { "marker-start": `url(#um-diamond-${tag})` } : {}),
+    }, { stroke: `var(${edge.stroke || "--edge-peer"})` });
+    path.appendChild(mk("title", {}, {}, `${edge.source} ${edge.rel} ${edge.target}`));
+    parts.push(path);
+    const label = umlLabel(mk, edge, labelX, labelY);
+    if (label) { path.edgeLabel = label; parts.push(label); }
+  }
+  svg.replaceChildren(...parts);
+}
+
 /* The nodes of the diagram currently open, always an object. */
 function layoutNodes() {
   return diagram()?.nodes || {};
@@ -776,6 +1364,19 @@ function findComponent(kind, id) {
     const open = diagram();
     const workflow = (org(s).workflows || []).find((w) => w.id === open?.root);
     return (workflow?.graph?.nodes || []).find((n) => n.id === id) || null;
+  }
+  /* On the Deployment diagram a box is a binding record (ADR-0112 M7): a
+     target, a server or an engine is the record itself; a bound capability
+     or workflow is the spec's own component where there is one, so its
+     Properties are the ones every other diagram shows. */
+  if (BINDING_KINDS[kind] || diagram()?.kind === "deployment") {
+    const entry = deploymentModel().nodes.get(id);
+    if (entry && entry.kind === kind) {
+      if (BINDING_KINDS[kind]) return entry.record;
+      if (entry.specId && entry.specId !== id) return findComponent(kind, entry.specId) || entry.record;
+    } else if (BINDING_KINDS[kind]) {
+      return null;
+    }
   }
   if (kind === "team") return allTeams().find((t) => t.id === id) || null;
   if (kind === "agent") return allAgents().find((a) => a.agent.id === id)?.agent || null;
@@ -906,18 +1507,57 @@ async function loadPalette() {
     },
   }, el("span", { class: "ic" }, kind.icon || "▫"), kind.label);
 
-  const branch = (kind, depth) => [
-    item(kind, depth),
-    ...(kind.children || []).flatMap((c) => branch(c, depth + 1)),
-  ];
+  /* Grouped by UML profile (ADR-0112 M7): each kind sits under the profile
+     that declares its stereotype, in the palette tree's order, and keeps
+     its nesting under a parent of the same profile. */
+  const profileOf = canvas.palette.profiles || {};
+  const byProfile = (profiles) => {
+    const groups = new Map(profiles.map((p) => [p, []]));
+    const walk = (kind, depth, parentProfile) => {
+      const p = profileOf[kind.kind] || "Core";
+      const d = p === parentProfile ? depth : 0;
+      if (groups.has(p)) groups.get(p).push(item(kind, d));
+      (kind.children || []).forEach((c) => walk(c, d + 1, p));
+    };
+    for (const group of canvas.palette.groups) {
+      for (const kind of group.kinds) walk(kind, 0, null);
+    }
+    return groups;
+  };
+  const docOf = (name) =>
+    (canvas.metamodel?.profiles || []).find((p) => p.name === name)?.doc || "";
+  const profileGroup = (name, items) => el("div", {
+    class: "group", "data-profile": name,
+  },
+    el("h4", { title: docOf(name) },
+       el("span", { class: "profile-mark", "aria-hidden": "true" }, "«profile»"),
+       ` ${name}`),
+    ...items);
 
-  canvas.orgPalette = () => [
-    ...canvas.palette.groups.map((group) => el("div", { class: "group" },
-      el("h4", { title: group.help || "" }, group.label),
-      ...group.kinds.flatMap((kind) => branch(kind, 0)))),
-    el("p", { class: "note" },
-      "An indented component is one the component above it contains. "
-      + "Drop to place, then draw the links the model allows.")];
+  canvas.paletteFor = (aspect) => {
+    const aspectSpec = ASPECTS[aspect] || ASPECTS.organisation;
+    const groups = byProfile([...aspectSpec.profiles, "Core", ...undrawnProfiles()]);
+    const drawn = aspectSpec.profiles
+      .filter((p) => groups.get(p)?.length)
+      .map((p) => profileGroup(p, groups.get(p)));
+    /* Annotation belongs to no aspect, so every editable canvas has it. */
+    const core = groups.get("Core")?.length ? [profileGroup("Core", groups.get("Core"))] : [];
+    const others = aspect === "organisation"
+      ? undrawnProfiles().filter((p) => groups.get(p)?.length) : [];
+    return [
+      ...drawn, ...core,
+      ...(others.length ? [el("details", { class: "group other-profiles" },
+        el("summary", { title: "profiles no diagram draws yet; placed on the "
+                          + "Organisation diagram until one does" },
+           `Other profiles (${others.join(", ")})`),
+        ...others.map((p) => profileGroup(p, groups.get(p))))] : []),
+      el("p", { class: "note" },
+        `The ${aspectSpec.label} diagram draws the ${aspectSpec.profiles.join(", ")} `
+        + `profile${aspectSpec.profiles.length > 1 ? "s" : ""}. An indented component `
+        + "is one the component above it contains. Drop to place, then draw "
+        + "the links the model allows."),
+    ];
+  };
   root.dataset.mode = "";
   syncPalette();
 }
@@ -939,14 +1579,30 @@ const STEP_PALETTE = [
 
 function syncPalette() {
   const root = $("#palette-groups");
-  if (!root || !canvas.orgPalette) return;
-  const mode = diagram()?.kind === "process" ? "process" : "organisation";
+  if (!root || !canvas.paletteFor) return;
+  const mode = aspectOf();
   if (root.dataset.mode === mode) return;
   root.dataset.mode = mode;
-  if (mode === "organisation") return root.replaceChildren(...canvas.orgPalette());
+  if (mode === "organisation" || mode === "data") {
+    return root.replaceChildren(...canvas.paletteFor(mode));
+  }
+  if (mode === "deployment") {
+    /* The Deployment profile has no palette: its elements are the binding's,
+       and the binding is edited as a document of its own (ADR-0110). */
+    return root.replaceChildren(
+      el("div", { class: "group", "data-profile": "Deployment" },
+        el("h4", {}, el("span", { class: "profile-mark", "aria-hidden": "true" },
+                        "«profile»"), " Deployment"),
+        el("p", { class: "hint" },
+          "Targets, servers, environments and engines come from the design's "
+          + "binding. This diagram draws it and does not edit it: change the "
+          + "binding file and load the design again.")));
+  }
   root.replaceChildren(
-    el("div", { class: "group" },
-      el("h4", { title: "the steps of a governed workflow (ADR-0110)" }, "Process steps"),
+    el("div", { class: "group", "data-profile": "Process" },
+      el("h4", { title: "the steps of a governed workflow (ADR-0110)" },
+         el("span", { class: "profile-mark", "aria-hidden": "true" }, "«profile»"),
+         " Process · steps"),
       ...STEP_PALETTE.map(([kind, label, icon, help]) => el("div", {
         class: "drag-item", draggable: "true", "data-kind": "step",
         "data-step": kind, title: help,
@@ -1074,6 +1730,7 @@ const STEP_SPEC = {
 
 function kindSpec(kind) {
   if (kind === "step") return STEP_SPEC;
+  if (BINDING_KINDS[kind]) return BINDING_KINDS[kind];
   return paletteKinds().find((k) => k.kind === kind)
     || { kind, label: kind, fields: [] };
 }
@@ -1143,6 +1800,10 @@ function nodeSignature(node, component, context) {
     linking ? (linking.id === node.id ? "src" : linkRule(linking.kind, node.kind) ? "tgt" : "no") : "",
     lockOn(node.id) ? "locked" : "",
     context.edit,
+    context.aspect,
+    /* A data class shows what it inherits along «derive», which is read
+       from the classes it derives from — not from its own object. */
+    node.kind === "data_class" ? JSON.stringify(inheritedRestrictions(node.id)) : "",
   ].join("\u0001");
 }
 
@@ -1159,6 +1820,7 @@ function renderCanvas() {
     held: [...inlined].sort().join(","),
     linking: canvas.linking,
     edit: canvas.permissions.includes("system.edit"),
+    aspect: aspectOf(layout),
   };
   const focusedId = host.contains(document.activeElement)
     ? document.activeElement.closest?.(".node")?.dataset.id : null;
@@ -1193,6 +1855,7 @@ function renderCanvas() {
   while (ref) { const next = ref.nextSibling; ref.remove(); ref = next; }
 
   $("#canvas-empty").hidden = Object.keys(layout.nodes).length > 0;
+  syncEmptyState(layout);
   syncPalette();
   renderRegions();
   renderEdges();
@@ -1203,6 +1866,33 @@ function renderCanvas() {
   }
   canvas.renderStats = { ms: performance.now() - started, built,
                          kept: ordered.length - built };
+}
+
+/* What an empty canvas says depends on what it is a diagram of. A
+   Deployment diagram of a design with no binding is empty for a reason
+   the person can act on, and says which (ADR-0110 notes). */
+function syncEmptyState(layout) {
+  const box = $("#canvas-empty");
+  if (!box || box.hidden) return;
+  const aspect = aspectOf(layout);
+  if (box.dataset.aspect === aspect) return;
+  box.dataset.aspect = aspect;
+  if (aspect === "deployment") {
+    /* One child: the empty state is a centred flex box. */
+    box.replaceChildren(el("div", { class: "empty-binding" },
+      el("strong", {}, "No binding to draw."), el("br", {}),
+      "This design was saved without a binding, so there is no target, server "
+      + "or engine to show. A design loaded from an example that ships one "
+      + "(Load example… AYC) carries its binding; the spec never names a "
+      + "server (ADR-0004)."));
+  } else if (aspect === "data") {
+    box.replaceChildren(el("div", {}, "No data classes yet. Drag a ",
+      el("strong", {}, "Data class"), " here, then draw «derive», part-of and "
+      + "association links between classes."));
+  } else {
+    box.replaceChildren(el("div", {}, "Drag a ", el("strong", {}, "Team"),
+      " here to start, then drop ", el("strong", {}, "Agents"), " onto it."));
+  }
 }
 
 /* The panels beside the canvas describe the model, so they are rebuilt when
@@ -1351,7 +2041,12 @@ function heldChips(agent, readOnly) {
 function renderNode(node, component = findComponent(node.kind, node.id) || {}) {
   const linking = canvas.linking;
   const blocked = lockOn(node.id);
-  const readOnly = !canvas.permissions.includes("system.edit") || !!blocked;
+  /* The Deployment diagram draws the binding and does not edit it
+     (ADR-0112 M7): a box there can be moved and inspected, not deleted,
+     renamed or linked. */
+  const readOnly = !canvas.permissions.includes("system.edit") || !!blocked
+    || !!ASPECTS[aspectOf()].readOnly;
+  const aspect = aspectOf();
 
   /* × delete button — top-right corner */
   /* Out of the Tab order on purpose: Delete on the focused node does the
@@ -1368,7 +2063,7 @@ function renderNode(node, component = findComponent(node.kind, node.id) || {}) {
   });
 
   /* inline-editable title */
-  const titleEl = el("div", { class: "n-title" }, component.name || component.id || node.id);
+  const titleEl = el("div", { class: "n-title" }, component.name || component.id || component.target || component.engine || component.capability || component.workflow || node.id);
   if (!readOnly) {
     titleEl.addEventListener("dblclick", (e) => {
       e.stopPropagation();
@@ -1388,7 +2083,12 @@ function renderNode(node, component = findComponent(node.kind, node.id) || {}) {
     "data-shape": shapeOf(node.kind),
     "data-step": node.kind === "step" ? (component.kind || "tool") : null,
     "data-classification": node.kind === "agent"
-      ? classificationOf(component) : null,
+      ? classificationOf(component)
+      /* A data class carries its own classification on the same stripe an
+         agent's inherited one uses (ADR-0080, ADR-0111). */
+      : node.kind === "data_class" ? (component.scope || "private") : null,
+    "data-aspect": aspect,
+    "data-semantics": node.kind === "data_class" ? (component.semantics || "unspecified") : null,
     style: `left:${node.x}px; top:${node.y}px; min-width:${node.width}px`
       + (isContainer(node)
           ? `; width:${node.width}px; height:${node.height || CONTAINER.height}px`
@@ -1404,12 +2104,12 @@ function renderNode(node, component = findComponent(node.kind, node.id) || {}) {
     node.kind === "environment"
       ? el("span", { class: "n-net" }, postureOf(component))
       : el("span", { class: "n-icon", "aria-hidden": "true" }, kindSpec(node.kind).icon || "▫"),
-    el("div", { class: "n-kind" },
-       node.kind === "step" ? stepKindLabel(component) : kindSpec(node.kind).label),
+    el("div", { class: "n-kind" }, nodeKindLabel(node, component, aspect)),
     titleEl,
     el("div", { class: "n-sub" }, nodeSubtitle(node.kind, component, node)),
     ...(node.kind === "step" ? stepEngine(component) : []),
-    ...(node.kind === "agent" ? heldChips(component, readOnly) : []),
+    ...(node.kind === "data_class" ? dataClassBody(component) : []),
+    ...(node.kind === "agent" && aspect !== "data" ? heldChips(component, readOnly) : []),
     ...(isContainer(node) && !readOnly
         ? [el("span", { class: "n-resize", title: "Drag to resize" })] : []));
   /* Pointer events, not mouse events: one handler for a mouse, a pen and a
@@ -1445,6 +2145,24 @@ function renderNode(node, component = findComponent(node.kind, node.id) || {}) {
   return box;
 }
 
+
+/* The line above a box's name. On the Data and Deployment diagrams it is
+   the UML stereotype, as a class diagram and a deployment diagram print it:
+   a data class's semantics («event», «aggregate»), a server's «node», a
+   bound capability's «artifact». */
+function nodeKindLabel(node, component, aspect) {
+  if (node.kind === "step") return stepKindLabel(component);
+  if (node.kind === "data_class") {
+    const s = component?.semantics;
+    return s && s !== "unspecified" ? `«${s}»` : "«DataClass»";
+  }
+  if (BINDING_KINDS[node.kind]) return BINDING_KINDS[node.kind].stereo;
+  if (aspect === "deployment") {
+    return node.kind === "environment" ? "«executionEnvironment»" : "«artifact»";
+  }
+  if (aspect === "data" && node.kind === "agent") return "Agent";
+  return kindSpec(node.kind).label;
+}
 
 /* A pairing that names a declared person carries no name of its own
    (ADR-0079), so reading `human.name` inline printed `undefined` on every
@@ -1784,7 +2502,10 @@ async function applyLink(rule, from, target) {
     op: "link",
     source: { kind: src.kind, id: src.id },
     target: { kind: dst.kind, id: dst.id },
-    relationship: rule.field,
+    /* A field holding several relationships (`relations`, ADR-0111) names
+       none of them: the link is asked for by its stereotype, and the model
+       writes the `kind` that selects it. */
+    relationship: rule.selector ? rule.relationship : rule.field,
     ...(Object.keys(attrs).length ? { attrs } : {}),
   });
 }
@@ -1852,6 +2573,14 @@ async function unlink(node) {
 
 function nodeSubtitle(kind, component, node) {
   if (kind === "step") return stepOwnerText(component);
+  if (node && (BINDING_KINDS[kind] || diagram()?.kind === "deployment")) {
+    const entry = deploymentModel().nodes.get(node.id);
+    if (entry) return deploymentSubtitle(entry);
+  }
+  /* A data class's classification, as words beside its stripe. */
+  if (kind === "data_class") {
+    return [component.scope || "private", ...(component.groups || [])].join(" · ");
+  }
   if (kind === "team") return `leader: ${component.leader || "—"}`;
   if (kind === "agent") {
     const owner = (component.humans || []).find((h) => (h.roles || []).includes("owner"));
@@ -1879,6 +2608,9 @@ function renderEdges() {
   const layout = diagram();
   if (!layout) return svg.replaceChildren();
   if (layout.kind === "process") return renderProcessEdges(svg, layout);
+  if (layout.kind === "data" || layout.kind === "deployment") {
+    return renderUmlEdges(svg, layout);
+  }
   const edges = derivedEdges().filter(edgeShown);
   const ns = "http://www.w3.org/2000/svg";
   const parts = [];
@@ -1950,12 +2682,11 @@ function updateEdgesFor(id) {
     if (source !== id && target !== id) continue;
     const a = layout.nodes[source], b = layout.nodes[target];
     if (!a || !b) continue;
-    const { d, labelX, labelY } = edgeGeometry(a, b);
+    const { d, labelX, labelY } = geometryFor(layout.kind, a, b);
     path.setAttribute("d", d);
-    if (path.edgeLabel) {
-      path.edgeLabel.setAttribute("x", String(labelX));
-      path.edgeLabel.setAttribute("y", String(labelY));
-    }
+    /* An association class hangs a little below the line it qualifies. */
+    const hung = path.edgeLabel?.tagName === "g" ? 6 : 0;
+    placeEdgeLabel(path.edgeLabel, labelX, labelY + hung);
   }
 }
 
@@ -1982,6 +2713,9 @@ const EDGE_STYLES = {
   "uml:realization": { stroke: "--edge-report", dash: "3 3" },
   "uml:dependency": { stroke: "--edge-peer", dash: "2 4" },
   "uml:composition": { stroke: "--edge-report" },
+  /* «derive» (ADR-0111), where both classes are on an organisation diagram. */
+  "uml:abstraction": { stroke: "--edge-report", dash: "6 4" },
+  "uml:deployment": { stroke: "--edge-report", dash: "6 4" },
 };
 
 /* Placement regions (ADR-0069).
@@ -2071,6 +2805,9 @@ function renderRegions() {
   const host = $("#canvas-regions");
   if (!host) return;
   if (diagram()?.kind === "process") return renderLanes(host);
+  /* Placement regions are the organisation's ground: on the Data and
+     Deployment diagrams an agent box is not standing in a placement. */
+  if (diagram()?.kind === "data" || diagram()?.kind === "deployment") return host.replaceChildren();
   host.replaceChildren(...regionBoxes().map((region) =>
     el("div", {
       class: "region",
@@ -2123,6 +2860,10 @@ function derivedEdges() {
     }
     return out;
   }
+  /* The Data diagram draws the data model's relationships and nothing of
+     the organisation's; the Deployment diagram draws the binding's. */
+  if (open?.kind === "data") return dataEdges();
+  if (open?.kind === "deployment") return deploymentModel().edges;
   walkTeams(spec()?.organization, (team) => {
     (team.members || []).forEach((m) =>
       out.push({ source: team.id, target: m.id, kind: "member_of",
@@ -2191,9 +2932,12 @@ function modelEdges() {
     const other = owner === rule.source ? rule.target : rule.source;
     for (const item of componentsOf(owner)) {
       const value = item[rule.field];
+      /* One field may hold several relationships, told apart by a selector
+         (`relations` by `kind`, ADR-0111): each rule draws only its own. */
+      const mine = (o) => o && (!rule.selector || o[rule.selector[0]] === rule.selector[1]);
       const ids = rule.shape === "ref" ? [value]
         : rule.shape === "refs" ? (value || [])
-        : (value || []).map((o) => o && o[rule.key]);
+        : (value || []).filter(mine).map((o) => o[rule.key]);
       for (const id of ids.filter((x) => x && x !== "*")) {
         out.push({
           source: owner === rule.source ? item.id : id,
@@ -2242,7 +2986,7 @@ function edgeShown(edge) {
 }
 
 const UML_ORDER = ["composition", "association", "usage", "realization",
-                   "dependency"];
+                   "dependency", "abstraction", "deployment"];
 
 function renderEdgeFilter() {
   const host = $("#edge-filter");
@@ -2636,7 +3380,7 @@ function startDrag(event, node, box) {
 const CONTAINER = { width: 360, height: 220 };
 
 function isContainer(node) {
-  return node && node.kind === "environment";
+  return node && node.kind === "environment" && diagram()?.kind !== "deployment";
 }
 
 function centre(node) {
@@ -2808,6 +3552,18 @@ function wireDropTarget() {
     }
     if (diagram()?.kind === "process") {
       return setStatus("a process canvas holds steps; open an organisation diagram to add components");
+    }
+    if (diagram()?.kind === "deployment") {
+      return setStatus("the Deployment diagram draws the binding and does not edit it");
+    }
+    /* A canvas places the stereotypes of the profiles its aspect draws
+       (ADR-0112 M7); the palette offers nothing else, and a drag from
+       elsewhere is refused the same way. */
+    const profile = canvas.palette?.profiles?.[kind] || "Core";
+    const aspect = ASPECTS[aspectOf()];
+    if (aspectOf() === "data" && profile !== "Core" && !aspect.profiles.includes(profile)) {
+      return setStatus(`the Data diagram draws the Data profile; ${an(kindSpec(kind).label.toLowerCase())} `
+        + `is in the ${profile} profile`);
     }
     placeComponent(kind, x, y);
   });
@@ -3530,7 +4286,24 @@ function renderInspector() {
   titleEl.textContent = `${definition.label} · ${id}`;
   host.className = "";
 
-  const readOnly = !canvas.permissions.includes("system.edit") || !!lockOn(id);
+  /* A box on the Deployment diagram is a binding record, which the designer
+     shows and does not edit (ADR-0112 M7). A bound spec component keeps its
+     own form above the record it is bound by. */
+  const bound = aspectOf() === "deployment" ? deploymentModel().nodes.get(id) : null;
+  if (BINDING_KINDS[kind] || bound) {
+    const record = el("div", { class: "binding-record" },
+      el("h3", {}, `${BINDING_KINDS[kind]?.stereo || "«deploy»"} binding · target ${bound?.target || "—"}`),
+      el("p", { class: "hint" }, "From the binding the design was loaded with. "
+        + "Read-only here: the binding is a document of its own (ADR-0110)."),
+      el("pre", { class: "code" }, JSON.stringify(bound?.record ?? component, null, 2)));
+    if (BINDING_KINDS[kind]) return host.replaceChildren(record);
+    canvas.bindingRecord = record;
+  } else {
+    canvas.bindingRecord = null;
+  }
+
+  const readOnly = !canvas.permissions.includes("system.edit") || !!lockOn(id)
+    || (!!ASPECTS[aspectOf()].readOnly && !!layoutNodes()[id]);
   const form = el("form", { class: "form", onsubmit: (e) => e.preventDefault() });
   for (const field of definition.fields) {
     const derivedField = DERIVED_FIELDS[`${kind}.${field.name}`];
@@ -3621,6 +4394,7 @@ function renderInspector() {
     }, "Remove"));
   form.appendChild(actions);
   host.replaceChildren(form,
+    ...(canvas.bindingRecord ? [canvas.bindingRecord] : []),
     ...(kind === "agent" ? [resolvesTo(component), effectiveAuthority(id)] : []),
     el("h3", {}, "Raw"),
     el("pre", { class: "code" }, JSON.stringify(component ?? node, null, 2)));
