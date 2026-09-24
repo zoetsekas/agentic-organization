@@ -4,7 +4,7 @@ title: Everything the platform models is in a UML profile, and there is one prof
 status: Accepted
 version: 1.2.0
 date: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-24
 deciders: [Platform Architecture]
 consulted: [Designer, Compiler, Runtime, Security, Data Governance]
 informed: [All engineering]
@@ -262,6 +262,6 @@ decide something the text above left open, or deviated from it:
 
 | Version | Date | Change |
 |---|---|---|
+| 1.2.0 | 2026-09-24 | M7 built: palette grouped by profile, diagram kinds declare their profiles, read-only Deployment diagram (see ADR-0111 1.1.0). |
 | 1.1.0 | 2026-09-23 | Decision 8: the UML profile is authoritative for meaning, `model.py` is its Python realisation held equal by the completeness test in both directions, and `docs/metamodel` is generated from the profile (amends ADR-0101). A relationship belongs to the profile that declares it and must see both ends. Milestones with entry and exit criteria. Implementation notes for M1–M6. |
 | 1.0.0 | 2026-09-23 | Accepted. |
-| 1.2.0 | 2026-09-24 | M7 built: palette grouped by profile, diagram kinds declare their profiles, read-only Deployment diagram (see ADR-0111 1.1.0). |
