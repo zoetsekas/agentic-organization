@@ -32,7 +32,10 @@ services:
       ORGAGENTS_DB: /data/designer.db
       # Designs, revisions, workspaces, locks and audit (ADR-0113). The
       # platform's own records stay in ORGAGENTS_DB.
-      ORGAGENTS_DATABASE_URL: postgresql://orgagents:${ORGAGENTS_POSTGRES_PASSWORD:-orgagents}@postgres:5432/orgagents
+      # No password in the URL: the entrypoint reads it from the Compose
+      # secret below into PGPASSWORD, which psycopg uses (ADR-0114 v1.2).
+      ORGAGENTS_DATABASE_URL: postgresql://orgagents@postgres:5432/orgagents
+      ORGAGENTS_DATABASE_PASSWORD_FILE: /run/secrets/orgagents_postgres_password
       ORGAGENTS_DESIGNER_AUTH: none
       ORGAGENTS_BASE_URL: ${ORGAGENTS_BASE_URL:-http://localhost:8000}
       # Session URLs are handed out to humans, so the base URL has to be the
@@ -40,6 +43,7 @@ services:
       ORGAGENTS_SEED: ${ORGAGENTS_SEED:-0}
     volumes:
       - designer-data:/data
+    secrets: [orgagents_postgres_password]
     # The image's filesystem cannot be changed at run time; /data is the one
     # place state lives, /tmp is scratch. No capabilities, no privilege
     # escalation, a bounded process count (ADR-0114).
@@ -64,16 +68,25 @@ services:
   # (ADR-0053). Not published: only the designer, on this Compose network,
   # reaches it (ADR-0114). It runs as the image's own `postgres` user (70),
   # so it needs no capabilities; its root filesystem is read-only and its
-  # data lives on the volume. Set ORGAGENTS_POSTGRES_PASSWORD to change the
-  # password (before the first start: it is set when the volume is created).
+  # data lives on the volume.
+  #
+  # Its password is a Compose secret, never a default (ADR-0114 v1.2):
+  # `python scripts/designer_secrets.py init` (or `make secrets`, which
+  # `make up` runs) writes it to .secrets/orgagents_postgres_password --
+  # $ORGAGENTS_POSTGRES_PASSWORD if you set one, a random one otherwise.
+  # Without that file `docker compose up` refuses to start. The password is
+  # set when the volume is first created; `designer_secrets.py rotate`
+  # changes it on a running database. See docs/DOCKER.md for upgrading a
+  # deployment that still uses the old default.
   postgres:
     image: postgres:16-alpine@sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb
     container_name: orgagents-postgres
     user: "70:70"
     environment:
       POSTGRES_USER: orgagents
-      POSTGRES_PASSWORD: ${ORGAGENTS_POSTGRES_PASSWORD:-orgagents}
+      POSTGRES_PASSWORD_FILE: /run/secrets/orgagents_postgres_password
       POSTGRES_DB: orgagents
+    secrets: [orgagents_postgres_password]
     volumes:
       - designer-postgres:/var/lib/postgresql/data
     read_only: true
@@ -118,3 +131,9 @@ services:
 volumes:
   designer-data:
   designer-postgres:
+
+secrets:
+  # Generated, git-ignored (.secrets/), never a default. Compose refuses to
+  # start without it; `python scripts/designer_secrets.py init` makes it.
+  orgagents_postgres_password:
+    file: ./.secrets/orgagents_postgres_password

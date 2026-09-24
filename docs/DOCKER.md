@@ -18,6 +18,7 @@ agents actually running.
 ## The designer plane
 
 ```bash
+python scripts/designer_secrets.py init   # once: the database password (make secrets)
 docker compose up --build
 # UI  → http://localhost:8000/ui/
 # API → http://localhost:8000/api/...
@@ -62,8 +63,41 @@ docker compose run --rm designer db query q4 t=Organisation::Agent
 docker compose run --rm designer export --system <id> --format json
 ```
 
-Set `ORGAGENTS_POSTGRES_PASSWORD` before the first start to use a password
-other than the default; it is fixed when the volume is created.
+### The database password (ADR-0114 v1.2)
+
+There is no default password. Both services read it from the Compose secret
+`orgagents_postgres_password`, a git-ignored file at
+`.secrets/orgagents_postgres_password`; without it `docker compose up`
+refuses to start. `python scripts/designer_secrets.py init` (`make secrets`,
+which `make up` runs) writes it once: `$ORGAGENTS_POSTGRES_PASSWORD` if you
+set it, a random password otherwise. Postgres takes it
+(`POSTGRES_PASSWORD_FILE`) when the volume is first initialised; the designer's
+entrypoint reads it into `PGPASSWORD` at every start
+(`ORGAGENTS_DATABASE_PASSWORD_FILE`), so it is in no URL and no `docker
+inspect` output.
+
+**Upgrading a deployment started before this.** Its database was initialised
+with the old default, `orgagents`, and still uses it. Nothing changes until
+you recreate the containers; to move over without breaking it:
+
+```bash
+python scripts/designer_secrets.py init          # sees the existing designer-postgres
+                                                 # volume, writes the OLD password
+                                                 # ('orgagents') and warns
+docker compose up -d                             # both services now read the secret;
+                                                 # the database still works
+python scripts/designer_secrets.py rotate --apply   # new random password: ALTER ROLE
+                                                 # in the running database, then the
+                                                 # file, then recreate the designer
+```
+
+`rotate` changes the password inside the running database first (over the
+container's local socket, which the image trusts), then writes the file and
+keeps the old one as `.previous`; without `--apply` it tells you to recreate
+the designer (`docker compose up -d --no-deps --force-recreate designer`).
+If you had set `ORGAGENTS_POSTGRES_PASSWORD` before, keep it set for `init`
+and it is written instead. `rotate --container <name>` targets another
+Postgres container; `--project` another Compose project.
 
 | Choice | Why |
 |---|---|
@@ -80,7 +114,8 @@ Configuration:
 |---|---|---|
 | `ORGAGENTS_DB` | `/data/designer.db` | Keep it under `/data` or it lands on the container layer. |
 | `ORGAGENTS_DATABASE_URL` | set by Compose to the `postgres` service | Where designs are stored (ADR-0113). Unset, the designer keeps them in the SQLite store instead. |
-| `ORGAGENTS_POSTGRES_PASSWORD` | `orgagents` | The database password, used by both services; set before the first start. |
+| `ORGAGENTS_POSTGRES_PASSWORD` | — (no default) | Read only by `scripts/designer_secrets.py init`, which writes it to the secret file; otherwise a random password is generated. |
+| `ORGAGENTS_DATABASE_PASSWORD_FILE` | `/run/secrets/orgagents_postgres_password` | Set by Compose; the entrypoint exports its content as `PGPASSWORD`. |
 | `ORGAGENTS_BASE_URL` | `http://localhost:8000` | Session URLs are handed to humans, so this must be the address *they* can reach. |
 | `ORGAGENTS_PORT` / `ORGAGENTS_HOST` | `8000` / `0.0.0.0` | |
 | `ORGAGENTS_SEED` | `0` | `1` seeds the demo org on first start only. |
