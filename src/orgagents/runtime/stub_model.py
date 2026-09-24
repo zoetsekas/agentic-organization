@@ -14,7 +14,14 @@ What it decides is decided by the prompt, not by judgement:
 * when the tool results come back, it answers once, in canned words, saying
   what it called and what came back — including a refusal, verbatim;
 * a message with no ``call`` lines gets a canned reply naming the agent and
-  the tools it holds, which is what a person poking at an agent wants to see.
+  the tools it holds, which is what a person poking at an agent wants to see;
+* a line ``then call <tool> {json}`` starts a **later turn**: its calls are
+  made once the previous turn's results are back, and ``"$last.<key>"`` in
+  its arguments is replaced by that key of the previous turn's last result.
+  That is how a script delegates and then collects (ADR-0118)::
+
+      call delegate {"to_agent": "coo_agent", "task": "review stock"}
+      then call check_delegation {"handle": "$last.handle", "wait_s": 60}
 
 Nothing here is random, so the same prompt gives the same transcript. The
 provider id is ``stub``; `chat_model_for` is the one place a binding's
@@ -28,19 +35,29 @@ from typing import Any, Optional
 
 #: ``call fishbowl__purchase_ordering {"sku": "AYC-CH-001", "quantity": 12}``
 CALL_LINE = re.compile(
-    r"^\s*call\s+(?P<tool>[A-Za-z0-9_.\-]+)\s*(?P<args>\{.*\})?\s*$"
+    r"^\s*(?P<then>then\s+)?call\s+(?P<tool>[A-Za-z0-9_.\-]+)\s*(?P<args>\{.*\})?\s*$"
 )
+#: ``"$last.handle"`` -> that key of the previous turn's last tool result.
+LAST_REF = re.compile(r"^\$last\.(?P<key>[A-Za-z0-9_]+)$")
 
 STUB_PROVIDER = "stub"
 
 
 def parse_calls(text: str) -> list[dict[str, Any]]:
-    """The tool calls a prompt asks for, in order. Bad JSON is kept, marked."""
-    calls: list[dict[str, Any]] = []
+    """The first turn's tool calls, in order. Bad JSON is kept, marked."""
+    stages = parse_stages(text)
+    return stages[0] if stages else []
+
+
+def parse_stages(text: str) -> list[list[dict[str, Any]]]:
+    """Every turn's tool calls: a ``then call`` line starts a new turn."""
+    stages: list[list[dict[str, Any]]] = []
     for line in (text or "").splitlines():
         match = CALL_LINE.match(line)
         if not match:
             continue
+        if match.group("then") or not stages:
+            stages.append([])
         raw = match.group("args") or "{}"
         try:
             args = json.loads(raw)
@@ -48,8 +65,28 @@ def parse_calls(text: str) -> list[dict[str, Any]]:
                 raise ValueError("arguments must be a JSON object")
         except ValueError as exc:
             args = {"_unparseable": raw, "_error": str(exc)}
-        calls.append({"name": match.group("tool"), "args": args})
-    return calls
+        stages[-1].append({"name": match.group("tool"), "args": args})
+    return stages
+
+
+def substitute(args: Any, last: Any) -> Any:
+    """Replace ``"$last.<key>"`` values with that key of `last` (a dict)."""
+    if isinstance(args, dict):
+        return {k: substitute(v, last) for k, v in args.items()}
+    if isinstance(args, list):
+        return [substitute(v, last) for v in args]
+    if isinstance(args, str):
+        match = LAST_REF.match(args)
+        if match and isinstance(last, dict):
+            return last.get(match.group("key"), args)
+    return args
+
+
+def _json(content: str) -> Any:
+    try:
+        return json.loads(content)
+    except (TypeError, ValueError):
+        return None
 
 
 def _text(content: Any) -> str:
@@ -108,34 +145,45 @@ def _build_class() -> type:
             return self.model_copy(update={"tool_names": names})
 
         def _reply(self, messages: list[Any]) -> AIMessage:
-            # Results of the calls made in this run's last tool turn.
-            results: list[ToolMessage] = []
-            for m in reversed(messages):
-                if isinstance(m, ToolMessage):
-                    results.append(m)
-                    continue
-                break
+            # Everything since the person's last message: how many tool turns
+            # this run has made, and what came back.
+            start = max((i for i, m in enumerate(messages)
+                         if isinstance(m, HumanMessage)), default=-1)
+            human = messages[start] if start >= 0 else None
+            since = messages[start + 1:]
+            turns = sum(1 for m in since
+                        if isinstance(m, AIMessage) and getattr(m, "tool_calls", None))
+            results = [m for m in since if isinstance(m, ToolMessage)]
+            stages = parse_stages(_text(human.content) if human else "")
+
+            if turns < len(stages) and (turns == 0 or
+                                        (since and isinstance(since[-1], ToolMessage))):
+                last = _json(_text(results[-1].content)) if results else None
+                return AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": c["name"], "args": substitute(c["args"], last),
+                         "id": f"stub_call_{turns}_{i}", "type": "tool_call"}
+                        for i, c in enumerate(stages[turns])
+                    ],
+                )
             if results:
-                results.reverse()
                 lines = [f"[{self.agent_name}] (stub model) "
                          f"{len(results)} tool call(s):"]
                 for r in results:
                     ok, why = _verdict(_text(r.content))
-                    lines.append(f"- {r.name}: " + ("ok" if ok else f"refused — {why}"))
+                    line = f"- {r.name}: " + ("ok" if ok else f"refused — {why}")
+                    data = _json(_text(r.content))
+                    # What a delegation came back with, so it reads up the chain.
+                    if ok and isinstance(data, dict):
+                        if data.get("handle") and data.get("state"):
+                            line += f" [{data['handle']} {data['state']}]"
+                        if data.get("output"):
+                            out = str(data["output"]).replace("\n", " | ")
+                            line += f" <- {data.get('to', '')}: {out[:600]}"
+                    lines.append(line)
                 return AIMessage(content="\n".join(lines))
 
-            human = next((m for m in reversed(messages)
-                          if isinstance(m, HumanMessage)), None)
-            calls = parse_calls(_text(human.content) if human else "")
-            if calls:
-                return AIMessage(
-                    content="",
-                    tool_calls=[
-                        {"name": c["name"], "args": c["args"],
-                         "id": f"stub_call_{i}", "type": "tool_call"}
-                        for i, c in enumerate(calls)
-                    ],
-                )
             held = ", ".join(sorted(self.tool_names)) or "none"
             return AIMessage(content=(
                 f"[{self.agent_name}] (stub model) Hello. I am a stub: I make "

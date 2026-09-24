@@ -158,6 +158,19 @@ def worker(agent: str, path: str, body: dict | None = None,
         return 502, {"error": f"{agent}'s worker did not answer: {e}"}
 
 
+def trace(trace_id: str) -> list[dict[str, Any]]:
+    """One conversation's agent-to-agent hops (ADR-0118): each worker's part
+    of the trace, in time order. Every worker records what it sent, received
+    and refused under the trace id of the run that started the chain."""
+    safe = "".join(c for c in trace_id if c.isalnum() or c in "-_")
+    ids = [a["id"] for a in roster()]
+    with ThreadPoolExecutor(max_workers=len(ids) or 1) as pool:
+        parts = list(pool.map(lambda i: worker(i, f"/bus/trace/{safe}", timeout=5), ids))
+    hops = [e for status, body in parts if status == 200
+            for e in (body.get("events") or [])]
+    return sorted(hops, key=lambda e: e.get("at") or 0)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ayc-chat/0.1"
 
@@ -210,6 +223,8 @@ class Handler(BaseHTTPRequestHandler):
             with ThreadPoolExecutor(max_workers=len(ids) or 1) as pool:
                 states = list(pool.map(lambda i: worker(i, "/healthz", timeout=3), ids))
             self._json(200, {i: s == 200 for i, (s, _) in zip(ids, states)})
+        elif path.startswith("/api/trace/"):
+            self._json(200, {"hops": trace(path.rsplit("/", 1)[-1])})
         elif path.startswith("/api/agents/"):
             status, body = worker(path.rsplit("/", 1)[-1], "/agent", timeout=10)
             self._json(status, body)
@@ -258,10 +273,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(401, {"error": "sign in first"})
             return
         if self.path == "/api/chat":
+            # Long enough for a delegation chain to come back (ADR-0118).
             status, reply = worker(agent, "/run", {
                 "prompt": body.get("message", ""),
                 "created_by": f"chat:{person}",
-            })
+            }, timeout=float(os.environ.get("CHAT_RUN_TIMEOUT", "300")))
             self._json(status, reply)
         elif self.path == "/api/approve":
             # The approver is the signed-in person — never a field in the

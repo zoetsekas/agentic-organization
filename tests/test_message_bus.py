@@ -219,11 +219,17 @@ def test_an_unknown_backend_is_refused_rather_than_ignored(platform):
 
 
 def test_importing_the_adapter_does_not_require_nats_py():
-    import orgagents.bus as module
+    # nats-py is the optional `bus` extra (ADR-0118): importing the adapter,
+    # the compiler's edges or the worker's messenger never imports it.
+    import subprocess
+    import sys
 
-    assert "nats" not in {m.split(".")[0] for m in dir(module) if False}
-    with pytest.raises(ImportError):
-        __import__("nats")
+    code = ("import sys; import orgagents.bus, orgagents.compiler.links, "
+            "orgagents.runtime.agent_bus; print('nats' in sys.modules)")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                         env={**__import__("os").environ,
+                              "PYTHONPATH": str(ROOT / "src")})
+    assert out.stdout.strip() == "False", out.stderr
 
 
 # -- the generated per-tenant stack ----------------------------------------
@@ -252,11 +258,12 @@ def test_a_tenant_gets_its_own_nats_on_its_own_network_and_volume(tenant_compose
 
 
 def test_the_generated_bus_has_jetstream_enabled_on_that_volume(tenant_compose):
+    # JetStream and its store are in the generated nats.conf now, beside the
+    # per-agent users (ADR-0118); the store is the tenant's own volume.
     nats = tenant_compose["services"]["nats"]
-    command = " ".join(nats["command"])
-    assert "--jetstream" in command
-    store_dir = nats["volumes"][0].split(":")[1]
-    assert f"--store_dir {store_dir}" in command
+    assert nats["command"] == ["-c", "/etc/nats/nats.conf"]
+    assert nats["volumes"][0].endswith(":/data")
+    assert "./nats/nats.conf:/etc/nats/nats.conf:ro" in nats["volumes"]
 
 
 def test_the_generated_bus_carries_the_tenant_subject_prefix(tenant_compose):
@@ -267,8 +274,8 @@ def test_the_generated_bus_carries_the_tenant_subject_prefix(tenant_compose):
             continue
         env = service["environment"]
         assert env["ORGAGENTS_BUS_SUBJECT_PREFIX"] == "orgagents.northwind"
-        # The container defaults to the in-process bus; NATS is opt-in.
-        assert env["ORGAGENTS_BUS"] == "${ORGAGENTS_BUS:-in_process}"
+        # Every agent container is on the tenant's NATS (ADR-0118).
+        assert env["ORGAGENTS_BUS"] == "${ORGAGENTS_BUS:-nats}"
 
 
 def test_the_fabric_bus_is_not_the_tenants_bus():

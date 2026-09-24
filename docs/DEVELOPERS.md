@@ -130,6 +130,14 @@ Extras: `dev` (pytest, httpx, jsonschema), `client` (httpx, for
 - **Targets** — generators from IR to files: Compose, Terraform, framework
   code (ADR-0011, ADR-0012, ADR-0086, ADR-0091).
 - **Runtime** — agents, sessions, events, traces, workflow engines (ADR-0056).
+- **Agent-to-agent** — in a generated stack each agent is a container
+  (ADR-0109) on the tenant's NATS as its own broker user. Who may message or
+  delegate to whom is computed at compile time (`compiler/links.py`) from team
+  leadership, `delegates_to`, interaction flows, the reporting line, unit links
+  and missions, written into `agents/<id>.json` and `nats/nats.conf`, and
+  refused by the sender, the broker and the receiver (ADR-0118). Tools:
+  `send_message`, `delegate` → handle, `check_delegation`
+  (`runtime/agent_bus.py`).
 - **Designer** — workspaces, designs (stored as "systems"), revisions,
   optimistic concurrency with merge (ADR-0033), people-RBAC (ADR-0032), audit
   (ADR-0043), publish as a *request* to the fabric (ADR-0049).
@@ -346,6 +354,8 @@ Add to `claude_desktop_config.json` (Settings → Developer → Edit config):
 | Browser | `scripts/screenshots.py`, `interaction_check.py`, `view_check.py`, `concurrency_check.py` (Playwright + Chromium) | `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers python3 scripts/view_check.py` |
 | Records | ADR/WS front matter and indexes | `orgagents records validate`, `orgagents records index` |
 | End to end | AYC compiled for `local` and run in Docker | `make ayc-up`, then `examples/ayc/end_to_end_local.py` ([examples/ayc/README.md](../examples/ayc/README.md)) |
+| Bus | edges, broker permissions, refusals, separation across a chain (fake transport); the same against a real `nats-server` | `pytest -q tests/test_agent_bus.py tests/test_agent_bus_nats.py` (the second needs `nats-server` on PATH or Docker; skipped otherwise) |
+| Agent-to-agent end to end | CEO → COO → buyer over NATS in Docker | `examples/ayc/local_stack.py e2e-messaging` |
 | Smoke | build, start, run one agent | `make smoke` |
 
 ## 9. ADRs and commits

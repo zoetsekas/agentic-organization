@@ -877,6 +877,12 @@ def main(argv: list[str] | None = None) -> int:
     p_work.add_argument("--host", default="0.0.0.0")
     p_work.add_argument("--port", type=int, default=8000)
 
+    # The one-shot that creates the tenant's bus stream and consumers (ADR-0118).
+    p_bus = sub.add_parser("bus-init",
+                           help="create the bus stream and one consumer per agent")
+    p_bus.add_argument("--ir", default="/app/system.ir.json")
+    p_bus.add_argument("--attempts", type=int, default=30)
+
     p_prov = sub.add_parser(
         "providers",
         help="runtimes and targets installed, and what each supports")
@@ -1207,6 +1213,18 @@ def main(argv: list[str] | None = None) -> int:
         db = args.db if args.db != "orgagents.db" else ""
         return serve_worker(args.agent_id, host=args.host, port=args.port,
                             ir_path=args.ir, db=db)
+
+    if args.cmd == "bus-init":
+        import json as _json
+        import os as _os
+
+        from .runtime.agent_bus import bus_init
+
+        ir = _json.loads(Path(args.ir).read_text(encoding="utf-8"))
+        return bus_init(ir, url=_os.environ.get("ORGAGENTS_BUS_URL", "nats://nats:4222"),
+                        user=_os.environ.get("ORGAGENTS_BUS_ADMIN_USER", ""),
+                        password=_os.environ.get("ORGAGENTS_BUS_ADMIN_PASSWORD", ""),
+                        attempts=args.attempts)
 
     if args.cmd == "providers":
         return _providers_command(args)

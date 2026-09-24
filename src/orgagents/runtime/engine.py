@@ -147,6 +147,14 @@ class AgentRuntime:
         # Declarations from the IR, filled by the loader (ADR-0099).
         self._ir_agents: list[dict[str, Any]] = []
         self._ir_data_classes: list[dict[str, Any]] = []
+        # Deployment hooks over the assembled toolset, applied before the
+        # policy wrapper: `(agent, session_id, tools) -> tools`. A worker uses
+        # one to put the bus's `delegate`/`send_message` in place of the
+        # in-process ones, and to refuse a tool a separation forbids to the
+        # delegation chain it is running for (ADR-0118). A hook can add,
+        # replace or remove; it can never get around `guarded`.
+        self.tool_hooks: list[Callable[[Agent, str, dict[str, Any]], dict[str, Any]]] = []
+        self.tool_guards: list[Callable[[Agent, str, dict[str, Any]], dict[str, Any]]] = []
 
     def _by_priority(self, handles: list[str]) -> list[str]:
         """Handles, most important first, stably.
@@ -661,11 +669,18 @@ class AgentRuntime:
         tools.update(self._workflow_tools(agent, session.id))
         tools.update(self._messaging_tools(agent, session.id))
         tools.update(self._escalation_tools(agent, session.id))
+        for hook in self.tool_hooks:
+            tools = hook(agent, session.id, tools)
         # The framework invokes these callables directly, never through
         # `HarnessBuilder.call`, so the policy checks are wrapped around them
         # here. Without this the mandate and approval gates bind only callers
         # that were already going through the front door (ADR-0067 rule 5).
         tools = self.harness.guarded(agent, tools)
+        # Refusals that must come before everything else, approval included:
+        # a call a separation forbids to this run is not one a person can
+        # release (ADR-0118). They can only take a tool away, never add one.
+        for guard in self.tool_guards:
+            tools = {k: v for k, v in guard(agent, session.id, tools).items() if k in tools}
 
         adapter_cls = adapter_for(agent)
         adapter: RuntimeAdapter = adapter_cls(

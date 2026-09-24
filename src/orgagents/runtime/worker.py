@@ -21,9 +21,13 @@ holds, who approves for it), ``POST /run`` (a prompt in, the reply and every
 tool call out), ``POST /approve`` (a named approver releases one call, by a
 signed token; ADR-0114) and ``POST /workflow`` (run a workflow the agent may
 run; ADR-0110). All but ``/healthz`` need the worker's service token.
-Delegation to *another* agent's container is not done here; that is the bus's
-job (ADR-0059), and a delegation made in this process is refused at the
-missing mount rather than quietly run under this agent's identity.
+Delegation to *another* agent's container goes over the bus (ADR-0118):
+`attach_bus` replaces the in-process `delegate`/`send_message` with ones that
+publish to NATS under this agent's own broker credentials, consumes this
+agent's inbox, and runs the agent on what it accepts. The edges it may use are
+the ones compiled into its manifest (`agents/<id>.json`, key `links`), never
+worked out here from the whole design. ``GET /bus/trace/<id>`` and
+``GET /bus/events`` show what this worker sent, received and refused.
 """
 from __future__ import annotations
 
@@ -179,6 +183,95 @@ def nonce_store(agent_id: str, path: str = "") -> Any:
     return NonceStore(target or None)
 
 
+def load_links(agent_id: str, manifest: str = "") -> Optional[dict[str, Any]]:
+    """This agent's compiled bus edges, from its manifest (ADR-0118)."""
+    path = Path(manifest or os.environ.get("ORGAGENTS_MANIFEST")
+                or f"/app/agents/{agent_id}.json")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    links = data.get("links")
+    return links if isinstance(links, dict) and links.get("agent") == agent_id else None
+
+
+def attach_bus(platform: Any, agent_id: str, links: dict[str, Any], *,
+               transport: Any = None, env: Optional[dict[str, str]] = None,
+               audit: Any = None) -> Any:
+    """Put this agent on the bus (ADR-0118) and return its messenger.
+
+    * a runtime tool hook swaps the in-process delegation and messaging tools
+      for the bus ones, bound to the run's hop (trace, chain, depth), and
+      refuses any tool whose decision is separated from one an upstream
+      principal in that chain holds;
+    * received tasks and messages run as this agent, on a thread of the
+      messenger's, with the hop they arrived with.
+
+    `transport` is injected in tests; otherwise it comes from the environment
+    the local target generates (`ORGAGENTS_BUS=nats`, URL, user, password).
+    """
+    import threading
+
+    from .agent_bus import (AgentMessenger, HopContext, LinkPolicy, connect_from_env,
+                            render_task, separation_guard)
+
+    policy = LinkPolicy(links)
+    current = threading.local()
+    messenger = AgentMessenger(policy, transport,
+                               audit=audit or audit_sink(agent_id))
+
+    def run_task(ctx: HopContext, sender: str, kind: str, text: str,
+                 inputs: dict[str, Any]) -> dict[str, Any]:
+        current.ctx = ctx
+        try:
+            result = platform.runtime.run(agent_id, render_task(kind, sender, text, inputs),
+                                          created_by=f"agent:{sender}")
+        finally:
+            current.ctx = None
+        return {"state": result.state.value, "output": result.output,
+                "error": result.error, "session_id": result.session_id}
+
+    messenger.run_task = run_task
+
+    def hook(agent: Any, session_id: str, tools: dict[str, Any]) -> dict[str, Any]:
+        if agent.id != agent_id:
+            return tools
+        ctx = getattr(current, "ctx", None)
+        ctx = HopContext(trace_id=ctx.trace_id, chain=list(ctx.chain), depth=ctx.depth,
+                         session_id=session_id, handle=ctx.handle) if ctx else \
+            HopContext(trace_id=session_id, chain=[agent_id], session_id=session_id)
+        platform.runtime.sessions.log(session_id, "bus_hop", actor=agent_id, payload={
+            "trace_id": ctx.trace_id, "chain": ctx.chain, "depth": ctx.depth,
+            "handle": ctx.handle})
+        # The in-process versions would run another agent inside this
+        # container, under this agent's identity: gone, not merely unused.
+        # (A sub-agent is a tool of this agent, ADR-0027, and stays.)
+        for name in ("assign", "check", "gather", "read_inbox"):
+            tools.pop(name, None)
+        tools.update(messenger.tools(ctx))
+        current.hop = ctx
+        return tools
+
+    def guard(agent: Any, session_id: str, tools: dict[str, Any]) -> dict[str, Any]:
+        # After the policy wrapper, so a separated call is refused before it
+        # can even stop for approval: no approver can release it.
+        ctx = getattr(current, "hop", None)
+        if agent.id != agent_id or ctx is None:
+            return tools
+        return separation_guard(
+            policy, ctx, lambda n: platform.harness.decision_class(agent, n), tools,
+            record=messenger.record)
+
+    platform.runtime.tool_hooks.append(hook)
+    platform.runtime.tool_guards.append(guard)
+    if transport is None:
+        messenger.transport = connect_from_env(policy, dict(env if env is not None
+                                                            else os.environ),
+                                               messenger.on_delivery)
+    platform.messenger = messenger
+    return messenger
+
+
 def create_app(platform: Any, agent_id: str, *, service_token: Optional[str] = None,
                approval_public_keys: Optional[str] = None,
                nonces: Any = None) -> Any:
@@ -233,6 +326,20 @@ def create_app(platform: Any, agent_id: str, *, service_token: Optional[str] = N
     def audit() -> dict[str, Any]:
         """The approval events this worker has recorded, newest last."""
         return {"agent": agent_id, "events": list(platform.harness.approvals.events)}
+
+    @app.get("/bus/events")
+    def bus_events() -> dict[str, Any]:
+        """What this worker sent, received and refused over the bus."""
+        messenger = getattr(platform, "messenger", None)
+        return {"agent": agent_id, "connected": _bus_connected(messenger),
+                "events": list(messenger.events) if messenger else []}
+
+    @app.get("/bus/trace/{trace_id}")
+    def bus_trace(trace_id: str) -> dict[str, Any]:
+        """This worker's part of one trace (ADR-0118)."""
+        messenger = getattr(platform, "messenger", None)
+        return {"agent": agent_id,
+                "events": messenger.trace(trace_id) if messenger else []}
 
     @app.post("/approve")
     def approve(req: ApproveRequest) -> dict[str, Any]:
@@ -293,9 +400,18 @@ def create_app(platform: Any, agent_id: str, *, service_token: Optional[str] = N
             "output": result.output,
             "error": result.error,
             "tool_calls": result.tool_calls,
+            # The run is the root of its trace; every hop it causes carries
+            # this id (ADR-0118).
+            "trace_id": result.session_id,
         }
 
     return app
+
+
+def _bus_connected(messenger: Any) -> bool:
+    transport = getattr(messenger, "transport", None)
+    connected = getattr(transport, "connected", None)
+    return bool(connected.is_set()) if connected is not None else transport is not None
 
 
 def serve(agent_id: str, *, host: str = "0.0.0.0", port: int = 8000,
@@ -303,6 +419,11 @@ def serve(agent_id: str, *, host: str = "0.0.0.0", port: int = 8000,
     import uvicorn
 
     platform = build_worker(agent_id, ir_path=ir_path, db=db)
+    links = load_links(agent_id)
+    if links is not None and os.environ.get("ORGAGENTS_BUS", "in_process") == "nats":
+        attach_bus(platform, agent_id, links)
+        print(f"worker {agent_id} on the bus as '{links['user']}', reaching "
+              f"{', '.join(links['outbound']) or 'nobody'}", flush=True)
     print(f"worker {agent_id} listening on {host}:{port}", flush=True)
     uvicorn.run(create_app(platform, agent_id), host=host, port=port,
                 log_level="warning")
