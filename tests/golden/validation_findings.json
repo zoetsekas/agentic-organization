@@ -1,0 +1,1860 @@
+{
+ "acme.system": [
+  [
+   "warning",
+   "id_used_by_two_kinds",
+   "platform_engineer",
+   "'platform_engineer' names both a agent and a role. It resolves, because references are looked up per kind, but nothing can draw or diff the two apart"
+  ],
+  [
+   "warning",
+   "single_placement",
+   "acme",
+   "no team declares itself a placement boundary, so all 9 placed agents share their unit's sandbox environment, its volume and its process namespace. That is the widest arrangement this model has and the one a design gets by not deciding; declare `placement: true` on the units that should be kept apart (ADR-0069)"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "ceo",
+   "agent 'ceo' declares environment 'reasoning', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every agent"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every team"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants delegate on every agent"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants approve on every workflow"
+  ]
+ ],
+ "acme.system+strict": [
+  [
+   "warning",
+   "id_used_by_two_kinds",
+   "platform_engineer",
+   "'platform_engineer' names both a agent and a role. It resolves, because references are looked up per kind, but nothing can draw or diff the two apart"
+  ],
+  [
+   "warning",
+   "single_placement",
+   "acme",
+   "no team declares itself a placement boundary, so all 9 placed agents share their unit's sandbox environment, its volume and its process namespace. That is the widest arrangement this model has and the one a design gets by not deciding; declare `placement: true` on the units that should be kept apart (ADR-0069)"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "ceo",
+   "agent 'ceo' declares environment 'reasoning', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every agent"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every team"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants delegate on every agent"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants approve on every workflow"
+  ],
+  [
+   "error",
+   "platform_policy_requires",
+   "separations",
+   "platform policy 'house/1.0.0' requires this design to declare separations, and it declares none"
+  ]
+ ],
+ "atlas.bank.system": [],
+ "atlas.bank.system+strict": [],
+ "ayc.system": [
+  [
+   "warning",
+   "autonomy_without_evidence",
+   "marketing_agent/content_publishing",
+   "marketing_agent/content_publishing: runs unattended and no evaluation case applies to this agent; never-evaluated is not safe-unattended (ADR-0060)"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "customer_service_rep",
+   "role 'customer_service_rep' grants capability 'order_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "possible_escalation",
+   "software_agent",
+   "agent 'software_agent' holds administrative permissions its team does not"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "ceo_agent",
+   "agent 'ceo_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "coo_agent",
+   "agent 'coo_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "buyer_agent",
+   "agent 'buyer_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "inventory_agent",
+   "agent 'inventory_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "ar_agent",
+   "agent 'ar_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "marketing_agent",
+   "agent 'marketing_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "unused_capability",
+   "price_update",
+   "capability 'price_update' is declared but unused"
+  ]
+ ],
+ "ayc.system+strict": [
+  [
+   "error",
+   "autonomy_without_evidence",
+   "marketing_agent/content_publishing",
+   "marketing_agent/content_publishing: runs unattended and no evaluation case applies to this agent; never-evaluated is not safe-unattended (ADR-0060)"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "customer_service_rep",
+   "role 'customer_service_rep' grants capability 'order_query' that no responsibility mentions"
+  ],
+  [
+   "error",
+   "possible_escalation",
+   "software_agent",
+   "agent 'software_agent' holds administrative permissions its team does not"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "ceo_agent",
+   "agent 'ceo_agent' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "coo_agent",
+   "agent 'coo_agent' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "buyer_agent",
+   "agent 'buyer_agent' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "inventory_agent",
+   "agent 'inventory_agent' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "ar_agent",
+   "agent 'ar_agent' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "marketing_agent",
+   "agent 'marketing_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "unused_capability",
+   "price_update",
+   "capability 'price_update' is declared but unused"
+  ]
+ ],
+ "helios.pharma.system": [],
+ "helios.pharma.system+strict": [],
+ "lumiere.beauty.system": [
+  [
+   "warning",
+   "sandbox_without_work",
+   "chief_exec",
+   "agent 'chief_exec' declares environment 'service_desk', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "formulation_chemist",
+   "role 'formulation_chemist' grants capability 'formulation_edit' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "claims_reviewer",
+   "role 'claims_reviewer' grants capability 'ingredient_lookup' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "salon_onboarder",
+   "role 'salon_onboarder' grants capability 'order_service' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "care_agent",
+   "role 'care_agent' grants capability 'order_service' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "chief_exec",
+   "agent 'chief_exec' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "vigilance_agent",
+   "agent 'vigilance_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "long_term_without_namespace",
+   "",
+   "long-term memory is enabled but no namespace is declared, so nothing can be promoted into it"
+  ],
+  [
+   "warning",
+   "unused_capability",
+   "safety_assessment",
+   "capability 'safety_assessment' is declared but unused"
+  ]
+ ],
+ "lumiere.beauty.system+strict": [
+  [
+   "warning",
+   "sandbox_without_work",
+   "chief_exec",
+   "agent 'chief_exec' declares environment 'service_desk', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "formulation_chemist",
+   "role 'formulation_chemist' grants capability 'formulation_edit' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "claims_reviewer",
+   "role 'claims_reviewer' grants capability 'ingredient_lookup' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "salon_onboarder",
+   "role 'salon_onboarder' grants capability 'order_service' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "care_agent",
+   "role 'care_agent' grants capability 'order_service' that no responsibility mentions"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "chief_exec",
+   "agent 'chief_exec' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "vigilance_agent",
+   "agent 'vigilance_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "long_term_without_namespace",
+   "",
+   "long-term memory is enabled but no namespace is declared, so nothing can be promoted into it"
+  ],
+  [
+   "warning",
+   "unused_capability",
+   "safety_assessment",
+   "capability 'safety_assessment' is declared but unused"
+  ]
+ ],
+ "meridian.lending.system": [
+  [
+   "warning",
+   "separated_agents_co_resident",
+   "lending--casework",
+   "separation 'assess_and_decide' keeps ['affordability_agent', 'lending_head', 'underwriter_agent'] apart, and placement 'lending--casework' puts them in one sandbox environment sharing a volume and a process namespace. The rule still holds — no one agent holds both sides — but the control is weaker than it reads; declare `placement: true` on the unit that should be separate (ADR-0069)"
+  ],
+  [
+   "warning",
+   "supervised_by_its_own_owner",
+   "collections_agent_1/forbearance_arrangement",
+   "collections_agent_1/forbearance_arrangement: the only person who can confirm this is the agent's own owner, which is not a second pair of eyes; name an approver who does not own it"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "coo",
+   "agent 'coo' declares environment 'casework', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "lending_head",
+   "agent 'lending_head' declares environment 'casework', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "audit_agent",
+   "agent 'audit_agent' declares environment 'casework', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "affordability_analyst",
+   "role 'affordability_analyst' grants capability 'bureau_pull' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "underwriter",
+   "role 'underwriter' grants capability 'credit_decision' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "underwriter",
+   "role 'underwriter' grants capability 'bureau_pull' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "collections_agent",
+   "role 'collections_agent' grants capability 'arrears_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "complaints_handler",
+   "role 'complaints_handler' grants capability 'arrears_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "coo",
+   "agent 'coo' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "lending_head",
+   "agent 'lending_head' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "model_agent",
+   "agent 'model_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "complaints_agent",
+   "agent 'complaints_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "audit_agent",
+   "agent 'audit_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "long_term_without_namespace",
+   "",
+   "long-term memory is enabled but no namespace is declared, so nothing can be promoted into it"
+  ]
+ ],
+ "meridian.lending.system+strict": [
+  [
+   "warning",
+   "separated_agents_co_resident",
+   "lending--casework",
+   "separation 'assess_and_decide' keeps ['affordability_agent', 'lending_head', 'underwriter_agent'] apart, and placement 'lending--casework' puts them in one sandbox environment sharing a volume and a process namespace. The rule still holds — no one agent holds both sides — but the control is weaker than it reads; declare `placement: true` on the unit that should be separate (ADR-0069)"
+  ],
+  [
+   "warning",
+   "supervised_by_its_own_owner",
+   "collections_agent_1/forbearance_arrangement",
+   "collections_agent_1/forbearance_arrangement: the only person who can confirm this is the agent's own owner, which is not a second pair of eyes; name an approver who does not own it"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "coo",
+   "agent 'coo' declares environment 'casework', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "lending_head",
+   "agent 'lending_head' declares environment 'casework', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "audit_agent",
+   "agent 'audit_agent' declares environment 'casework', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "affordability_analyst",
+   "role 'affordability_analyst' grants capability 'bureau_pull' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "underwriter",
+   "role 'underwriter' grants capability 'credit_decision' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "underwriter",
+   "role 'underwriter' grants capability 'bureau_pull' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "collections_agent",
+   "role 'collections_agent' grants capability 'arrears_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "complaints_handler",
+   "role 'complaints_handler' grants capability 'arrears_query' that no responsibility mentions"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "coo",
+   "agent 'coo' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "lending_head",
+   "agent 'lending_head' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "model_agent",
+   "agent 'model_agent' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "complaints_agent",
+   "agent 'complaints_agent' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "audit_agent",
+   "agent 'audit_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "long_term_without_namespace",
+   "",
+   "long-term memory is enabled but no namespace is declared, so nothing can be promoted into it"
+  ]
+ ],
+ "northbeam.marketing.system": [
+  [
+   "warning",
+   "sandbox_without_work",
+   "cmo",
+   "agent 'cmo' declares environment 'analytics_workbench', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "audience_analyst",
+   "role 'audience_analyst' grants capability 'audience_build' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "campaign_operator",
+   "role 'campaign_operator' grants capability 'performance_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "partnerships_manager",
+   "role 'partnerships_manager' grants capability 'partner_contract' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "cmo",
+   "agent 'cmo' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "brand_review_agent",
+   "agent 'brand_review_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "partner_agent",
+   "agent 'partner_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "long_term_without_namespace",
+   "",
+   "long-term memory is enabled but no namespace is declared, so nothing can be promoted into it"
+  ],
+  [
+   "warning",
+   "unused_capability",
+   "spend_commit",
+   "capability 'spend_commit' is declared but unused"
+  ]
+ ],
+ "northbeam.marketing.system+strict": [
+  [
+   "warning",
+   "sandbox_without_work",
+   "cmo",
+   "agent 'cmo' declares environment 'analytics_workbench', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "audience_analyst",
+   "role 'audience_analyst' grants capability 'audience_build' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "campaign_operator",
+   "role 'campaign_operator' grants capability 'performance_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "partnerships_manager",
+   "role 'partnerships_manager' grants capability 'partner_contract' that no responsibility mentions"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "cmo",
+   "agent 'cmo' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "brand_review_agent",
+   "agent 'brand_review_agent' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "partner_agent",
+   "agent 'partner_agent' has no evaluation case"
+  ],
+  [
+   "warning",
+   "long_term_without_namespace",
+   "",
+   "long-term memory is enabled but no namespace is declared, so nothing can be promoted into it"
+  ],
+  [
+   "warning",
+   "unused_capability",
+   "spend_commit",
+   "capability 'spend_commit' is declared but unused"
+  ]
+ ],
+ "northwind.finance.system": [
+  [
+   "warning",
+   "separated_agents_co_resident",
+   "controllership--analysis",
+   "separation 'payment_control' keeps ['controller', 'payables'] apart, and placement 'controllership--analysis' puts them in one sandbox environment sharing a volume and a process namespace. The rule still holds — no one agent holds both sides — but the control is weaker than it reads; declare `placement: true` on the unit that should be separate (ADR-0069)"
+  ],
+  [
+   "warning",
+   "separated_agents_co_resident",
+   "controllership--analysis",
+   "separation 'vendor_and_payment' keeps ['controller', 'payables'] apart, and placement 'controllership--analysis' puts them in one sandbox environment sharing a volume and a process namespace. The rule still holds — no one agent holds both sides — but the control is weaker than it reads; declare `placement: true` on the unit that should be separate (ADR-0069)"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "ceo",
+   "agent 'ceo' declares environment 'analysis', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "cfo",
+   "agent 'cfo' declares environment 'analysis', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "treasurer",
+   "agent 'treasurer' declares environment 'payments_isolated', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "tax_lead",
+   "agent 'tax_lead' declares environment 'analysis', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "audit_lead",
+   "agent 'audit_lead' declares environment 'analysis', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "payables_clerk",
+   "role 'payables_clerk' grants capability 'ledger_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "financial_controller",
+   "role 'financial_controller' grants delegate on every agent"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "financial_controller",
+   "role 'financial_controller' grants capability 'journal_post' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "financial_controller",
+   "role 'financial_controller' grants capability 'ledger_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "financial_controller",
+   "role 'financial_controller' grants capability 'vendor_maintenance' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "fpa_team",
+   "role 'fpa_team' grants capability 'ledger_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "tax_team",
+   "role 'tax_team' grants capability 'tax_filing' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "tax_team",
+   "role 'tax_team' grants capability 'ledger_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "receivables_clerk",
+   "role 'receivables_clerk' grants capability 'cash_application' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "receivables_clerk",
+   "role 'receivables_clerk' grants capability 'receivable_writeoff' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "receivables_clerk",
+   "role 'receivables_clerk' grants capability 'ledger_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "cash_manager_role",
+   "role 'cash_manager_role' grants capability 'investment_placement' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "cash_manager_role",
+   "role 'cash_manager_role' grants capability 'hedge_execution' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "planning_analyst",
+   "role 'planning_analyst' grants capability 'ledger_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "corporate_development_role",
+   "role 'corporate_development_role' grants capability 'capex_register' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "corporate_development_role",
+   "role 'corporate_development_role' grants capability 'scenario_model' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "ceo",
+   "agent 'ceo' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "cfo",
+   "agent 'cfo' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "controller",
+   "agent 'controller' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "reporting_lead",
+   "agent 'reporting_lead' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "treasurer",
+   "agent 'treasurer' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "cash_manager",
+   "agent 'cash_manager' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "tax_lead",
+   "agent 'tax_lead' has no evaluation case"
+  ],
+  [
+   "warning",
+   "agent_without_evaluation",
+   "audit_lead",
+   "agent 'audit_lead' has no evaluation case"
+  ],
+  [
+   "warning",
+   "long_term_without_namespace",
+   "",
+   "long-term memory is enabled but no namespace is declared, so nothing can be promoted into it"
+  ]
+ ],
+ "northwind.finance.system+strict": [
+  [
+   "warning",
+   "separated_agents_co_resident",
+   "controllership--analysis",
+   "separation 'payment_control' keeps ['controller', 'payables'] apart, and placement 'controllership--analysis' puts them in one sandbox environment sharing a volume and a process namespace. The rule still holds — no one agent holds both sides — but the control is weaker than it reads; declare `placement: true` on the unit that should be separate (ADR-0069)"
+  ],
+  [
+   "warning",
+   "separated_agents_co_resident",
+   "controllership--analysis",
+   "separation 'vendor_and_payment' keeps ['controller', 'payables'] apart, and placement 'controllership--analysis' puts them in one sandbox environment sharing a volume and a process namespace. The rule still holds — no one agent holds both sides — but the control is weaker than it reads; declare `placement: true` on the unit that should be separate (ADR-0069)"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "ceo",
+   "agent 'ceo' declares environment 'analysis', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "cfo",
+   "agent 'cfo' declares environment 'analysis', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "treasurer",
+   "agent 'treasurer' declares environment 'payments_isolated', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "tax_lead",
+   "agent 'tax_lead' declares environment 'analysis', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "audit_lead",
+   "agent 'audit_lead' declares environment 'analysis', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "payables_clerk",
+   "role 'payables_clerk' grants capability 'ledger_query' that no responsibility mentions"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "financial_controller",
+   "role 'financial_controller' grants delegate on every agent"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "financial_controller",
+   "role 'financial_controller' grants capability 'journal_post' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "financial_controller",
+   "role 'financial_controller' grants capability 'ledger_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "financial_controller",
+   "role 'financial_controller' grants capability 'vendor_maintenance' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "fpa_team",
+   "role 'fpa_team' grants capability 'ledger_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "tax_team",
+   "role 'tax_team' grants capability 'tax_filing' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "tax_team",
+   "role 'tax_team' grants capability 'ledger_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "receivables_clerk",
+   "role 'receivables_clerk' grants capability 'cash_application' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "receivables_clerk",
+   "role 'receivables_clerk' grants capability 'receivable_writeoff' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "receivables_clerk",
+   "role 'receivables_clerk' grants capability 'ledger_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "cash_manager_role",
+   "role 'cash_manager_role' grants capability 'investment_placement' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "cash_manager_role",
+   "role 'cash_manager_role' grants capability 'hedge_execution' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "planning_analyst",
+   "role 'planning_analyst' grants capability 'ledger_query' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "corporate_development_role",
+   "role 'corporate_development_role' grants capability 'capex_register' that no responsibility mentions"
+  ],
+  [
+   "warning",
+   "capability_without_responsibility",
+   "corporate_development_role",
+   "role 'corporate_development_role' grants capability 'scenario_model' that no responsibility mentions"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "ceo",
+   "agent 'ceo' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "cfo",
+   "agent 'cfo' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "controller",
+   "agent 'controller' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "reporting_lead",
+   "agent 'reporting_lead' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "treasurer",
+   "agent 'treasurer' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "cash_manager",
+   "agent 'cash_manager' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "tax_lead",
+   "agent 'tax_lead' has no evaluation case"
+  ],
+  [
+   "error",
+   "agent_without_evaluation",
+   "audit_lead",
+   "agent 'audit_lead' has no evaluation case"
+  ],
+  [
+   "warning",
+   "long_term_without_namespace",
+   "",
+   "long-term memory is enabled but no namespace is declared, so nothing can be promoted into it"
+  ]
+ ],
+ "sentinel.secops.system": [
+  [
+   "warning",
+   "long_term_without_namespace",
+   "",
+   "long-term memory is enabled but no namespace is declared, so nothing can be promoted into it"
+  ]
+ ],
+ "sentinel.secops.system+strict": [
+  [
+   "warning",
+   "long_term_without_namespace",
+   "",
+   "long-term memory is enabled but no namespace is declared, so nothing can be promoted into it"
+  ]
+ ],
+ "acme+broken_structure": [
+  [
+   "error",
+   "duplicate_id",
+   "",
+   "duplicate agent id 'cto'"
+  ],
+  [
+   "error",
+   "duplicate_id",
+   "",
+   "duplicate capability id 'warehouse_query'"
+  ],
+  [
+   "warning",
+   "id_used_by_two_kinds",
+   "platform_engineer",
+   "'platform_engineer' names both a agent and a role. It resolves, because references are looked up per kind, but nothing can draw or diff the two apart"
+  ],
+  [
+   "error",
+   "successor_is_self",
+   "ceo",
+   "agent 'ceo' names itself as its own successor, which covers nothing: the case this exists for is the agent not running"
+  ],
+  [
+   "warning",
+   "single_placement",
+   "acme",
+   "no team declares itself a placement boundary, so all 10 placed agents share their unit's sandbox environment, its volume and its process namespace. That is the widest arrangement this model has and the one a design gets by not deciding; declare `placement: true` on the units that should be kept apart (ADR-0069)"
+  ],
+  [
+   "error",
+   "child_leader_double_listed",
+   "technology",
+   "leader 'cto' of child team 'technology' is also listed as a member of parent team 'acme'; parent membership is implicit"
+  ],
+  [
+   "error",
+   "team_without_leader",
+   "finance",
+   "team 'finance' has no leader"
+  ],
+  [
+   "error",
+   "multiple_home_teams",
+   "cto",
+   "agent 'cto' is a member of ['acme', 'technology']; exactly one is allowed"
+  ],
+  [
+   "error",
+   "unknown_peer",
+   "ceo",
+   "agent 'ceo' references unknown peer 'ghost'"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "ceo",
+   "agent 'ceo' declares environment 'reasoning', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every agent"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every team"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants delegate on every agent"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants approve on every workflow"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "agent:ceo",
+   "agent:ceo: peer of [peers] names 'ghost', which is not a agent"
+  ],
+  [
+   "error",
+   "model_ids_are_unique",
+   "agent:cto",
+   "agent:cto: a second agent with id 'cto'"
+  ],
+  [
+   "error",
+   "model_ids_are_unique",
+   "capability:warehouse_query",
+   "capability:warehouse_query: a second capability with id 'warehouse_query'"
+  ],
+  [
+   "error",
+   "model_no_self_successor",
+   "agent:ceo",
+   "agent:ceo: its own successor"
+  ]
+ ],
+ "acme+broken_structure+strict": [
+  [
+   "error",
+   "duplicate_id",
+   "",
+   "duplicate agent id 'cto'"
+  ],
+  [
+   "error",
+   "duplicate_id",
+   "",
+   "duplicate capability id 'warehouse_query'"
+  ],
+  [
+   "warning",
+   "id_used_by_two_kinds",
+   "platform_engineer",
+   "'platform_engineer' names both a agent and a role. It resolves, because references are looked up per kind, but nothing can draw or diff the two apart"
+  ],
+  [
+   "error",
+   "successor_is_self",
+   "ceo",
+   "agent 'ceo' names itself as its own successor, which covers nothing: the case this exists for is the agent not running"
+  ],
+  [
+   "warning",
+   "single_placement",
+   "acme",
+   "no team declares itself a placement boundary, so all 10 placed agents share their unit's sandbox environment, its volume and its process namespace. That is the widest arrangement this model has and the one a design gets by not deciding; declare `placement: true` on the units that should be kept apart (ADR-0069)"
+  ],
+  [
+   "error",
+   "child_leader_double_listed",
+   "technology",
+   "leader 'cto' of child team 'technology' is also listed as a member of parent team 'acme'; parent membership is implicit"
+  ],
+  [
+   "error",
+   "team_without_leader",
+   "finance",
+   "team 'finance' has no leader"
+  ],
+  [
+   "error",
+   "multiple_home_teams",
+   "cto",
+   "agent 'cto' is a member of ['acme', 'technology']; exactly one is allowed"
+  ],
+  [
+   "error",
+   "unknown_peer",
+   "ceo",
+   "agent 'ceo' references unknown peer 'ghost'"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "ceo",
+   "agent 'ceo' declares environment 'reasoning', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every agent"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every team"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants delegate on every agent"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants approve on every workflow"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "agent:ceo",
+   "agent:ceo: peer of [peers] names 'ghost', which is not a agent"
+  ],
+  [
+   "error",
+   "model_ids_are_unique",
+   "agent:cto",
+   "agent:cto: a second agent with id 'cto'"
+  ],
+  [
+   "error",
+   "model_ids_are_unique",
+   "capability:warehouse_query",
+   "capability:warehouse_query: a second capability with id 'warehouse_query'"
+  ],
+  [
+   "error",
+   "model_no_self_successor",
+   "agent:ceo",
+   "agent:ceo: its own successor"
+  ],
+  [
+   "error",
+   "platform_policy_requires",
+   "separations",
+   "platform policy 'house/1.0.0' requires this design to declare separations, and it declares none"
+  ]
+ ],
+ "acme+broken_references": [
+  [
+   "warning",
+   "id_used_by_two_kinds",
+   "platform_engineer",
+   "'platform_engineer' names both a agent and a role. It resolves, because references are looked up per kind, but nothing can draw or diff the two apart"
+  ],
+  [
+   "warning",
+   "single_placement",
+   "acme",
+   "no team declares itself a placement boundary, so all 9 placed agents share their unit's sandbox environment, its volume and its process namespace. That is the widest arrangement this model has and the one a design gets by not deciding; declare `placement: true` on the units that should be kept apart (ADR-0069)"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "ceo",
+   "agent 'ceo' declares environment 'reasoning', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every agent"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every team"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants delegate on every agent"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants approve on every workflow"
+  ],
+  [
+   "error",
+   "unknown_trigger_agent",
+   "weekday_flash_report",
+   "trigger 'weekday_flash_report' runs unknown agent 'ghost'"
+  ],
+  [
+   "error",
+   "invalid_cadence",
+   "weekday_flash_report",
+   "trigger 'weekday_flash_report': unknown timezone 'Mars/Base'"
+  ],
+  [
+   "error",
+   "unknown_delivery_channel",
+   "weekday_flash_report",
+   "trigger 'weekday_flash_report' delivers to unknown channel 'nowhere'"
+  ],
+  [
+   "error",
+   "unknown_channel_member",
+   "incidents",
+   "channel 'incidents' lists unknown member 'ghost'"
+  ],
+  [
+   "error",
+   "self_flow",
+   "",
+   "flow from 'ceo' to itself"
+  ],
+  [
+   "error",
+   "unknown_flow_endpoint",
+   "",
+   "flow ghost->ceo has unknown source 'ghost'"
+  ],
+  [
+   "error",
+   "mission_member_not_in_org",
+   "q4_forecast_rebuild",
+   "mission 'q4_forecast_rebuild' includes ['ghost'], who are not agents in the organization; a mission draws from the standing organization"
+  ],
+  [
+   "error",
+   "mission_ends_before_it_starts",
+   "q4_forecast_rebuild",
+   "mission 'q4_forecast_rebuild' ends on 2026-01-01, on or before its start"
+  ],
+  [
+   "warning",
+   "no_guardrails",
+   "",
+   "no guardrails are declared; permissions decide what agents may reach, but nothing checks what may pass"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "interaction_flows",
+   "interaction_flows: flow source 'ghost' is not a agent"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "mission:q4_forecast_rebuild",
+   "mission:q4_forecast_rebuild: includes [members] names 'ghost', which is not a agent"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "trigger:weekday_flash_report",
+   "trigger:weekday_flash_report: fires [agent] names 'ghost', which is not a agent"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "channel:incidents",
+   "channel:incidents: includes [members] names 'ghost', which is not a agent"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "trigger:weekday_flash_report",
+   "trigger:weekday_flash_report: delivers to [deliver_to] names 'nowhere', which is not a channel"
+  ],
+  [
+   "error",
+   "model_flows_join_two_agents",
+   "flow:ceo->ceo",
+   "flow:ceo->ceo: an agent in a flow with itself"
+  ]
+ ],
+ "acme+broken_references+strict": [
+  [
+   "warning",
+   "id_used_by_two_kinds",
+   "platform_engineer",
+   "'platform_engineer' names both a agent and a role. It resolves, because references are looked up per kind, but nothing can draw or diff the two apart"
+  ],
+  [
+   "warning",
+   "single_placement",
+   "acme",
+   "no team declares itself a placement boundary, so all 9 placed agents share their unit's sandbox environment, its volume and its process namespace. That is the widest arrangement this model has and the one a design gets by not deciding; declare `placement: true` on the units that should be kept apart (ADR-0069)"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "ceo",
+   "agent 'ceo' declares environment 'reasoning', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every agent"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every team"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants delegate on every agent"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants approve on every workflow"
+  ],
+  [
+   "error",
+   "unknown_trigger_agent",
+   "weekday_flash_report",
+   "trigger 'weekday_flash_report' runs unknown agent 'ghost'"
+  ],
+  [
+   "error",
+   "invalid_cadence",
+   "weekday_flash_report",
+   "trigger 'weekday_flash_report': unknown timezone 'Mars/Base'"
+  ],
+  [
+   "error",
+   "unknown_delivery_channel",
+   "weekday_flash_report",
+   "trigger 'weekday_flash_report' delivers to unknown channel 'nowhere'"
+  ],
+  [
+   "error",
+   "unknown_channel_member",
+   "incidents",
+   "channel 'incidents' lists unknown member 'ghost'"
+  ],
+  [
+   "error",
+   "self_flow",
+   "",
+   "flow from 'ceo' to itself"
+  ],
+  [
+   "error",
+   "unknown_flow_endpoint",
+   "",
+   "flow ghost->ceo has unknown source 'ghost'"
+  ],
+  [
+   "error",
+   "mission_member_not_in_org",
+   "q4_forecast_rebuild",
+   "mission 'q4_forecast_rebuild' includes ['ghost'], who are not agents in the organization; a mission draws from the standing organization"
+  ],
+  [
+   "error",
+   "mission_ends_before_it_starts",
+   "q4_forecast_rebuild",
+   "mission 'q4_forecast_rebuild' ends on 2026-01-01, on or before its start"
+  ],
+  [
+   "error",
+   "no_guardrails",
+   "",
+   "no guardrails are declared; permissions decide what agents may reach, but nothing checks what may pass"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "interaction_flows",
+   "interaction_flows: flow source 'ghost' is not a agent"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "mission:q4_forecast_rebuild",
+   "mission:q4_forecast_rebuild: includes [members] names 'ghost', which is not a agent"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "trigger:weekday_flash_report",
+   "trigger:weekday_flash_report: fires [agent] names 'ghost', which is not a agent"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "channel:incidents",
+   "channel:incidents: includes [members] names 'ghost', which is not a agent"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "trigger:weekday_flash_report",
+   "trigger:weekday_flash_report: delivers to [deliver_to] names 'nowhere', which is not a channel"
+  ],
+  [
+   "error",
+   "model_flows_join_two_agents",
+   "flow:ceo->ceo",
+   "flow:ceo->ceo: an agent in a flow with itself"
+  ],
+  [
+   "error",
+   "platform_policy_requires",
+   "separations",
+   "platform policy 'house/1.0.0' requires this design to declare separations, and it declares none"
+  ],
+  [
+   "error",
+   "platform_policy_requires",
+   "guardrails",
+   "platform policy 'house/1.0.0' requires this design to declare guardrails, and it declares none"
+  ]
+ ],
+ "acme+broken_workflow": [
+  [
+   "warning",
+   "id_used_by_two_kinds",
+   "platform_engineer",
+   "'platform_engineer' names both a agent and a role. It resolves, because references are looked up per kind, but nothing can draw or diff the two apart"
+  ],
+  [
+   "error",
+   "workflow_step_owner_unknown",
+   "governed_data_request",
+   "workflow 'governed_data_request' step 'ask' names person 'nobody', which this design does not declare"
+  ],
+  [
+   "error",
+   "workflow_edge_from_unknown",
+   "governed_data_request",
+   "workflow 'governed_data_request' has an edge from 'ghost', which is not one of its nodes"
+  ],
+  [
+   "error",
+   "workflow_edge_to_unknown",
+   "governed_data_request",
+   "workflow 'governed_data_request' has an edge from 'draft' to 'nowhere', which is not one of its nodes"
+  ],
+  [
+   "error",
+   "workflow_fork_without_join",
+   "governed_data_request",
+   "workflow 'governed_data_request' forks at 'fork' and its branches never meet at a join, so nothing waits for all of them to finish"
+  ],
+  [
+   "error",
+   "workflow_node_unreachable",
+   "governed_data_request",
+   "workflow 'governed_data_request' declares node 'ask', which nothing reaches from 'discover'. A step that cannot run is not a step: add the edge that leads to it, or remove it"
+  ],
+  [
+   "error",
+   "workflow_node_unreachable",
+   "governed_data_request",
+   "workflow 'governed_data_request' declares node 'orphan', which nothing reaches from 'discover'. A step that cannot run is not a step: add the edge that leads to it, or remove it"
+  ],
+  [
+   "warning",
+   "workflow_without_nodes",
+   "empty",
+   "workflow 'empty' declares no nodes, so invoking it does nothing"
+  ],
+  [
+   "warning",
+   "single_placement",
+   "acme",
+   "no team declares itself a placement boundary, so all 9 placed agents share their unit's sandbox environment, its volume and its process namespace. That is the widest arrangement this model has and the one a design gets by not deciding; declare `placement: true` on the units that should be kept apart (ADR-0069)"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "ceo",
+   "agent 'ceo' declares environment 'reasoning', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every agent"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every team"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants delegate on every agent"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants approve on every workflow"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "action:orphan",
+   "action:orphan: calls [tool] names 'x', which is not a callable"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "action:ask",
+   "action:ask: approved by [person] names 'nobody', which is not a person"
+  ],
+  [
+   "error",
+   "model_control_flow_ends",
+   "workflow:governed_data_request",
+   "workflow:governed_data_request: an edge ghost→draft names 'ghost', which is not a step"
+  ],
+  [
+   "error",
+   "model_control_flow_ends",
+   "workflow:governed_data_request",
+   "workflow:governed_data_request: an edge draft→nowhere names 'nowhere', which is not a step"
+  ]
+ ],
+ "acme+broken_workflow+strict": [
+  [
+   "warning",
+   "id_used_by_two_kinds",
+   "platform_engineer",
+   "'platform_engineer' names both a agent and a role. It resolves, because references are looked up per kind, but nothing can draw or diff the two apart"
+  ],
+  [
+   "error",
+   "workflow_step_owner_unknown",
+   "governed_data_request",
+   "workflow 'governed_data_request' step 'ask' names person 'nobody', which this design does not declare"
+  ],
+  [
+   "error",
+   "workflow_edge_from_unknown",
+   "governed_data_request",
+   "workflow 'governed_data_request' has an edge from 'ghost', which is not one of its nodes"
+  ],
+  [
+   "error",
+   "workflow_edge_to_unknown",
+   "governed_data_request",
+   "workflow 'governed_data_request' has an edge from 'draft' to 'nowhere', which is not one of its nodes"
+  ],
+  [
+   "error",
+   "workflow_fork_without_join",
+   "governed_data_request",
+   "workflow 'governed_data_request' forks at 'fork' and its branches never meet at a join, so nothing waits for all of them to finish"
+  ],
+  [
+   "error",
+   "workflow_node_unreachable",
+   "governed_data_request",
+   "workflow 'governed_data_request' declares node 'ask', which nothing reaches from 'discover'. A step that cannot run is not a step: add the edge that leads to it, or remove it"
+  ],
+  [
+   "error",
+   "workflow_node_unreachable",
+   "governed_data_request",
+   "workflow 'governed_data_request' declares node 'orphan', which nothing reaches from 'discover'. A step that cannot run is not a step: add the edge that leads to it, or remove it"
+  ],
+  [
+   "warning",
+   "workflow_without_nodes",
+   "empty",
+   "workflow 'empty' declares no nodes, so invoking it does nothing"
+  ],
+  [
+   "warning",
+   "single_placement",
+   "acme",
+   "no team declares itself a placement boundary, so all 9 placed agents share their unit's sandbox environment, its volume and its process namespace. That is the widest arrangement this model has and the one a design gets by not deciding; declare `placement: true` on the units that should be kept apart (ADR-0069)"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "ceo",
+   "agent 'ceo' declares environment 'reasoning', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every agent"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every team"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants delegate on every agent"
+  ],
+  [
+   "error",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants approve on every workflow"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "action:orphan",
+   "action:orphan: calls [tool] names 'x', which is not a callable"
+  ],
+  [
+   "error",
+   "model_references_resolve",
+   "action:ask",
+   "action:ask: approved by [person] names 'nobody', which is not a person"
+  ],
+  [
+   "error",
+   "model_control_flow_ends",
+   "workflow:governed_data_request",
+   "workflow:governed_data_request: an edge ghost→draft names 'ghost', which is not a step"
+  ],
+  [
+   "error",
+   "model_control_flow_ends",
+   "workflow:governed_data_request",
+   "workflow:governed_data_request: an edge draft→nowhere names 'nowhere', which is not a step"
+  ],
+  [
+   "error",
+   "platform_policy_requires",
+   "separations",
+   "platform policy 'house/1.0.0' requires this design to declare separations, and it declares none"
+  ]
+ ],
+ "acme+departed_owner": [
+  [
+   "warning",
+   "id_used_by_two_kinds",
+   "platform_engineer",
+   "'platform_engineer' names both a agent and a role. It resolves, because references are looked up per kind, but nothing can draw or diff the two apart"
+  ],
+  [
+   "warning",
+   "single_placement",
+   "acme",
+   "no team declares itself a placement boundary, so all 9 placed agents share their unit's sandbox environment, its volume and its process namespace. That is the widest arrangement this model has and the one a design gets by not deciding; declare `placement: true` on the units that should be kept apart (ADR-0069)"
+  ],
+  [
+   "warning",
+   "sandbox_without_work",
+   "ceo",
+   "agent 'ceo' declares environment 'reasoning', which no capability it holds can use. A sandbox nothing runs in is a boundary nobody is inside"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every agent"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "chief_executive",
+   "role 'chief_executive' grants delegate on every team"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants delegate on every agent"
+  ],
+  [
+   "warning",
+   "wildcard_resource",
+   "function_head",
+   "role 'function_head' grants approve on every workflow"
+  ],
+  [
+   "warning",
+   "departed_owner",
+   "ceo",
+   "agent 'ceo' is paired with Dana Whitfield <dana@acme.example> as owner, but directory 'ldap' reports them as departed"
+  ],
+  [
+   "warning",
+   "human_unknown_to_directory",
+   "cfo",
+   "agent 'cfo' is paired with Ana Silva <ana@acme.example> as approver, but directory 'ldap' has no record of them"
+  ],
+  [
+   "warning",
+   "departed_human",
+   "cfo",
+   "agent 'cfo' is paired with Dana Whitfield <dana@acme.example> as escalation, but directory 'ldap' reports them as departed"
+  ],
+  [
+   "warning",
+   "human_unknown_to_directory",
+   "reconciler",
+   "agent 'reconciler' is paired with Ana Silva <ana@acme.example> as owner, but directory 'ldap' has no record of them"
+  ],
+  [
+   "warning",
+   "departed_human",
+   "cto",
+   "agent 'cto' is paired with Dana Whitfield <dana@acme.example> as escalation, but directory 'ldap' reports them as departed"
+  ],
+  [
+   "warning",
+   "departed_human",
+   "cro",
+   "agent 'cro' is paired with Dana Whitfield <dana@acme.example> as escalation, but directory 'ldap' reports them as departed"
+  ]
+ ]
+}
