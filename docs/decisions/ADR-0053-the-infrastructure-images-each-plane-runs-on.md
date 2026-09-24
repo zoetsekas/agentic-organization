@@ -2,9 +2,9 @@
 id: ADR-0053
 title: The infrastructure images each plane runs on
 status: Accepted
-version: 1.4.0
+version: 1.5.0
 date: 2026-09-20
-updated: 2026-09-20
+updated: 2026-09-23
 deciders: [Platform Architecture]
 consulted: [Security Engineering, Product]
 informed: [All engineering]
@@ -53,6 +53,7 @@ All four build `FROM python:3.11-slim`. One base, one patch cadence.
 | `postgres:16-alpine` | designer, fabric, **per tenant** | The document store behind `store.py`. A tenant gets its **own** instance and volume — a shared database with a tenant column is one missing `WHERE` from a cross-tenant breach | Cloud SQL / RDS / Azure Database |
 | `traefik:v3` | fabric | Reverse proxy and TLS. Routes `/ui/`, `/command/` and per-tenant hostnames; it is also what makes `trusted_proxy` identity trustworthy (ADR-0047) | Cloud load balancer + WAF |
 | `quay.io/keycloak/keycloak:26` | fabric | An OIDC issuer to develop and test against locally | The company's real IdP |
+| `quay.io/oauth2-proxy/oauth2-proxy:v7.6.0` | fabric | Forward auth in front of the fabric: an OIDC session against Keycloak whose answer is the only identity Traefik passes on (ADR-0114) | The company's identity-aware proxy |
 | `hashicorp/vault:1.17` | fabric | Resolves the `secret_ref`s the compiler emits. Dev mode locally, never in a deployment | Secret Manager / Secrets Manager / Key Vault |
 | `otel/opentelemetry-collector-contrib:0.110.0` | fabric | One collector; every plane exports to it. Tenant spans are tagged and routed, never merged into a shared view a tenant can read | Managed collector per provider |
 | `prom/prometheus:v2.54.1` + `grafana/grafana:13.2.2` | fabric | Metrics and the operator dashboards behind the command centre | Cloud Monitoring / CloudWatch / Azure Monitor |
@@ -184,6 +185,7 @@ image this ADR names. Nothing here is verified against a running daemon.
 
 | Version | Date | Change |
 |---|---|---|
+| 1.5.0 | 2026-09-23 | Adds `quay.io/oauth2-proxy/oauth2-proxy:v7.6.0` (digest resolved): the fabric's forward-auth service (ADR-0114). |
 | 1.4.0 | 2026-09-20 | Adds `nats:2.15.0-alpine` (tag and digest verified): the per-tenant message bus and the fabric's control-plane instance, chosen in ADR-0059. |
 | 1.4.0 | 2026-09-20 | Added the per-tenant Mattermost Team Edition image (ADR-0061): the chat surface humans reach agents on, on the Postgres this stack already pins rather than a second one. |
 | 1.3.0 | 2026-09-20 | Replaced MinIO with SeaweedFS for the per-tenant artifact store: MinIO's Docker Hub repository serves no tags and its images moved to a registry this environment cannot reach, so it could not be pinned. |

@@ -46,7 +46,10 @@ Configuration:
 | `ORGAGENTS_BASE_URL` | `http://localhost:8000` | Session URLs are handed to humans, so this must be the address *they* can reach. |
 | `ORGAGENTS_PORT` / `ORGAGENTS_HOST` | `8000` / `0.0.0.0` | |
 | `ORGAGENTS_SEED` | `0` | `1` seeds the demo org on first start only. |
-| `ORGAGENTS_DESIGNER_AUTH` | `trusted_proxy` | `oidc`, `trusted_proxy` or `none` (ADR-0047). |
+| `ORGAGENTS_DESIGNER_AUTH` | `none` | `oidc`, `trusted_proxy` or `none` (ADR-0047). `none` is single-user local; `docker-compose.yml` sets it and binds 127.0.0.1 (ADR-0114). |
+| `ORGAGENTS_PROXY_SECRET` | — | Required (or `ORGAGENTS_PROXY_SOURCES`) for `trusted_proxy`: the proxy sends it as `X-Orgagents-Proxy-Secret`; without either the designer refuses to start (ADR-0114). |
+| `ORGAGENTS_PROXY_SOURCES` | — | Comma-separated proxy addresses/CIDRs whose identity headers are believed in `trusted_proxy` mode. |
+| `ORGAGENTS_PROXY_USER_HEADER` / `_NAME_HEADER` / `_EMAIL_HEADER` | `X-User` / `X-User-Name` / `X-User-Email` | The only headers `trusted_proxy` mode reads identity from. Set them to what your proxy's *authentication* sets (the fabric uses `X-Auth-Request-*` from oauth2-proxy), and make the proxy strip them from client requests (ADR-0114). |
 | `ORGAGENTS_OIDC_ISSUER` / `_AUDIENCE` / `_JWKS_URI` | — | Required when auth mode is `oidc`. |
 
 Anything that is not `serve` is passed to the CLI unchanged, so there is no
@@ -68,14 +71,26 @@ docker compose -f docker/compose/fabric.yml --profile leases up -d   # + Redis
 
 The file refuses to start without `FABRIC_DB_PASSWORD`, `KEYCLOAK_ADMIN_PASSWORD`
 and `GRAFANA_ADMIN_PASSWORD` (`${VAR:?}`), because a default password on an
-identity provider is worse than no identity provider.
+identity provider is worse than no identity provider. It also needs
+`ORGAGENTS_PROXY_SECRET`, `OAUTH2_PROXY_CLIENT_SECRET` and
+`OAUTH2_PROXY_COOKIE_SECRET`.
+
+Identity comes from **forward auth** (ADR-0114). Traefik's entrypoint first
+strips every identity header a client could send (`X-User*`,
+`X-Auth-Request-*`, `X-Forwarded-User/Email/Groups/...`), then the `/api/` and
+command routers ask `oauth2-proxy` (`/oauth2/auth`) and copy back only its
+`X-Auth-Request-*` headers; the fabric reads `X-Auth-Request-User`. Before
+anyone can sign in, create a realm `orgagents` and a confidential client
+`orgagents` in Keycloak with redirect URI `<base url>/oauth2/callback`, and put
+its secret in `OAUTH2_PROXY_CLIENT_SECRET`.
 
 | Service | Image | What it is for |
 |---|---|---|
 | `fabric` | `orgagents-fabric` (built here) | Control plane API: tenants, deployments, quotas, health |
 | `command` | `orgagents-command` (built here) | The command centre, a separate application over the same backend (ADR-0051) |
 | `postgres` | `postgres:16-alpine` | The fabric's *own* store. No tenant data lives here. |
-| `traefik` | `traefik:v3` | The only ingress. Routes `/ui/`, `/command/` and the API, strips client-supplied identity headers, and is therefore what makes `trusted_proxy` mode trustworthy (ADR-0047). |
+| `traefik` | `traefik:v3` | The only ingress. Routes `/ui/`, `/command/` and the API, strips client-supplied identity headers, runs forward auth, and is therefore what makes `trusted_proxy` mode trustworthy (ADR-0047, ADR-0114). |
+| `oauth2-proxy` | `quay.io/oauth2-proxy/oauth2-proxy:v7.6.0` | Forward-auth service: an OIDC session against Keycloak; answers Traefik with the signed-in person's `X-Auth-Request-*`. |
 | `keycloak` | `quay.io/keycloak/keycloak:26` | An OIDC issuer to develop against. `start-dev`: no TLS. |
 | `vault` | `hashicorp/vault:1.17` | Dev mode. Resolves `secret_ref`s locally. **Not a secret store** — see below. |
 | `otel-collector` | `otel/opentelemetry-collector-contrib:0.110.0` | One collector; every plane exports to it |
@@ -96,6 +111,13 @@ A tenant plane is not in this repository as a file; it is *generated*:
 orgagents compile examples/acme/acme.system.yaml --target local --out build
 cd build/local && cp .env.example .env && make up
 ```
+
+A worked example that is built, started and exercised end to end is AYC:
+`make ayc-up` (or `python examples/ayc/local_stack.py up`) compiles
+`examples/ayc` for the local target into `examples/ayc/generated/local`, with a
+stub model and mock backing systems, and starts it as the Compose project
+`ayc-local` beside the designer. See `examples/ayc/README.md` and ADR-0109,
+which also records what the first real start of a generated stack had to fix.
 
 `--tenant <id>` compiles for a tenant the fabric has registered (an unknown id
 is refused, ADR-0050: a design does not get to name its own isolation domain).

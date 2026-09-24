@@ -16,6 +16,7 @@ package "<<System>> Model" as SystemModel {
   interface Wrappable <<Wrappable>>
   class Action <<Action>>
   class ControlFlow <<ControlFlow>>
+  interface StepOwner <<StepOwner>>
   class Skill <<Skill>>
   class Plugin <<Plugin>>
   interface Tool <<Tool>>
@@ -155,4 +156,14 @@ Capability ..|> Callable
 Action ..> Callable : <<use>> calls [tool] {kind = tool; 'c__op' = operation op of c}
 Action "0..*" --> "0..1" Agent : delegates to [agent] {kind = agent}
 Action "0..*" --> "0..1" Workflow : invokes [workflow] {kind = workflow}
+Agent ..|> StepOwner
+Team ..|> StepOwner
+Person ..|> StepOwner
+Action "0..*" --> "0..1" StepOwner : owned by [owner] {an agent step defaults to its agent}
+Action "0..*" --> "0..1" Person : approved by [person] {kind = human}
+Action "0..*" --> "0..1" Role : approved by role [role] {kind = human}
+Workflow ..> Callable : <<use>> interface calls [interface.tools] {'c__op' = operation op of c}
+Workflow ..> Endpoint : <<use>> interface reaches [interface.endpoints]
+Workflow "0..*" --> "0..*" DataClass : receives [interface.receives_data_classes]
+Workflow "0..*" --> "0..*" DataClass : returns [interface.returns_data_classes]
 @enduml

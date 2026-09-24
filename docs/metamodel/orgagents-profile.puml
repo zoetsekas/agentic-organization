@@ -43,6 +43,8 @@ class "Action" as ST_action <<stereotype>>
 ST_action --|> MC_ACTION : <<extends>>
 class "ControlFlow" as ST_control_flow <<stereotype>>
 ST_control_flow --|> MC_CONTROL_FLOW : <<extends>>
+class "StepOwner" as ST_step_owner <<stereotype>>
+ST_step_owner --|> MC_INTERFACE : <<extends>>
 class "Skill" as ST_skill <<stereotype>>
 ST_skill --|> MC_ARTIFACT : <<extends>>
 class "Plugin" as ST_plugin <<stereotype>>

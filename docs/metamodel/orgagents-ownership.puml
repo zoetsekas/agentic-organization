@@ -15,6 +15,7 @@ class Callable <<Callable>>
 class Wrappable <<Wrappable>>
 class Action <<Action>>
 class ControlFlow <<ControlFlow>>
+class StepOwner <<StepOwner>>
 class Skill <<Skill>>
 class Plugin <<Plugin>>
 class Tool <<Tool>>

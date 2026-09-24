@@ -152,6 +152,11 @@ and stays portable (ADR-0050).
 
 The whole system, with diagrams: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
+Building on it or changing it — setup, repo layout, how to extend the profile,
+validator, targets and UI, the versioned REST API (`/api/v1`,
+[OpenAPI](docs/api/openapi.json)), the Python client and the MCP servers for
+Claude Code and Claude Desktop: **[docs/DEVELOPERS.md](docs/DEVELOPERS.md)**.
+
 ## Running the designer in Docker
 
 ```bash

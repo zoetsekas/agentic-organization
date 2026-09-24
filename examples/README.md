@@ -23,6 +23,12 @@ The last one needs no model, no network and no container: the echo adapter runs
 every agent deterministically, because what it demonstrates is the coordination
 rather than the prose.
 
+`ayc/end_to_end_local.py` goes one step further again: it runs against AYC
+**started in Docker** — twelve agent containers on deep agents with a stub
+model, five mock systems each on its own network, and a chat window — and walks
+a purchase from reorder to payment through the approvals and separations. See
+[`ayc/README.md`](ayc/README.md) (`make ayc-up`, ADR-0109).
+
 ## Starting your own
 
 Two routes, and the second is usually faster for a real organization:
