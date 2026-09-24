@@ -11,6 +11,18 @@ HOST="${ORGAGENTS_HOST:-0.0.0.0}"
 PORT="${ORGAGENTS_PORT:-8000}"
 BASE_URL="${ORGAGENTS_BASE_URL:-http://localhost:${PORT}}"
 
+# The database password comes from a file (a Compose secret), never from a
+# default baked into a URL (ADR-0114 v1.2). psycopg reads PGPASSWORD when the
+# URL carries none.
+if [ -n "${ORGAGENTS_DATABASE_PASSWORD_FILE:-}" ]; then
+    if [ ! -r "$ORGAGENTS_DATABASE_PASSWORD_FILE" ]; then
+        echo "error: ORGAGENTS_DATABASE_PASSWORD_FILE=$ORGAGENTS_DATABASE_PASSWORD_FILE is not readable" >&2
+        exit 1
+    fi
+    PGPASSWORD="$(tr -d '\r\n' < "$ORGAGENTS_DATABASE_PASSWORD_FILE")"
+    export PGPASSWORD
+fi
+
 if [ "${1:-serve}" = "serve" ]; then
     # Seeding is opt-in: a container restart must never overwrite or duplicate
     # what is already in the volume.

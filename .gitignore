@@ -150,6 +150,8 @@ activemq-data/
 # Environments
 .env
 .envrc
+# Compose secrets for docker-compose.yml (scripts/designer_secrets.py).
+.secrets/
 .venv
 env/
 venv/

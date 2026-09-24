@@ -112,6 +112,57 @@ def test_the_designer_waits_for_postgres_and_is_told_where_it_is():
     assert url.startswith("postgresql://") and "@postgres:5432/" in url
 
 
+def test_the_database_password_is_a_secret_never_a_default():
+    """ADR-0114 v1.2: no `orgagents` fallback anywhere; both services read the
+    Compose secret, which a script generates and Compose requires."""
+    text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert ":-orgagents}" not in text and "POSTGRES_PASSWORD:" not in text
+    designer = COMPOSE["services"]["designer"]
+    pg = COMPOSE["services"]["postgres"]
+    url = designer["environment"]["ORGAGENTS_DATABASE_URL"]
+    assert url == "postgresql://orgagents@postgres:5432/orgagents"      # no password
+    assert "orgagents_postgres_password" in designer["secrets"]
+    assert "orgagents_postgres_password" in pg["secrets"]
+    assert pg["environment"]["POSTGRES_PASSWORD_FILE"] == \
+        "/run/secrets/orgagents_postgres_password"
+    assert designer["environment"]["ORGAGENTS_DATABASE_PASSWORD_FILE"] == \
+        "/run/secrets/orgagents_postgres_password"
+    assert COMPOSE["secrets"]["orgagents_postgres_password"]["file"] == \
+        "./.secrets/orgagents_postgres_password"
+    assert "ORGAGENTS_DATABASE_PASSWORD_FILE" in ENTRYPOINT and "PGPASSWORD" in ENTRYPOINT
+    assert ".secrets/" in (ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert ".secrets" in (ROOT / ".dockerignore").read_text(encoding="utf-8")
+
+
+def test_designer_secrets_init_keeps_an_existing_database_working(tmp_path, monkeypatch):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("designer_secrets",
+                                                  ROOT / "scripts" / "designer_secrets.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod, "ROOT", tmp_path)
+    monkeypatch.setattr(mod, "SECRET", tmp_path / ".secrets" / "pw")
+    monkeypatch.delenv("ORGAGENTS_POSTGRES_PASSWORD", raising=False)
+    args = type("A", (), {"project": "p"})()
+    # An existing volume was initialised with the old default: keep it, warn.
+    monkeypatch.setattr(mod, "_volume_exists", lambda project: True)
+    mod.cmd_init(args)
+    assert mod.SECRET.read_text().strip() == "orgagents"
+    # A fresh install gets a random one; an existing file is never replaced.
+    mod.SECRET.unlink()
+    monkeypatch.setattr(mod, "_volume_exists", lambda project: False)
+    mod.cmd_init(args)
+    first = mod.SECRET.read_text().strip()
+    assert len(first) >= 24 and first != "orgagents"
+    mod.cmd_init(args)
+    assert mod.SECRET.read_text().strip() == first
+    mod.SECRET.unlink()
+    monkeypatch.setenv("ORGAGENTS_POSTGRES_PASSWORD", "chosen")
+    mod.cmd_init(args)
+    assert mod.SECRET.read_text().strip() == "chosen"
+
+
 def test_existing_sqlite_designs_move_once_at_start():
     assert "db migrate-from-sqlite" in ENTRYPOINT and "--once" in ENTRYPOINT
     assert "sqlalchemy" in DOCKERFILE and "psycopg" in DOCKERFILE

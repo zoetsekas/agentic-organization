@@ -8,7 +8,9 @@ and drives the CEO -> COO -> buyer delegation over it:
 * the chain is one trace and the result comes back up it;
 * the buyer's message to accounts receivable is refused by the buyer's worker;
 * published anyway, with the buyer's own credentials, the broker refuses it;
-* published by a mis-scoped operator identity, accounts receivable refuses it.
+* published by a mis-scoped operator identity, accounts receivable refuses it;
+* a wrong NKey is not let on the broker, and a forged hop chain is refused
+  by the receiver (ADR-0118 v1.1).
 
 Needs `nats-py` and a `nats-server`: on PATH, or started from the pinned image
 when a Docker CLI is available. Skipped, with the reason, otherwise.
@@ -32,7 +34,8 @@ from orgagents.compiler import links as L                      # noqa: E402
 from orgagents.compiler.ir import build_ir                     # noqa: E402
 from orgagents.compiler.targets.local import BUS_IMAGE         # noqa: E402
 from orgagents.runtime.agent_bus import (AgentMessenger, BusRefused, HopContext,  # noqa: E402
-                                         LinkPolicy, NatsTransport, bus_init)
+                                         HopKeys, LinkPolicy, NatsTransport, bus_init)
+from orgagents.security import nkey                            # noqa: E402
 from orgagents.spec import load_binding, load_spec             # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,9 +75,12 @@ def ir():
 
 @pytest.fixture(scope="module")
 def server(ir, tmp_path_factory):
-    """A nats-server with the generated configuration and fresh passwords."""
-    passwords = {L.bus_password_ref(a.id): secrets.token_urlsafe(12) for a in ir.agents}
-    passwords[L.BUS_ADMIN_PASSWORD_REF] = secrets.token_urlsafe(12)
+    """A nats-server with the generated configuration and fresh NKeys."""
+    # `seeds` stay in the test (the clients); only public keys reach the broker.
+    seeds = {a.id: nkey.create_user()[0] for a in ir.agents}
+    seeds[L.BUS_ADMIN_USER] = nkey.create_user()[0]
+    passwords = {L.bus_nkey_ref(a.id): nkey.public_of(seeds[a.id]) for a in ir.agents}
+    passwords[L.BUS_ADMIN_NKEY_REF] = nkey.public_of(seeds[L.BUS_ADMIN_USER])
     work = tmp_path_factory.mktemp("nats")
     port = _free_port()
     conf = L.nats_config(ir).replace('store_dir: "/data"', 'store_dir: "/tmp/js"')
@@ -108,8 +114,8 @@ def server(ir, tmp_path_factory):
             pytest.skip("the nats-server did not come up")
         url = f"nats://127.0.0.1:{port}"
         assert bus_init(ir.model_dump(mode="json"), url=url, user=L.BUS_ADMIN_USER,
-                        password=passwords[L.BUS_ADMIN_PASSWORD_REF], attempts=20) == 0
-        yield url, passwords
+                        seed=seeds[L.BUS_ADMIN_USER], attempts=20) == 0
+        yield url, seeds
     finally:
         stop()
 
@@ -117,16 +123,17 @@ def server(ir, tmp_path_factory):
 @pytest.fixture(scope="module")
 def mesh(ir, server):
     """Four agents' messengers, each on its own connection and consumer."""
-    url, passwords = server
+    url, seeds = server
     links = L.agent_links(ir)
     messengers: dict[str, AgentMessenger] = {}
     transports = []
+    public = {a: nkey.public_of(s) for a, s in seeds.items() if a != L.BUS_ADMIN_USER}
 
     def join(agent_id, run_task=None):
         cfg = links[agent_id]
-        m = AgentMessenger(LinkPolicy(cfg), None, run_task=run_task)
-        t = NatsTransport(url, user=cfg["user"],
-                          password=passwords[L.bus_password_ref(agent_id)],
+        m = AgentMessenger(LinkPolicy(cfg), None, run_task=run_task,
+                           hop_keys=HopKeys(seeds[agent_id], public))
+        t = NatsTransport(url, user=cfg["user"], seed=seeds[agent_id],
                           inbox_prefix=cfg["inbox_prefix"], stream=cfg["stream"],
                           consumer=cfg["consumer"], on_delivery=m.on_delivery).start()
         assert t.connected.wait(15), t.last_error
@@ -139,7 +146,7 @@ def mesh(ir, server):
         def run(ctx, sender, kind, text, inputs):
             tools = messengers[agent_id].tools(HopContext(
                 trace_id=ctx.trace_id, chain=ctx.chain, depth=ctx.depth,
-                session_id=f"s-{agent_id}"))
+                session_id=f"s-{agent_id}", hops=ctx.hops))
             return {"state": "completed", "output": script(tools, text),
                     "error": None, "session_id": f"s-{agent_id}"}
         return run
@@ -158,7 +165,7 @@ def mesh(ir, server):
     join("buyer_agent", run_task=runner("buyer_agent", buyer_does))
     join("coo_agent", run_task=runner("coo_agent", coo_does))
     join("ceo_agent")
-    yield messengers, links, ar_ran, url, passwords
+    yield messengers, links, ar_ran, url, seeds
     for t in transports:
         t.stop()
 
@@ -181,10 +188,9 @@ def test_ceo_to_coo_to_buyer_over_nats_is_one_trace(mesh):
 
 
 def test_the_broker_refuses_the_buyer_publishing_to_ar(mesh):
-    messengers, links, ar_ran, url, passwords = mesh
+    messengers, links, ar_ran, url, seeds = mesh
     cfg = links["buyer_agent"]
-    raw = NatsTransport(url, user=cfg["user"],
-                        password=passwords[L.bus_password_ref("buyer_agent")],
+    raw = NatsTransport(url, user=cfg["user"], seed=seeds["buyer_agent"],
                         inbox_prefix=cfg["inbox_prefix"], publish_timeout=2).start(consume=False)
     try:
         assert raw.connected.wait(15)
@@ -201,9 +207,8 @@ def test_the_broker_refuses_the_buyer_publishing_to_ar(mesh):
 
 
 def test_a_mis_scoped_publish_is_refused_by_the_receiver(mesh):
-    messengers, links, ar_ran, url, passwords = mesh
-    admin = NatsTransport(url, user=L.BUS_ADMIN_USER,
-                          password=passwords[L.BUS_ADMIN_PASSWORD_REF],
+    messengers, links, ar_ran, url, seeds = mesh
+    admin = NatsTransport(url, user=L.BUS_ADMIN_USER, seed=seeds[L.BUS_ADMIN_USER],
                           inbox_prefix=f"_INBOX_{L.BUS_ADMIN_USER}").start(consume=False)
     try:
         assert admin.connected.wait(15)
@@ -219,3 +224,57 @@ def test_a_mis_scoped_publish_is_refused_by_the_receiver(mesh):
     events = messengers["ar_agent"].trace("trace-receiver")
     assert events and events[0]["event"] == "bus_refused_inbound", events
     assert ar_ran == []
+
+
+def test_a_wrong_nkey_is_not_let_on_the_broker(mesh):
+    """The broker knows each agent by public key only: a seed that is not the
+    buyer's cannot be the buyer, whatever name the connection gives."""
+    import asyncio
+
+    import nats
+
+    messengers, links, ar_ran, url, seeds = mesh
+    nkey.install_nkeys_shim()
+
+    async def attempt(seed):
+        nc = await nats.connect(url, nkeys_seed_str=seed, name="buyer_agent",
+                                connect_timeout=3, max_reconnect_attempts=0,
+                                allow_reconnect=False)
+        await nc.close()
+
+    asyncio.run(attempt(seeds["buyer_agent"]))            # the right one gets in
+    with pytest.raises(Exception) as refused:
+        asyncio.run(attempt(nkey.create_user()[0]))
+    assert "uthorization" in str(refused.value)
+
+
+def test_a_forged_hop_chain_is_refused_by_the_receiver(mesh):
+    """Published as the CEO by an identity the broker lets through, with a hop
+    signed by a key that is not the CEO's: the COO refuses it."""
+    from orgagents.runtime.agent_bus import body_digest
+
+    messengers, links, ar_ran, url, seeds = mesh
+    public = {a: nkey.public_of(s) for a, s in seeds.items() if a != L.BUS_ADMIN_USER}
+    forger = HopKeys(nkey.create_user()[0], public)
+    body = {"id": "x3", "kind": "delegate", "from": "ceo_agent", "to": "coo_agent",
+            "text": "review stock", "inputs": {}, "handle": "dlg_forged",
+            "trace_id": "trace-forged", "depth": 1}
+    body["hops"] = [forger.sign({
+        "v": 1, "kind": "delegate", "task": "x3", "trace_id": "trace-forged",
+        "from": "ceo_agent", "to": "coo_agent", "depth": 1, "prev": "",
+        "digest": body_digest("delegate", "review stock", {}), "decisions": [],
+        "iat": time.time(), "exp": time.time() + 60})]
+    admin = NatsTransport(url, user=L.BUS_ADMIN_USER, seed=seeds[L.BUS_ADMIN_USER],
+                          inbox_prefix=f"_INBOX_{L.BUS_ADMIN_USER}").start(consume=False)
+    try:
+        assert admin.connected.wait(15)
+        admin.publish("orgagents.local.agent.coo_agent.inbox.ceo_agent",
+                      json.dumps(body).encode(), {"Nats-Msg-Id": "x3"})
+    finally:
+        admin.stop()
+    end = time.time() + 15
+    while time.time() < end and not messengers["coo_agent"].trace("trace-forged"):
+        time.sleep(0.1)
+    events = messengers["coo_agent"].trace("trace-forged")
+    assert events and events[0]["event"] == "bus_refused_inbound", events
+    assert "not signed by ceo_agent" in events[0]["reason"]

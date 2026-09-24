@@ -39,7 +39,7 @@ generate: ## Compile the example system for the local target
 	@echo "generated into $(TENANT_DIR)"
 
 .PHONY: config
-config: generate ## Ask Docker to parse every generated Compose file
+config: generate secrets ## Ask Docker to parse every generated Compose file
 	@set -e; for f in $$(find $(TENANT_DIR) -name 'docker-compose*.y*ml'); do \
 	  echo "== $$f"; $(COMPOSE) -f $$f config -q --no-interpolate; done
 	$(COMPOSE) -f docker-compose.yml config -q
@@ -48,18 +48,26 @@ config: generate ## Ask Docker to parse every generated Compose file
 
 # -- things that need a daemon --------------------------------------------
 
+.PHONY: secrets
+secrets: ## Write the designer's Postgres password secret if missing (ADR-0114)
+	$(PY) scripts/designer_secrets.py init
+
+.PHONY: rotate-db-password
+rotate-db-password: ## New designer Postgres password, applied to the running stack
+	$(PY) scripts/designer_secrets.py rotate --apply
+
 .PHONY: build
 build: ## Build the designer image
 	$(COMPOSE) build
 
 .PHONY: up
-up: ## Start the designer (UI at /ui/)
+up: secrets ## Start the designer (UI at /ui/)
 	$(COMPOSE) up -d
 	@$(MAKE) --no-print-directory wait
 	@echo "designer up:  http://localhost:$(PORT)/ui/"
 
 .PHONY: seed
-seed: ## Start the designer with the demo organization
+seed: secrets ## Start the designer with the demo organization
 	ORGAGENTS_SEED=1 $(COMPOSE) up -d --build
 	@$(MAKE) --no-print-directory wait
 

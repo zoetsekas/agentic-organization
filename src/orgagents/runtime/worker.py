@@ -197,7 +197,7 @@ def load_links(agent_id: str, manifest: str = "") -> Optional[dict[str, Any]]:
 
 def attach_bus(platform: Any, agent_id: str, links: dict[str, Any], *,
                transport: Any = None, env: Optional[dict[str, str]] = None,
-               audit: Any = None) -> Any:
+               audit: Any = None, hop_keys: Any = None) -> Any:
     """Put this agent on the bus (ADR-0118) and return its messenger.
 
     * a runtime tool hook swaps the in-process delegation and messaging tools
@@ -208,17 +208,23 @@ def attach_bus(platform: Any, agent_id: str, links: dict[str, Any], *,
       messenger's, with the hop they arrived with.
 
     `transport` is injected in tests; otherwise it comes from the environment
-    the local target generates (`ORGAGENTS_BUS=nats`, URL, user, password).
+    the local target generates (`ORGAGENTS_BUS=nats`, URL, user, NKey seed,
+    every agent's public NKey for verifying signed hops).
     """
     import threading
 
     from .agent_bus import (AgentMessenger, HopContext, LinkPolicy, connect_from_env,
-                            render_task, separation_guard)
+                            hop_keys_from_env, render_task, separation_guard)
 
     policy = LinkPolicy(links)
     current = threading.local()
+    env_now = dict(env if env is not None else os.environ)
+    if hop_keys is None and transport is None and \
+            env_now.get("ORGAGENTS_BUS", "in_process") == "nats":
+        # On the real bus every hop is signed and verified (ADR-0118 v1.1).
+        hop_keys = hop_keys_from_env(agent_id, env_now)
     messenger = AgentMessenger(policy, transport,
-                               audit=audit or audit_sink(agent_id))
+                               audit=audit or audit_sink(agent_id), hop_keys=hop_keys)
 
     def run_task(ctx: HopContext, sender: str, kind: str, text: str,
                  inputs: dict[str, Any]) -> dict[str, Any]:
@@ -238,7 +244,8 @@ def attach_bus(platform: Any, agent_id: str, links: dict[str, Any], *,
             return tools
         ctx = getattr(current, "ctx", None)
         ctx = HopContext(trace_id=ctx.trace_id, chain=list(ctx.chain), depth=ctx.depth,
-                         session_id=session_id, handle=ctx.handle) if ctx else \
+                         session_id=session_id, handle=ctx.handle,
+                         hops=list(ctx.hops)) if ctx else \
             HopContext(trace_id=session_id, chain=[agent_id], session_id=session_id)
         platform.runtime.sessions.log(session_id, "bus_hop", actor=agent_id, payload={
             "trace_id": ctx.trace_id, "chain": ctx.chain, "depth": ctx.depth,
@@ -265,9 +272,7 @@ def attach_bus(platform: Any, agent_id: str, links: dict[str, Any], *,
     platform.runtime.tool_hooks.append(hook)
     platform.runtime.tool_guards.append(guard)
     if transport is None:
-        messenger.transport = connect_from_env(policy, dict(env if env is not None
-                                                            else os.environ),
-                                               messenger.on_delivery)
+        messenger.transport = connect_from_env(policy, env_now, messenger.on_delivery)
     platform.messenger = messenger
     return messenger
 
