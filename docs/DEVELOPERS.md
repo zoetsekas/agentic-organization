@@ -24,7 +24,7 @@ flowchart LR
     MCP[MCP servers<br/>orgagents mcp designer/runtime]
     CLI[orgagents CLI]
   end
-  subgraph API["FastAPI app (src/orgagents/api.py) — /api/v1"]
+  subgraph API["FastAPI app (src/orgagents/api.py + routes/) — /api/v1"]
     AUTH[Authenticator<br/>none / trusted_proxy / oidc]
     SVC[DesignerService + RBAC + audit]
     MODEL[metamodel operations<br/>+ validator]
@@ -139,7 +139,7 @@ migrations are applied on start (`orgagents db migrate` applies them by hand).
 
 | Path | What lives there |
 |---|---|
-| `src/orgagents/spec/` | The System Spec (`model.py`), bindings, loader/migrations, the validator (`validate.py`), the issue catalog (`issue_catalog.yaml`, `issue_codes.py`) |
+| `src/orgagents/spec/` | The System Spec (`model.py`), bindings, loader/migrations, the validator (`validation/`: a rule registry, one module per section; `validate.py` re-exports it), the issue catalog (`issue_catalog.yaml`, `issue_codes.py`) |
 | `src/orgagents/metamodel/` | The UML profiles, one module per concern (`core.py` … `deployment.py`, in the UML subset of `uml.py`, assembled by `__init__.py`), the completeness check (`completeness.py`), the generated reference (`reference.py`), constraints, **model operations** (`operations.py`), scenarios, the spec→IR transformation trace |
 | `src/orgagents/compiler/` | IR (`ir.py`), the engine, the target registry (`base.py`), `targets/` (local, langgraph, adk, maf, terraform, template), IR diff |
 | `src/orgagents/runtime/` | Adapters per framework, workflow engines registry (`engines.py`), the worker a generated container runs |
@@ -147,7 +147,7 @@ migrations are applied on start (`orgagents db migrate` applies them by hand).
 | `src/orgagents/persistence/` | The model in PostgreSQL (ADR-0113): `relational.py` generates the schema from the profiles, `mapper.py` writes and reads rows, `store.py` runs them over SQLAlchemy Core + psycopg, `queries.py` the ADR's queries, `migrations/` the committed forward-only migrations, `sqlite_import.py` the move from the SQLite store |
 | `src/orgagents/spec/exchange.py` | Typed YAML/JSON: every element names its UML type (ADR-0113) |
 | `src/orgagents/fabric/` | Tenants, deployments, quotas, operator RBAC — the command centre's backend |
-| `src/orgagents/api.py` | The FastAPI app: every route |
+| `src/orgagents/api.py`, `src/orgagents/routes/` | The FastAPI app (`create_app`) and its routes, one module per area over a shared `ApiContext` |
 | `src/orgagents/api_contract.py` | Tags, `/api/v1`, the OpenAPI export (ADR-0115) |
 | `src/orgagents/client.py` | The typed Python client |
 | `src/orgagents/mcp_server/` | The designer and runtime MCP servers |

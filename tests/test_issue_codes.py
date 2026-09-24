@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import re
+import sys
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -11,30 +12,31 @@ from fastapi.testclient import TestClient
 from orgagents.api import create_app
 from orgagents.metamodel import constraints
 from orgagents.spec.issue_codes import catalog, display_number, lookup
+from orgagents.spec.validation import SECTIONS, declared_codes, rules
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "orgagents"
 
 
-def _emitted_codes() -> set[str]:
-    """Every literal code passed to `err`, `warn` or `Finding` in the sources
-    that produce findings."""
+def _literal_codes(path: Path) -> set[str]:
+    """Every literal code passed to `err`, `warn` (bare or as `ctx.err`) or
+    `Finding` in one source file."""
     codes: set[str] = set()
-    for rel in ("spec/validate.py", "platform_policy.py", "designer/service.py"):
-        tree = ast.parse((SRC / rel).read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            name = getattr(node.func, "id", None)
-            if name in ("err", "warn") and node.args:
-                code = node.args[0]
-            elif name == "Finding":
-                kw = {k.arg: k.value for k in node.keywords}
-                code = kw.get("code") or (node.args[1] if len(node.args) > 1 else None)
-            else:
-                continue
-            if isinstance(code, ast.Constant) and isinstance(code.value, str):
-                codes.add(code.value)
-    codes |= {"departed_owner", "departed_human", "human_unknown_to_directory"}
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+        if name in ("err", "warn") and node.args:
+            code = node.args[0]
+        elif name == "Finding":
+            kw = {k.arg: k.value for k in node.keywords}
+            code = kw.get("code") or (node.args[1] if len(node.args) > 1 else None)
+        else:
+            continue
+        for branch in ((code.body, code.orelse) if isinstance(code, ast.IfExp)
+                       else (code,)):
+            if isinstance(branch, ast.Constant) and isinstance(branch.value, str):
+                codes.add(branch.value)
     return codes
 
 
@@ -44,9 +46,41 @@ def _constraint_codes() -> set[str]:
     return {f"model_{n}" for n in names}
 
 
-def test_every_emitted_code_is_catalogued():
-    missing = (_emitted_codes() | _constraint_codes()) - set(catalog())
-    assert not missing, f"add these to issue_catalog.yaml: {sorted(missing)}"
+#: Rule modules that relay another module's findings, and where those are.
+_RELAYED = {
+    "orgagents.spec.validation.platform_policy":
+        lambda: _literal_codes(SRC / "platform_policy.py"),
+    "orgagents.spec.validation.metamodel_constraints": _constraint_codes,
+}
+
+
+def test_each_rule_module_declares_exactly_what_it_emits():
+    """The registry's declarations are the source's literal codes, module by
+    module: nothing emitted undeclared, nothing declared that cannot fire."""
+    by_module: dict[str, set[str]] = {}
+    for r in rules():
+        by_module.setdefault(r.module, set()).update(r.codes)
+    for module, declared in by_module.items():
+        if module in _RELAYED:
+            emitted = _RELAYED[module]()
+        else:
+            emitted = _literal_codes(Path(sys.modules[module].__file__))
+        assert declared == emitted, (module, declared ^ emitted)
+
+
+def test_registry_sections_run_in_catalog_order():
+    order = [r.order for r in rules()]
+    assert order == sorted(order)
+    assert {r.section for r in rules()} <= set(SECTIONS)
+
+
+def test_the_registry_and_the_catalog_agree():
+    """Every declared code is catalogued, and every catalogued code is one a
+    rule declares — except the loader's, which no rule emits."""
+    loader = {c for c, e in catalog().items() if e["section"] == "loading the design"}
+    loader_emitted = _literal_codes(SRC / "designer" / "service.py")
+    assert not (loader_emitted - set(catalog())), loader_emitted
+    assert declared_codes() == set(catalog()) - loader
 
 
 def test_numbers_are_unique_and_sit_in_their_section():

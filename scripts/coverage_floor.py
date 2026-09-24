@@ -46,7 +46,10 @@ def package_of(path: str) -> str:
     parts = path.replace("\\", "/").split("/")
     i = parts.index("orgagents")
     rest = parts[i + 1:]
-    return rest[0][:-3] if len(rest) == 1 and rest[0].endswith(".py") else rest[0]
+    pkg = rest[0][:-3] if len(rest) == 1 and rest[0].endswith(".py") else rest[0]
+    # The routes were `api.py` until they were split into `routes/`; they are
+    # still the API, and are held to its floor.
+    return "api" if pkg == "routes" else pkg
 
 
 def main(report: str) -> int:

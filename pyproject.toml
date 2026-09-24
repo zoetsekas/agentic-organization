@@ -148,7 +148,6 @@ strict_equality = true
 "scripts/concurrency_check.py" = ["E402", "E501", "E702"]
 "scripts/interaction_check.py" = ["E402", "E501", "E731"]
 "scripts/screenshots.py" = ["E402", "E501"]
-"src/orgagents/api.py" = ["B904", "E731"]
 "src/orgagents/compiler/diff.py" = ["B905"]
 "src/orgagents/compiler/registry.py" = ["E501"]
 "src/orgagents/compiler/targets/local.py" = ["F841", "I001"]
@@ -183,7 +182,7 @@ strict_equality = true
 # Each entry silences only the codes that module had; remove a code once
 # the module is clean of it. Never add one.
 [[tool.mypy.overrides]]
-module = "orgagents.api"
+module = ["orgagents.routes.catalogs", "orgagents.routes.marketplace", "orgagents.routes.sessions"]
 disable_error_code = ["arg-type", "attr-defined", "union-attr"]
 
 [[tool.mypy.overrides]]
@@ -401,10 +400,6 @@ disable_error_code = ["attr-defined"]
 [[tool.mypy.overrides]]
 module = "orgagents.spec.model"
 disable_error_code = ["no-any-return", "no-untyped-def", "union-attr"]
-
-[[tool.mypy.overrides]]
-module = "orgagents.spec.validate"
-disable_error_code = ["assignment", "attr-defined", "no-any-return", "no-redef", "no-untyped-def", "operator", "union-attr", "unused-ignore"]
 
 [[tool.mypy.overrides]]
 module = "orgagents.store"
