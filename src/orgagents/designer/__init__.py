@@ -31,6 +31,7 @@ from .repository import (
     FileSystemRepository,
     MemoryRepository,
     Repository,
+    PostgresRepository,
     SqlRepository,
     VersionConflict,
     build_repository,
@@ -40,6 +41,7 @@ from .service import DesignerError, DesignerService, SaveOutcome
 __all__ = [
     "DesignerService", "DesignerError", "SaveOutcome",
     "Repository", "MemoryRepository", "FileSystemRepository", "SqlRepository",
+    "PostgresRepository",
     "build_repository", "VersionConflict",
     "AuditLog", "AuditEvent", "AuditAction", "AuditOutcome",
     "LockManager", "LockConflict", "merge", "apply_resolutions", "summarize",

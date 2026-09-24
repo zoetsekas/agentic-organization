@@ -778,6 +778,95 @@ def _records_command(args: argparse.Namespace) -> int:
     return 2
 
 
+def _write_out(text: str, out: str) -> None:
+    if out == "-":
+        sys.stdout.write(text)
+        return
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(text, encoding="utf-8", newline="\n")
+    print(f"wrote {out}", file=sys.stderr)
+
+
+def _exchange_command(args) -> int:
+    """`orgagents export` / `orgagents import` (ADR-0113)."""
+    from .spec import exchange
+
+    if args.cmd == "export" and args.schema:
+        _write_out(exchange.schema_text(), args.out)
+        return 0
+    try:
+        if args.cmd == "export" and args.system:
+            from .designer.repository import PostgresRepository
+            from .spec.binding import Binding
+            from .spec.model import SystemSpec
+            repo = PostgresRepository.from_url()
+            record = repo.get_system(args.system)
+            if record is None:
+                print(f"no design '{args.system}'", file=sys.stderr)
+                return 1
+            if args.part == "binding":
+                if not record.binding:
+                    print("this design has no binding", file=sys.stderr)
+                    return 1
+                data = record.binding if "targets" in record.binding else \
+                    {"spec": record.spec.get("metadata", {}).get("name", ""),
+                     "targets": [record.binding]}
+                obj = Binding.model_validate(data)
+            else:
+                obj = SystemSpec.model_validate(record.spec)
+        else:
+            if not args.file:
+                print("name a file, or --system", file=sys.stderr)
+                return 2
+            obj = exchange.load(Path(args.file).read_text(encoding="utf-8"))
+    except exchange.TypedDocumentError as e:
+        for issue in e.issues:
+            print(issue, file=sys.stderr)
+        return 1
+    _write_out(exchange.dump(obj, args.format, typed=not args.untyped),
+               args.out)
+    return 0
+
+
+def _db_command(args) -> int:
+    """`orgagents db …` (ADR-0113)."""
+    from .persistence import migrations, relational
+
+    if args.action == "ddl":
+        sys.stdout.write(relational.ddl())
+        return 0
+    if args.action == "generate-migration":
+        path = migrations.generate(" ".join(args.args) or "change")
+        print(f"wrote {path}" if path else
+              "no change: the committed migrations match the profiles")
+        return 0
+    from .persistence.store import engine, migrate
+    eng = engine(args.database_url)
+    try:
+        applied = migrate(eng)
+        if args.action == "migrate":
+            print("applied " + ", ".join(applied) if applied
+                  else "the database is up to date")
+            return 0
+        if args.action == "query":
+            from .persistence.queries import run
+            name, *params = args.args or ["q4"]
+            kw = dict(p.split("=", 1) for p in params)
+            with eng.connect() as conn:
+                for row in run(conn, name, **kw):
+                    print("\t".join("" if v is None else str(v) for v in row))
+            return 0
+        from .persistence.sqlite_import import migrate_from_sqlite
+        if not args.args:
+            print("name the SQLite designer database", file=sys.stderr)
+            return 2
+        report = migrate_from_sqlite(args.args[0], eng, once=args.once)
+        print(report.summary())
+        return 0 if report.ok else 1
+    finally:
+        eng.dispose()
+
+
 def _examples_command(args) -> int:
     """`orgagents examples list|load|import` — the designer's Load example
     and Import from file, in a shell.
@@ -1094,7 +1183,57 @@ def main(argv: list[str] | None = None) -> int:
     from .mcp_server import add_arguments as _mcp_arguments
     _mcp_arguments(p_mcp)
 
+    # Typed exchange and the relational store (ADR-0113).
+    p_export = sub.add_parser(
+        "export", help="write a spec or binding as YAML or JSON in which "
+                       "every element names its UML type (ADR-0113)")
+    p_export.add_argument("file", nargs="?", default="",
+                          help="a *.system.yaml or *.binding.yaml (typed or "
+                               "not); or use --system")
+    p_export.add_argument("--system", default="",
+                          help="a design's id in the designer database "
+                               "(ORGAGENTS_DATABASE_URL)")
+    p_export.add_argument("--part", choices=["spec", "binding"],
+                          default="spec", help="with --system: which part")
+    p_export.add_argument("--format", choices=["yaml", "json"],
+                          default="yaml")
+    p_export.add_argument("--untyped", action="store_true",
+                          help="leave the types out (the pre-ADR-0113 form)")
+    p_export.add_argument("--schema", action="store_true",
+                          help="write the typed format's JSON Schema instead")
+    p_export.add_argument("-o", "--out", default="-",
+                          help="the file to write; '-' prints it")
+    p_import = sub.add_parser(
+        "import", help="read a typed or untyped spec or binding, check every "
+                       "type against where it sits, and write it back")
+    p_import.add_argument("file")
+    p_import.add_argument("--format", choices=["yaml", "json"],
+                          default="yaml")
+    p_import.add_argument("--untyped", action="store_true",
+                          help="write it without types")
+    p_import.add_argument("-o", "--out", default="-")
+    p_db = sub.add_parser(
+        "db", help="the designer's PostgreSQL database (ADR-0113)")
+    p_db.add_argument("action", choices=["migrate", "ddl",
+                                         "generate-migration",
+                                         "migrate-from-sqlite", "query"])
+    p_db.add_argument("args", nargs="*",
+                      help="generate-migration: a name; migrate-from-sqlite: "
+                           "the SQLite designer.db; query: q1..q5 and its "
+                           "parameters as name=value")
+    p_db.add_argument("--database-url", default="",
+                      help="default: ORGAGENTS_DATABASE_URL")
+    p_db.add_argument("--once", action="store_true",
+                      help="migrate-from-sqlite: do nothing if this file was "
+                           "imported before")
+
     args = parser.parse_args(argv)
+
+    if args.cmd in ("export", "import"):
+        return _exchange_command(args)
+
+    if args.cmd == "db":
+        return _db_command(args)
 
     if args.cmd == "api":
         from .api_contract import SCHEMA_PATH, schema_text
