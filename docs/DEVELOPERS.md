@@ -139,7 +139,7 @@ migrations are applied on start (`orgagents db migrate` applies them by hand).
 
 | Path | What lives there |
 |---|---|
-| `src/orgagents/spec/` | The System Spec (`model.py`), bindings, loader/migrations, the validator (`validate.py`), the issue catalog (`issue_catalog.yaml`, `issue_codes.py`) |
+| `src/orgagents/spec/` | The System Spec (`model.py`), bindings, loader/migrations, the validator (`validation/`: a rule registry, one module per section; `validate.py` re-exports it), the issue catalog (`issue_catalog.yaml`, `issue_codes.py`) |
 | `src/orgagents/metamodel/` | The UML profiles, one module per concern (`core.py` … `deployment.py`, in the UML subset of `uml.py`, assembled by `__init__.py`), the completeness check (`completeness.py`), the generated reference (`reference.py`), constraints, **model operations** (`operations.py`), scenarios, the spec→IR transformation trace |
 | `src/orgagents/compiler/` | IR (`ir.py`), the engine, the target registry (`base.py`), `targets/` (local, langgraph, adk, maf, terraform, template), IR diff |
 | `src/orgagents/runtime/` | Adapters per framework, workflow engines registry (`engines.py`), the worker a generated container runs |
