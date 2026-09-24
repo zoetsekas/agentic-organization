@@ -1153,7 +1153,15 @@ async def main() -> None:
         await importform.locator("input[name=file]").set_input_files(
             str(ROOT / "examples" / "sentinel" / "sentinel.secops.system.yaml"))
         await importform.locator("button[type=submit]").click()
-        await page.wait_for_timeout(2500)
+        # Wait for the import, not for a fixed time: on a slow runner 2.5 s
+        # was sometimes not enough, and the delete below then found an empty
+        # workspace, hid its cascade box and timed out ticking it.
+        try:
+            await page.wait_for_function("""() => [...document.querySelectorAll(
+              "#sys-select option")].some((o) => o.textContent.includes("Sentinel"))""",
+                                         timeout=15000)
+        except Exception:                                   # noqa: BLE001
+            pass                                            # the check says so
         orgs = await page.evaluate("""() => [...document.querySelectorAll(
           "#sys-select option")].map((o) => o.textContent)""")
         check("a design is imported from a file on disk",
